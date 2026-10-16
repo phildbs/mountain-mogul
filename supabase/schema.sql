@@ -15,10 +15,21 @@ create index if not exists mountains_public_updated on public.mountains (public,
 
 alter table public.mountains enable row level security;
 
--- Anyone can read public resorts; you can always read your own.
+-- True when the account is a real profile (Google or email), not a guest.
+-- Runs as the owner so it can look at auth.users, which players can't read.
+create or replace function public.is_profile_user(uid uuid)
+returns boolean language sql stable security definer set search_path = ''
+as $$
+  select exists (select 1 from auth.users u
+                 where u.id = uid and not coalesce(u.is_anonymous, false));
+$$;
+revoke all on function public.is_profile_user(uuid) from public;
+grant execute on function public.is_profile_user(uuid) to anon, authenticated;
+
+-- Anyone can read public resorts saved from a real profile; you can always read your own.
 drop policy if exists "read public or own" on public.mountains;
 create policy "read public or own" on public.mountains
-  for select using (public or auth.uid() = id);
+  for select using ((public and public.is_profile_user(id)) or auth.uid() = id);
 
 -- You can only create, change or delete your own resort.
 -- Guests (anonymous accounts) can save, but only signed-in players can be public.
