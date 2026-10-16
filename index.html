@@ -98,6 +98,7 @@ button { font: inherit; color: inherit; }
   padding: 8px 14px; text-align: right;
 }
 .cash .label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+.cash .debt { display: block; font-size: 11.5px; font-weight: 600; color: var(--steep); }
 .cash .value { font-family: var(--display); font-weight: 800; font-size: 24px; line-height: 1.05; letter-spacing: 0.01em; }
 .cash.flash .value { animation: cashflash 0.5s ease; }
 @keyframes cashflash { 0% { color: var(--accent); } 100% { color: var(--ink); } }
@@ -611,6 +612,7 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
     <div class="panel cash" id="cashBox" role="button" tabindex="0" title="Resort finances and ticket prices">
       <span class="label">Cash</span>
       <span class="value num" id="cash">$0</span>
+      <span class="debt num" id="cashDebt" hidden></span>
     </div>
 
     <button class="panel commbtn" id="commBtn" title="Compare your resort with others">
@@ -721,12 +723,6 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
       </dl>
       <div class="actions">
         <button class="btn" id="startBtn">Start building</button>
-        <button class="link" id="restartBtn" hidden>Start over</button>
-      </div>
-      <div class="title-confirm" id="titleConfirm" hidden>
-        <span>Regrow all trees and reset your cash?</span>
-        <button class="yes" id="titleResetYes">Start over</button>
-        <button class="link" id="titleResetNo">Cancel</button>
       </div>
     </div>
     <div class="panel slotcard" id="titleSlots" hidden></div>
@@ -1605,7 +1601,7 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut },
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -1650,6 +1646,7 @@ function applySave(sv) {
   for (const L of world.lifts) L.windHold = false;
   styleSnowVisuals();
   if (!state.resortName) state.resortName = 'Juniper Ridge';
+  updateCash(false);
   $('resortName').textContent = state.resortName;
   labelsDirty = true;
   renderSheet();
@@ -1741,6 +1738,8 @@ const ftVis = (y) => ft(y / VEX);
 
 function updateCash(flash) {
   $('cash').textContent = money(state.cash);
+  $('cashDebt').textContent = state.debt ? `Loan ${money(state.debt)}` : '';
+  $('cashDebt').hidden = !state.debt;
   if (flash) {
     const box = $('cashBox');
     box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
@@ -3049,6 +3048,8 @@ sheet.addEventListener('click', (e) => {
     renderSheet(); scheduleSave();
   }
   else if (a === 'price') { state.ticket = clamp(state.ticket + +b.dataset.d, 10, 250); renderSheet(); scheduleSave(); }
+  else if (a === 'borrow') borrow(+b.dataset.v);
+  else if (a === 'repay') repay(+b.dataset.v);
   else if (a === 'expandLot') {
     if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
     state.cash -= LOT_EXPAND_COST; state.lotSections++; buildLot(); updateCash(true);
@@ -3293,7 +3294,7 @@ function clockLabel(min) {
 }
 const LIFT_OP_HOUR = { double: 95, triple: 125, quad: 160, six: 290 };
 const STAFF_DAY = 2500, STAFF_PER_GUEST = 5, GROOM_PER_UNIT = 4;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0 };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -3992,6 +3993,7 @@ function openDay() {
   finishNight();
   today.exp.grooming = state.nightCost.grooming || 0;
   today.exp.snowmaking = state.nightCost.snowmaking || 0;
+  today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
   today.wx = { ...todayWx() };
   today.holds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
   if (today.holds.length) {
@@ -4022,7 +4024,7 @@ function endDay() {
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + r0.lessons + r0.parking - (today.refunds || 0);
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0);
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 62) / 400, 0.5, 1.5);
   let busiest = null;
@@ -4034,7 +4036,7 @@ function endDay() {
   for (const t of world.trails) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     day: today.day, guests: today.guests, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0 },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0 },
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
     injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
@@ -4074,6 +4076,9 @@ function nextDay() {
   const smr = runSnowmaking(todayWx().lo);
   state.cash -= smr.cost;
   state.nightCost = { snowmaking: smr.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, grooming: 0 };
+  chargeInterest(1);
+  coverOverdraft();
+  updateCash(false);
   refreshSnowState(todayWx());
   if (seasonOver()) {
     state.phase = 'season';
@@ -5819,7 +5824,57 @@ function trailSnowSection(t) {
     ${smHtml}`;
 }
 function seasonOver() { return state.day > SPRING_LAST || (state.day > SEASON_LAST && avgBase() < SPRING_MIN_BASE); }
-function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null }; }
+function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0 }; }
+
+/* ---------- Bank loans ---------- */
+const LOAN_RATE = 0.10, LOAN_STEP = 250000, OVERDRAFT_FEE = 0.05, OFFSEASON_DAYS = 199;
+// What the bank will lend in total: more with a good reputation and a profitable best season.
+function creditLimit() {
+  const best = Math.max(0, (state.records && state.records.bestSeasonProfit) || 0);
+  return Math.max(LOAN_STEP, Math.floor((1000000 * state.reputation + best) / LOAN_STEP) * LOAN_STEP);
+}
+const canBorrow = () => Math.max(0, creditLimit() - state.debt);
+const dailyInterest = () => Math.round(state.debt * LOAN_RATE / 365);
+function chargeInterest(days) {
+  const i = Math.round(state.debt * LOAN_RATE * days / 365);
+  if (!i) return 0;
+  state.cash -= i; state.intAcc = (state.intAcc || 0) + i;
+  if (state.seasonStats) state.seasonStats.interest = (state.seasonStats.interest || 0) + i;
+  return i;
+}
+// Out of cash overnight: the bank pays the shortfall and adds it, plus a fee, to the loan.
+function coverOverdraft() {
+  if (state.cash >= 0) return;
+  const short = Math.round(-state.cash), fee = Math.round(short * OVERDRAFT_FEE);
+  state.debt += short + fee; state.cash = 0;
+  state.reputation = clamp(state.reputation - 0.03, 0.5, 1.5);
+  toast(`You ran out of cash. The bank covered ${money(short)} and added it to your loan with a ${money(fee)} fee.`, true);
+}
+function borrow(amount) {
+  amount = Math.min(amount, canBorrow());
+  if (amount <= 0) return;
+  state.debt += amount; state.cash += amount;
+  updateCash(true); toast(`Borrowed ${money(amount)} at ${Math.round(LOAN_RATE * 100)}% a year`); renderSheet(); scheduleSave();
+}
+function repay(amount) {
+  amount = Math.min(amount, state.debt, Math.max(0, state.cash));
+  if (amount <= 0) return;
+  state.debt -= amount; state.cash -= amount;
+  updateCash(true); toast(state.debt ? `Repaid ${money(amount)} · ${money(state.debt)} still owed` : 'Loan paid off'); renderSheet(); scheduleSave();
+}
+function loanSection() {
+  const avail = canBorrow(), owe = state.debt;
+  const b = (amt, label) => `<button class="btn secondary" data-action="borrow" data-v="${amt}" ${amt <= avail ? '' : 'disabled'}>${label}</button>`;
+  return `<div class="field-label">Bank loan</div>
+    <dl class="kv">
+      <div><dt>You owe</dt><dd>${money(owe)}</dd></div>
+      <div><dt>Interest</dt><dd>${Math.round(LOAN_RATE * 100)}% a year${owe ? ` · ${money(dailyInterest())}/day` : ''}</dd></div>
+      <div><dt>Can borrow</dt><dd>${money(avail)} more</dd></div>
+    </dl>
+    <div class="row">${b(250000, 'Borrow $250k')}${b(500000, '$500k')}${b(1000000, '$1M')}</div>
+    ${owe ? `<div class="row"><button class="btn secondary" data-action="repay" data-v="${LOAN_STEP}" ${state.cash >= Math.min(LOAN_STEP, owe) ? '' : 'disabled'}>Repay ${money(Math.min(LOAN_STEP, owe))}</button><button class="btn secondary" data-action="repay" data-v="${owe}" ${state.cash > 0 ? '' : 'disabled'}>${state.cash >= owe ? 'Repay all' : `Repay ${money(Math.max(0, state.cash))}`}</button></div>` : ''}
+    <p class="help">Interest is charged every night. The bank lends more as your reputation and best season improve. If cash runs out overnight, the bank covers it, adds a ${Math.round(OVERDRAFT_FEE * 100)}% fee to your loan, and your reputation takes a hit.</p>`;
+}
 function showSeasonReport() {
   const s = state.seasonStats || newSeasonStats();
   const sat = s.satN ? Math.round(s.satSum / s.satN) : 0;
@@ -5833,6 +5888,7 @@ function showSeasonReport() {
     <div class="rp-lines">
       <span>Revenue</span><span>${money(s.revenue)}</span>
       <span>Expenses</span><span>${money(s.expenses)}</span>
+      ${s.interest ? `<span>Loan interest</span><span>${money(s.interest)}</span>` : ''}
       <span>Days open</span><span>${s.days}${s.bonus ? ` (${s.bonus} spring bonus)` : ''}</span>
       <span>Snowfall</span><span>${inch(s.snowfall)}</span>
       ${s.best ? `<span>Best day</span><span>${dateLabel(s.best.day)} · ${signedMoney(s.best.profit)}</span>` : ''}
@@ -6054,6 +6110,8 @@ function enterSummer() {
   toast('Summer: the snow is gone. Build and plan, then start the next season.');
 }
 function newSeason() {
+  const summerInterest = chargeInterest(OFFSEASON_DAYS);
+  coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
   state.wx = initWeather(state.day);
   state.seasonStats = newSeasonStats();
@@ -6061,7 +6119,7 @@ function newSeason() {
   for (const t of world.trails) t.machine = 0;
   refreshSnowState(todayWx());
   styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
-  toast(`Season ${state.season} begins. Watch the forecast and make snow.`);
+  toast(`Season ${state.season} begins. Watch the forecast and make snow.${summerInterest ? ` Loan interest over the summer: −${money(summerInterest)}.` : ''}`);
 }
 $('cashBox').onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'resort', obj: null }); };
 $('cashBox').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('cashBox').onclick(); } };
@@ -6073,8 +6131,8 @@ const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
 function showReport() {
   const r = state.lastReport;
   if (!r) return;
-  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking;
+  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const notes = [];
@@ -6119,7 +6177,7 @@ function showReport() {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}
+      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line('Loan interest', ex.interest)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${notes.length ? `<ul class="rp-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
@@ -6145,6 +6203,7 @@ function resortSheet() {
       <div><dt>Parking</dt><dd>${state.phase === 'open' ? `${used} of ` : ''}${lotCapacity()} spaces</dd></div>
     </dl>
     ${lotBtn}
+    ${loanSection()}
     ${r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : ''}`;
 }
 const VISIT_WORD = { food: 'Having lunch at', warm: 'Warming up at', dine: 'Dining at', apres: 'Enjoying après at', rr: 'Using the restrooms at', rent: 'Getting fitted at' };
@@ -6374,15 +6433,6 @@ $('startBtn').onclick = () => {
   $('community').hidden = true;
   if (!slots.active && !newMountain()) return;
   startGame();
-};
-$('restartBtn').onclick = () => { $('titleConfirm').hidden = false; };
-$('titleResetNo').onclick = () => { $('titleConfirm').hidden = true; };
-$('titleResetYes').onclick = () => {
-  const name = state.resortName;
-  clearSave(); applySave(null);
-  state.resortName = name; saveNow();
-  $('titleConfirm').hidden = true;
-  refreshTitle();
 };
 
 /* =====================================================================
@@ -6905,6 +6955,7 @@ $('cmProfile').onsubmit = (e) => {
   cloudSave(false);
   toast(wasPublic && !isPublic() ? 'Your resort is now private.' : !wasPublic && isPublic() ? 'Your resort is now public.' : 'Profile saved');
   fillProfile();
+  if (!state.started) refreshTitle();
   refreshCommunity();
 };
 $('commBtn').onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'community', obj: null }); };
@@ -6992,6 +7043,11 @@ $('tutBtn').onclick = startTutorial;
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.5', date: 'Oct 16, 2026', items: [
+    'Bank loans: borrow from the Resort panel (tap your cash), pay 10% a year in nightly interest, and repay any time. Your credit limit grows with reputation and your best season.',
+    'Run out of cash overnight and the bank covers it, with a fee and a hit to your reputation.',
+    'The title screen leads with your resort’s name. Start fresh with New mountain.',
+  ] },
   { v: '1.4', date: 'Oct 16, 2026', items: [
     'New intermediate mountain, Raven Peak: taller and steeper, with an alpine bowl, a narrow base valley, more wind and a $2M budget.',
     'Pick a mountain when you start a new one. Leaderboards now rank each mountain separately.',
@@ -7027,7 +7083,10 @@ function refreshTitle() {
   const sv = loadSave();
   const has = !!(sv && sv.n === trees.n);
   $('startBtn').textContent = has ? 'Continue' : 'Start building';
-  $('restartBtn').hidden = !has;
+  // The card headlines the resort you're playing; the mountain's own name moves up beside its level.
+  const named = !!(slots.active && onThisMountain() && !practice);
+  $('mName').textContent = named ? state.resortName : MOUNTAIN.name;
+  $('mLevel').textContent = named ? `${MOUNTAIN.level} mountain · ${MOUNTAIN.name}` : `${MOUNTAIN.level} mountain`;
   renderSlots();
 }
 /* ---------- Your mountains: up to three per account ---------- */
@@ -7151,9 +7210,8 @@ function startGame(camFrom) {
   const sv = camFrom === undefined ? loadSave() : camFrom;
   const t = $('title');
   t.classList.add('out');
-  setTimeout(() => { t.hidden = true; }, 600);
+  setTimeout(() => { if (state.started) t.hidden = true; }, 600);
   $('hud').hidden = false;
-  $('titleConfirm').hidden = true;
   state.started = true;
   winterView = false;
   styleSnowVisuals();
