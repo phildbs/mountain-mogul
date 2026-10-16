@@ -285,6 +285,23 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
 .link { border: 0; background: none; color: var(--ink-2); font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 4px 2px; }
 .link:hover { color: var(--ink); }
 .title-confirm { margin-top: 12px; font-size: 13px; color: var(--ink-2); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tut { position: absolute; top: calc(80px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); width: 290px; padding: 12px 14px; display: grid; gap: 8px; }
+.tut .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+.tut ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.tut li { display: grid; grid-template-columns: 20px 1fr; gap: 2px 8px; font-size: 13.5px; color: var(--ink-2); }
+.tut li::before { content: attr(data-n); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: rgba(20, 36, 58, 0.07); }
+.tut li.done { text-decoration: line-through; opacity: 0.6; }
+.tut li.done::before { content: '✓'; background: var(--green); color: #fff; }
+.tut li.now { color: var(--ink); font-weight: 600; }
+.tut li.now::before { background: var(--accent); color: #fff; }
+.tut li p { grid-column: 2; margin: 0 0 4px; font-weight: 400; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.tut .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tut .btn { padding: 8px 12px; font-size: 13px; }
+@media (max-width: 640px) {
+  .tut { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; width: auto; padding: 10px 12px; gap: 6px; }
+  .tut li:not(.now) { display: none; }
+  body.sheet-open .tut, body.visiting .tut { display: none; }
+}
 .vtag { margin-top: 12px; align-self: flex-start; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font: 600 12px var(--ui); padding: 5px 10px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(6px); }
 .vtag:hover { color: var(--ink); }
 .vtag b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -584,6 +601,8 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
       <button class="btn" id="visitHome">Return home</button>
     </div>
 
+    <div class="panel tut" id="tutCard" hidden></div>
+
     <div class="panel hint" id="hint" hidden>
       <span id="hintText"></span>
       <button id="hintClose" aria-label="Hide controls">✕</button>
@@ -681,6 +700,7 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
       </dl>
       <div class="actions">
         <button class="btn" id="startBtn">Start building</button>
+        <button class="btn secondary" id="tutBtn">Tutorial</button>
         <button class="btn secondary" id="titleComm">Community</button>
         <button class="link" id="restartBtn" hidden>Start over</button>
       </div>
@@ -740,6 +760,10 @@ const TREE_COST = 250;
 const START_CASH = 2500000;
 const ACRES_PER_CELL = 0.0247;
 const SAVE_KEY = 'skiTycoon.juniperRidge.v1';
+const TUT_KEY = SAVE_KEY + '.tutorial';
+// Playing the tutorial: it has its own save on this device and never goes online.
+let practice = false;
+const saveKey = () => (practice ? TUT_KEY : SAVE_KEY);
 const HAZE = new THREE.Color(0xe8eef6);
 const VEX = 2.0; // vertical exaggeration for display, like a painted trail map
 
@@ -1400,7 +1424,7 @@ function decodeCleared(b64) {
 }
 function loadSave() {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    const raw = localStorage.getItem(saveKey());
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
@@ -1414,7 +1438,7 @@ function scheduleSave() {
 function saveNow() {
   if (visiting) return; // someone else's resort is on screen; never overwrite your own save
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(saveData(true)));
+    localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
   } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
 }
 // The whole resort as plain data. Cloud copies leave out the day in progress.
@@ -1423,14 +1447,14 @@ function saveData(withSim) {
       v: 3, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic },
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
       cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   };
 }
-function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } }
+function clearSave() { try { localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
   trees.alive.fill(1);
@@ -3110,7 +3134,7 @@ function clockLabel(min) {
 }
 const LIFT_OP_HOUR = { double: 95, triple: 125, quad: 160, six: 290 };
 const STAFF_DAY = 2500, STAFF_PER_GUEST = 5, GROOM_PER_UNIT = 4;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5186,16 +5210,16 @@ function climate(d) {
   return { hi: 52, lo: 30 };
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
-function nextPattern(d, prev) {
+function nextPattern(d, prev, mild) {
   const spring = sstep(90, 130, d), early = d < 0 ? 1 : 0;
   const w = { storm: 0.27 - early * 0.08, clear: 0.33, cold: 0.12 - spring * 0.08, warm: 0.07 + spring * 0.18 + early * 0.05, wind: 0.07, cloudy: 0.11 };
-  if (prev === 'wind') w.wind = 0; // windy spells never run back to back
+  if (prev === 'wind' || mild) w.wind = 0; // windy spells never run back to back
   let r = Math.random() * Object.values(w).reduce((a, b) => a + b, 0);
   for (const [k, v] of Object.entries(w)) { r -= v; if (r <= 0) return { pat: k, left: k === 'wind' ? (Math.random() < 0.6 ? 1 : 2) : 1 + Math.floor(Math.random() * 3), n: 0 }; }
   return { pat: 'clear', left: 2, n: 0 };
 }
 function genDay(d, wx) {
-  if (wx.left <= 0) Object.assign(wx, nextPattern(d, wx.pat));
+  if (wx.left <= 0) Object.assign(wx, nextPattern(d, wx.pat, wx.mild));
   const c = climate(d), p = wx.pat, n = wx.n;
   wx.left--; wx.n++;
   let day;
@@ -5203,7 +5227,7 @@ function genDay(d, wx) {
     const peak = n === 1 || wx.left === 0 && n === 0;
     const hi = c.hi + rnd(-4, 1), lo = c.lo + rnd(-2, 3);
     const snow = peak ? rnd(6, 16) : rnd(1, 5);
-    if (hi > 39) day = { type: Math.random() < 0.15 && hi < 42 ? 'ice' : 'rain', hi, lo, snow: snow * 0.25, wind: rnd(10, 25) };
+    if (hi > 39 && !wx.mild) day = { type: Math.random() < 0.15 && hi < 42 ? 'ice' : 'rain', hi, lo, snow: snow * 0.25, wind: rnd(10, 25) };
     else day = { type: snow >= 7 ? 'heavy' : 'showers', hi, lo, snow, wind: rnd(12, 32) };
   } else if (p === 'cold') day = { type: Math.random() < 0.6 ? 'sunny' : 'cloudy', hi: c.hi - rnd(8, 15), lo: c.lo - rnd(9, 16), snow: 0, wind: rnd(5, 18) };
   else if (p === 'warm') day = { type: 'warm', hi: c.hi + rnd(7, 15), lo: c.lo + rnd(5, 11), snow: 0, wind: rnd(3, 12) };
@@ -5211,13 +5235,14 @@ function genDay(d, wx) {
   else if (p === 'cloudy') day = { type: 'cloudy', hi: c.hi + rnd(-3, 3), lo: c.lo + rnd(-1, 4), snow: Math.random() < 0.3 ? rnd(0.5, 2) : 0, wind: rnd(8, 22) };
   else day = { type: 'sunny', hi: c.hi + rnd(-2, 5), lo: c.lo + rnd(-3, 2), snow: 0, wind: rnd(4, 14) };
   day.hi = Math.round(day.hi); day.lo = Math.round(Math.min(day.lo, day.hi - 4));
+  if (wx.mild) day.wind = Math.min(day.wind, 24);
   day.snow = Math.round(day.snow * 2) / 2; day.wind = Math.round(day.wind); day.d = d;
   // Wind usually eases by midday, so held lifts can reopen in the afternoon.
   day.windPm = Math.round(day.wind * (day.type === 'wind' ? rnd(0.62, 1.02) : rnd(0.8, 1.1)));
   return day;
 }
-function initWeather(d) {
-  const wx = { pat: 'cloudy', left: 1, n: 0, days: [] };
+function initWeather(d, mild) {
+  const wx = { pat: 'cloudy', left: 1, n: 0, days: [], mild: !!mild };
   for (let k = 0; k < 6; k++) wx.days.push(genDay(d + k, wx));
   return wx;
 }
@@ -6177,7 +6202,11 @@ $('mTitle').onclick = () => { closeMenu(); if (visiting) returnHome(); saveNow()
 $('mHint').onclick = () => { closeMenu(); showHint(true); };
 $('mReset').onclick = () => { if (visiting) { toast('Return home first.', true); return; } $('menuMain').hidden = true; $('menuConfirm').hidden = false; };
 $('mResetNo').onclick = closeMenu;
-$('mResetYes').onclick = () => { closeMenu(); clearSave(); applySave(null); setTool('explore'); scheduleSave(); toast('Juniper Ridge is untouched again'); };
+$('mResetYes').onclick = () => {
+  closeMenu(); setTool('explore');
+  if (practice) { newTutorial(); renderTut(); toast('Tutorial restarted'); return; }
+  clearSave(); applySave(null); scheduleSave(); toast('Juniper Ridge is untouched again');
+};
 
 $('startBtn').onclick = () => { $('community').hidden = true; startGame(); };
 $('restartBtn').onclick = () => { $('titleConfirm').hidden = false; };
@@ -6244,7 +6273,7 @@ function summaryDoc() {
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
 function boardEntries() {
   const out = CLOUD.mountains.filter((m) => m.id !== CLOUD.uid);
-  if (!visiting && (state.started || loadSave())) out.push({ ...summaryDoc(), id: CLOUD.uid || 'me', me: true, hidden: !listed(), guest: CLOUD.guest });
+  if (!visiting && !practice && (state.started || loadSave())) out.push({ ...summaryDoc(), id: CLOUD.uid || 'me', me: true, hidden: !listed(), guest: CLOUD.guest });
   return out;
 }
 function ranked(key) {
@@ -6254,14 +6283,14 @@ function ranked(key) {
 const ownerOf = (m) => (m.me ? 'You' : m.creator || 'Unnamed player');
 
 function scheduleCloud() {
-  if (!CLOUD.ready || visiting) return;
+  if (!CLOUD.ready || visiting || practice) return;
   clearTimeout(CLOUD.upTimer);
   const wait = Math.max(4000, 30000 - (Date.now() - CLOUD.lastUp));
   CLOUD.upTimer = setTimeout(() => cloudSave(false), wait);
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual) {
-  if (!CLOUD.ready || !CLOUD.uid || visiting || !CLOUD.canWrite || CLOUD.conflict) return;
+  if (!CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite || CLOUD.conflict) return;
   if (!state.started && !loadSave()) return;
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
@@ -6370,6 +6399,7 @@ async function loadOwnCloud(quiet) {
   let sv = null;
   try { sv = await fetchSave(CLOUD.uid); } catch (e) { sv = null; }
   if (!sv) { if (quiet !== true) toast('No online save found.', true); return; }
+  if (practice) { toast('Leave the tutorial first, from the menu.', true); return; }
   setOwner(CLOUD.uid); CLOUD.conflict = false; CLOUD.sentJson = '';
   if (visiting) { visiting = null; document.body.classList.remove('visiting'); $('visitBar').hidden = true; }
   select(null);
@@ -6455,7 +6485,7 @@ function cloudIsNewer() {
 }
 function offerCloudSave() {
   if (CLOUD.conflict) { toast('This account already has a resort. Choose which one to keep on the title screen.'); return; }
-  if (CLOUD.offered || visiting || !cloudIsNewer()) return;
+  if (CLOUD.offered || visiting || practice || !cloudIsNewer()) return;
   CLOUD.offered = true;
   toast('Your account has a newer save of your resort. Open Community to load it.');
 }
@@ -6499,6 +6529,7 @@ async function googleAuth(mode) {
 async function signOut() {
   if (!CLOUD.sb) return;
   await CLOUD.sb.auth.signOut();
+  if (practice) leaveTutorial();
   // Your resort is safe in your account; this device starts fresh as a guest.
   clearSave(); try { localStorage.removeItem(OWNER_KEY); } catch (e) { /* ignore */ }
   applySave(null);
@@ -6714,8 +6745,84 @@ $('visitHome').onclick = returnHome;
 /* =====================================================================
    TITLE SCREEN / GAME FLOW
    ===================================================================== */
+/* ---------- Tutorial: a practice resort with a guide ---------- */
+const TUT_DAY = 45; // Jan 15
+const TUT_CASH = 4000000;
+// A roomy cleared base area beside the parking lot. The mountain itself keeps its
+// trees, so players see that building clears them as it goes.
+const TUT_CLEAR = [{ x0: -14, x1: 40, z0: 42, z1: 70 }];
+const TUT_STEPS = [
+  { title: 'Build a chairlift', how: () => `Pick <b>Lift</b>. ${isCoarse ? 'Tap' : 'Click'} the cleared base area for the bottom station, then partway up the mountain for the top station. Building clears the trees in its way automatically; that cost is included in the price shown. Press <b>Build</b>.`,
+    done: () => world.lifts.some((L) => L.fromBase) },
+  { title: 'Cut a trail back down', how: () => `Pick <b>Trail</b>. Start at the top of your lift, add points down the mountain and finish in the base area. Trees along the trail are cleared for you, at a cost. Press <b>Build</b>.`,
+    done: () => world.trails.some((t) => t.reachable && t.returns) },
+  { title: 'Build a lodge', how: () => 'Guests need somewhere to eat and warm up. Pick <b>Buildings</b>, choose the lodge and place it near the bottom of your lift.',
+    done: () => world.buildings.some((B) => B.type === 'lodge') },
+  { title: 'Open for the day', how: () => 'Press <b>Open for the day</b> at the top. Try 2× or 4× speed and watch guests ride and ski.',
+    done: () => state.phase === 'open' },
+  { title: 'Read your day report', how: () => 'When the lifts close you get a report on guests, money and what they thought. Close it to finish.',
+    done: () => state.phase === 'closed' },
+];
+function newTutorial() {
+  practice = true;
+  clearSave();
+  applySave(null);
+  for (let k = 0; k < trees.n; k++) {
+    if (TUT_CLEAR.some((r) => trees.x[k] >= r.x0 && trees.x[k] <= r.x1 && trees.z[k] >= r.z0 && trees.z[k] <= r.z1)) trees.alive[k] = 0;
+  }
+  for (let k = 0; k < NV * NV; k++) NS[k] = 26 + 34 * elevFrac(HT[k]); // a midwinter snowpack
+  Object.assign(state, { cash: TUT_CASH, day: TUT_DAY, treeSnow: 1, isPublic: false, tut: 0 });
+  state.wx = initWeather(TUT_DAY, true);
+  const sv = saveData(false);
+  sv.cam = { x: 12, z: 26, az: 0.35, viewH: defaultView() * 0.7 };
+  applySave(sv);
+  saveNow();
+  return sv;
+}
+function startTutorial() {
+  $('community').hidden = true;
+  practice = true;
+  let sv = loadSave();
+  if (sv && sv.n === trees.n) applySave(sv);
+  else sv = newTutorial();
+  $('resortSub').textContent = 'Tutorial · practice resort';
+  renderTut();
+  $('tutCard').hidden = false;
+  startGame(sv);
+}
+function leaveTutorial() {
+  if (!practice) return;
+  saveNow();
+  practice = false;
+  $('tutCard').hidden = true;
+  $('resortSub').textContent = BADGE_SUB;
+  applySave(loadSave());
+}
+function renderTut() {
+  const n = state.tut || 0, all = n >= TUT_STEPS.length;
+  $('tutCard').innerHTML = `<div class="eyebrow">Tutorial · ${all ? 'done' : `step ${n + 1} of ${TUT_STEPS.length}`}</div>
+    <ol>${TUT_STEPS.map((st, i) => `<li data-n="${i + 1}" class="${i < n ? 'done' : i === n ? 'now' : ''}">${esc(st.title)}${i === n ? `<p>${st.how()}</p>` : ''}</li>`).join('')}</ol>
+    ${all ? `<p class="help">You’ve got the basics. Keep playing here, or start your own resort from the title screen.</p>
+    <div class="row"><button class="btn" id="tutHome">Start my own resort</button></div>` : ''}`;
+  const b = $('tutHome');
+  if (b) b.onclick = () => { $('mTitle').onclick(); };
+}
+// Ticks off steps in order as the player completes them.
+function tutTick() {
+  const n = state.tut || 0;
+  if (n >= TUT_STEPS.length || !TUT_STEPS[n].done()) return;
+  state.tut = n + 1;
+  toast(state.tut >= TUT_STEPS.length ? 'Tutorial complete!' : `✓ ${TUT_STEPS[n].title}`);
+  renderTut();
+  scheduleSave();
+}
+$('tutBtn').onclick = startTutorial;
+
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.2', date: 'Oct 16, 2026', items: [
+    'New tutorial: a practice resort that starts in mid-January with snow on the ground, extra cash and calmer weather, and walks you through your first lift, trail, lodge and day.',
+  ] },
   { v: '1.1', date: 'Oct 16, 2026', items: [
     'Sign in with Google or email from the title screen, and sign out from the account card.',
     'Leaderboards only show resorts from signed-in players.',
@@ -6735,7 +6842,7 @@ $('versionTag').onclick = () => {
 $('wnClose').onclick = () => { $('whatsNew').hidden = true; };
 $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew') $('whatsNew').hidden = true; });
 
-let titleTime = 0;
+let titleTime = 0, BADGE_SUB = '';
 function refreshTitle() {
   const sv = loadSave();
   const has = !!(sv && sv.n === trees.n);
@@ -6743,6 +6850,7 @@ function refreshTitle() {
   $('restartBtn').hidden = !has;
 }
 function showTitle() {
+  leaveTutorial();
   state.started = false;
   winterView = true;
   styleSnowVisuals();
@@ -6827,6 +6935,7 @@ function frame(now) {
   }
 
   if (draft.dirty) recomputeDraft();
+  if (practice && state.started && !visiting) tutTick();
   if (state.started && state.phase === 'open' && state.speed > 0) {
     let gdt = dt * GS_PER_REAL * state.speed;
     while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }
@@ -6875,7 +6984,8 @@ function start(hot) {
   $('stBase').textContent = ft(MOUNTAIN.baseH).toLocaleString('en-US');
   $('stVert').textContent = (ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH)).toLocaleString('en-US');
   $('stAcres').textContent = acres.toLocaleString('en-US');
-  $('resortSub').textContent = `Beginner · ${acres.toLocaleString('en-US')} acres`;
+  BADGE_SUB = `Beginner · ${acres.toLocaleString('en-US')} acres`;
+  $('resortSub').textContent = BADGE_SUB;
 
   resize();
   renderer.shadowMap.needsUpdate = true;
