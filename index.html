@@ -102,6 +102,14 @@ button { font: inherit; color: inherit; }
 .cash.flash .value { animation: cashflash 0.5s ease; }
 @keyframes cashflash { 0% { color: var(--accent); } 100% { color: var(--ink); } }
 
+.undofab {
+  position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 12px 8px; cursor: pointer;
+  font: 700 12px/1 var(--ui); color: #fff; background: var(--accent); border-color: var(--accent); border-radius: 16px;
+  box-shadow: 0 6px 18px rgba(223, 86, 44, 0.35);
+}
+.undofab svg { width: 26px; height: 26px; }
+.undofab:active { transform: translateY(-50%) scale(0.96); }
 .commbtn {
   position: absolute;
   top: calc(78px + env(safe-area-inset-top, 0px));
@@ -473,6 +481,29 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
   .badge .name { font-size: 19px; }
   .hint { top: auto; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
 }
+/* Phones: the time bar takes two rows, the tool dock spans the screen and the
+   Compare button sits under the time bar so nothing runs off the edge. */
+@media (max-width: 640px) {
+  .timebar {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+    grid-template-areas: "when clock wx" "speed wait go"; row-gap: 6px; column-gap: 6px; white-space: normal;
+  }
+  .tb-when { grid-area: when; min-width: 0; }
+  .tb-date, .tb-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tb-clock { grid-area: clock; }
+  .tb-wx { grid-area: wx; justify-self: end; }
+  .tb-speed { grid-area: speed; justify-self: start; }
+  .tb-wait { grid-area: wait; }
+  .tb-go { grid-area: go; justify-self: end; }
+  .commbtn { top: auto; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); right: auto; left: calc(12px + env(safe-area-inset-left, 0px)); padding: 7px 10px; font-size: 12px; }
+  body.sheet-open .commbtn, body.visiting .commbtn { display: none; }
+  .visitbar { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; transform: none; font-size: 12.5px; }
+  .dock { left: calc(8px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); transform: none; max-width: none; gap: 2px; padding: 4px; }
+  .dock .tool { min-width: 0; flex: 1 1 0; padding: 6px 1px 5px; font-size: 9.5px; line-height: 1.15; text-align: center; }
+  .dock .sep { display: none; }
+  .dock:has(.sizes:not([hidden])) .toggle { display: none; }
+  .undofab { top: 42%; }
+}
 @media (prefers-reduced-motion: reduce) {
   #title, .toast { transition: none; }
   .cash.flash .value { animation: none; }
@@ -601,6 +632,10 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
       <div><span class="sw" style="background:#b8402f"></span>Too steep to ski<span class="grade">100%+</span></div>
     </div>
 
+    <button class="panel undofab" id="undoFab" hidden title="Undo the last point (Ctrl+Z)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      <span>Undo</span>
+    </button>
     <div class="panel sheet" id="sheet" hidden></div>
     <div class="readout" id="readout" hidden></div>
     <div class="toast" id="toast" hidden></div>
@@ -2616,6 +2651,7 @@ function renderSheet() {
   else if (state.tool === 'lift') html = liftDraftSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, plan: planSheet, weather: weatherSheet, community: communitySheet })[selected.kind](selected.obj);
   sheet.hidden = !html || !state.started;
+  $('undoFab').hidden = !(state.started && (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length);
   document.body.classList.toggle('sheet-open', !sheet.hidden);
   // Only touch the DOM when something changed, so a click in progress isn't lost.
   if (html && html !== lastSheetHtml) sheet.innerHTML = html;
@@ -6035,6 +6071,7 @@ canvas.addEventListener('wheel', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
+  if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && draft.pts.length) { e.preventDefault(); draftUndo(); return; }
   if (e.key === ' ') spaceDown = true;
   if (!state.started || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && e.target.tagName === 'BUTTON' && e.key === 'Enter') return;
