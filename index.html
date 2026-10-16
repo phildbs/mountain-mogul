@@ -302,6 +302,19 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
   .tut li:not(.now) { display: none; }
   body.sheet-open .tut, body.visiting .tut { display: none; }
 }
+.slotcard { width: min(380px, 100%); margin-top: 10px; padding: 12px 14px; display: grid; gap: 10px; }
+.slots { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.slots li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.slots li.on { border-color: var(--accent); background: var(--accent-soft); }
+.slots .who { flex: 1; min-width: 0; display: grid; }
+.slots .who b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slots .who span { font-size: 12px; color: var(--ink-2); }
+.slots .btn { padding: 7px 12px; font-size: 13px; box-shadow: none; }
+.slots .link { font-size: 12.5px; }
+.slots .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.slots li.ask { flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+.slots li.ask .yes { border: 0; background: var(--steep); color: #fff; font-weight: 600; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
+.slotcard > .link { justify-self: start; }
 .vtag { margin-top: 12px; align-self: flex-start; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font: 600 12px var(--ui); padding: 5px 10px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(6px); }
 .vtag:hover { color: var(--ink); }
 .vtag b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -710,6 +723,7 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
         <button class="link" id="titleResetNo">Cancel</button>
       </div>
     </div>
+    <div class="panel slotcard" id="titleSlots" hidden></div>
     <div class="panel acctcard" id="titleAcct" hidden></div>
     <button class="vtag" id="versionTag" type="button"></button>
   </div>
@@ -732,7 +746,6 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
         <button class="btn" type="submit">Save profile</button>
       </form>
       <p class="help" id="cmStatus"></p>
-      <button class="btn secondary" id="cmLoad" hidden>Load my newer cloud save</button>
       <div class="field-label">Leaderboards</div>
       <div id="cmBoard"></div>
     </div>
@@ -761,9 +774,15 @@ const START_CASH = 2500000;
 const ACRES_PER_CELL = 0.0247;
 const SAVE_KEY = 'skiTycoon.juniperRidge.v1';
 const TUT_KEY = SAVE_KEY + '.tutorial';
+const SLOTS_KEY = SAVE_KEY + '.slots';
+const MAX_MOUNTAINS = 3;
 // Playing the tutorial: it has its own save on this device and never goes online.
 let practice = false;
-const saveKey = () => (practice ? TUT_KEY : SAVE_KEY);
+// The mountains saved on this device. Each has its own save; owner is the account it
+// belongs to (null until this device first goes online).
+let slots = { active: null, list: [] };
+const slotKey = (id) => `${SAVE_KEY}.${id}`;
+const saveKey = () => (practice ? TUT_KEY : slots.active ? slotKey(slots.active) : null);
 const HAZE = new THREE.Color(0xe8eef6);
 const VEX = 2.0; // vertical exaggeration for display, like a painted trail map
 
@@ -1423,6 +1442,7 @@ function decodeCleared(b64) {
   }
 }
 function loadSave() {
+  if (!saveKey()) return null;
   try {
     const raw = localStorage.getItem(saveKey());
     return raw ? JSON.parse(raw) : null;
@@ -1436,10 +1456,64 @@ function scheduleSave() {
   saveTimer = setTimeout(saveNow, 500);
 }
 function saveNow() {
-  if (visiting) return; // someone else's resort is on screen; never overwrite your own save
+  if (visiting || !saveKey()) return; // someone else's resort is on screen; never overwrite your own save
   try {
     localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
   } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
+  const s = !practice && activeSlot();
+  if (s) { Object.assign(s, { name: state.resortName, when: summaryDoc().when, savedAt: Date.now() }); writeSlots(); }
+}
+const newId = () => crypto.randomUUID();
+const slotById = (id) => slots.list.find((s) => s.id === id) || null;
+const activeSlot = () => slotById(slots.active);
+function writeSlots() { try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
+function readSlots() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SLOTS_KEY));
+    if (s && Array.isArray(s.list)) slots = s;
+    // Before multiple mountains there was one save per device. Its id is the account's
+    // id, which is also the id of its online copy.
+    const old = localStorage.getItem(SAVE_KEY);
+    if (old && !slots.list.length) {
+      const owner = localStorage.getItem(SAVE_KEY + '.owner') || null, id = owner || newId();
+      const sv = JSON.parse(old);
+      localStorage.setItem(slotKey(id), old);
+      slots = { active: id, list: [{ id, owner, name: (sv.clock && sv.clock.resortName) || 'Juniper Ridge', when: '', savedAt: sv.savedAt || 0 }] };
+      writeSlots();
+      localStorage.removeItem(SAVE_KEY); localStorage.removeItem(SAVE_KEY + '.owner');
+    }
+  } catch (e) { /* storage unavailable: play without saving */ }
+  if (slots.active && !activeSlot()) slots.active = null;
+}
+// Mountains this account has: on this device or saved online.
+function ownIds() {
+  const ids = new Set(slots.list.filter((s) => !s.owner || s.owner === CLOUD.uid).map((s) => s.id));
+  for (const m of CLOUD.own || []) ids.add(m.id);
+  return ids;
+}
+function nextMountainName() {
+  const names = new Set([...slots.list.map((s) => s.name), ...(CLOUD.own || []).map((m) => m.name)]);
+  if (!names.has('Juniper Ridge')) return 'Juniper Ridge';
+  for (let n = 2; ; n++) if (!names.has(`Juniper Ridge ${n}`)) return `Juniper Ridge ${n}`;
+}
+function newMountain() {
+  if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one to start another.`, true); return false; }
+  const id = newId();
+  const name = nextMountainName();
+  slots.list.push({ id, owner: CLOUD.uid || null, name, when: '', savedAt: Date.now() });
+  slots.active = id;
+  CLOUD.sentJson = '';
+  applySave(null);
+  state.resortName = name;
+  $('resortName').textContent = name;
+  saveNow();
+  return true;
+}
+function useSlot(id, sv) {
+  slots.active = id; writeSlots();
+  CLOUD.sentJson = ''; CLOUD.offered = false; CLOUD.error = '';
+  applySave(sv || loadSave());
+  if (sv) saveNow();
 }
 // The whole resort as plain data. Cloud copies leave out the day in progress.
 function saveData(withSim) {
@@ -1454,7 +1528,7 @@ function saveData(withSim) {
       cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   };
 }
-function clearSave() { try { localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
+function clearSave() { try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
   trees.alive.fill(1);
@@ -6205,14 +6279,22 @@ $('mResetNo').onclick = closeMenu;
 $('mResetYes').onclick = () => {
   closeMenu(); setTool('explore');
   if (practice) { newTutorial(); renderTut(); toast('Tutorial restarted'); return; }
-  clearSave(); applySave(null); scheduleSave(); toast('Juniper Ridge is untouched again');
+  const name = state.resortName;
+  clearSave(); applySave(null); state.resortName = name; $('resortName').textContent = name;
+  scheduleSave(); toast(`${name} is untouched again`);
 };
 
-$('startBtn').onclick = () => { $('community').hidden = true; startGame(); };
+$('startBtn').onclick = () => {
+  $('community').hidden = true;
+  if (!slots.active && !newMountain()) return;
+  startGame();
+};
 $('restartBtn').onclick = () => { $('titleConfirm').hidden = false; };
 $('titleResetNo').onclick = () => { $('titleConfirm').hidden = true; };
 $('titleResetYes').onclick = () => {
+  const name = state.resortName;
   clearSave(); applySave(null);
+  state.resortName = name; saveNow();
   $('titleConfirm').hidden = true;
   refreshTitle();
 };
@@ -6272,15 +6354,15 @@ function summaryDoc() {
 }
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
 function boardEntries() {
-  const out = CLOUD.mountains.filter((m) => m.id !== CLOUD.uid);
-  if (!visiting && !practice && (state.started || loadSave())) out.push({ ...summaryDoc(), id: CLOUD.uid || 'me', me: true, hidden: !listed(), guest: CLOUD.guest });
+  const out = CLOUD.mountains.filter((m) => m.id !== slots.active);
+  if (!visiting && !practice && slots.active && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest });
   return out;
 }
 function ranked(key) {
   const B = BOARDS[key] || BOARDS.guests;
   return boardEntries().filter((m) => B.val(m) > -Infinity).sort((a, b) => B.val(b) - B.val(a));
 }
-const ownerOf = (m) => (m.me ? 'You' : m.creator || 'Unnamed player');
+const ownerOf = (m) => (m.me || (m.owner && m.owner === CLOUD.uid) ? 'You' : m.creator || 'Unnamed player');
 
 function scheduleCloud() {
   if (!CLOUD.ready || visiting || practice) return;
@@ -6290,7 +6372,10 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual) {
-  if (!CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite || CLOUD.conflict) return;
+  if (!CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
+  const slot = activeSlot();
+  // Never save over another account's mountain that is sitting on this device.
+  if (!slot || (slot.owner && slot.owner !== CLOUD.uid)) return;
   if (!state.started && !loadSave()) return;
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
@@ -6302,18 +6387,21 @@ async function cloudSave(manual) {
     const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
     if (json.length > 1500000) throw { code: 'too_big' };
     if (json !== CLOUD.sentJson) {
-      const { error } = await CLOUD.sb.from('mountains').upsert({ id: CLOUD.uid, public: listed(), summary, save, updated_at: new Date().toISOString() });
+      const { error } = await CLOUD.sb.from('mountains').upsert({ id: slot.id, public: listed(), summary, save, updated_at: new Date().toISOString() });
       if (error) throw error;
       CLOUD.sentJson = json;
       CLOUD.verified = true;
-      CLOUD.mine = { ...summary, public: listed() };
+      if (!slot.owner) { slot.owner = CLOUD.uid; writeSlots(); }
+      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, public: listed(), updatedAt: Date.now() });
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
     loadBoard(true);
   } catch (e) {
-    CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.' : setupProblem(e);
-    if (!(e && e.code === 'too_big')) scheduleCloud();
+    const full = /mountain_limit/.test(String(e && e.message));
+    CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.'
+      : full ? `Your account already has ${MAX_MOUNTAINS} mountains online, so this one only saves on this device. Delete one on the title screen to make room.` : setupProblem(e);
+    if (!(e && e.code === 'too_big') && !full) scheduleCloud();
   }
   CLOUD.uploading = false;
   refreshCommunity();
@@ -6329,15 +6417,16 @@ async function fetchSave(id) {
 async function loadBoard(force) {
   if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 20000)) return;
   CLOUD.boardAt = Date.now();
-  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500);
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500);
   if (error) { CLOUD.boardAt = 0; return; }
-  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id })).filter((m) => m.name);
+  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner })).filter((m) => m.name);
   refreshCommunity();
 }
 // Plain-language reasons for the setup problems a new Supabase project can have.
 function setupProblem(e) {
   const msg = String((e && (e.message || e.msg)) || '').toLowerCase(), code = String((e && e.code) || '');
   if (msg.includes('anonymous sign-ins are disabled') || code === 'anonymous_provider_disabled') return 'Guest sign-in is turned off. In Supabase, turn on Authentication → Sign In / Providers → Allow anonymous sign-ins.';
+  if (code === '42703' || msg.includes('column mountains.owner')) return 'The database needs an update. In Supabase, run supabase/schema.sql in the SQL Editor.';
   if (code === '42P01' || code === 'PGRST205' || msg.includes('could not find the table') || msg.includes('does not exist')) return 'The leaderboard table is missing. In Supabase, run supabase/schema.sql in the SQL Editor.';
   if (code === '42501' || msg.includes('permission denied') || msg.includes('row-level security')) return 'The database refused the save. Run supabase/schema.sql again in the SQL Editor to reset its permissions.';
   if (msg.includes('invalid api key') || msg.includes('no api key')) return 'The Supabase key in the game is wrong.';
@@ -6345,11 +6434,11 @@ function setupProblem(e) {
   return (e && e.message) || 'Something went wrong talking to the server.';
 }
 async function loadMine() {
-  CLOUD.mine = null;
+  CLOUD.own = null;
   if (!CLOUD.uid) return;
-  const { data, error } = await CLOUD.sb.from('mountains').select('summary, public, updated_at').eq('id', CLOUD.uid).maybeSingle();
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at').eq('owner', CLOUD.uid);
   if (error) throw error;
-  if (data) CLOUD.mine = { ...data.summary, public: data.public, updatedAt: Date.parse(data.updated_at) };
+  CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, public: r.public, updatedAt: Date.parse(r.updated_at) }));
 }
 function afterLoad() {
   if (state.phase === 'report') showReport();
@@ -6360,7 +6449,7 @@ function afterLoad() {
   updateCamera();
 }
 async function visitResort(id) {
-  if (!CLOUD.ready || id === CLOUD.uid) return;
+  if (!CLOUD.ready || id === slots.active) return;
   const m = CLOUD.mountains.find((x) => x.id === id);
   toast(`Heading to ${m ? m.name : 'their resort'}…`);
   let sv = null;
@@ -6394,22 +6483,20 @@ function returnHome() {
   afterLoad();
   toast(`Back at ${state.resortName}`);
 }
-async function loadOwnCloud(quiet) {
-  if (!CLOUD.ready || !CLOUD.uid) return;
+// Bring one of your online mountains onto this device and make it the one you're playing.
+async function pullMountain(id) {
+  if (!CLOUD.ready) return false;
   let sv = null;
-  try { sv = await fetchSave(CLOUD.uid); } catch (e) { sv = null; }
-  if (!sv) { if (quiet !== true) toast('No online save found.', true); return; }
-  if (practice) { toast('Leave the tutorial first, from the menu.', true); return; }
-  setOwner(CLOUD.uid); CLOUD.conflict = false; CLOUD.sentJson = '';
-  if (visiting) { visiting = null; document.body.classList.remove('visiting'); $('visitBar').hidden = true; }
-  select(null);
-  applySave(sv);
-  saveNow();
-  if (state.started) afterLoad(); else refreshTitle();
-  fillProfile();
-  refreshCommunity();
-  toast('Loaded your resort from your account');
+  try { sv = await fetchSave(id); } catch (e) { sv = null; }
+  if (!sv) { toast('Couldn’t load that mountain.', true); return false; }
+  const m = (CLOUD.own || []).find((x) => x.id === id) || {};
+  let s = slotById(id);
+  if (!s) slots.list.push(s = { id });
+  Object.assign(s, { owner: CLOUD.uid, name: m.name || 'Juniper Ridge', when: m.when || '', savedAt: m.updatedAt || Date.now() });
+  useSlot(id, sv);
+  return true;
 }
+const onlineIsNewer = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.savedAt || 0) + 60000); };
 function setSession(session) {
   const u = session && session.user;
   const changed = (u ? u.id : null) !== CLOUD.uid;
@@ -6420,17 +6507,23 @@ function setSession(session) {
   CLOUD.viaGoogle = !!(u && (u.identities || []).some((i) => i.provider === 'google'));
   return changed;
 }
-// Which account the resort saved on this device belongs to. Signing in to an
-// account that already has a resort must never overwrite it without asking.
-const OWNER_KEY = SAVE_KEY + '.owner';
-function getOwner() { try { return localStorage.getItem(OWNER_KEY); } catch (e) { return null; } }
-function setOwner(id) { try { if (id) localStorage.setItem(OWNER_KEY, id); } catch (e) { /* ignore */ } }
-async function settleOwnership() {
-  CLOUD.conflict = false;
-  const local = loadSave(), owner = getOwner();
-  if (!local) { setOwner(CLOUD.uid); if (CLOUD.mine) await loadOwnCloud(true); return; }
-  if (!owner || owner === CLOUD.uid || !CLOUD.mine) { setOwner(CLOUD.uid); return; }
-  CLOUD.conflict = true; // this device has another account's resort, and this account has its own
+// After signing in (or starting up): mountains made on this device before it went online
+// join this account, and the title screen opens on one of this account's mountains.
+// Another account's mountains stay on the device untouched until you add or delete them.
+async function settleAccount() {
+  let claimed = false;
+  for (const s of slots.list) if (!s.owner) { s.owner = CLOUD.uid; claimed = true; }
+  if (claimed) writeSlots();
+  if (state.started || practice || visiting) return;
+  const act = activeSlot();
+  if (!act || act.owner !== CLOUD.uid) {
+    const here = slots.list.find((s) => s.owner === CLOUD.uid);
+    const online = (CLOUD.own || []).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    if (here) useSlot(here.id);
+    else if (online) await pullMountain(online.id);
+    else if (act) adoptMountain(act.id); // a new account takes the mountain you were playing
+  } else if (onlineIsNewer(act)) await pullMountain(act.id);
+  refreshTitle();
 }
 // Messages Supabase puts in the address after a Google or email sign-in.
 function readAuthReturn() {
@@ -6464,11 +6557,11 @@ async function initCloud() {
       if (!s) return;
       const switched = setSession(s);
       if (ev === 'SIGNED_IN' || ev === 'USER_UPDATED') CLOUD.authMsg = '';
-      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(settleOwnership).then(() => { offerCloudSave(); refreshCommunity(); }); }
+      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(settleAccount).then(() => { offerCloudSave(); refreshCommunity(); }); }
       else { CLOUD.sentJson = ''; scheduleCloud(); refreshCommunity(); } // e.g. a guest just linked Google: list their resort
     });
     await loadMine();
-    await settleOwnership();
+    await settleAccount();
     offerCloudSave();
     loadBoard(true);
     refreshCommunity();
@@ -6479,15 +6572,10 @@ async function initCloud() {
     refreshCommunity();
   }
 }
-function cloudIsNewer() {
-  const m = CLOUD.mine, local = loadSave();
-  return !!(m && (!local || (m.updatedAt || 0) > (local.savedAt || 0) + 60000));
-}
 function offerCloudSave() {
-  if (CLOUD.conflict) { toast('This account already has a resort. Choose which one to keep on the title screen.'); return; }
-  if (CLOUD.offered || visiting || practice || !cloudIsNewer()) return;
+  if (CLOUD.offered || visiting || practice || !onlineIsNewer(activeSlot())) return;
   CLOUD.offered = true;
-  toast('Your account has a newer save of your resort. Open Community to load it.');
+  toast('This mountain has a newer save in your account. Go back to the title screen to load it.');
 }
 
 /* ---------- Account: guest by default, email to keep it ---------- */
@@ -6530,21 +6618,18 @@ async function signOut() {
   if (!CLOUD.sb) return;
   await CLOUD.sb.auth.signOut();
   if (practice) leaveTutorial();
-  // Your resort is safe in your account; this device starts fresh as a guest.
-  clearSave(); try { localStorage.removeItem(OWNER_KEY); } catch (e) { /* ignore */ }
+  // Your mountains are safe in your account; this device starts fresh as a guest.
+  try { for (const s of slots.list) localStorage.removeItem(slotKey(s.id)); } catch (e) { /* ignore */ }
+  slots = { active: null, list: [] }; writeSlots();
   applySave(null);
   if (state.started) afterLoad(); else refreshTitle();
-  CLOUD.mine = null; CLOUD.sentJson = ''; CLOUD.conflict = false;
+  CLOUD.own = null; CLOUD.sentJson = ''; CLOUD.error = '';
   const r = await CLOUD.sb.auth.signInAnonymously();
   setSession(r.data && r.data.session);
-  setOwner(CLOUD.uid);
-  CLOUD.authMsg = 'Signed out. Your resort is saved in your account; sign in again to play it.';
+  CLOUD.own = [];
+  CLOUD.authMsg = 'Signed out. Your mountains are saved in your account; sign in again to play them.';
+  refreshTitle();
   fillProfile();
-  refreshCommunity();
-}
-function keepDeviceResort() {
-  setOwner(CLOUD.uid); CLOUD.conflict = false; CLOUD.sentJson = ''; CLOUD.lastUp = 0;
-  cloudSave(true);
   refreshCommunity();
 }
 /* Google's own sign-in button. It runs on this page, so Google names this site
@@ -6594,7 +6679,7 @@ async function onGoogleCredential(resp) {
   CLOUD.authMsg = r.error ? r.error.message : '';
   if (!r.error && r.data && r.data.session) {
     const switched = setSession(r.data.session);
-    if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; await loadMine(); await settleOwnership(); offerCloudSave(); }
+    if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; await loadMine(); await settleAccount(); offerCloudSave(); }
     toast(`Signed in as ${CLOUD.email || 'your Google account'}`);
   }
   accountCache = '';
@@ -6603,16 +6688,10 @@ async function onGoogleCredential(resp) {
 const GOOGLE_G = '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.7H9v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.4l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/></svg>';
 function accountHtml() {
   if (CLOUD.status !== 'live') return '';
-  if (CLOUD.conflict) {
-    const m = CLOUD.mine || {};
-    return `<p class="help">Your account already has a resort: <b>${esc(m.name || 'your resort')}</b>${m.when ? `, ${esc(m.when)}` : ''}. This device has <b>${esc(state.resortName)}</b>. Which one do you want to keep playing?</p>
-      <div class="row"><button class="btn" type="button" id="cmUseAccount">Play my account’s resort</button><button class="btn secondary" type="button" id="cmUseDevice">Keep this device’s resort</button></div>
-      <p class="help">Keeping this device’s resort replaces the one in your account.</p>`;
-  }
   if (!CLOUD.guest) {
-    if (CLOUD.confirmOut) return `<p class="help">Sign out of <b>${esc(CLOUD.email)}</b>? Your resort stays saved in your account, and this device starts fresh as a guest.</p>
+    if (CLOUD.confirmOut) return `<p class="help">Sign out of <b>${esc(CLOUD.email)}</b>? Your mountains stay saved in your account, and this device starts fresh as a guest.</p>
       <div class="row"><button class="btn secondary" type="button" id="cmOutNo">Cancel</button><button class="btn" type="button" id="cmOutYes">Sign out</button></div>`;
-    return `<div class="acct-in"><p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your resort follows you to any device.</p>
+    return `<div class="acct-in"><p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your mountains follow you to any device.</p>
       <button class="btn secondary" type="button" id="cmSignOut">Sign out</button></div>`;
   }
   return `<p class="help">Playing as a guest. Sign in to keep your resort safe and play it on any device.</p>
@@ -6681,7 +6760,6 @@ function refreshCommunity() {
   }
   if ($('community').hidden) return;
   $('cmStatus').textContent = cloudNote();
-  $('cmLoad').hidden = !(CLOUD.ready && cloudIsNewer());
   const html = CLOUD.status === 'offline' ? '' : boardHtml(25);
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
 }
@@ -6710,8 +6788,6 @@ $('titleAcct').addEventListener('click', (e) => {
   const bid = btn ? btn.id : id;
   if (bid === 'cmGoogle') return googleAuth('link');
   if (bid === 'cmGoogleSignIn') { CLOUD.offerGoogleSignIn = false; return googleAuth('signin'); }
-  if (bid === 'cmUseAccount') return loadOwnCloud();
-  if (bid === 'cmUseDevice') return keepDeviceResort();
   if (id === 'cmProtect') emailLink('protect');
   else if (id === 'cmSignIn') emailLink('signin');
   else if (id === 'cmSignOut') { CLOUD.confirmOut = true; refreshCommunity(); }
@@ -6720,7 +6796,6 @@ $('titleAcct').addEventListener('click', (e) => {
 });
 $('cmClose').onclick = () => { $('community').hidden = true; };
 $('community').addEventListener('click', (e) => { if (e.target.id === 'community') $('community').hidden = true; });
-$('cmLoad').onclick = loadOwnCloud;
 $('cmProfile').onsubmit = (e) => {
   e.preventDefault();
   if (visiting) { toast('Return home to edit your profile.', true); return; }
@@ -6820,6 +6895,9 @@ $('tutBtn').onclick = startTutorial;
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.3', date: 'Oct 16, 2026', items: [
+    'Keep up to three mountains per account. Switch between them, start a new one or delete one from the title screen.',
+  ] },
   { v: '1.2', date: 'Oct 16, 2026', items: [
     'New tutorial: a practice resort that starts in mid-January with snow on the ground, extra cash and calmer weather, and walks you through your first lift, trail, lodge and day.',
   ] },
@@ -6848,7 +6926,92 @@ function refreshTitle() {
   const has = !!(sv && sv.n === trees.n);
   $('startBtn').textContent = has ? 'Continue' : 'Start building';
   $('restartBtn').hidden = !has;
+  renderSlots();
 }
+/* ---------- Your mountains: up to three per account ---------- */
+let slotAsk = null; // the mountain waiting for a delete confirmation
+function slotRows() {
+  const rows = new Map();
+  for (const s of slots.list) {
+    rows.set(s.id, { id: s.id, name: s.name || 'Juniper Ridge', when: s.when, here: true,
+      foreign: !!(s.owner && CLOUD.uid && s.owner !== CLOUD.uid), newer: onlineIsNewer(s) });
+  }
+  for (const m of CLOUD.own || []) if (!rows.has(m.id)) rows.set(m.id, { id: m.id, name: m.name || 'Juniper Ridge', when: m.when, online: true });
+  return [...rows.values()];
+}
+function renderSlots() {
+  const rows = slotRows(), used = ownIds().size;
+  const box = $('titleSlots');
+  box.hidden = !rows.length;
+  if (!rows.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="field-label">Your mountains · ${used} of ${MAX_MOUNTAINS}</div>
+    <ul class="slots">${rows.map((r) => {
+      if (slotAsk === r.id) {
+        return `<li class="ask"><span>Delete <b>${esc(r.name)}</b>${r.foreign ? ' from this device' : ''}? This can’t be undone.</span>
+          <button class="yes" data-slot="delYes" data-id="${r.id}">Delete</button><button class="link" data-slot="delNo">Cancel</button></li>`;
+      }
+      const sub = r.foreign ? 'Another account’s · only on this device' : r.online ? 'Saved online' : r.newer ? 'Newer save online' : r.when || 'Not started yet';
+      const on = r.id === slots.active;
+      const act = on ? '<span class="tag">Selected</span>' : `<button class="btn secondary" data-slot="play" data-id="${r.id}">Play</button>`;
+      const add = r.foreign && CLOUD.ready && used < MAX_MOUNTAINS ? `<button class="link" data-slot="adopt" data-id="${r.id}">Add to my account</button>` : '';
+      return `<li class="${on ? 'on' : ''}"><span class="who"><b>${esc(r.name)}</b><span>${esc(sub)}</span></span>${add}${act}<button class="link" data-slot="del" data-id="${r.id}">Delete</button></li>`;
+    }).join('')}</ul>
+    ${used < MAX_MOUNTAINS ? '<button class="link" data-slot="new">+ New mountain</button>' : `<p class="help">That’s ${MAX_MOUNTAINS} mountains, the most one account can keep. Delete one to start another.</p>`}`;
+}
+async function deleteMountain(id) {
+  const s = slotById(id), online = (CLOUD.own || []).some((m) => m.id === id);
+  if (!online && s && s.owner && !CLOUD.ready) { toast('Go online to delete a mountain that’s saved in your account.', true); return; }
+  const name = (s && s.name) || ((CLOUD.own || []).find((m) => m.id === id) || {}).name || 'That mountain';
+  if (online) {
+    const { error } = await CLOUD.sb.from('mountains').delete().eq('id', id);
+    if (error) { toast('Couldn’t delete it online. Try again.', true); return; }
+    CLOUD.own = CLOUD.own.filter((m) => m.id !== id);
+    CLOUD.mountains = CLOUD.mountains.filter((m) => m.id !== id);
+  }
+  if (s) {
+    try { localStorage.removeItem(slotKey(id)); } catch (e) { /* ignore */ }
+    slots.list = slots.list.filter((x) => x !== s);
+  }
+  if (slots.active === id) {
+    const next = slots.list.find((x) => !x.owner || x.owner === CLOUD.uid) || slots.list[0];
+    useSlot(next ? next.id : null);
+  } else writeSlots();
+  toast(`Deleted ${name}`);
+  refreshTitle();
+}
+// Another account's mountain on this device becomes a copy in this account.
+function adoptMountain(id) {
+  const s = slotById(id);
+  if (!s || ownIds().size >= MAX_MOUNTAINS) return;
+  const nid = newId();
+  try {
+    localStorage.setItem(slotKey(nid), localStorage.getItem(slotKey(id)));
+    localStorage.removeItem(slotKey(id));
+  } catch (e) { toast('Couldn’t copy it on this device.', true); return; }
+  Object.assign(s, { id: nid, owner: CLOUD.uid });
+  useSlot(nid);
+  CLOUD.lastUp = 0;
+  cloudSave(true);
+  refreshTitle();
+}
+$('titleSlots').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-slot]');
+  if (!b) return;
+  const id = b.dataset.id, act = b.dataset.slot;
+  if (act === 'new') { if (newMountain()) startGame(null); return; }
+  if (act === 'del') slotAsk = id;
+  else if (act === 'delNo') slotAsk = null;
+  else if (act === 'delYes') { slotAsk = null; await deleteMountain(id); return; }
+  else if (act === 'adopt') return adoptMountain(id);
+  else if (act === 'play') {
+    const s = slotById(id);
+    if (s && !onlineIsNewer(s)) useSlot(id);
+    else if (!(await pullMountain(id))) return;
+    startGame();
+    return;
+  }
+  renderSlots();
+});
 function showTitle() {
   leaveTutorial();
   state.started = false;
@@ -6977,7 +7140,9 @@ function start(hot) {
   buildSnow();
   buildPuffs();
   buildBrush();
+  readSlots();
   applySave(loadSave());
+  if (activeSlot() && !activeSlot().when) saveNow(); // fills in the list entry of a save from before multiple mountains
 
   const acres = Math.round(PN * PN * ACRES_PER_CELL);
   $('stSummit').textContent = ft(MOUNTAIN.summitH).toLocaleString('en-US');
