@@ -143,7 +143,10 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
 .cm-profile label { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
 .cm-profile input[type=text], .cm-profile input:not([type]) { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; }
 .cm-account { display: grid; gap: 8px; }
-.cm-email { display: flex; gap: 8px; }
+.cm-email { display: flex; gap: 8px; margin-top: 8px; }
+.gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; color: #1f1f1f; border: 1px solid #dadce0; box-shadow: none; }
+.gbtn:hover { background: #f8f9fb; }
+.cm-more summary { cursor: pointer; font-size: 13px; color: var(--ink-2); }
 .cm-email input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; }
 .cm-email .btn { flex: none; }
 .cm-profile .pubrow { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
@@ -6194,7 +6197,7 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual) {
-  if (!CLOUD.ready || !CLOUD.uid || visiting || !CLOUD.canWrite) return;
+  if (!CLOUD.ready || !CLOUD.uid || visiting || !CLOUD.canWrite || CLOUD.conflict) return;
   if (!state.started && !loadSave()) return;
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
@@ -6298,11 +6301,12 @@ function returnHome() {
   afterLoad();
   toast(`Back at ${state.resortName}`);
 }
-async function loadOwnCloud() {
+async function loadOwnCloud(quiet) {
   if (!CLOUD.ready || !CLOUD.uid) return;
   let sv = null;
   try { sv = await fetchSave(CLOUD.uid); } catch (e) { sv = null; }
-  if (!sv) { toast('No online save found.', true); return; }
+  if (!sv) { if (quiet !== true) toast('No online save found.', true); return; }
+  setOwner(CLOUD.uid); CLOUD.conflict = false; CLOUD.sentJson = '';
   if (visiting) { visiting = null; document.body.classList.remove('visiting'); $('visitBar').hidden = true; }
   select(null);
   applySave(sv);
@@ -6318,7 +6322,32 @@ function setSession(session) {
   CLOUD.uid = u ? u.id : null;
   CLOUD.email = (u && u.email) || '';
   CLOUD.guest = !u || !!u.is_anonymous || !u.email;
+  CLOUD.viaGoogle = !!(u && (u.identities || []).some((i) => i.provider === 'google'));
   return changed;
+}
+// Which account the resort saved on this device belongs to. Signing in to an
+// account that already has a resort must never overwrite it without asking.
+const OWNER_KEY = SAVE_KEY + '.owner';
+function getOwner() { try { return localStorage.getItem(OWNER_KEY); } catch (e) { return null; } }
+function setOwner(id) { try { if (id) localStorage.setItem(OWNER_KEY, id); } catch (e) { /* ignore */ } }
+async function settleOwnership() {
+  CLOUD.conflict = false;
+  const local = loadSave(), owner = getOwner();
+  if (!local) { setOwner(CLOUD.uid); if (CLOUD.mine) await loadOwnCloud(true); return; }
+  if (!owner || owner === CLOUD.uid || !CLOUD.mine) { setOwner(CLOUD.uid); return; }
+  CLOUD.conflict = true; // this device has another account's resort, and this account has its own
+}
+// Messages Supabase puts in the address after a Google or email sign-in.
+function readAuthReturn() {
+  const p = new URLSearchParams(location.search.slice(1) + '&' + location.hash.slice(1));
+  const code = p.get('error_code') || '', desc = (p.get('error_description') || '').replace(/\+/g, ' ');
+  if (!code && !desc) return;
+  if (code === 'identity_already_exists' || /already (linked|exists)/i.test(desc)) {
+    CLOUD.authMsg = 'That Google account already has its own Mountain Mogul resort.';
+    CLOUD.offerGoogleSignIn = true;
+  } else CLOUD.authMsg = desc || 'Sign-in didn’t finish. Try again.';
+  history.replaceState(null, '', location.pathname);
+  setTimeout(openCommunity, 300);
 }
 async function initCloud() {
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; refreshCommunity(); return; }
@@ -6332,16 +6361,19 @@ async function initCloud() {
       session = r.data.session;
     }
     setSession(session);
+    readAuthReturn();
     CLOUD.status = 'live';
     CLOUD.ready = true;
     // A sign-in link opened on this device swaps in that account.
     sb.auth.onAuthStateChange((ev, s) => {
       if (!s) return;
       const switched = setSession(s);
-      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(() => { offerCloudSave(); refreshCommunity(); }); }
+      if (ev === 'SIGNED_IN' || ev === 'USER_UPDATED') CLOUD.authMsg = '';
+      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(settleOwnership).then(() => { offerCloudSave(); refreshCommunity(); }); }
       else refreshCommunity();
     });
     await loadMine();
+    await settleOwnership();
     offerCloudSave();
     loadBoard(true);
     refreshCommunity();
@@ -6357,6 +6389,7 @@ function cloudIsNewer() {
   return !!(m && (!local || (m.updatedAt || 0) > (local.savedAt || 0) + 60000));
 }
 function offerCloudSave() {
+  if (CLOUD.conflict) { toast('This account already has a resort. Open Community to choose which one to keep.'); return; }
   if (CLOUD.offered || visiting || !cloudIsNewer()) return;
   CLOUD.offered = true;
   toast('Your account has a newer save of your resort. Open Community to load it.');
@@ -6377,21 +6410,58 @@ async function emailLink(mode) {
     : mode === 'protect' ? `Check ${email} and click the link to confirm. Your resort stays on this account.` : `Check ${email} for a sign-in link. Open it on this device.`;
   refreshCommunity();
 }
+// Google: a guest links Google to the account they already have, so the resort stays put.
+// Signing in instead switches this device to an existing account.
+async function googleAuth(mode) {
+  if (!CLOUD.sb) return;
+  if (visiting) returnHome();
+  saveNow();
+  const options = { redirectTo: redirectUrl() };
+  CLOUD.authMsg = 'Opening Google…'; refreshCommunity();
+  let r = mode === 'link' && CLOUD.guest ? await CLOUD.sb.auth.linkIdentity({ provider: 'google', options }) : null;
+  if (!r || r.error) r = await CLOUD.sb.auth.signInWithOAuth({ provider: 'google', options });
+  if (r.error) {
+    CLOUD.authMsg = /provider is not enabled|unsupported provider/i.test(r.error.message) ? 'Google sign-in isn’t set up yet. In Supabase, turn on Authentication → Sign In / Providers → Google.' : r.error.message;
+    refreshCommunity();
+  }
+}
 async function signOut() {
   if (!CLOUD.sb) return;
   await CLOUD.sb.auth.signOut();
-  CLOUD.mine = null; CLOUD.sentJson = '';
+  // Your resort is safe in your account; this device starts fresh as a guest.
+  clearSave(); try { localStorage.removeItem(OWNER_KEY); } catch (e) { /* ignore */ }
+  applySave(null);
+  if (state.started) afterLoad(); else refreshTitle();
+  CLOUD.mine = null; CLOUD.sentJson = ''; CLOUD.conflict = false;
   const r = await CLOUD.sb.auth.signInAnonymously();
   setSession(r.data && r.data.session);
-  CLOUD.authMsg = 'Signed out. Your resort still saves on this device.';
+  setOwner(CLOUD.uid);
+  CLOUD.authMsg = 'Signed out. Your resort is saved in your account; sign in again to play it.';
+  fillProfile();
   refreshCommunity();
 }
+function keepDeviceResort() {
+  setOwner(CLOUD.uid); CLOUD.conflict = false; CLOUD.sentJson = ''; CLOUD.lastUp = 0;
+  cloudSave(true);
+  refreshCommunity();
+}
+const GOOGLE_G = '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.7H9v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.4l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/></svg>';
 function accountHtml() {
   if (CLOUD.status !== 'live') return '';
-  if (!CLOUD.guest) return `<p class="help">Signed in as <b>${esc(CLOUD.email)}</b>. Your resort follows you to any device you sign in on. <button class="link" id="cmSignOut" type="button">Sign out</button></p>`;
-  return `<p class="help">You’re playing as a guest on this device. Add your email to keep your resort safe and play it on other devices.</p>
-    <div class="cm-email"><input id="cmEmail" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email"><button class="btn secondary" type="button" id="cmProtect">Save my resort</button></div>
-    <p class="help">Already saved your resort on another device? <button class="link" type="button" id="cmSignIn">Email me a sign-in link</button></p>`;
+  if (CLOUD.conflict) {
+    const m = CLOUD.mine || {};
+    return `<p class="help">Your account already has a resort: <b>${esc(m.name || 'your resort')}</b>${m.when ? `, ${esc(m.when)}` : ''}. This device has <b>${esc(state.resortName)}</b>. Which one do you want to keep playing?</p>
+      <div class="row"><button class="btn" type="button" id="cmUseAccount">Play my account’s resort</button><button class="btn secondary" type="button" id="cmUseDevice">Keep this device’s resort</button></div>
+      <p class="help">Keeping this device’s resort replaces the one in your account.</p>`;
+  }
+  if (!CLOUD.guest) return `<p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your resort follows you to any device you sign in on. <button class="link" id="cmSignOut" type="button">Sign out</button></p>`;
+  return `<p class="help">You’re playing as a guest on this device. Sign in to keep your resort safe and play it on your other devices.</p>
+    <button class="btn gbtn" type="button" id="cmGoogle">${GOOGLE_G}<span>Continue with Google</span></button>
+    ${CLOUD.offerGoogleSignIn ? '<button class="btn secondary" type="button" id="cmGoogleSignIn">Switch to that Google account’s resort</button>' : ''}
+    <details class="cm-more"><summary>Use email instead</summary>
+      <div class="cm-email"><input id="cmEmail" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email"><button class="btn secondary" type="button" id="cmProtect">Save my resort</button></div>
+      <p class="help">Already saved your resort with email on another device? <button class="link" type="button" id="cmSignIn">Email me a sign-in link</button></p>
+    </details>`;
 }
 
 /* ---------- Leaderboard markup, shared by the title screen and the in-game sheet ---------- */
@@ -6441,8 +6511,11 @@ function refreshCommunity() {
   const acct = accountHtml() + (CLOUD.authMsg ? `<p class="help"><b>${esc(CLOUD.authMsg)}</b></p>` : '');
   if (acct !== accountCache) {
     const typed = $('cmEmail') ? $('cmEmail').value : '';
+    const more = document.querySelector('.cm-more');
+    const wasOpen = !!(more && more.open);
     $('cmAccount').innerHTML = acct; accountCache = acct;
     if ($('cmEmail')) $('cmEmail').value = typed;
+    if (wasOpen && document.querySelector('.cm-more')) document.querySelector('.cm-more').open = true;
   }
   const html = CLOUD.status === 'offline' ? '' : boardHtml(25);
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
@@ -6468,6 +6541,12 @@ function onBoardClick(e) {
 $('cmBoard').addEventListener('click', onBoardClick);
 $('cmAccount').addEventListener('click', (e) => {
   const id = e.target.id;
+  const btn = e.target.closest('button');
+  const bid = btn ? btn.id : id;
+  if (bid === 'cmGoogle') return googleAuth('link');
+  if (bid === 'cmGoogleSignIn') { CLOUD.offerGoogleSignIn = false; return googleAuth('signin'); }
+  if (bid === 'cmUseAccount') return loadOwnCloud();
+  if (bid === 'cmUseDevice') return keepDeviceResort();
   if (id === 'cmProtect') emailLink('protect');
   else if (id === 'cmSignIn') emailLink('signin');
   else if (id === 'cmSignOut') signOut();
