@@ -450,6 +450,8 @@ body.visiting .badge { cursor: default; }
 
 .modal-bg { position: absolute; inset: 0; background: rgba(20, 36, 58, 0.28); display: grid; place-items: center; padding: 16px; z-index: 30; }
 .modal { width: min(460px, 100%); max-height: calc(100% - 32px); overflow-y: auto; padding: 22px; display: grid; gap: 16px; background: rgba(250, 252, 255, 0.97); }
+.cr-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+#crBody { display: grid; gap: 10px; }
 .modal .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
 .modal h2 { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; text-transform: uppercase; }
 .rp-hero { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border-block: 1px solid var(--line); padding-block: 14px; margin: 0; }
@@ -706,6 +708,13 @@ body.visiting .badge { cursor: default; }
     <div class="panel sheet" id="sheet" hidden></div>
     <div class="readout" id="readout" hidden></div>
     <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <div class="modal-bg" id="crisis" hidden>
+    <div class="panel modal" role="alertdialog" aria-modal="true" aria-labelledby="crTitle">
+      <div id="crBody"></div>
+      <div class="row cr-btns" id="crBtns"></div>
+    </div>
   </div>
 
   <div class="modal-bg" id="report" hidden>
@@ -1608,7 +1617,8 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc },
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc,
+        investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -3058,6 +3068,13 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'price') { state.ticket = clamp(state.ticket + +b.dataset.d, 10, 250); renderSheet(); scheduleSave(); }
   else if (a === 'borrow') borrow(+b.dataset.v);
+  else if (a === 'buyout' && state.investor) {
+    const cost = Math.round(state.investor.paid * BUYOUT);
+    if (state.cash < cost) return;
+    state.cash -= cost; state.investor = null;
+    updateCash(true); renderSheet(); scheduleSave();
+    toast(`You bought ${INVESTOR_SHORT} out. Every dollar is yours again.`);
+  }
   else if (a === 'repay') repay(+b.dataset.v);
   else if (a === 'expandLot') {
     if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
@@ -3303,7 +3320,7 @@ function clockLabel(min) {
 }
 const LIFT_OP_HOUR = { double: 95, triple: 125, quad: 160, six: 290 };
 const STAFF_DAY = 2500, STAFF_PER_GUEST = 5, GROOM_PER_UNIT = 4;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0 };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, investor: null, investorUsed: false, bankrupt: false };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -3983,6 +4000,7 @@ function simStep(dt) {
 
 function openDay() {
   if (state.phase !== 'closed') return;
+  if (state.bankrupt && !visiting) return showGameOver();
   if (state.summer) return newSeason();
   const n = demandForDay();
   if (!n) {
@@ -4033,7 +4051,9 @@ function endDay() {
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + r0.lessons + r0.parking - (today.refunds || 0);
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0);
+  today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
+  state.cash -= today.exp.investor;
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + today.exp.investor;
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 62) / 400, 0.5, 1.5);
   let busiest = null;
@@ -4045,7 +4065,7 @@ function endDay() {
   for (const t of world.trails) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     day: today.day, guests: today.guests, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0 },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, investor: today.exp.investor },
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
     injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
@@ -4073,6 +4093,7 @@ function endDay() {
 }
 function waitDay() {
   if (state.phase !== 'closed' || state.summer) return;
+  if (state.bankrupt && !visiting) return showGameOver();
   endOfDaySnow();
   nextDay();
 }
@@ -4088,6 +4109,7 @@ function nextDay() {
   chargeInterest(1);
   coverOverdraft();
   updateCash(false);
+  if (state.bankrupt) { refreshSnowState(todayWx()); styleSnowVisuals(); refreshTimebar(true); renderSheet(); return; }
   refreshSnowState(todayWx());
   if (seasonOver()) {
     state.phase = 'season';
@@ -5858,6 +5880,61 @@ function coverOverdraft() {
   state.debt += short + fee; state.cash = 0;
   state.reputation = clamp(state.reputation - 0.03, 0.5, 1.5);
   toast(`You ran out of cash. The bank covered ${money(short)} and added it to your loan with a ${money(fee)} fee.`, true);
+  if (state.debt > CALL_IN * creditLimit()) crisis();
+}
+
+/* ---------- Rock bottom: one investor bailout, then bankruptcy ---------- */
+const CALL_IN = 1.5; // the bank calls in a loan this far past your credit limit
+const INVESTOR = 'Bucky Moneybags of Avalanche Capital', INVESTOR_SHORT = 'Bucky', INVESTOR_SHARE = 0.1, BUYOUT = 1.5;
+function crisis() {
+  if (visiting || state.bankrupt) return;
+  if (!state.investorUsed) offerInvestor(); else goBankrupt();
+}
+function showCrisis(body, buttons) {
+  $('crBody').innerHTML = body;
+  $('crBtns').innerHTML = buttons;
+  $('crisis').hidden = false;
+}
+function offerInvestor() {
+  showCrisis(`<div><div class="eyebrow">The bank is calling in your loan</div><h2 id="crTitle">A stranger in a fur coat</h2></div>
+    <p class="help">You owe the bank <b>${money(state.debt)}</b>, far more than it will carry. Just as the lawyers arrive, <b>${INVESTOR}</b> pulls up in a snowcat.</p>
+    <p class="help">${INVESTOR_SHORT} will pay off your whole loan. In return, ${INVESTOR_SHORT} takes <b>${Math.round(INVESTOR_SHARE * 100)}% of everything ${esc(state.resortName)} earns, every day, forever</b>, unless you buy ${INVESTOR_SHORT} out later for ${money(state.debt * BUYOUT)}.</p>
+    <p class="help">${INVESTOR_SHORT} only does this once.</p>`,
+    `<button class="btn" id="crYes">Shake on it</button><button class="btn secondary" id="crNo">Refuse and go bankrupt</button>`);
+  $('crYes').onclick = () => {
+    state.investor = { share: INVESTOR_SHARE, paid: state.debt, season: state.season };
+    state.investorUsed = true; state.debt = 0;
+    $('crisis').hidden = true;
+    updateCash(true); renderSheet(); saveNow(); scheduleSave();
+    toast(`${INVESTOR_SHORT} paid off your loan. ${INVESTOR_SHORT} now takes ${Math.round(INVESTOR_SHARE * 100)}% of every day’s revenue.`);
+  };
+  $('crNo').onclick = goBankrupt;
+}
+function goBankrupt() {
+  state.bankrupt = true;
+  saveNow(); scheduleSave();
+  showGameOver();
+}
+function showGameOver() {
+  const rc = state.records || {};
+  showCrisis(`<div><div class="eyebrow">${esc(state.resortName)}</div><h2 id="crTitle">Foreclosed</h2></div>
+    <p class="help">The bank has taken the keys. ${state.investorUsed && state.investor ? `Not even ${INVESTOR_SHORT} could save it this time.` : 'The lifts are still and the lodge is dark.'}</p>
+    <dl class="rp-hero">
+      <div><dt>Seasons</dt><dd>${state.season}</dd></div>
+      <div><dt>All-time guests</dt><dd>${(rc.totalVisitors || 0).toLocaleString('en-US')}</dd></div>
+      <div><dt>Debts</dt><dd class="neg">${money(state.debt)}</dd></div>
+    </dl>
+    <p class="help">Start this mountain over from scratch, or head back to the title screen to play another.</p>`,
+    `<button class="btn" id="crRestart">Start this mountain over</button><button class="btn secondary" id="crTitleBtn">Back to title</button>`);
+  $('crRestart').onclick = () => {
+    const name = state.resortName;
+    $('crisis').hidden = true;
+    clearSave(); applySave(null);
+    state.resortName = name; $('resortName').textContent = name;
+    saveNow(); scheduleSave(); afterLoad();
+    toast(`${name} is untouched again. Fresh start!`);
+  };
+  $('crTitleBtn').onclick = () => { $('crisis').hidden = true; showTitle(); };
 }
 function borrow(amount) {
   amount = Math.min(amount, canBorrow());
@@ -5881,7 +5958,9 @@ function loanSection() {
       <div><dt>Can borrow</dt><dd>${money(avail)} more</dd></div>
     </dl>
     <div class="row">${b(250000, 'Borrow $250k')}${b(500000, '$500k')}${b(1000000, '$1M')}</div>
-    ${owe ? `<div class="row"><button class="btn secondary" data-action="repay" data-v="${LOAN_STEP}" ${state.cash >= Math.min(LOAN_STEP, owe) ? '' : 'disabled'}>Repay ${money(Math.min(LOAN_STEP, owe))}</button><button class="btn secondary" data-action="repay" data-v="${owe}" ${state.cash > 0 ? '' : 'disabled'}>${state.cash >= owe ? 'Repay all' : `Repay ${money(Math.max(0, state.cash))}`}</button></div>` : ''}
+    ${owe ? `<div class="row"><button class="btn secondary" data-action="repay" data-v="${LOAN_STEP}" ${state.cash >= Math.min(LOAN_STEP, owe) ? '' : 'disabled'}>Repay ${money(Math.min(LOAN_STEP, owe))}</button><button class="btn secondary" data-action="repay" data-v="${owe}" ${state.cash > 0 ? '' : 'disabled'}>${state.cash >= owe || state.cash <= 0 ? 'Repay all' : `Repay ${money(state.cash)}`}</button></div>` : ''}
+    ${state.investor ? `<p class="help"><b>${INVESTOR_SHORT}</b> takes ${Math.round(state.investor.share * 100)}% of every day’s revenue.</p>
+    <button class="btn secondary" data-action="buyout" ${state.cash >= state.investor.paid * BUYOUT ? '' : 'disabled'}>Buy ${INVESTOR_SHORT} out · ${money(state.investor.paid * BUYOUT)}</button>` : ''}
     <p class="help">Interest is charged every night. The bank lends more as your reputation and best season improve. If cash runs out overnight, the bank covers it, adds a ${Math.round(OVERDRAFT_FEE * 100)}% fee to your loan, and your reputation takes a hit.</p>`;
 }
 function showSeasonReport() {
@@ -6140,8 +6219,8 @@ const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
 function showReport() {
   const r = state.lastReport;
   if (!r) return;
-  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest;
+  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest + ex.investor;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const notes = [];
@@ -6186,7 +6265,7 @@ function showReport() {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line('Loan interest', ex.interest)}
+      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${notes.length ? `<ul class="rp-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
@@ -6508,7 +6587,7 @@ function summaryDoc() {
   const rc = state.records || newRecords();
   return {
     v: 1, mt: MOUNTAIN.id, name: state.resortName || 'Juniper Ridge', creator: state.creator || '', updatedAt: Date.now(),
-    season: state.season || 1, when: state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
+    season: state.season || 1, when: state.bankrupt ? 'Foreclosed' : state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
     cash: Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100,
     trails: world.trails.length, lifts: world.lifts.length, buildings: world.buildings.length,
     bestGuests: rc.bestGuests, bestDayProfit: rc.bestDayProfit, bestSeasonProfit: rc.bestSeasonProfit, totalVisitors: rc.totalVisitors,
@@ -7068,6 +7147,10 @@ $('tutBtn').onclick = startTutorial;
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.7', date: 'Oct 16, 2026', items: [
+    'Hit rock bottom and the bank calls in your loan. Bucky Moneybags of Avalanche Capital may bail you out, once, for 10% of every day’s revenue. Buy Bucky out when you can.',
+    'Crash again (or turn Bucky down) and your resort is foreclosed. Start the mountain over, or play another.',
+  ] },
   { v: '1.6', date: 'Oct 16, 2026', items: [
     'Visiting another resort is now read only: look around and check its finances, then press Watch a day to see it run with their prices.',
     'A Back to title button takes you home from a visit.',
@@ -7217,6 +7300,7 @@ $('titleSlots').addEventListener('click', async (e) => {
   renderSlots();
 });
 function showTitle() {
+  $('crisis').hidden = true;
   leaveTutorial();
   state.started = false;
   winterView = true;
@@ -7258,6 +7342,7 @@ function startGame(camFrom) {
   cam.azGoal = goal.az;
   setTool('explore');
   showHint(false);
+  if (state.bankrupt && !visiting) showGameOver();
 }
 
 /* =====================================================================
