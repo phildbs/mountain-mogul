@@ -451,12 +451,20 @@ body.visiting .badge { cursor: default; }
 .modal-bg { position: absolute; inset: 0; background: rgba(20, 36, 58, 0.28); display: grid; place-items: center; padding: 16px; z-index: 30; }
 .modal { width: min(460px, 100%); max-height: calc(100% - 32px); overflow-y: auto; padding: 22px; display: grid; gap: 16px; background: rgba(250, 252, 255, 0.97); }
 .cr-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+#dsBody { display: grid; gap: 12px; }
+#dsBody .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#dsBody .btn { padding: 8px 12px; font-size: 13px; }
+#dsBody table { border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; width: 100%; }
+#dsBody th, #dsBody td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+#dsBody th:first-child, #dsBody td:first-child { text-align: left; }
+#dsBody textarea { width: 100%; height: 90px; font: 11px ui-monospace, monospace; }
 #crBody { display: grid; gap: 10px; }
 .modal .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
 .modal h2 { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; text-transform: uppercase; }
 .rp-hero { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border-block: 1px solid var(--line); padding-block: 14px; margin: 0; }
 .rp-hero dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
 .rp-hero dd { margin: 3px 0 0; font-family: var(--display); font-weight: 800; font-size: 28px; font-variant-numeric: tabular-nums; }
+.rp-hero .away { display: block; font: 600 11.5px var(--ui); color: var(--steep); }
 .rp-hero .pos { color: #1f7a42; } .rp-hero .neg { color: #9a3326; }
 .rp-lines { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .rp-lines .h { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 6px; }
@@ -598,6 +606,7 @@ body.visiting .badge { cursor: default; }
           <button id="mComm">Profile and community</button>
           <button id="mTitle">Back to title screen</button>
           <button id="mHint">Show controls</button>
+          <button id="mSim" hidden>Simulate (dev)</button>
           <button id="mReset" class="danger">Start this mountain over</button>
         </div>
         <div id="menuConfirm" hidden>
@@ -710,6 +719,13 @@ body.visiting .badge { cursor: default; }
     <div class="toast" id="toast" hidden></div>
   </div>
 
+  <div class="modal-bg" id="devSim" hidden>
+    <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="dsTitle">
+      <div class="cm-head"><div><div class="eyebrow">Developer tools</div><h2 id="dsTitle">Simulate</h2></div><button class="x" id="dsClose" aria-label="Close">✕</button></div>
+      <div id="dsBody"></div>
+    </div>
+  </div>
+
   <div class="modal-bg" id="crisis" hidden>
     <div class="panel modal" role="alertdialog" aria-modal="true" aria-labelledby="crTitle">
       <div id="crBody"></div>
@@ -799,6 +815,9 @@ const SLOTS_KEY = SAVE_KEY + '.slots';
 const MAX_MOUNTAINS = 3;
 // Playing the tutorial: it has its own save on this device and never goes online.
 let practice = false;
+// Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
+const DEV = new URLSearchParams(location.search).has('dev');
+let simulating = false, simCrisis = false;
 // The mountains saved on this device. Each has its own save; owner is the account it
 // belongs to (null until this device first goes online).
 let slots = { active: null, list: [] };
@@ -1528,13 +1547,13 @@ function loadSave() {
 }
 let saveTimer = 0;
 function scheduleSave() {
-  if (visiting) return;
+  if (visiting || simulating) return;
   scheduleCloud();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 500);
 }
 function saveNow() {
-  if (visiting || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
+  if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   try {
     localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
   } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
@@ -1617,8 +1636,8 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc,
-        investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt },
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
+        investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -1764,6 +1783,7 @@ function updateCash(flash) {
 }
 let toastTimer = 0;
 function toast(msg, bad) {
+  if (simulating) return;
   const t = $('toast');
   t.textContent = msg;
   t.classList.toggle('bad', !!bad);
@@ -3321,9 +3341,14 @@ function clockLabel(min) {
   const h = Math.floor(min / 60), m = Math.floor(min % 60);
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
-const LIFT_OP_HOUR = { double: 95, triple: 125, quad: 160, six: 290 };
-const STAFF_DAY = 2500, STAFF_PER_GUEST = 5, GROOM_PER_UNIT = 4;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, investor: null, investorUsed: false, bankrupt: false };
+const LIFT_OP_HOUR = { double: 180, triple: 230, quad: 300, six: 520 };
+// Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
+const STAFF_DAY = 5000, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 12, GROOM_PER_UNIT = 4;
+// Overhead every day of the season, open or not (insurance, utilities, office, property tax),
+// and a lighter rate through the summer.
+const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
+const dailyOverhead = () => OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT;
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -3707,8 +3732,8 @@ function demandForDay() {
   const variety = new Set(open.map(trailSign)).size;
   const base = 110 + 140 * Math.pow(open.length, 0.65) + cap / 14 + variety * 40;
   const d = dateOf(state.day), dow = d.getUTCDay();
-  let f = dow === 0 || dow === 6 ? 1 : dow === 5 ? 0.75 : 0.5;
-  if (holidayOf(d)) f = 1.35;
+  let f = dow === 0 || dow === 6 ? 1 : dow === 5 ? 0.7 : 0.4;
+  if (holidayOf(d)) f = 1.55;
   const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : 1;
   const priceF = clamp(Math.exp(-(state.ticket - 65) / 65 * 1.8), 0.12, 1.6);
   const has = (t) => world.buildings.some((B) => B.type === t);
@@ -3721,7 +3746,7 @@ function demandForDay() {
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   const w = todayWx();
   let wxF = WX[w.type].demand;
-  if (w.snow >= 6 && w.type !== 'rain') wxF = Math.max(wxF, 1.35);
+  if (w.snow >= 6 && w.type !== 'rain') wxF = Math.max(wxF, w.snow >= 10 ? 1.75 : 1.5); // powder day
   if (w.hi < 10) wxF *= 0.75;
   const baseLifts = world.lifts.filter((L) => L.open && L.fromBase);
   const heldCap = baseLifts.filter((L) => L.windHold).reduce((a, L) => a + L.stats.cap, 0);
@@ -4024,6 +4049,7 @@ function openDay() {
   today.exp.grooming = state.nightCost.grooming || 0;
   today.exp.snowmaking = state.nightCost.snowmaking || 0;
   today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
+  today.exp.overhead = state.ohAcc || 0; state.ohAcc = 0;
   today.wx = { ...todayWx() };
   today.holds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
   if (today.holds.length) {
@@ -4045,7 +4071,7 @@ function closeEarly() {
   toast('Lifts are closing. Guests are heading home.');
 }
 function endDay() {
-  today.exp.staff = STAFF_DAY + STAFF_PER_GUEST * today.guests;
+  today.exp.staff = STAFF_DAY + STAFF_PER_LIFT * world.lifts.filter((L) => L.open).length + STAFF_PER_BUILDING * world.buildings.length + STAFF_PER_GUEST * today.guests;
   today.exp.upkeep = world.buildings.reduce((a, B) => a + bspec(B).upkeep, 0);
   today.exp.cogs = Math.round(today.exp.cogs);
   state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs;
@@ -4056,9 +4082,9 @@ function endDay() {
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + r0.lessons + r0.parking - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + today.exp.investor;
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
   const sat = today.satN ? today.satSum / today.satN : 0;
-  if (today.satN) state.reputation = clamp(state.reputation + (sat - 62) / 400, 0.5, 1.5);
+  if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
   let busiest = null;
   for (const L of world.lifts) {
     const n = today.liftRiders[L.id] || 0;
@@ -4068,7 +4094,7 @@ function endDay() {
   for (const t of world.trails) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     day: today.day, guests: today.guests, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, investor: today.exp.investor },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
     injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
@@ -4110,6 +4136,8 @@ function nextDay() {
   state.cash -= smr.cost;
   state.nightCost = { snowmaking: smr.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, grooming: 0 };
   chargeInterest(1);
+  const oh = dailyOverhead();
+  state.cash -= oh; state.ohAcc = (state.ohAcc || 0) + oh;
   coverOverdraft();
   updateCash(false);
   if (state.bankrupt) { refreshSnowState(todayWx()); styleSnowVisuals(); refreshTimebar(true); renderSheet(); return; }
@@ -5886,10 +5914,109 @@ function coverOverdraft() {
   if (state.debt > CALL_IN * creditLimit()) crisis();
 }
 
+/* ---------- Developer tools: fast-forward days without drawing them ---------- */
+// Runs whole days as fast as possible, opening whenever it can. On a copy (the default) the
+// resort is put back afterwards; kept results mark the resort so it stays off the leaderboards.
+async function devSimulate({ days = 7, seasons = 0, keep = false, onProgress } = {}) {
+  if (simulating || visiting || state.phase !== 'closed') return null;
+  const snap = keep ? null : saveData(false);
+  const cash0 = state.cash, debt0 = state.debt, t0 = performance.now();
+  const log = [];
+  let calendar = 0, seasonsDone = 0, stop = '';
+  simulating = true; simCrisis = false;
+  try {
+    while (seasons ? seasonsDone < seasons : calendar < days) {
+      if (state.bankrupt) { stop = 'foreclosed'; break; }
+      if (state.summer) { openDay(); continue; } // starts the next season
+      openDay();
+      if (state.phase === 'open') {
+        while (state.phase === 'open') simStep(1.5);
+        const r = state.lastReport;
+        log.push({ day: r.day, season: state.season, guests: r.guests, turnedAway: r.turnedAway || 0, profit: r.profit, sat: r.sat,
+          trails: r.trailsOpen, base: Math.round(r.base), wx: r.wx.type, rev: Object.values(r.rev).reduce((a, b) => a + b, 0) - 2 * (r.rev.refunds || 0) });
+        nextDay();
+      } else waitDay();
+      calendar++;
+      if (state.phase === 'season') { nextDay(); seasonsDone++; }
+      if (simCrisis) { stop = `the bank called in the loan on ${dateLabel(state.day)}`; break; }
+      if (calendar % 5 === 0) { if (onProgress) onProgress(calendar, log.length); await new Promise((r) => setTimeout(r)); }
+    }
+  } finally {
+    simulating = false;
+  }
+  const result = { calendar, log, stop, seasons: seasonsDone, cashChange: Math.round(state.cash - cash0), debtChange: Math.round(state.debt - debt0),
+    endCash: Math.round(state.cash), endDebt: Math.round(state.debt), rep: state.reputation, ms: Math.round(performance.now() - t0) };
+  $('report').hidden = true;
+  if (snap) applySave(snap);
+  else { state.devRun = true; saveNow(); scheduleSave(); if (simCrisis) crisis(); }
+  afterLoad(); updateCash(false); refreshTimebar(true);
+  return result;
+}
+function devSummary(res) {
+  const L = res.log, sum = (f) => L.reduce((a, x) => a + f(x), 0);
+  const months = {};
+  for (const x of L) {
+    const k = `S${x.season} ${MON[dateOf(x.day).getUTCMonth()]}`;
+    const m = months[k] || (months[k] = { n: 0, guests: 0, profit: 0, away: 0 });
+    m.n++; m.guests += x.guests; m.profit += x.profit; m.away += x.turnedAway;
+  }
+  return { L, sum, months };
+}
+function devResultHtml(res) {
+  const { L, sum, months } = devSummary(res);
+  if (!L.length) return `<p class="help">No days were open${res.stop ? ` (${esc(res.stop)})` : ''}. Build a lift from the base and a trail back down, and make sure there’s snow.</p>`;
+  const prof = L.map((x) => x.profit), guests = L.map((x) => x.guests);
+  const csv = ['season,date,guests,turned_away,profit,satisfaction,trails_open,base_in,weather,revenue']
+    .concat(L.map((x) => [x.season, dateLabel(x.day).replace(',', ''), x.guests, x.turnedAway, x.profit, x.sat, x.trails, x.base, x.wx, Math.round(x.rev)].join(','))).join('\n');
+  return `<p class="help">${res.calendar} days in ${(res.ms / 1000).toFixed(1)}s · ${L.length} open${res.seasons ? ` · ${res.seasons} season${res.seasons > 1 ? 's' : ''} finished` : ''}${res.stop ? ` · <b>stopped: ${esc(res.stop)}</b>` : ''}</p>
+    <dl class="kv">
+      <div><dt>Profit (open days)</dt><dd>${signedMoney(sum((x) => x.profit))}</dd></div>
+      <div><dt>Cash change</dt><dd>${signedMoney(res.cashChange)}</dd></div>
+      <div><dt>Guests</dt><dd>${sum((x) => x.guests).toLocaleString('en-US')}</dd></div>
+      <div><dt>Per open day</dt><dd>${Math.round(sum((x) => x.guests) / L.length)} avg · ${Math.max(...guests)} max</dd></div>
+      <div><dt>Turned away</dt><dd>${sum((x) => x.turnedAway).toLocaleString('en-US')}</dd></div>
+      <div><dt>Satisfaction</dt><dd>${Math.round(sum((x) => x.sat) / L.length)}%</dd></div>
+      <div><dt>Best · worst day</dt><dd>${signedMoney(Math.max(...prof))} · ${signedMoney(Math.min(...prof))}</dd></div>
+      <div><dt>Losing days</dt><dd>${prof.filter((v) => v < 0).length} of ${L.length}</dd></div>
+      <div><dt>Reputation</dt><dd>${repWordOf(res.rep)} (${res.rep.toFixed(2)})</dd></div>
+      <div><dt>Loan</dt><dd>${money(res.endDebt)}${res.debtChange ? ` (${res.debtChange > 0 ? '+' : '−'}${money(Math.abs(res.debtChange))})` : ''}</dd></div>
+    </dl>
+    <table><tr><th>Month</th><th>Days</th><th>Guests/day</th><th>Turned away</th><th>Profit/day</th></tr>
+      ${Object.entries(months).map(([k, m]) => `<tr><td>${k}</td><td>${m.n}</td><td>${Math.round(m.guests / m.n)}</td><td>${m.away}</td><td>${signedMoney(Math.round(m.profit / m.n))}</td></tr>`).join('')}</table>
+    <details><summary>Day by day (CSV)</summary><textarea readonly>${esc(csv)}</textarea></details>`;
+}
+function openDevSim(resHtml) {
+  closeMenu();
+  const busy = state.phase !== 'closed';
+  $('dsBody').innerHTML = `<p class="help">Fast-forward this resort, opening every day it can. Runs on a copy unless you keep the results.</p>
+    ${busy ? '<p class="help"><b>Finish the current day first.</b></p>' : ''}
+    <div class="row">${[['7', 'A week'], ['30', 'A month'], ['rest', 'Rest of season'], ['s1', '1 season'], ['s3', '3 seasons']].map(([v, l]) => `<button class="btn secondary" data-sim="${v}" ${busy ? 'disabled' : ''}>${l}</button>`).join('')}</div>
+    <label class="row"><input type="checkbox" id="dsKeep"> Keep the results (this resort leaves the leaderboards for good)</label>
+    <div id="dsOut">${resHtml || ''}</div>`;
+  $('devSim').hidden = false;
+}
+$('dsClose').onclick = () => { $('devSim').hidden = true; };
+$('dsBody').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sim]');
+  if (!b || simulating) return;
+  const v = b.dataset.sim, keep = $('dsKeep').checked;
+  const opts = v === 'rest' ? { days: Math.max(1, SPRING_LAST - state.day + 1) } : v[0] === 's' ? { seasons: +v.slice(1) } : { days: +v };
+  for (const x of $('dsBody').querySelectorAll('button')) x.disabled = true;
+  $('dsOut').innerHTML = '<p class="help">Simulating…</p>';
+  const res = await devSimulate({ ...opts, keep, onProgress: (n, open) => { $('dsOut').innerHTML = `<p class="help">Simulating… ${n} days (${open} open)</p>`; } });
+  openDevSim(res ? devResultHtml(res) : '<p class="help">Couldn’t start. Finish the current day first.</p>');
+});
+if (DEV) {
+  $('mSim').hidden = false;
+  $('mSim').onclick = () => openDevSim();
+  window.mmDev = { simulate: devSimulate, summary: devSummary };
+}
+
 /* ---------- Rock bottom: one investor bailout, then bankruptcy ---------- */
 const CALL_IN = 1.5; // the bank calls in a loan this far past your credit limit
 const INVESTOR = 'Bucky Moneybags of Avalanche Capital', INVESTOR_SHORT = 'Bucky', INVESTOR_SHARE = 0.1, BUYOUT = 1.5;
 function crisis() {
+  if (simulating) { simCrisis = true; return; } // the simulation stops here and reports it
   if (visiting || state.bankrupt) return;
   if (!state.investorUsed) offerInvestor(); else goBankrupt();
 }
@@ -5967,6 +6094,7 @@ function loanSection() {
     <p class="help">Interest is charged every night. The bank lends more as your reputation and best season improve. If cash runs out overnight, the bank covers it, adds a ${Math.round(OVERDRAFT_FEE * 100)}% fee to your loan, and your reputation takes a hit.</p>`;
 }
 function showSeasonReport() {
+  if (simulating) return;
   const s = state.seasonStats || newSeasonStats();
   const sat = s.satN ? Math.round(s.satSum / s.satN) : 0;
   $('rpBody').innerHTML = `
@@ -6202,6 +6330,8 @@ function enterSummer() {
 }
 function newSeason() {
   const summerInterest = chargeInterest(OFFSEASON_DAYS);
+  const summerCosts = Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE);
+  state.cash -= summerCosts;
   coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
   state.wx = initWeather(state.day);
@@ -6210,7 +6340,7 @@ function newSeason() {
   for (const t of world.trails) t.machine = 0;
   refreshSnowState(todayWx());
   styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
-  toast(`Season ${state.season} begins. Watch the forecast and make snow.${summerInterest ? ` Loan interest over the summer: −${money(summerInterest)}.` : ''}`);
+  toast(`Season ${state.season} begins. Watch the forecast and make snow. Summer upkeep: −${money(summerCosts)}${summerInterest ? `, plus ${money(summerInterest)} loan interest` : ''}.`);
 }
 $('cashBox').onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'resort', obj: null }); };
 $('cashBox').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('cashBox').onclick(); } };
@@ -6220,10 +6350,11 @@ sheet.addEventListener('toggle', (e) => { if (e.target.id === 'pricesDetails') p
 const repWordOf = (v) => (v < 0.8 ? 'Poor' : v < 0.95 ? 'Fair' : v < 1.1 ? 'Good' : v < 1.3 ? 'Great' : 'Excellent');
 const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
 function showReport() {
+  if (simulating) return;
   const r = state.lastReport;
   if (!r) return;
-  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest + ex.investor;
+  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, refunds: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const notes = [];
@@ -6256,7 +6387,7 @@ function showReport() {
     <div><div class="eyebrow">Day report · Season ${state.season}</div><h2 id="rpTitle">${dateLabel(r.day)}</h2></div>
     <dl class="rp-hero">
       <div><dt>Profit</dt><dd class="${r.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(r.profit)}</dd></div>
-      <div><dt>Guests</dt><dd>${r.guests.toLocaleString('en-US')}</dd></div>
+      <div><dt>Guests</dt><dd>${r.guests.toLocaleString('en-US')}${r.turnedAway ? `<small class="away">+${r.turnedAway} turned away</small>` : ''}</dd></div>
       <div><dt>Satisfaction</dt><dd>${r.guests ? r.sat + '%' : '–'}</dd></div>
     </dl>
     <div class="rp-lines">
@@ -6268,7 +6399,7 @@ function showReport() {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
+      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${notes.length ? `<ul class="rp-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
@@ -6575,7 +6706,7 @@ function recordSeason(st) {
 }
 const isPublic = () => state.isPublic !== false;
 // Only signed-in players appear on the leaderboards; a guest's resort saves privately.
-const listed = () => isPublic() && !CLOUD.guest;
+const listed = () => isPublic() && !CLOUD.guest && !state.devRun;
 
 const BOARDS = {
   guests: { label: 'Busiest day', val: (m) => m.bestGuests || 0, fmt: (v) => `${v.toLocaleString('en-US')} guests` },
@@ -7150,6 +7281,12 @@ $('tutBtn').onclick = startTutorial;
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.8', date: 'Oct 16, 2026', items: [
+    'Running a resort costs more: bigger crews, pricier lift power, overhead every day of the season (even closed days) and upkeep over the summer. A small resort now has to grow to really pay off.',
+    'Crowds swing more: quiet weekdays, busy weekends, packed holidays and big powder days. The day report shows guests turned away when the lot is full.',
+    'Reputation now takes consistently happy guests to climb.',
+    'On phones, the screen stays on while you play.',
+  ] },
   { v: '1.7', date: 'Oct 16, 2026', items: [
     'Hit rock bottom and the bank calls in your loan. Bucky Moneybags of Avalanche Capital may bail you out, once, for 10% of every day’s revenue. Buy Bucky out when you can.',
     'Crash again (or turn Bucky down) and your resort is foreclosed. Start the mountain over, or play another.',
@@ -7304,6 +7441,7 @@ $('titleSlots').addEventListener('click', async (e) => {
 });
 function showTitle() {
   $('crisis').hidden = true;
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   leaveTutorial();
   state.started = false;
   winterView = true;
@@ -7322,6 +7460,17 @@ function showTitle() {
   cam.viewGoal = null;
 }
 let camTween = null;
+// Keep the screen from dimming or locking while you play. Phones drop the lock whenever the
+// page is hidden, so it's asked for again when the game comes back into view.
+let wakeLock = null;
+async function keepAwake() {
+  if (wakeLock || !state.started || document.visibilityState !== 'visible' || !navigator.wakeLock) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) { wakeLock = null; } // not allowed right now (e.g. battery saver); the game works without it
+}
+document.addEventListener('visibilitychange', keepAwake);
 function startGame(camFrom) {
   const sv = camFrom === undefined ? loadSave() : camFrom;
   const t = $('title');
@@ -7345,6 +7494,7 @@ function startGame(camFrom) {
   cam.azGoal = goal.az;
   setTool('explore');
   showHint(false);
+  keepAwake();
   if (state.bankrupt && !visiting) showGameOver();
 }
 
@@ -7361,6 +7511,8 @@ window.addEventListener('resize', resize);
 
 let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0;
 function frame(now) {
+  // While days are fast-forwarded, skip drawing so the simulation gets the whole processor.
+  if (simulating) { lastT = now; requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; clock += dt;
 
