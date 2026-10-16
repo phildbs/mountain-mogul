@@ -6209,13 +6209,14 @@ async function cloudSave(manual) {
       const { error } = await CLOUD.sb.from('mountains').upsert({ id: CLOUD.uid, public: isPublic(), summary, save, updated_at: new Date().toISOString() });
       if (error) throw error;
       CLOUD.sentJson = json;
+      CLOUD.verified = true;
       CLOUD.mine = { ...summary, public: isPublic() };
     }
     CLOUD.error = '';
     if (manual) toast(isPublic() ? 'Saved. Your resort is on the leaderboards.' : 'Saved privately online.');
     loadBoard(true);
   } catch (e) {
-    CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.' : 'Couldn’t reach the server. It will try again.';
+    CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.' : setupProblem(e);
     if (!(e && e.code === 'too_big')) scheduleCloud();
   }
   CLOUD.uploading = false;
@@ -6237,10 +6238,21 @@ async function loadBoard(force) {
   CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id })).filter((m) => m.name);
   refreshCommunity();
 }
+// Plain-language reasons for the setup problems a new Supabase project can have.
+function setupProblem(e) {
+  const msg = String((e && (e.message || e.msg)) || '').toLowerCase(), code = String((e && e.code) || '');
+  if (msg.includes('anonymous sign-ins are disabled') || code === 'anonymous_provider_disabled') return 'Guest sign-in is turned off. In Supabase, turn on Authentication → Sign In / Providers → Allow anonymous sign-ins.';
+  if (code === '42P01' || code === 'PGRST205' || msg.includes('could not find the table') || msg.includes('does not exist')) return 'The leaderboard table is missing. In Supabase, run supabase/schema.sql in the SQL Editor.';
+  if (code === '42501' || msg.includes('permission denied') || msg.includes('row-level security')) return 'The database refused the save. Run supabase/schema.sql again in the SQL Editor to reset its permissions.';
+  if (msg.includes('invalid api key') || msg.includes('no api key')) return 'The Supabase key in the game is wrong.';
+  if (msg.includes('failed to fetch') || msg.includes('network')) return 'Can’t reach the server. Check your connection.';
+  return (e && e.message) || 'Something went wrong talking to the server.';
+}
 async function loadMine() {
   CLOUD.mine = null;
   if (!CLOUD.uid) return;
-  const { data } = await CLOUD.sb.from('mountains').select('summary, public, updated_at').eq('id', CLOUD.uid).maybeSingle();
+  const { data, error } = await CLOUD.sb.from('mountains').select('summary, public, updated_at').eq('id', CLOUD.uid).maybeSingle();
+  if (error) throw error;
   if (data) CLOUD.mine = { ...data.summary, public: data.public, updatedAt: Date.parse(data.updated_at) };
 }
 function afterLoad() {
@@ -6336,7 +6348,7 @@ async function initCloud() {
     if (state.phase !== 'open') scheduleCloud();
   } catch (e) {
     CLOUD.status = 'offline';
-    CLOUD.error = (e && e.message) || '';
+    CLOUD.error = setupProblem(e);
     refreshCommunity();
   }
 }
@@ -6396,9 +6408,9 @@ function boardHtml(limit) {
 }
 function cloudNote() {
   if (CLOUD.status === 'connecting') return 'Connecting…';
-  if (CLOUD.status === 'offline') return 'Can’t reach the leaderboards right now. Your resort still saves on this device.';
+  if (CLOUD.status === 'offline') return `Online features aren’t working: ${CLOUD.error || 'can’t reach the server.'} Your resort still saves on this device.`;
   const pub = isPublic() ? 'Your resort is public, so others can see it on the leaderboards and visit.' : 'Your resort is private: only you see it, and it isn’t on the leaderboards.';
-  return `${pub} It saves online automatically between days.${CLOUD.error ? ' ' + CLOUD.error : ''}`;
+  return `${pub} It saves online automatically between days.${CLOUD.error ? ' Problem: ' + CLOUD.error : CLOUD.verified ? ' Last save went through.' : ''}`;
 }
 // In-game: compare the resort you're on with everyone else.
 function communitySheet() {
