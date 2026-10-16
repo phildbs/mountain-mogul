@@ -128,7 +128,8 @@ button { font: inherit; color: inherit; }
 }
 .visitbar b { font-weight: 700; }
 .visitbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep, body.visiting .tb-wait { display: none; }
+body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep, body.visiting .tb-wait, body.visiting .hint { display: none; }
+body.visiting .badge { cursor: default; }
 .menu .rename { display: flex; gap: 6px; padding: 6px 6px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .menu .rename input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font: 500 14px var(--ui); }
 .menu .rename button { flex: none; border: 1px solid var(--line); text-align: center; padding: 7px 10px; }
@@ -621,7 +622,7 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
     </button>
     <div class="panel visitbar" id="visitBar" hidden>
       <span id="visitText"></span>
-      <button class="btn" id="visitHome">Return home</button>
+      <button class="btn" id="visitHome">Back to title</button>
     </div>
 
     <div class="panel tut" id="tutCard" hidden></div>
@@ -2829,6 +2830,7 @@ function pickFeature(p) {
   return best;
 }
 function select(feat) {
+  if (visiting && feat && feat.kind !== 'resort') return; // visits are read only: just the finances
   const prev = selected;
   selected = feat;
   if (prev && prev.kind === 'trail' && world.trails.includes(prev.obj)) styleTrail(prev.obj);
@@ -3006,6 +3008,7 @@ sheet.addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
   const a = b.dataset.action;
+  if (visiting && !['close', 'board', 'boardMt', 'visit'].includes(a)) return; // visits are read only
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -6088,7 +6091,7 @@ function refreshTimebar(force) {
   document.querySelectorAll('#tbSpeed button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.s === state.speed)));
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
-  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? 'Closing…' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : 'Open for the day';
+  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? 'Closing…' : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
   go.disabled = state.phase === 'open' && state.time >= closeTime();
   go.classList.toggle('calm', state.phase === 'open');
   const locked = state.phase !== 'closed';
@@ -6186,7 +6189,23 @@ function showReport() {
   $('rpNext').focus({ preventScroll: true });
 }
 
+// Someone else's resort: its finances, to look at only.
+function visitResortSheet() {
+  const r = state.lastReport;
+  return `<div class="sheet-title"><h3>${esc(visiting.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">Their finances, read only.</p>
+    <dl class="kv">
+      <div><dt>Cash</dt><dd>${money(state.cash)}</dd></div>
+      <div><dt>Bank loan</dt><dd>${money(state.debt || 0)}</dd></div>
+      <div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div>
+      ${Object.keys(PRICE_INFO).map((k) => `<div><dt>${PRICE_INFO[k].label}</dt><dd>${state.prices[k] ? money(state.prices[k]) : 'Free'}</dd></div>`).join('')}
+      <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
+      <div><dt>Parking lot</dt><dd>${lotCapacity()} spaces</dd></div>
+    </dl>
+    ${r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : ''}`;
+}
 function resortSheet() {
+  if (visiting) return visitResortSheet();
   const r = state.lastReport;
   const used = stalls.filter((s) => s.car).length;
   const canExpand = state.phase === 'closed' && state.lotSections < 6;
@@ -6412,6 +6431,7 @@ function closeMenu() {
   $('badge').setAttribute('aria-expanded', 'false');
 }
 $('badge').onclick = () => {
+  if (visiting) return;
   const open = $('menu').hidden;
   closeMenu();
   $('menu').hidden = !open;
@@ -6608,7 +6628,8 @@ async function visitResort(id) {
   applySave(sv);
   if (state.speed === 0) state.speed = 1;
   const owner = m ? ownerOf(m) : '';
-  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${esc(owner)}` : ''}. Nothing you do here is saved.`;
+  $('resortName').textContent = visiting.name;
+  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
   $('visitBar').hidden = false;
   if (!state.started) startGame(null);
   afterLoad();
@@ -6620,11 +6641,9 @@ function returnHome() {
   document.body.classList.remove('visiting');
   $('visitBar').hidden = true;
   select(null);
-  if (!onThisMountain()) { reloadInto(fromTitle ? 'title' : 'start'); return; }
+  if (!onThisMountain()) { reloadInto('title'); return; }
   applySave(loadSave());
-  if (fromTitle) { showTitle(); openCommunity(); return; }
-  afterLoad();
-  toast(`Back at ${state.resortName}`);
+  showTitle();
 }
 // Bring one of your online mountains onto this device and make it the one you're playing.
 async function pullMountain(id, then) {
@@ -7043,6 +7062,10 @@ $('tutBtn').onclick = startTutorial;
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '1.6', date: 'Oct 16, 2026', items: [
+    'Visiting another resort is now read only: look around and check its finances, then press Watch a day to see it run with their prices.',
+    'A Back to title button takes you home from a visit.',
+  ] },
   { v: '1.5', date: 'Oct 16, 2026', items: [
     'Bank loans: borrow from the Resort panel (tap your cash), pay 10% a year in nightly interest, and repay any time. Your credit limit grows with reputation and your best season.',
     'Run out of cash overnight and the bank covers it, with a fee and a hit to your reputation.',
