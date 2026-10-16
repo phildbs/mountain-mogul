@@ -6203,6 +6203,8 @@ function recordSeason(st) {
   rc.bestSeasonProfit = rc.bestSeasonProfit == null ? Math.round(st.profit) : Math.max(rc.bestSeasonProfit, Math.round(st.profit));
 }
 const isPublic = () => state.isPublic !== false;
+// Only signed-in players appear on the leaderboards; a guest's resort saves privately.
+const listed = () => isPublic() && !CLOUD.guest;
 
 const BOARDS = {
   guests: { label: 'Busiest day', val: (m) => m.bestGuests || 0, fmt: (v) => `${v.toLocaleString('en-US')} guests` },
@@ -6226,7 +6228,7 @@ function summaryDoc() {
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
 function boardEntries() {
   const out = CLOUD.mountains.filter((m) => m.id !== CLOUD.uid);
-  if (!visiting && (state.started || loadSave())) out.push({ ...summaryDoc(), id: CLOUD.uid || 'me', me: true, hidden: !isPublic() });
+  if (!visiting && (state.started || loadSave())) out.push({ ...summaryDoc(), id: CLOUD.uid || 'me', me: true, hidden: !listed(), guest: CLOUD.guest });
   return out;
 }
 function ranked(key) {
@@ -6252,17 +6254,17 @@ async function cloudSave(manual) {
     const save = saveData(false);
     save.savedAt = 0;
     const summary = summaryDoc();
-    const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, isPublic()]);
+    const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
     if (json.length > 1500000) throw { code: 'too_big' };
     if (json !== CLOUD.sentJson) {
-      const { error } = await CLOUD.sb.from('mountains').upsert({ id: CLOUD.uid, public: isPublic(), summary, save, updated_at: new Date().toISOString() });
+      const { error } = await CLOUD.sb.from('mountains').upsert({ id: CLOUD.uid, public: listed(), summary, save, updated_at: new Date().toISOString() });
       if (error) throw error;
       CLOUD.sentJson = json;
       CLOUD.verified = true;
-      CLOUD.mine = { ...summary, public: isPublic() };
+      CLOUD.mine = { ...summary, public: listed() };
     }
     CLOUD.error = '';
-    if (manual) toast(isPublic() ? 'Saved. Your resort is on the leaderboards.' : 'Saved privately online.');
+    if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
     loadBoard(true);
   } catch (e) {
     CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.' : setupProblem(e);
@@ -6417,7 +6419,7 @@ async function initCloud() {
       const switched = setSession(s);
       if (ev === 'SIGNED_IN' || ev === 'USER_UPDATED') CLOUD.authMsg = '';
       if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(settleOwnership).then(() => { offerCloudSave(); refreshCommunity(); }); }
-      else refreshCommunity();
+      else { CLOUD.sentJson = ''; scheduleCloud(); refreshCommunity(); } // e.g. a guest just linked Google: list their resort
     });
     await loadMine();
     await settleOwnership();
@@ -6581,7 +6583,7 @@ function boardHtml(limit) {
   const B = BOARDS[CLOUD.board] || BOARDS.guests;
   const list = ranked(CLOUD.board).slice(0, limit);
   const rows = list.map((m, i) => {
-    const sub = [ownerOf(m), m.hidden ? 'private' : m.when].filter(Boolean).join(' · ');
+    const sub = [ownerOf(m), m.hidden ? (m.guest ? 'sign in to join the boards' : 'private') : m.when].filter(Boolean).join(' · ');
     const act = m.me || !CLOUD.ready ? '<span></span>' : `<button class="link" data-action="visit" data-v="${esc(m.id)}">Visit</button>`;
     return `<li class="${m.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}</b><span>${esc(sub)}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
   }).join('');
@@ -6591,7 +6593,8 @@ function boardHtml(limit) {
 function cloudNote() {
   if (CLOUD.status === 'connecting') return 'Connecting…';
   if (CLOUD.status === 'offline') return `Online features aren’t working: ${CLOUD.error || 'can’t reach the server.'} Your resort still saves on this device.`;
-  const pub = isPublic() ? 'Your resort is public, so others can see it on the leaderboards and visit.' : 'Your resort is private: only you see it, and it isn’t on the leaderboards.';
+  const pub = CLOUD.guest ? 'You’re playing as a guest, so your resort isn’t on the leaderboards yet. Sign in on the title screen to join them.'
+    : isPublic() ? 'Your resort is public, so others can see it on the leaderboards and visit.' : 'Your resort is private: only you see it, and it isn’t on the leaderboards.';
   return `${pub} It saves online automatically between days.${CLOUD.error ? ' Problem: ' + CLOUD.error : CLOUD.verified ? ' Last save went through.' : ''}`;
 }
 // In-game: compare the resort you're on with everyone else.
@@ -6601,7 +6604,7 @@ function communitySheet() {
   const r = ranked(CLOUD.board), mine = r.findIndex((m) => m.me);
   const B = BOARDS[CLOUD.board] || BOARDS.guests;
   const lead = visiting ? `<p class="help">You’re visiting ${esc(visiting.name)}. Return home to compare your own resort.</p>`
-    : mine >= 0 ? `<p class="help">${esc(state.resortName)} is <b>#${mine + 1}</b> of ${r.length} for ${B.label.toLowerCase()}${isPublic() ? '' : ' (private, so only you see this)'}.</p>` : '';
+    : mine >= 0 ? `<p class="help">${esc(state.resortName)} is <b>#${mine + 1}</b> of ${r.length} for ${B.label.toLowerCase()}${listed() ? '' : ' (only you see this)'}.</p>` : '';
   return `${head}${lead}${boardHtml(15)}
     <p class="help">${esc(cloudNote())}</p>
     <div class="row"><button class="btn secondary" data-action="profile">Profile and settings</button>${CLOUD.ready ? `<button class="btn secondary" data-action="cloudNow" ${state.phase === 'open' || visiting ? 'disabled' : ''}>Save now</button>` : ''}</div>`;

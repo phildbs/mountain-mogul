@@ -21,13 +21,15 @@ create policy "read public or own" on public.mountains
   for select using (public or auth.uid() = id);
 
 -- You can only create, change or delete your own resort.
+-- Guests (anonymous accounts) can save, but only signed-in players can be public.
 drop policy if exists "insert own" on public.mountains;
 create policy "insert own" on public.mountains
-  for insert with check (auth.uid() = id);
+  for insert with check (auth.uid() = id and (not public or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false));
 
 drop policy if exists "update own" on public.mountains;
 create policy "update own" on public.mountains
-  for update using (auth.uid() = id) with check (auth.uid() = id);
+  for update using (auth.uid() = id)
+  with check (auth.uid() = id and (not public or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false));
 
 drop policy if exists "delete own" on public.mountains;
 create policy "delete own" on public.mountains
@@ -35,3 +37,9 @@ create policy "delete own" on public.mountains
 
 grant select on public.mountains to anon;
 grant select, insert, update, delete on public.mountains to authenticated;
+
+-- Take any guest resorts that were already public off the leaderboards.
+-- Their saves are kept; they reappear if that player signs in.
+update public.mountains m set public = false
+from auth.users u
+where u.id = m.id and u.is_anonymous and m.public;
