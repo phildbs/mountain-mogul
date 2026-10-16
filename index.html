@@ -2176,12 +2176,16 @@ const WHEEL_GEO = new THREE.TorusGeometry(0.33, 0.035, 6, 24);
 const HOUSE_GEO = new THREE.BoxGeometry(0.9, 0.24, 0.78);
 const HUT_GEO = new THREE.BoxGeometry(0.55, 0.48, 0.6);
 const ROOF_GEO = new THREE.ConeGeometry(0.48, 0.3, 4).rotateY(Math.PI / 4);
-const CHAIR_GEO = (() => {
+// One seat per rider, as wide as a skier figure (figures are drawn larger than life,
+// so the chairs are too), so a double visibly carries two and a six-pack six.
+const SEAT_W = 0.16;
+function chairGeo(seats) {
+  const w = seats * SEAT_W;
   const parts = [
     [new THREE.BoxGeometry(0.025, 0.42, 0.025).translate(0, -0.21, 0), [0.4, 0.4, 0.44]],
-    [new THREE.BoxGeometry(0.3, 0.025, 0.025).translate(0, -0.42, -0.02), [0.4, 0.4, 0.44]],
-    [new THREE.BoxGeometry(0.3, 0.035, 0.13).translate(0, -0.47, 0.03), [1, 1, 1]],
-    [new THREE.BoxGeometry(0.3, 0.13, 0.025).translate(0, -0.4, -0.04), [1, 1, 1]],
+    [new THREE.BoxGeometry(w, 0.025, 0.025).translate(0, -0.42, -0.02), [0.4, 0.4, 0.44]],
+    [new THREE.BoxGeometry(w, 0.035, 0.13).translate(0, -0.47, 0.03), [1, 1, 1]],
+    [new THREE.BoxGeometry(w, 0.13, 0.025).translate(0, -0.4, -0.04), [1, 1, 1]],
   ];
   let total = 0;
   const geos = parts.map(([g, c]) => { const ng = g.toNonIndexed(); total += ng.attributes.position.count; return [ng, c]; });
@@ -2198,7 +2202,8 @@ const CHAIR_GEO = (() => {
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
-})();
+}
+const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k, chairGeo(LIFT_TYPES[k].seats)]));
 
 function liftLayout(a, b) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
@@ -2284,7 +2289,7 @@ function buildLiftVisual(L, lay, withChairs) {
     L.upLen = L.upCum[L.upCum.length - 1]; L.total = L.upLen + L.downCum[L.downCum.length - 1];
     const type = LIFT_TYPES[L.type];
     L.chairCount = Math.max(2, Math.floor(L.total / type.spacing));
-    L.chairs = new THREE.InstancedMesh(CHAIR_GEO, new THREE.MeshLambertMaterial({ color: L.color, vertexColors: true }), L.chairCount);
+    L.chairs = new THREE.InstancedMesh(CHAIR_GEOS[L.type], new THREE.MeshLambertMaterial({ color: L.color, vertexColors: true }), L.chairCount);
     L.chairs.castShadow = false;
     L.chairs.frustumCulled = false;
     L.chairs.visible = chairsShown;
@@ -2305,15 +2310,13 @@ function liftPoint(L, p, out) {
   return out.lerpVectors(path[k], path[k + 1], t);
 }
 function placeChairs(L) {
-  const type = LIFT_TYPES[L.type];
-  const sx = type.seats / 4;
   for (let i = 0; i < L.chairCount; i++) {
     const p = ((L.phase + i * L.total / L.chairCount) % L.total + L.total) % L.total;
     liftPoint(L, p, _cp);
     dummy.position.copy(_cp);
     // Chairs face the way they travel: uphill on the way up, downhill on the way back.
     dummy.rotation.set(0, L.lay.heading + (p < L.upLen ? 0 : Math.PI), 0);
-    dummy.scale.set(sx, 1, 1);
+    dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     L.chairs.setMatrixAt(i, dummy.matrix);
   }
@@ -2346,7 +2349,7 @@ function addLift(L) {
 }
 function disposeGroup(g) {
   g.traverse((o) => {
-    if (o.geometry && ![POLE_GEO, ARM_GEO, SHEAVE_GEO, PAD_GEO, COLUMN_GEO, WHEEL_GEO, HOUSE_GEO, HUT_GEO, ROOF_GEO, CHAIR_GEO].includes(o.geometry)) o.geometry.dispose();
+    if (o.geometry && ![POLE_GEO, ARM_GEO, SHEAVE_GEO, PAD_GEO, COLUMN_GEO, WHEEL_GEO, HOUSE_GEO, HUT_GEO, ROOF_GEO, ...Object.values(CHAIR_GEOS)].includes(o.geometry)) o.geometry.dispose();
     if (o.material && ![STEEL, CONCRETE, WOOD, BLUEPRINT, BLUEPRINT_LINE].includes(o.material) && ![...accentMats.values()].includes(o.material)) o.material.dispose();
   });
 }
@@ -2707,7 +2710,7 @@ function planVisual(p) {
   p.group = g;
   planGroup.add(g);
 }
-const SHARED_GEOS = () => [POLE_GEO, ARM_GEO, SHEAVE_GEO, PAD_GEO, COLUMN_GEO, WHEEL_GEO, HOUSE_GEO, HUT_GEO, ROOF_GEO, CHAIR_GEO];
+const SHARED_GEOS = () => [POLE_GEO, ARM_GEO, SHEAVE_GEO, PAD_GEO, COLUMN_GEO, WHEEL_GEO, HOUSE_GEO, HUT_GEO, ROOF_GEO, ...Object.values(CHAIR_GEOS)];
 function removePlanVisual(p) {
   if (!p.group) return;
   planGroup.remove(p.group);
@@ -4181,7 +4184,7 @@ function guestPos(g) {
     liftPoint(L, p, _cp);
     const up = p < L.upLen, seats = LIFT_TYPES[L.type].seats;
     const dx = L.lay.dx / L.lay.hlen, dz = L.lay.dz / L.lay.hlen;
-    const off = (g.seat - (seats - 1) / 2) * 0.075 * (up ? 1 : -1);
+    const off = (g.seat - (seats - 1) / 2) * SEAT_W * (up ? 1 : -1);
     return { x: _cp.x - dz * off, y: _cp.y - 0.47 - 0.13 * figScale, z: _cp.z + dx * off, yaw: L.lay.heading + (up ? 0 : Math.PI), sy: 0.72 };
   }
   return { x: g.x, y: heightAt(g.x, g.z) + (g.onSkis ? 0.14 : 0.1), z: g.z, yaw: g.yaw, sy: 1 };
