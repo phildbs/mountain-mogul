@@ -3,7 +3,7 @@
 Build a ski resort on an untouched mountain: clear trees, cut trails, run chairlifts,
 and keep thousands of skiers happy through a full winter of weather.
 
-**Play:** https://phildbs.github.io/mountain-mogul/
+**Play:** https://mtmogul.com/
 
 ## How it's put together
 
@@ -19,7 +19,7 @@ and keep thousands of skiers happy through a full winter of weather.
 2. Authentication → Sign In / Providers → turn on **Allow anonymous sign-ins**
    (players start as guests, no sign-up needed). Email should already be on.
 3. Authentication → URL Configuration → set **Site URL** to
-   `https://phildbs.github.io/mountain-mogul/` and add the same address under
+   `https://mtmogul.com/` and add the same address under
    **Redirect URLs**, so email sign-in links come back to the game.
 
 The publishable key in `index.html` is meant to be public. Never put the secret or
