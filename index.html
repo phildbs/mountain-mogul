@@ -1099,11 +1099,32 @@ function generate(M) {
 const canvas = document.getElementById('view');
 const isCoarse = matchMedia('(pointer: coarse)').matches;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isCoarse ? 1.75 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isCoarse ? 1.5 : 2)); // phones: less GPU memory, fewer graphics resets
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
+
+// Phones sometimes reset the graphics chip (low memory, switching apps). The 3D view
+// then goes blank while the rest of the page keeps running, so save and reload
+// straight back into the game.
+let glLost = false;
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  if (glLost) return;
+  glLost = true;
+  setTimeout(recoverGraphics, 1500);
+});
+canvas.addEventListener('webglcontextrestored', () => { if (glLost) recoverGraphics(); });
+function recoverGraphics() {
+  if (!glLost) return;
+  glLost = false;
+  let then = null;
+  if (state.started && visiting) then = { visit: visiting.id, fromTitle: visiting.fromTitle };
+  else if (state.started && !practice) then = 'start';
+  try { if (!visiting) saveNow(); } catch (e) { /* ignore */ }
+  reloadInto(then, MOUNTAIN.id); // same terrain, then straight back to the game
+}
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(HAZE, 430, 640);
