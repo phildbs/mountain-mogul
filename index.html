@@ -152,7 +152,11 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
 .cm-profile input[type=text], .cm-profile input:not([type]) { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; }
 .cm-account { display: grid; gap: 8px; }
 .cm-email { display: flex; gap: 8px; margin-top: 8px; }
-.cm button { -webkit-user-select: none; user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.acctcard { width: min(380px, 100%); margin-top: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+.gbtn-host:empty { display: none; }
+.gbtn-host { min-height: 44px; display: flex; justify-content: center; }
+.acctcard .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.cm button, .acctcard button { -webkit-user-select: none; user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .btn.gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; color: #1f1f1f; border: 1px solid #dadce0; box-shadow: none; }
 .btn.gbtn:hover { background: #f8f9fb; }
 .btn.gbtn:disabled { opacity: 0.7; cursor: progress; }
@@ -249,13 +253,14 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
   padding-left: max(5vw, 16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 24px;
+  overflow-y: auto;
   transition: opacity 0.6s ease;
 }
 #title.out { opacity: 0; }
 #title > * { pointer-events: auto; }
 .wordmark {
   font-family: var(--display); font-weight: 900; text-transform: uppercase; color: var(--ink);
-  font-size: clamp(64px, 11vw, 148px); line-height: 0.82; letter-spacing: 0.005em; margin: 0;
+  font-size: clamp(56px, min(11vw, 14vh), 148px); line-height: 0.82; letter-spacing: 0.005em; margin: 0;
   text-shadow: 0 2px 30px rgba(232, 238, 246, 0.9);
 }
 .wordmark span { color: var(--accent); }
@@ -674,6 +679,7 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
         <button class="link" id="titleResetNo">Cancel</button>
       </div>
     </div>
+    <div class="panel acctcard" id="titleAcct" hidden></div>
   </div>
 
   <div class="modal-bg" id="community" hidden>
@@ -686,8 +692,6 @@ body.visiting .dock .tool:not(#tExplore):not(.toggle), body.visiting .dock .sep,
         <label class="pubrow"><input type="checkbox" id="cmPublic"><span><b>Public resort</b><small>Show it on the leaderboards so others can visit. Turn off to keep it to yourself.</small></span></label>
         <button class="btn" type="submit">Save profile</button>
       </form>
-      <div class="field-label">Your account</div>
-      <div id="cmAccount" class="cm-account"></div>
       <p class="help" id="cmStatus"></p>
       <button class="btn secondary" id="cmLoad" hidden>Load my newer cloud save</button>
       <div class="field-label">Leaderboards</div>
@@ -6359,8 +6363,9 @@ function setSession(session) {
   const u = session && session.user;
   const changed = (u ? u.id : null) !== CLOUD.uid;
   CLOUD.uid = u ? u.id : null;
-  CLOUD.email = (u && u.email) || '';
-  CLOUD.guest = !u || !!u.is_anonymous || !u.email;
+  const ids = (u && u.identities) || [];
+  CLOUD.email = (u && u.email) || ids.map((i) => i.identity_data && i.identity_data.email).find(Boolean) || '';
+  CLOUD.guest = !u || !!u.is_anonymous || (!CLOUD.email && !ids.length);
   CLOUD.viaGoogle = !!(u && (u.identities || []).some((i) => i.provider === 'google'));
   return changed;
 }
@@ -6386,7 +6391,7 @@ function readAuthReturn() {
     CLOUD.offerGoogleSignIn = true;
   } else CLOUD.authMsg = desc || 'Sign-in didn’t finish. Try again.';
   history.replaceState(null, '', location.pathname);
-  setTimeout(openCommunity, 300);
+
 }
 async function initCloud() {
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; refreshCommunity(); return; }
@@ -6428,7 +6433,7 @@ function cloudIsNewer() {
   return !!(m && (!local || (m.updatedAt || 0) > (local.savedAt || 0) + 60000));
 }
 function offerCloudSave() {
-  if (CLOUD.conflict) { toast('This account already has a resort. Open Community to choose which one to keep.'); return; }
+  if (CLOUD.conflict) { toast('This account already has a resort. Choose which one to keep on the title screen.'); return; }
   if (CLOUD.offered || visiting || !cloudIsNewer()) return;
   CLOUD.offered = true;
   toast('Your account has a newer save of your resort. Open Community to load it.');
@@ -6490,6 +6495,59 @@ function keepDeviceResort() {
   cloudSave(true);
   refreshCommunity();
 }
+/* Google's own sign-in button. It runs on this page, so Google names this site
+   (not the database address) and nobody leaves the game to sign in. The client
+   ID is public by design; the secret stays in Supabase. Without an ID the game
+   falls back to the redirect button above. */
+const GOOGLE_CLIENT_ID = '';
+let gisLoad = null, gisNonce = '';
+function loadGis() {
+  if (!gisLoad) gisLoad = new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
+    sc.onload = () => (window.google && window.google.accounts ? res(window.google) : rej(new Error('gis')));
+    sc.onerror = () => { gisLoad = null; rej(new Error('gis')); };
+    document.head.appendChild(sc);
+  });
+  return gisLoad;
+}
+async function sha256hex(t) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+  return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+async function mountGoogleButton() {
+  const host = $('gBtnHost');
+  if (!host || !GOOGLE_CLIENT_ID || host.dataset.done) return;
+  host.dataset.done = '1';
+  try {
+    const g = await loadGis();
+    gisNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (x) => x.toString(16).padStart(2, '0')).join('');
+    g.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, nonce: await sha256hex(gisNonce), callback: onGoogleCredential, ux_mode: 'popup', auto_select: false });
+    if (!document.body.contains(host)) return;
+    host.innerHTML = '';
+    g.accounts.id.renderButton(host, { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'rectangular', logo_alignment: 'center', width: Math.max(220, Math.min(400, host.clientWidth || 320)) });
+    const fb = $('cmGoogle'); if (fb) fb.hidden = true;
+  } catch (e) { host.dataset.done = ''; } // the redirect button stays as a fallback
+}
+async function onGoogleCredential(resp) {
+  const sb = CLOUD.sb;
+  if (!sb || !resp || !resp.credential) return;
+  if (visiting) returnHome();
+  saveNow();
+  CLOUD.authMsg = 'Signing in…'; refreshCommunity();
+  const args = { provider: 'google', token: resp.credential, nonce: gisNonce };
+  // A guest keeps their account (and resort) by linking Google to it.
+  let r = CLOUD.guest ? await sb.auth.linkIdentity(args) : null;
+  if (!r || r.error) r = await sb.auth.signInWithIdToken(args);
+  CLOUD.authMsg = r.error ? r.error.message : '';
+  if (!r.error && r.data && r.data.session) {
+    const switched = setSession(r.data.session);
+    if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; await loadMine(); await settleOwnership(); offerCloudSave(); }
+    toast(`Signed in as ${CLOUD.email || 'your Google account'}`);
+  }
+  accountCache = '';
+  refreshCommunity();
+}
 const GOOGLE_G = '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.7H9v3.3h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/><path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.4l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/></svg>';
 function accountHtml() {
   if (CLOUD.status !== 'live') return '';
@@ -6499,8 +6557,9 @@ function accountHtml() {
       <div class="row"><button class="btn" type="button" id="cmUseAccount">Play my account’s resort</button><button class="btn secondary" type="button" id="cmUseDevice">Keep this device’s resort</button></div>
       <p class="help">Keeping this device’s resort replaces the one in your account.</p>`;
   }
-  if (!CLOUD.guest) return `<p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your resort follows you to any device you sign in on. <button class="link" id="cmSignOut" type="button">Sign out</button></p>`;
-  return `<p class="help">You’re playing as a guest on this device. Sign in to keep your resort safe and play it on your other devices.</p>
+  if (!CLOUD.guest) return `<p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your resort follows you to any device. <button class="link" id="cmSignOut" type="button">Sign out</button></p>`;
+  return `<p class="help">Playing as a guest. Sign in to keep your resort safe and play it on any device.</p>
+    <div id="gBtnHost" class="gbtn-host"></div>
     <button class="btn gbtn" type="button" id="cmGoogle">${GOOGLE_G}<span>Continue with Google</span></button>
     ${CLOUD.offerGoogleSignIn ? '<button class="btn secondary" type="button" id="cmGoogleSignIn">Switch to that Google account’s resort</button>' : ''}
     <details class="cm-more"><summary>Use email instead</summary>
@@ -6550,18 +6609,21 @@ let accountCache = '';
 function refreshCommunity() {
   if (selected && selected.kind === 'community') renderSheet();
   refreshCommBtn();
-  if ($('community').hidden) return;
-  $('cmStatus').textContent = cloudNote();
-  $('cmLoad').hidden = !(CLOUD.ready && cloudIsNewer());
+  // The account card lives on the title screen.
   const acct = accountHtml() + (CLOUD.authMsg ? `<p class="help"><b>${esc(CLOUD.authMsg)}</b></p>` : '');
   if (acct !== accountCache) {
     const typed = $('cmEmail') ? $('cmEmail').value : '';
     const more = document.querySelector('.cm-more');
     const wasOpen = !!(more && more.open);
-    $('cmAccount').innerHTML = acct; accountCache = acct;
+    $('titleAcct').innerHTML = acct; accountCache = acct;
+    $('titleAcct').hidden = !acct;
+    mountGoogleButton();
     if ($('cmEmail')) $('cmEmail').value = typed;
     if (wasOpen && document.querySelector('.cm-more')) document.querySelector('.cm-more').open = true;
   }
+  if ($('community').hidden) return;
+  $('cmStatus').textContent = cloudNote();
+  $('cmLoad').hidden = !(CLOUD.ready && cloudIsNewer());
   const html = CLOUD.status === 'offline' ? '' : boardHtml(25);
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
 }
@@ -6584,7 +6646,7 @@ function onBoardClick(e) {
   else if (b.dataset.action === 'visit') visitResort(b.dataset.v);
 }
 $('cmBoard').addEventListener('click', onBoardClick);
-$('cmAccount').addEventListener('click', (e) => {
+$('titleAcct').addEventListener('click', (e) => {
   const id = e.target.id;
   const btn = e.target.closest('button');
   const bid = btn ? btn.id : id;
