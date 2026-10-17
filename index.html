@@ -6573,19 +6573,23 @@ $('tbGo').onclick = () => { if (state.phase === 'open') closeEarly(); else { aut
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
 $('rpNext').onclick = () => {
   if (state.phase !== 'report' && state.phase !== 'season') return;
-  if (state.phase === 'report') { autoDays = 0; cancelAuto(); }
+  if (state.phase === 'report') {
+    autoDays = 0; cancelAuto();
+    if (autoOn && autoAllowed()) return autoAdvance(); // with Auto on, starting the day carries on automatically
+  }
   nextDay();
 };
 
 /* ---------- Auto-advance: start the next day by itself, up to a week at a time ---------- */
-const AUTO_MAX = 7, AUTO_WAIT = 4; // days in a row; seconds to glance at the day report
+const AUTO_MAX = 7, AUTO_WAIT = 10; // days in a row; seconds before the next day starts (touching the report pauses it)
 let autoOn = (() => { try { return localStorage.getItem(SAVE_KEY + '.auto') === '1'; } catch (e) { return false; } })();
-let autoDays = 0, autoTimer = 0;
+let autoDays = 0, autoTimer = 0, autoPaused = false;
 const autoAllowed = () => autoOn && !visiting && !simulating && !state.bankrupt && !(practice && (state.tut || 0) < TUT_STEPS.length);
 function syncAuto() {
   $('tbAuto').setAttribute('aria-pressed', String(autoOn));
   $('rpAuto').checked = autoOn;
-  $('rpAutoText').textContent = !autoOn ? 'Auto-advance' : autoDays >= AUTO_MAX ? `Auto-advance paused after ${AUTO_MAX} days. Start the next one yourself.` : `Auto-advance · ${autoDays} of ${AUTO_MAX} days`;
+  $('rpAutoText').textContent = !autoOn ? 'Auto-advance' : autoDays >= AUTO_MAX ? `Auto-advance paused after ${AUTO_MAX} days. Start the next one yourself.`
+    : autoPaused ? 'Auto-advance paused while you read. Start the next day to carry on.' : `Auto-advance · ${autoDays} of ${AUTO_MAX} days`;
   $('rpAutoRow').hidden = state.phase !== 'report';
 }
 function setAuto(on) {
@@ -6601,6 +6605,7 @@ function cancelAuto() {
 }
 // Called whenever the day report appears: counts down, then starts and opens the next day.
 function armAuto() {
+  autoPaused = false;
   cancelAuto(); syncAuto();
   if (!autoAllowed() || state.phase !== 'report' || $('report').hidden || autoDays >= AUTO_MAX) return;
   let left = AUTO_WAIT;
@@ -6613,6 +6618,13 @@ function armAuto() {
   tick();
   autoTimer = setInterval(tick, 1000);
 }
+// Scrolling, tapping or typing on the day report means you're reading it: hold the countdown.
+function pauseAuto(e) {
+  if (!autoTimer || (e && e.target && e.target.closest && e.target.closest('#rpNext, #rpAutoRow'))) return;
+  cancelAuto(); autoPaused = true; syncAuto();
+}
+for (const ev of ['pointerdown', 'wheel', 'touchstart', 'keydown']) $('report').addEventListener(ev, pauseAuto, { passive: true });
+$('report').querySelector('.modal').addEventListener('scroll', pauseAuto, { passive: true });
 function autoAdvance() {
   autoDays++;
   nextDay();
@@ -7682,6 +7694,7 @@ const CHANGES = [
     'Guests ski longer: most stay into the late afternoon instead of heading home by 2 PM, and about one in five ski a half day.',
     'Staff costs per guest are lower to match, so longer days don’t sink a small resort.',
     'A re-centre button (or H) brings the view back to your resort, and typing in a text box no longer moves the map.',
+    'Auto-advance waits 10 seconds on the day report, and pauses as soon as you scroll or tap it so you can read.',
   ] },
   { v: '2.1', date: 'Oct 17, 2026', items: [
     'Share your resort: a link from the Community panel lets friends visit it, and start their own.',

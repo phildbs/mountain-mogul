@@ -1,5 +1,5 @@
 // Auto-advance starts up to seven days in a row, then waits for you.
-import { openGame, eq, SETUPS } from '../harness.mjs';
+import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(400);
@@ -15,7 +15,17 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`autoTimer`), 0, 'no countdown after seven days');
   eq(await g.ev(`/paused after 7/.test($('rpAutoText').textContent)`), true, 'says it paused');
   await g.click('#rpNext'); await g.wait(200);
-  eq(await g.ev(`state.phase + '/' + autoDays`), 'closed/0', 'manual start resets the count');
+  eq(await g.ev(`state.phase + '/' + autoDays`), 'open/1', 'a manual start resets the count and, with Auto on, opens the day');
+  // touching the report holds the countdown so it can be read
+  await g.ev(SETUPS.finishDay); await g.wait(300);
+  eq(await g.ev(`autoTimer !== 0`), true, 'countdown running');
+  assert(/auto in 10s|auto in 9s/.test(await g.ev(`$('rpNext').textContent`)), 'ten-second countdown');
+  await g.page.mouse.move(640, 300); await g.page.mouse.wheel(0, 200); await g.wait(300);
+  eq(await g.ev(`autoTimer`), 0, 'scrolling the report pauses it');
+  assert(/paused while you read/.test(await g.ev(`$('rpAutoText').textContent`)), 'says it paused');
+  eq(await g.ev(`$('rpNext').textContent`), 'Start the next day', 'button back to normal');
+  await g.click('#rpNext'); await g.wait(200);
+  eq(await g.ev(`state.phase`), 'open', 'Start carries on with Auto');
   await g.ev(`setAuto(false)`);
   eq(g.errors, [], 'no page errors');
   await g.page.close();
