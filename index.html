@@ -485,6 +485,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .rp-lines .h { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 6px; }
 .rp-lines span:nth-child(odd):not(.h) { color: var(--ink-2); }
 .rp-lines .tot { font-weight: 700; color: var(--ink) !important; border-top: 1px solid var(--line); padding-top: 5px; }
+.rp-tip { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 13.5px; line-height: 1.45; }
+.rp-tip b { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
+.rp-more summary { cursor: pointer; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
 .rp-notes { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13.5px; line-height: 1.45; }
 
 .meter { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
@@ -1835,14 +1838,20 @@ function updateCash(flash) {
   }
 }
 let toastTimer = 0;
+let warnUntil = 0; // a warning stays up until then; routine messages don't replace it
 function toast(msg, bad) {
   if (simulating) return;
+  const now = performance.now();
+  if (!bad && now < warnUntil) return;
   const t = $('toast');
   t.textContent = msg;
   t.classList.toggle('bad', !!bad);
   t.hidden = false; t.style.opacity = '1';
+  // Longer messages stay up longer; warnings longest.
+  const ms = Math.min(7000, 2600 + msg.length * 25) + (bad ? 1000 : 0);
+  if (bad) warnUntil = now + ms;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => { t.hidden = true; }, 260); }, 2600);
+  toastTimer = setTimeout(() => { t.style.opacity = '0'; setTimeout(() => { t.hidden = true; }, 260); }, ms);
 }
 
 function setTool(tool) {
@@ -6003,7 +6012,7 @@ function passBuyers(price) {
   return Math.round(pullOf(open, cap, new Set(open.map(trailSign)).size) * 0.55 * priceF * state.reputation);
 }
 function sellPasses() {
-  if (passesSoldThisSeason() || !state.passPrice || visiting) return;
+  if (passesSoldThisSeason() || !state.passPrice || visiting || practice) return;
   const sold = passBuyers(state.passPrice), revenue = sold * state.passPrice;
   state.passSale = { season: state.season, sold, price: state.passPrice };
   state.cash += revenue; today.rev.passes = revenue; today.passesSold = sold;
@@ -6037,7 +6046,7 @@ const LOAN_RATE = 0.10, LOAN_STEP = 250000, OVERDRAFT_FEE = 0.05, OFFSEASON_DAYS
 // What the bank will lend in total: more with a good reputation and a profitable best season.
 function creditLimit() {
   const best = Math.max(0, (state.records && state.records.bestSeasonProfit) || 0);
-  return Math.max(LOAN_STEP, Math.floor((1000000 * state.reputation + best) / LOAN_STEP) * LOAN_STEP);
+  return Math.max(LOAN_STEP, Math.floor((1000000 * state.reputation + best) / 50000) * 50000); // smooth steps, no cliffs
 }
 const canBorrow = () => Math.max(0, creditLimit() - state.debt);
 const dailyInterest = () => Math.round(state.debt * LOAN_RATE / 365);
@@ -6056,6 +6065,7 @@ function coverOverdraft() {
   state.reputation = clamp(state.reputation - 0.03, 0.5, 1.5);
   toast(`You ran out of cash. The bank covered ${money(short)} and added it to your loan with a ${money(fee)} fee.`, true);
   if (state.debt > CALL_IN * creditLimit()) crisis();
+  else if (state.debt > creditLimit()) toast(`The bank is getting nervous: you owe ${money(state.debt)}, over your ${money(creditLimit())} limit. Past ${money(CALL_IN * creditLimit())} it calls in the loan.`, true);
 }
 
 /* ---------- Developer tools: fast-forward days without drawing them ---------- */
@@ -6225,7 +6235,9 @@ function repay(amount) {
 function loanSection() {
   const avail = canBorrow(), owe = state.debt;
   const b = (amt, label) => `<button class="btn secondary" data-action="borrow" data-v="${amt}" ${amt <= avail ? '' : 'disabled'}>${label}</button>`;
+  const nervous = owe > creditLimit();
   return `<div class="field-label">Bank loan</div>
+    ${nervous ? `<ul class="problems"><li>The bank is nervous: you owe more than your ${money(creditLimit())} limit. Past ${money(CALL_IN * creditLimit())} it will call in the loan.</li></ul>` : ''}
     <dl class="kv">
       <div><dt>You owe</dt><dd>${money(owe)}</dd></div>
       <div><dt>Interest</dt><dd>${Math.round(LOAN_RATE * 100)}% a year${owe ? ` · ${money(dailyInterest())}/day` : ''}</dd></div>
@@ -6547,6 +6559,25 @@ let pricesOpen = false;
 sheet.addEventListener('toggle', (e) => { if (e.target.id === 'pricesDetails') pricesOpen = e.target.open; }, true);
 const repWordOf = (v) => (v < 0.8 ? 'Poor' : v < 0.95 ? 'Fair' : v < 1.1 ? 'Good' : v < 1.3 ? 'Great' : 'Excellent');
 const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
+// The day's single most valuable fix, judged by money (or guests) lost, so players know what to do next.
+function adviceFor(r) {
+  const c = r.complaints || {}, has = (t) => world.buildings.some((B) => B.type === t), P = state.prices;
+  const greens = world.trails.some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
+  const tips = [
+    [r.turnedAway * (state.ticket + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * state.ticket)} in tickets. Add parking from the Resort panel (tap your cash), or build a shuttle station.`],
+    [(c.noRental || 0) * P.rental, !has('rental') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
+    [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
+    [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
+    [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
+    [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
+    [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
+    [(c.boring || 0) * 10, `${c.boring} strong skiers found too little challenging terrain. A steeper trail would bring them back.`],
+    [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
+    [(r.rev.refunds || 0), `${money(r.rev.refunds || 0)} in tickets was refunded to guests who never got on a lift. More lift capacity from the base would help.`],
+  ].filter(([v, t]) => t && v >= 500);
+  tips.sort((a, b) => b[0] - a[0]);
+  return tips.length ? tips[0][1] : '';
+}
 function showReport() {
   if (simulating) return;
   const r = state.lastReport;
@@ -6555,7 +6586,9 @@ function showReport() {
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking + rv.passes - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
+  const tip = adviceFor(r), NOTES_SHOWN = 5;
   const notes = [];
+  if (state.debt > creditLimit()) notes.push(`<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
   if (r.goals && r.goals.length) notes.unshift(...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.passGuests) notes.push(`${r.passGuests} guests skied on season passes.`);
   if (r.wx) notes.push(`${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
@@ -6602,7 +6635,9 @@ function showReport() {
       ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
-    ${notes.length ? `<ul class="rp-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+    ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
+    ${notes.length ? `<ul class="rp-notes">${notes.slice(0, NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+    ${notes.length > NOTES_SHOWN ? `<details class="rp-more"><summary>More about today (${notes.length - NOTES_SHOWN})</summary><ul class="rp-notes">${notes.slice(NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul></details>` : ''}
     <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>`;
   $('report').hidden = false;
   $('rpNext').focus({ preventScroll: true });
@@ -7491,6 +7526,8 @@ const CHANGES = [
     'Goals: five per mountain, from your first open day to a season in profit. Earn stars that show on your mountain card, in your list and on the leaderboards.',
     'Season passes: set a price in the Resort panel. Passes sell on opening day for cash up front; pass holders then ski free, mostly on busy days.',
     'Each mountain draws its own crowd. Raven Peak attracts stronger skiers but fewer visitors, and costs more to run.',
+    'The day report now gives one tip: the fix most likely to pay off, with what it’s costing you.',
+    'The bank warns you when you owe more than your limit, before it calls in the loan.',
   ] },
   { v: '1.9', date: 'Oct 17, 2026', items: [
     'Auto-advance: turn on Auto next to the speed buttons (or on the day report) and each new day starts and opens by itself, up to 7 days in a row.',
