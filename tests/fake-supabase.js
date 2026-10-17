@@ -9,10 +9,19 @@
   const mkUser = (id, anon, email) => { const d = db(); d.users[id] = { anon }; put(d); return { id, is_anonymous: anon, email: email || '', identities: anon ? [] : [{ provider: 'google', identity_data: { email } }] }; };
   const uid = () => (sess() || {}).user?.id;
   window.__fakeSwitch = (id, email) => { const s = { user: mkUser(id, false, email) }; setSess(s); listeners.forEach((f) => f('SIGNED_IN', s)); };
-  function query() {
+  function query(table) {
     const q = { filters: [], op: 'select', cols: '*' };
     const run = () => {
       const d = db(), me = uid();
+      // feedback: anyone signed in (guests too) can send; nobody can read it back
+      if (table === 'feedback') {
+        if (q.op !== 'insert') return { data: null, error: { code: '42501', message: 'permission denied for table feedback' } };
+        if (!me) return { data: null, error: { code: '42501', message: 'not signed in' } };
+        const m = String(q.obj.message || '');
+        if (m.length < 1 || m.length > 2000) return { data: null, error: { code: '23514', message: 'check constraint' } };
+        (d.feedback || (d.feedback = [])).push({ user_id: me, message: m, context: q.obj.context, created_at: new Date().toISOString() });
+        put(d); return { data: null, error: null };
+      }
       if (q.op === 'upsert') {
         const o = q.obj, ex = d.rows.find((r) => r.id === o.id);
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }
@@ -33,6 +42,7 @@
     const b = {
       select(c) { q.cols = c; return b; }, eq(c, v) { q.filters.push([c, v]); return b; }, order() { return b; }, limit() { return b; },
       maybeSingle() { q.single = true; return b; }, upsert(o) { q.op = 'upsert'; q.obj = o; return b; }, delete() { q.op = 'delete'; return b; },
+      insert(o) { q.op = 'insert'; q.obj = o; return b; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
     };
     return b;
@@ -46,6 +56,6 @@
       linkIdentity: async () => ({ error: { message: 'no' } }), signInWithIdToken: async () => ({ error: { message: 'no' } }),
       signInWithOAuth: async () => ({ error: { message: 'no' } }), updateUser: async () => ({ error: null }), signInWithOtp: async () => ({ error: null }),
     },
-    from: () => query(),
+    from: (table) => query(table),
   }) };
 })();

@@ -82,3 +82,33 @@ create trigger mountains_limit before insert on public.mountains
 update public.mountains m set public = false
 from auth.users u
 where u.id = m.owner and u.is_anonymous and m.public;
+
+-- Player feedback from the in-game form: a note plus a snapshot of the game.
+-- Players (guests included) can send it but never read it; read it in the dashboard.
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  user_id uuid default auth.uid() references auth.users (id) on delete set null,
+  message text not null check (char_length(message) between 1 and 2000),
+  context jsonb not null default '{}'::jsonb check (pg_column_size(context) < 8000)
+);
+alter table public.feedback enable row level security;
+drop policy if exists "send feedback" on public.feedback;
+create policy "send feedback" on public.feedback
+  for insert to authenticated with check (user_id = auth.uid());
+grant insert on public.feedback to authenticated;
+
+-- At most 10 notes an hour from one player, so the form can't be used to flood the table.
+create or replace function public.feedback_limit()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  if (select count(*) from public.feedback where user_id = new.user_id and created_at > now() - interval '1 hour') >= 10 then
+    raise exception 'feedback_limit';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists feedback_limit on public.feedback;
+create trigger feedback_limit before insert on public.feedback
+  for each row execute function public.feedback_limit();

@@ -330,7 +330,10 @@ body.visiting .badge { cursor: default; }
 .slots li.ask { flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
 .slots li.ask .yes { border: 0; background: var(--steep); color: #fff; font-weight: 600; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
 .slotcard > .link { justify-self: start; }
-.vtag { margin-top: 12px; align-self: flex-start; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font: 600 12px var(--ui); padding: 5px 10px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(6px); }
+.vtags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+#feedbackBox textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font: 500 14px/1.45 var(--ui); color: var(--ink); background: #fff; resize: vertical; }
+#feedbackBox .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.vtag { align-self: flex-start; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); font: 600 12px var(--ui); padding: 5px 10px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(6px); }
 .vtag:hover { color: var(--ink); }
 .vtag b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .wn-list { display: grid; gap: 14px; margin: 0; }
@@ -595,7 +598,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   .tb-go { grid-area: go; justify-self: end; }
   .commbtn { top: auto; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); right: auto; left: calc(12px + env(safe-area-inset-left, 0px)); padding: 7px 10px; font-size: 12px; }
   body.sheet-open .commbtn, body.visiting .commbtn { display: none; }
-  .visitbar { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; transform: none; font-size: 12.5px; }
+  .visitbar { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; transform: none; font-size: 12.5px; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .visitbar span { white-space: normal; flex: 1 1 100%; }
+  .visitbar .btn { flex: 1 1 100%; padding: 10px; }
   .dock { left: calc(8px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); transform: none; max-width: none; gap: 2px; padding: 4px; }
   .dock .tool { min-width: 0; flex: 1 1 0; padding: 6px 1px 5px; font-size: 9.5px; line-height: 1.15; text-align: center; }
   .dock .sep { display: none; }
@@ -630,6 +635,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mComm">Profile and community</button>
           <button id="mTitle">Back to title screen</button>
           <button id="mGoalsMenu">Goals</button>
+          <button id="mFeedback">Send feedback</button>
           <button id="mHint">Show controls</button>
           <button id="mSim" hidden>Simulate (dev)</button>
           <button id="mReset" class="danger">Start this mountain over</button>
@@ -744,6 +750,15 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="toast" id="toast" hidden></div>
   </div>
 
+  <div class="modal-bg" id="feedbackBox" hidden>
+    <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+      <div class="cm-head"><div><div class="eyebrow">Help make the game better</div><h2 id="fbTitle">Send feedback</h2></div><button class="x" id="fbClose" aria-label="Close">✕</button></div>
+      <p class="help">What’s confusing, what’s fun, what’s broken? Your note is sent with a snapshot of your game (mountain, date, money and resort size) so problems can be tracked down. Only the developer reads it.</p>
+      <textarea id="fbText" maxlength="2000" rows="6" placeholder="I couldn’t figure out how to…"></textarea>
+      <div class="row"><button class="btn" id="fbSend">Send</button><span class="help" id="fbMsg"></span></div>
+    </div>
+  </div>
+
   <div class="modal-bg" id="goalsBox" hidden>
     <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="glTitle">
       <div class="cm-head"><div><div class="eyebrow">Goals</div><h2 id="glTitle">Stars to earn</h2></div><button class="x" id="glClose" aria-label="Close">✕</button></div>
@@ -799,7 +814,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button id="titleComm"><b>Community</b><span>Leaderboards and other players’ resorts</span></button>
     </div>
     <div class="panel acctcard" id="titleAcct" hidden></div>
-    <button class="vtag" id="versionTag" type="button"></button>
+    <div class="vtags"><button class="vtag" id="versionTag" type="button"></button><button class="vtag" id="fbLink" type="button">Send feedback</button></div>
   </div>
 
   <div class="modal-bg" id="whatsNew" hidden>
@@ -820,6 +835,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
         <button class="btn" type="submit">Save profile</button>
       </form>
       <p class="help" id="cmStatus"></p>
+      <button class="btn secondary" id="cmShare" hidden>Share my resort</button>
       <div class="field-label">Leaderboards</div>
       <div id="cmBoard"></div>
     </div>
@@ -3128,6 +3144,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'visit') visitResort(b.dataset.v);
   else if (a === 'profile') openCommunity();
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
+  else if (a === 'share') shareResort();
   else if (a === 'exitTool') setTool('explore');
   else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'rotB') { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
@@ -7140,13 +7157,45 @@ function afterLoad() {
   refreshCommBtn();
   updateCamera();
 }
-async function visitResort(id) {
+/* ---------- Share links: mtmogul.com/?visit=<resort id> opens a visit to that resort ---------- */
+const LINK_VISIT = (() => {
+  const q = new URLSearchParams(location.search), id = q.get('visit');
+  if (id) { q.delete('visit'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+  return id && /^[\w-]{8,64}$/.test(id) ? id : null;
+})();
+const shareUrl = (id) => `${location.origin}${location.pathname}?visit=${encodeURIComponent(id)}`;
+async function fetchSummary(id) {
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary').eq('id', id).maybeSingle();
+  return error || !data ? null : { ...data.summary, id: data.id, owner: data.owner };
+}
+// Opened from a share link: visit that resort, or explain why not.
+async function visitFromLink(id) {
+  if (id === slots.active) return;
+  let m = CLOUD.mountains.find((x) => x.id === id);
+  if (!m) { try { m = await fetchSummary(id); } catch (e) { m = null; } if (m) CLOUD.mountains.push(m); }
+  if (!m) { toast('That resort is private now, or it no longer exists.', true); return; }
+  visitResort(id, { link: true });
+}
+async function shareResort() {
+  if (!CLOUD.ready) { toast('Can’t reach the server right now, so there’s no link to share.', true); return; }
+  if (CLOUD.guest) { toast('Sign in on the title screen to share your resort. Guest resorts stay private.', true); return; }
+  if (!isPublic()) { toast('Your resort is private. Make it public in Profile and settings to share it.', true); return; }
+  if (!slots.active || state.devRun) { toast('This resort can’t be shared.', true); return; }
+  CLOUD.lastUp = 0;
+  await cloudSave(false);
+  if (!(CLOUD.own || []).some((m) => m.id === slots.active)) { toast(CLOUD.error || 'Your resort hasn’t saved online yet. Try again in a moment.', true); return; }
+  const url = shareUrl(slots.active), text = `Come see ${state.resortName}, my ski resort in Mountain Mogul!`;
+  if (navigator.share && isCoarse) { navigator.share({ title: 'Mountain Mogul', text, url }).catch(() => {}); return; }
+  try { await navigator.clipboard.writeText(url); toast(`Link copied: ${url}`); }
+  catch (e) { toast(`Share this link: ${url}`); }
+}
+async function visitResort(id, opts = {}) {
   if (!CLOUD.ready || id === slots.active) return;
   const m = CLOUD.mountains.find((x) => x.id === id);
   const fromTitle0 = visiting ? visiting.fromTitle : !state.started;
   if (m && (m.mt || 'juniper') !== MOUNTAIN.id) {
     if (!visiting && onThisMountain()) saveNow();
-    reloadInto({ visit: id, fromTitle: fromTitle0 }, m.mt || 'juniper');
+    reloadInto({ visit: id, fromTitle: fromTitle0, link: !!opts.link }, m.mt || 'juniper');
     return;
   }
   toast(`Heading to ${m ? m.name : 'their resort'}…`);
@@ -7158,7 +7207,7 @@ async function visitResort(id) {
   clearTimeout(CLOUD.upTimer);
   $('community').hidden = true;
   setTool('explore');
-  visiting = { id, name: (m && m.name) || 'A resort', fromTitle };
+  visiting = { id, name: (m && m.name) || 'A resort', fromTitle, link: !!(opts.link || (BOOT.then && BOOT.then.visit === id && BOOT.then.link)) };
   document.body.classList.add('visiting');
   select(null);
   applySave(sv);
@@ -7167,6 +7216,7 @@ async function visitResort(id) {
   $('resortName').textContent = visiting.name;
   $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
   $('visitBar').hidden = false;
+  $('visitHome').textContent = visiting.link ? 'Build your own resort' : 'Back to title';
   if (!state.started) startGame(null);
   afterLoad();
 }
@@ -7260,7 +7310,9 @@ async function initCloud() {
     await loadMine();
     await settleAccount();
     offerCloudSave();
-    if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); } else loadBoard(true);
+    if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
+    else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
+    else loadBoard(true);
     refreshCommunity();
     if (state.phase !== 'open') scheduleCloud();
   } catch (e) {
@@ -7432,7 +7484,7 @@ function communitySheet() {
     : mine >= 0 ? `<p class="help">${esc(state.resortName)} is <b>#${mine + 1}</b> of ${r.length} for ${B.label.toLowerCase()}${listed() ? '' : ' (only you see this)'}.</p>` : '';
   return `${head}${lead}${boardHtml(15)}
     <p class="help">${esc(cloudNote())}</p>
-    <div class="row"><button class="btn secondary" data-action="profile">Profile and settings</button>${CLOUD.ready ? `<button class="btn secondary" data-action="cloudNow" ${state.phase === 'open' || visiting ? 'disabled' : ''}>Save now</button>` : ''}</div>`;
+    <div class="row"><button class="btn secondary" data-action="profile">Profile and settings</button>${!visiting && !practice ? '<button class="btn secondary" data-action="share">Share my resort</button>' : ''}${CLOUD.ready ? `<button class="btn secondary" data-action="cloudNow" ${state.phase === 'open' || visiting ? 'disabled' : ''}>Save now</button>` : ''}</div>`;
 }
 // Title screen (and menu): the full community window with your profile.
 function fillProfile() {
@@ -7459,6 +7511,7 @@ function refreshCommunity() {
   }
   if ($('community').hidden) return;
   $('cmStatus').textContent = cloudNote();
+  $('cmShare').hidden = !CLOUD.ready || CLOUD.guest || visiting || practice || !slots.active;
   const html = CLOUD.status === 'offline' ? '' : boardHtml(25);
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
 }
@@ -7602,6 +7655,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.1', date: 'Oct 17, 2026', items: [
+    'Share your resort: a link from the Community panel lets friends visit it, and start their own.',
+    'Send feedback from the menu or the title screen. Tell us what’s confusing, fun or broken.',
+  ] },
   { v: '2.0', date: 'Oct 17, 2026', items: [
     'Goals: five per mountain, from your first open day to a season in profit. Earn stars that show on your mountain card, in your list and on the leaderboards.',
     'Season passes: set a price in the Resort panel. Passes sell on opening day for cash up front; pass holders then ski free, mostly on busy days.',
@@ -7657,6 +7714,44 @@ const CHANGES = [
 ];
 const VERSION = CHANGES[0].v;
 $('versionTag').innerHTML = `<b>v${VERSION}</b> · What’s new`;
+/* ---------- Feedback: a note plus a snapshot of the game, readable only by the developer ---------- */
+let fbSentAt = 0;
+function openFeedback() {
+  closeMenu();
+  $('fbMsg').textContent = '';
+  $('feedbackBox').hidden = false;
+  setTimeout(() => $('fbText').focus(), 50);
+}
+function feedbackContext() {
+  return {
+    v: VERSION, mt: MOUNTAIN.id, resort: state.resortName, started: !!state.started, season: state.season, date: dateLabel(state.day),
+    phase: state.phase, cash: Math.round(state.cash), debt: Math.round(state.debt || 0), lifts: world.lifts.length, trails: world.trails.length,
+    buildings: world.buildings.length, lastGuests: state.lastReport ? state.lastReport.guests : null, stars: starsOf(), rep: Math.round(state.reputation * 100) / 100,
+    tutorial: practice, visiting: !!visiting, guest: CLOUD.guest, screen: `${innerWidth}x${innerHeight}`, touch: isCoarse, ua: navigator.userAgent.slice(0, 160),
+  };
+}
+async function sendFeedback() {
+  const text = $('fbText').value.trim();
+  const say = (t) => { $('fbMsg').textContent = t; };
+  if (text.length < 3) return say('Write a few words first.');
+  if (Date.now() - fbSentAt < 30000) return say('Thanks! Give it a moment before sending another.');
+  if (!CLOUD.ready) return say('Can’t reach the server right now. Try again later.');
+  $('fbSend').disabled = true; say('Sending…');
+  let error = null;
+  try { ({ error } = await CLOUD.sb.from('feedback').insert({ message: text.slice(0, 2000), context: feedbackContext() })); } catch (e) { error = e; }
+  $('fbSend').disabled = false;
+  if (error) return say('Couldn’t send it right now. Please try again later.');
+  fbSentAt = Date.now();
+  $('fbText').value = '';
+  say('Sent. Thank you!');
+}
+$('mFeedback').onclick = openFeedback;
+$('fbLink').onclick = openFeedback;
+$('fbSend').onclick = sendFeedback;
+$('fbClose').onclick = () => { $('feedbackBox').hidden = true; };
+$('feedbackBox').addEventListener('click', (e) => { if (e.target.id === 'feedbackBox') $('feedbackBox').hidden = true; });
+$('cmShare').onclick = shareResort;
+
 $('versionTag').onclick = () => {
   $('wnList').innerHTML = CHANGES.map((c) => `<section><h3>Version ${c.v}<span>${c.date}</span></h3><ul>${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('');
   $('whatsNew').hidden = false;
