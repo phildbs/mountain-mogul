@@ -41,12 +41,16 @@ export default async function ({ browser, url }) {
 
   // stars persist and show on the title and in the list
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
-  eq(await g.ev(`$('mGoals').textContent.trim()`), '★☆☆☆☆ 1 of 5 goals', 'title shows one star');
-  assert(/★1/.test(await g.ev(`$('titleSlots').innerText`)), 'mountain list shows the star');
+  // the first day can also earn other goals (a happy crowd, say), so count rather than assume one
+  const n = await g.ev(`starsOf()`);
+  assert(n >= 1, 'at least one star');
+  eq(await g.ev(`$('mGoals').textContent.trim()`), `${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n} of 5 goals`, 'title shows the stars');
+  assert(new RegExp(`★${n}`).test(await g.ev(`$('titleSlots').innerText`)), 'mountain list shows the stars');
   await g.page.reload(); await g.reloaded();
-  eq(await g.ev(`starsOf() + '/' + state.passPrice + '/' + state.passSale.sold`), `1/0/${sale.sold}`, 'goals and passes survive a reload');
+  eq(await g.ev(`starsOf() + '/' + state.passPrice + '/' + state.passSale.sold`), `${n}/0/${sale.sold}`, 'goals and passes survive a reload');
   await g.click('#mGoals'); await g.wait(200);
-  eq(await g.ev(`document.querySelectorAll('#glBody li.done').length`), 1, 'goals list marks the done goal');
+  eq(await g.ev(`document.querySelectorAll('#glBody li.done').length`), n, 'goals list marks the done goals');
+  assert(/Best so far: \d+ of 400 guests/.test(await g.ev(`$('glBody').innerText`)), 'goals list shows progress');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

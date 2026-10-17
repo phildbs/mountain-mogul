@@ -459,10 +459,16 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .cr-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .stars { color: #d99a14; letter-spacing: 0.05em; font-weight: 700; }
 .goal-link { margin-left: 4px; }
+.event { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.event > div { flex: 1; display: grid; gap: 2px; font-size: 13px; }
+.event span { color: var(--ink-2); font-size: 12.5px; line-height: 1.4; }
+.event .why { color: var(--steep); }
+.event .btn { padding: 7px 10px; font-size: 12.5px; white-space: nowrap; }
 .goals { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .goals li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; }
 .goals li > span:last-child { display: grid; gap: 2px; font-size: 13.5px; }
 .goals li > span:last-child span { color: var(--ink-2); font-size: 13px; }
+.goals .gprog { font-size: 12px; color: var(--accent); font-weight: 600; }
 .goals .gstar { font-size: 20px; line-height: 1; color: #c9ced6; }
 .goals li.done .gstar { color: #d99a14; }
 .rp-goal { color: #a8700a; }
@@ -1693,7 +1699,7 @@ function saveData(withSim) {
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -3152,11 +3158,13 @@ sheet.addEventListener('click', (e) => {
     renderSheet(); scheduleSave();
   }
   else if (a === 'price') { state.ticket = clamp(state.ticket + +b.dataset.d, 10, 250); renderSheet(); scheduleSave(); }
+  else if (a === 'pricePeak') { state.ticketPeak = clamp((state.ticketPeak ?? state.ticket) + +b.dataset.d, 10, 300); renderSheet(); scheduleSave(); }
   else if (a === 'passPrice') {
     const d = +b.dataset.d, p = state.passPrice;
     state.passPrice = d > 0 ? (p ? Math.min(999, p + d) : 199) : (p <= 199 ? 0 : p + d);
     renderSheet(); scheduleSave();
   }
+  else if (a === 'bookEvent') bookEvent(b.dataset.v);
   else if (a === 'borrow') borrow(+b.dataset.v);
   else if (a === 'buyout' && state.investor) {
     const cost = Math.round(state.investor.paid * BUYOUT);
@@ -3415,7 +3423,7 @@ const STAFF_DAY = 5000, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -3708,9 +3716,9 @@ function baseSkiable() {
 }
 // Guests who never got a single ride get their ticket money back.
 function refundGuest(g, why) {
-  if (g.refunded || g.runs > 0) return;
+  if (g.refunded || g.runs > 0 || g.pass) return;
   g.refunded = true;
-  const amt = state.ticket * AGENT;
+  const amt = (g.paid ?? state.ticket) * AGENT;
   state.cash -= amt; today.refunds = (today.refunds || 0) + amt; today.refunded = (today.refunded || 0) + AGENT;
   g.sat = clamp(g.sat - 18, 0, 100);
   thought(g, why || 'No lifts running for me today. At least I got a refund.');
@@ -3792,6 +3800,9 @@ function endOfTrail(g) {
 }
 
 /* ---------- Arrivals ---------- */
+// Lift tickets can cost more on weekends and holidays, when crowds are biggest.
+const peakDay = (day) => { const d = dateOf(day), w = d.getUTCDay(); return w === 0 || w === 6 || !!holidayOf(d); };
+const ticketOn = (day) => (state.ticketPeak != null && peakDay(day) ? state.ticketPeak : state.ticket);
 // How many people a resort of this size and variety draws on a normal weekend day.
 const pullOf = (open, cap, variety) => (110 + 140 * Math.pow(open.length, 0.65) + cap / 14 + variety * 40) * MOUNTAIN.draw;
 let dayPull = 1; // today's draw relative to an ordinary weekend day (weekdays less, holidays and powder more)
@@ -3805,7 +3816,7 @@ function demandForDay() {
   let f = dow === 0 || dow === 6 ? 1 : dow === 5 ? 0.7 : 0.4;
   if (holidayOf(d)) f = 1.55;
   const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : 1;
-  const priceF = clamp(Math.exp(-(state.ticket - 65) / 65 * 1.8), 0.12, 1.6);
+  const priceF = clamp(Math.exp(-(ticketOn(state.day) - 65) / 65 * 1.8), 0.12, 1.6);
   const has = (t) => world.buildings.some((B) => B.type === t);
   let amen = has('lodge') ? 1.08 : 0.9;
   if (has('restaurant')) amen += 0.05;
@@ -3829,7 +3840,9 @@ function demandForDay() {
   }
   const openFrac = open.length / Math.max(1, world.trails.length);
   amen *= wxF * (0.45 + 0.55 * openFrac);
-  return Math.min(MAX_G * AGENT, Math.round(base * f * season * priceF * amen * parkF * state.reputation * (0.9 + Math.random() * 0.2)));
+  const ev = eventToday();
+  if (ev) dayPull *= EVENTS[ev.type].boost;
+  return Math.min(MAX_G * AGENT, Math.round(base * f * season * priceF * amen * parkF * state.reputation * (ev ? EVENTS[ev.type].boost : 1) * (0.9 + Math.random() * 0.2)));
 }
 function gaussian() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random()); }
 function makeSchedule(n) {
@@ -4158,6 +4171,8 @@ function endDay() {
   const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
+  const evToday = eventToday();
+  if (evToday && today.satN && sat >= 65) state.reputation = clamp(state.reputation + EVENTS[evToday.type].rep, 0.5, 1.5);
   let busiest = null;
   for (const L of world.lifts) {
     const n = today.liftRiders[L.id] || 0;
@@ -4166,6 +4181,7 @@ function endDay() {
   let popular = null;
   for (const t of world.trails) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
+    event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
@@ -4203,6 +4219,7 @@ function waitDay() {
 function nextDay() {
   if (state.phase === 'season') return enterSummer();
   state.day++; state.phase = 'closed'; state.time = DAY_OPEN;
+  if (state.event && state.day > Math.max(...state.event.days)) state.event = null;
   $('report').hidden = true;
   advanceWeather();
   startOfDaySnow();
@@ -5968,20 +5985,22 @@ const openSigns = () => world.trails.filter((t) => runnable(t) && t.reachable &&
 const GOALS = {
   juniper: [
     { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
-    { id: 'crowd400', title: 'Full house', how: 'Welcome 400 guests in one day.', day: (r) => r.guests >= 400 },
-    { id: 'mix', title: 'Something for everyone', how: 'Have green, blue and black trails all open on the same day.', day: () => { const s = new Set(openSigns()); return s.has(0) && s.has(1) && (s.has(2) || s.has(3)); } },
+    { id: 'crowd400', title: 'Full house', how: 'Welcome 400 guests in one day.', day: (r) => r.guests >= 400, prog: () => `Best so far: ${bestGuests()} of 400 guests.` },
+    { id: 'mix', title: 'Something for everyone', how: 'Have green, blue and black trails all open on the same day.', day: () => { const s = new Set(openSigns()); return s.has(0) && s.has(1) && (s.has(2) || s.has(3)); },
+      prog: () => { const s = new Set(openSigns()); const miss = [!s.has(0) && 'green', !s.has(1) && 'blue', !(s.has(2) || s.has(3)) && 'black'].filter(Boolean); return miss.length ? `Missing right now: ${miss.join(', ')}.` : 'All three are open now. It counts at the end of an open day.'; } },
     { id: 'happy', title: 'Happy campers', how: 'Reach 75% satisfaction on a day with 200 or more guests.', day: (r) => r.guests >= 200 && r.sat >= 75 },
     { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
   ],
   raven: [
     { id: 'bowl', title: 'Into the bowl', how: 'Run a lift that tops out above the trees.', day: () => world.lifts.some((L) => L.open && heightAt(L.b.x, L.b.z) / VEX > MOUNTAIN.treeline) },
-    { id: 'crowd600', title: 'Big day', how: 'Welcome 600 guests in one day.', day: (r) => r.guests >= 600 },
-    { id: 'experts', title: 'Expert’s mountain', how: 'Have three black diamond trails open on the same day.', day: () => openSigns().filter((g) => g >= 2).length >= 3 },
+    { id: 'crowd600', title: 'Big day', how: 'Welcome 600 guests in one day.', day: (r) => r.guests >= 600, prog: () => `Best so far: ${bestGuests()} of 600 guests.` },
+    { id: 'experts', title: 'Expert’s mountain', how: 'Have three black diamond trails open on the same day.', day: () => openSigns().filter((g) => g >= 2).length >= 3, prog: () => `Black diamonds open now: ${openSigns().filter((g) => g >= 2).length} of 3.` },
     { id: 'profit', title: 'Weathered it', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
     { id: 'clean', title: 'No strings attached', how: 'Finish a season owing nothing and without Bucky’s help.', season: () => !state.debt && !state.investorUsed },
   ],
 };
 const goalList = () => GOALS[MOUNTAIN.id] || [];
+const bestGuests = () => (state.records && state.records.bestGuests) || 0;
 const starsOf = () => goalList().filter((G) => state.goals && state.goals[G.id]).length;
 const starText = (n, max) => '★'.repeat(n) + '☆'.repeat(Math.max(0, max - n));
 function checkGoals(kind, x) {
@@ -5995,8 +6014,55 @@ function openGoals() {
   closeMenu();
   const n = starsOf(), all = goalList();
   $('glBody').innerHTML = `<p class="help">${esc(MOUNTAIN.name)} · <span class="stars">${starText(n, all.length)}</span> ${n} of ${all.length}</p>
-    <ul class="goals">${all.map((G) => { const d = state.goals && state.goals[G.id]; return `<li class="${d ? 'done' : ''}"><span class="gstar">${d ? '★' : '☆'}</span><span><b>${esc(G.title)}</b><span>${esc(G.how)}${d ? ` Done in season ${d.season}.` : ''}</span></span></li>`; }).join('')}</ul>`;
+    <ul class="goals">${all.map((G) => { const d = state.goals && state.goals[G.id]; return `<li class="${d ? 'done' : ''}"><span class="gstar">${d ? '★' : '☆'}</span><span><b>${esc(G.title)}</b><span>${esc(G.how)}${d ? ` Done in season ${d.season}.` : ''}</span>${!d && G.prog ? `<small class="gprog">${esc(G.prog())}</small>` : ''}</span></li>`; }).join('')}</ul>`;
   $('goalsBox').hidden = false;
+}
+
+/* ---------- Events: book a special day to pull a bigger crowd ---------- */
+const EVENTS = {
+  race: { name: 'Race weekend', cost: 30000, boost: 1.3, rep: 0.03, weekend: true, blurb: 'Racers and spectators all weekend. Needs an open black diamond.',
+    ok: () => openSigns().some((g) => g >= 2) || 'Needs an open black diamond trail.' },
+  torch: { name: 'Torchlight parade', cost: 20000, boost: 1.25, rep: 0.02, blurb: 'Fireworks and a torchlit descent for the holiday crowd.',
+    ok: (day) => { const d = dateOf(day), m = d.getUTCMonth(), dd = d.getUTCDate(); return (m === 11 && dd >= 15) || (m === 0 && dd <= 10) || 'Only during the holidays, mid-December to January 10.'; } },
+  pond: { name: 'Pond skim', cost: 15000, boost: 1.35, rep: 0.02, blurb: 'Costumed skiers try to cross a meltwater pond. A spring classic.',
+    ok: (day) => dateOf(day).getUTCMonth() >= 2 && dateOf(day).getUTCMonth() < 5 || 'Only in spring, from March.' },
+};
+const eventToday = () => (state.event && state.event.days.includes(state.day) && !state.summer ? state.event : null);
+// The first Saturday at least two days away, so there's time to get ready.
+function nextSaturday() {
+  for (let d = state.day + 2; d <= state.day + 9; d++) if (dateOf(d).getUTCDay() === 6) return d;
+  return null;
+}
+function eventSlot(type) {
+  const E = EVENTS[type], sat = nextSaturday();
+  const held = state.eventsHeld && state.eventsHeld.season === state.season && state.eventsHeld.types.includes(type);
+  if (held) return { why: 'Already held this season.' };
+  if (state.summer || sat == null || sat > SPRING_LAST - 1) return { why: 'Not this late in the season.' };
+  const ok = E.ok(sat);
+  if (ok !== true) return { why: ok };
+  return { days: E.weekend ? [sat, sat + 1] : [sat] };
+}
+function bookEvent(type) {
+  const E = EVENTS[type], slot = eventSlot(type);
+  if (!slot.days || state.event || state.cash < E.cost) return;
+  state.cash -= E.cost;
+  state.event = { type, days: slot.days };
+  const h = state.eventsHeld && state.eventsHeld.season === state.season ? state.eventsHeld : (state.eventsHeld = { season: state.season, types: [] });
+  h.types.push(type);
+  updateCash(true); renderSheet(); scheduleSave();
+  toast(`${E.name} booked for ${dateLabel(slot.days[0])}${slot.days.length > 1 ? ' and Sunday' : ''} · −${money(E.cost)}`);
+}
+function eventSection() {
+  if (state.summer) return '';
+  const booked = state.event && EVENTS[state.event.type];
+  const rows = booked
+    ? `<p class="help"><b>${esc(booked.name)}</b> is booked for ${dateLabel(state.event.days[0])}${state.event.days.length > 1 ? ' and Sunday' : ''}. Expect about ${Math.round((booked.boost - 1) * 100)}% more guests, so make sure there’s parking.</p>`
+    : Object.entries(EVENTS).map(([k, E]) => {
+      const slot = eventSlot(k), short = state.cash < E.cost;
+      return `<div class="event"><div><b>${esc(E.name)}</b><span>${esc(E.blurb)} About ${Math.round((E.boost - 1) * 100)}% more guests.</span>${slot.days ? '' : `<span class="why">${esc(slot.why)}</span>`}</div>
+        <button class="btn secondary" data-action="bookEvent" data-v="${k}" ${slot.days && !short ? '' : 'disabled'}>${slot.days ? `${dateLabel(slot.days[0]).replace(/^\w+, /, '')} · ${money(E.cost)}` : money(E.cost)}</button></div>`;
+    }).join('');
+  return `<div class="field-label">Events</div>${rows}`;
 }
 
 /* ---------- Season passes ---------- */
@@ -6025,8 +6091,9 @@ function passShareToday(n) {
   return clamp(holders / n, 0, PASS_MAX_SHARE);
 }
 function payTicket(g) {
-  if (Math.random() < (today.passShare || 0)) { g.pass = true; today.passGuests += AGENT; return; }
-  state.cash += state.ticket * AGENT; today.rev.tickets += state.ticket * AGENT;
+  if (Math.random() < (today.passShare || 0)) { g.pass = true; g.paid = 0; today.passGuests += AGENT; return; }
+  g.paid = ticketOn(state.day);
+  state.cash += g.paid * AGENT; today.rev.tickets += g.paid * AGENT;
 }
 function passSection() {
   const step = (d, label) => `<button data-action="passPrice" data-d="${d}" aria-label="${label}">${d < 0 ? '−' : '+'}</button>`;
@@ -6564,7 +6631,7 @@ function adviceFor(r) {
   const c = r.complaints || {}, has = (t) => world.buildings.some((B) => B.type === t), P = state.prices;
   const greens = world.trails.some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
   const tips = [
-    [r.turnedAway * (state.ticket + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * state.ticket)} in tickets. Add parking from the Resort panel (tap your cash), or build a shuttle station.`],
+    [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking from the Resort panel (tap your cash), or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
     [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
@@ -6590,6 +6657,7 @@ function showReport() {
   const notes = [];
   if (state.debt > creditLimit()) notes.push(`<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
   if (r.goals && r.goals.length) notes.unshift(...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
+  if (r.event) notes.unshift(`<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
   if (r.passGuests) notes.push(`${r.passGuests} guests skied on season passes.`);
   if (r.wx) notes.push(`${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
   if (r.holds && r.holds.length) {
@@ -6652,7 +6720,7 @@ function visitResortSheet() {
     <dl class="kv">
       <div><dt>Cash</dt><dd>${money(state.cash)}</dd></div>
       <div><dt>Bank loan</dt><dd>${money(state.debt || 0)}</dd></div>
-      <div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div>
+      <div><dt>Lift ticket</dt><dd>${money(state.ticket)}${state.ticketPeak != null && state.ticketPeak !== state.ticket ? ` · ${money(state.ticketPeak)} weekends` : ''}</dd></div>
       ${Object.keys(PRICE_INFO).map((k) => `<div><dt>${PRICE_INFO[k].label}</dt><dd>${state.prices[k] ? money(state.prices[k]) : 'Free'}</dd></div>`).join('')}
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
       <div><dt>Parking lot</dt><dd>${lotCapacity()} spaces</dd></div>
@@ -6668,15 +6736,18 @@ function resortSheet() {
   const lotBtn = state.lotSections >= 6 ? ''
     : `<button class="btn secondary" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Expand parking overnight' : short ? `Need ${money(LOT_EXPAND_COST - state.cash)} more for parking` : `Add ${SPACES_PER_SECTION} parking spaces · ${money(LOT_EXPAND_COST)}`}</button>`;
   return `<div class="sheet-title"><h3>Resort</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <div class="field-label">Lift ticket price</div>
-    <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise price">+</button></div>
-    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65.</p>
+    <div class="field-label">Lift tickets · weekdays</div>
+    <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower weekday price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise weekday price">+</button></div>
+    <div class="field-label">Weekends and holidays</div>
+    <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
+    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
     <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $16 for a lodge meal, $38 at a restaurant, $45 for rentals, $95 for a lesson and free parking.</p></details>
     <dl class="kv">
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
       <div><dt>Parking</dt><dd>${state.phase === 'open' ? `${used} of ` : ''}${lotCapacity()} spaces</dd></div>
     </dl>
     ${lotBtn}
+    ${eventSection()}
     ${passSection()}
     ${loanSection()}
     ${r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : ''}`;
@@ -7500,7 +7571,7 @@ function renderTut() {
   const n = state.tut || 0, all = n >= TUT_STEPS.length;
   $('tutCard').innerHTML = `<div class="eyebrow">Tutorial · ${all ? 'done' : `step ${n + 1} of ${TUT_STEPS.length}`}</div>
     <ol>${TUT_STEPS.map((st, i) => `<li data-n="${i + 1}" class="${i < n ? 'done' : i === n ? 'now' : ''}">${esc(st.title)}${i === n ? `<p>${st.how()}</p>` : ''}</li>`).join('')}</ol>
-    ${all ? `<p class="help">You’ve got the basics. Keep playing here, or start your own resort from the title screen.</p>
+    ${all ? `<p class="help">You’ve got the basics. Keep playing here, or start your own resort from the title screen. Each mountain has five goals to earn stars: tap the stars on the title screen to see them.</p>
     <div class="row"><button class="btn" id="tutHome">Start my own resort</button></div>` : ''}`;
   const b = $('tutHome');
   if (b) b.onclick = () => { $('mTitle').onclick(); };
@@ -7528,6 +7599,9 @@ const CHANGES = [
     'Each mountain draws its own crowd. Raven Peak attracts stronger skiers but fewer visitors, and costs more to run.',
     'The day report now gives one tip: the fix most likely to pay off, with what it’s costing you.',
     'The bank warns you when you owe more than your limit, before it calls in the loan.',
+    'Set a separate lift ticket price for weekends and holidays.',
+    'Book events: a race weekend, a holiday torchlight parade or a spring pond skim draw bigger crowds and can lift your reputation.',
+    'Goals show your progress, like your best day so far.',
   ] },
   { v: '1.9', date: 'Oct 17, 2026', items: [
     'Auto-advance: turn on Auto next to the speed buttons (or on the day report) and each new day starts and opens by itself, up to 7 days in a row.',

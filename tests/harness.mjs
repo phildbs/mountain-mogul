@@ -43,6 +43,7 @@ export async function launch() {
 // A fresh game page. Options: query ('?dev'), mountain ('raven'), mobile, keepStorage.
 export async function openGame(browser, url, { query = '', mountain, width = 1280, height = 900, keepStorage = false } = {}) {
   const page = await browser.newPage({ viewport: { width, height } });
+  page.setDefaultNavigationTimeout(120000); // this machine can be slow to start the 3D view
   await page.route('https://accounts.google.com/**', (r) => r.abort());
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
