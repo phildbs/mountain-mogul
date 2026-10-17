@@ -24,3 +24,21 @@ and keep thousands of skiers happy through a full winter of weather.
 
 The publishable key in `index.html` is meant to be public. Never put the secret or
 `service_role` key in this repository.
+
+## Tests
+
+`tests/` drives the game in a headless browser against a stand-in for the online database
+(`tests/fake-supabase.js`), so nothing touches the real Supabase project. Each scenario checks
+one area: saves and multiple mountains, switching mountains, the tutorial, loans, bankruptcy,
+visits, auto-advance, balance and goals/passes.
+
+```
+cd tests
+npm install
+npx playwright install chromium   # first time only
+node run.mjs                      # everything (about 15 minutes)
+node run.mjs loans visits         # just the scenarios whose names match
+```
+
+Run them before publishing a change to `main`. The game file itself isn't modified: the
+harness builds a debug copy on the fly.
