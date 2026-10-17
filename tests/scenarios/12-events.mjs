@@ -5,7 +5,7 @@ export default async function ({ browser, url }) {
   await g.click('#startBtn'); await g.wait(400);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
   // Tue Dec 15: the next Saturday (Dec 19) is in the holiday window
-  await g.ev(`(() => { state.day = 14; state.passPrice = 0; refreshSnowState(todayWx()); select({ kind: 'resort', obj: null }); })()`); await g.wait(200);
+  await g.ev(`(() => { state.day = 14; state.passPrice = 0; refreshSnowState(todayWx()); resortTab = 'resort'; select({ kind: 'resort', obj: null }); })()`); await g.wait(200);
   const why = await g.ev(`eventSlot('race').why`);
   assert(/black diamond/.test(why), `race needs a black diamond: ${why}`);
   assert(/spring/.test(await g.ev(`eventSlot('pond').why`)), 'pond skim waits for spring');

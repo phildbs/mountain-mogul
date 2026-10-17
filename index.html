@@ -3165,6 +3165,7 @@ sheet.addEventListener('click', (e) => {
     renderSheet(); scheduleSave();
   }
   else if (a === 'bookEvent') bookEvent(b.dataset.v);
+  else if (a === 'resortTab') { resortTab = b.dataset.v; renderSheet(); }
   else if (a === 'borrow') borrow(+b.dataset.v);
   else if (a === 'buyout' && state.investor) {
     const cost = Math.round(state.investor.paid * BUYOUT);
@@ -6735,23 +6736,31 @@ function resortSheet() {
   const short = state.cash < LOT_EXPAND_COST;
   const lotBtn = state.lotSections >= 6 ? ''
     : `<button class="btn secondary" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Expand parking overnight' : short ? `Need ${money(LOT_EXPAND_COST - state.cash)} more for parking` : `Add ${SPACES_PER_SECTION} parking spaces · ${money(LOT_EXPAND_COST)}`}</button>`;
-  return `<div class="sheet-title"><h3>Resort</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <div class="field-label">Lift tickets · weekdays</div>
-    <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower weekday price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise weekday price">+</button></div>
-    <div class="field-label">Weekends and holidays</div>
-    <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
-    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
-    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $16 for a lodge meal, $38 at a restaurant, $45 for rentals, $95 for a lesson and free parking.</p></details>
+  const nervous = state.debt > creditLimit();
+  const tabs = [['prices', 'Prices'], ['resort', 'Resort'], ['bank', nervous ? 'Bank ⚠' : 'Bank']];
+  const head = `<div class="sheet-title"><h3>Resort</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <div class="tabs">${tabs.map(([k, l]) => `<button data-action="resortTab" data-v="${k}" aria-pressed="${resortTab === k}">${l}</button>`).join('')}</div>`;
+  const last = r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : '';
+  if (resortTab === 'bank') return `${head}${loanSection()}`;
+  if (resortTab === 'resort') return `${head}
     <dl class="kv">
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
       <div><dt>Parking</dt><dd>${state.phase === 'open' ? `${used} of ` : ''}${lotCapacity()} spaces</dd></div>
     </dl>
     ${lotBtn}
     ${eventSection()}
+    ${last}`;
+  return `${head}
+    <div class="field-label">Lift tickets · weekdays</div>
+    <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower weekday price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise weekday price">+</button></div>
+    <div class="field-label">Weekends and holidays</div>
+    <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
+    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
+    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $16 for a lodge meal, $38 at a restaurant, $45 for rentals, $95 for a lesson and free parking.</p></details>
     ${passSection()}
-    ${loanSection()}
-    ${r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : ''}`;
+    ${last}`;
 }
+let resortTab = 'prices';
 const VISIT_WORD = { food: 'Having lunch at', warm: 'Warming up at', dine: 'Dining at', apres: 'Enjoying après at', rr: 'Using the restrooms at', rent: 'Getting fitted at' };
 function guestActivity(g) {
   const t = g.then;

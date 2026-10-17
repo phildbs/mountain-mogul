@@ -18,7 +18,8 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { borrow(1000000); state.cash = -150000; waitDay(); })()`); await g.wait(200);
   eq(await g.ev(`$('crisis').hidden`), true, 'no crisis yet');
   assert(/getting nervous/.test(await g.ev(`$('toast').textContent`)), 'bank warns');
-  await g.ev(`select({ kind: 'resort', obj: null })`); await g.wait(200);
+  await g.ev(`resortTab = 'bank'; select({ kind: 'resort', obj: null })`); await g.wait(200);
+  assert(/Bank ⚠/.test(await g.ev(`$('sheet').innerText`)), 'Bank tab is flagged');
   assert(/bank is nervous/.test(await g.ev(`$('sheet').innerText`)), 'Resort panel shows the warning');
   eq(g.errors, [], 'no page errors');
   await g.page.close();

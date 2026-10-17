@@ -12,7 +12,7 @@ export default async function ({ browser, url }) {
   const cut = await g.ev(`state.lastReport.exp.investor`);
   assert(cut > 0, 'investor takes a cut of the day');
   await g.click('#rpNext'); await g.wait(200);
-  await g.ev(`(() => { state.cash = 5e6; select({ kind: 'resort', obj: null }); })()`); await g.wait(200);
+  await g.ev(`(() => { state.cash = 5e6; resortTab = 'bank'; select({ kind: 'resort', obj: null }); })()`); await g.wait(200);
   await g.click('[data-action=buyout]'); await g.wait(200);
   eq(await g.ev(`state.investor`), null, 'bought out');
   await g.ev(`(() => { state.cash = -3e6; waitDay(); })()`); await g.wait(200);
