@@ -213,6 +213,7 @@ body.visiting .badge { cursor: default; }
   width: 38px; height: 38px; border: 0; background: none; border-radius: 9px; cursor: pointer; display: grid; place-items: center; color: var(--ink);
 }
 .cam-btn:hover { background: rgba(20, 36, 58, 0.07); }
+#cHome { grid-column: 1 / -1; justify-self: center; }
 .cam-btn svg { width: 19px; height: 19px; }
 
 .legend {
@@ -734,6 +735,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       </button>
       <button class="cam-btn" id="cIn" title="Zoom in (+)" aria-label="Zoom in">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg>
+      </button>
+      <button class="cam-btn" id="cHome" title="Re-centre the view (H)" aria-label="Re-centre the view">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
       </button>
     </div>
 
@@ -6915,8 +6919,11 @@ canvas.addEventListener('wheel', (e) => {
   hover.dirty = true;
 }, { passive: false });
 
+// Keys typed into a text box (or while a window like Send feedback is open) are not shortcuts.
+const typingIn = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+const dialogOpen = () => [...document.querySelectorAll('.modal-bg')].some((m) => !m.hidden);
 window.addEventListener('keydown', (e) => {
-  if (e.target && e.target.tagName === 'INPUT') return;
+  if (typingIn(e.target) || typingIn(document.activeElement) || dialogOpen()) return;
   if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && draft.pts.length) { e.preventDefault(); draftUndo(); return; }
   if (e.key === ' ') spaceDown = true;
   if (!state.started || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -6933,6 +6940,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'r' && draft.kind === 'bld' && draft.btype) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
   else if (k === 'enter' && draft.kind) buildDraft();
+  else if (k === 'h') recenter();
   else if (k === 'o') setSlope(!overlay.slope);
   else if (k === 't') setTraffic(!overlay.traffic);
   else if (k === 'p' && state.phase === 'open') { state.speed = state.speed ? 0 : 1; refreshTimebar(true); }
@@ -6978,6 +6986,13 @@ document.querySelectorAll('.size').forEach((b) => {
 $('cRotL').onclick = () => rotate(-1);
 $('cRotR').onclick = () => rotate(1);
 $('cIn').onclick = () => zoomCenter(1 / 1.4);
+// Glide back to the standard view of the whole resort, keeping the current rotation.
+function recenter() {
+  cam.viewGoal = null;
+  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to: { x: 0, z: -6, az: cam.azGoal, viewH: defaultView() } };
+  scheduleSave();
+}
+$('cHome').onclick = recenter;
 $('cOut').onclick = () => zoomCenter(1.4);
 $('hintClose').onclick = () => {
   $('hint').hidden = true;
