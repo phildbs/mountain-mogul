@@ -437,6 +437,24 @@ body.visiting .badge { cursor: default; }
 .pill { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
 .pill.on { background: rgba(44, 154, 85, 0.14); color: #1f7a42; }
 .pill.off { background: rgba(184, 64, 47, 0.12); color: #9a3326; }
+.pill.slow { background: rgba(217, 154, 20, 0.16); color: #8a5d00; }
+.ops-list { display: grid; gap: 6px; }
+.ops-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 1.3fr); align-items: center; gap: 8px; font-size: 13px; }
+.ops-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ops-row em { font-style: normal; color: var(--steep); font-size: 11px; }
+.seg.ops button { min-height: 28px; padding: 4px 2px; font-size: 12px; }
+.help.warn { color: #9a3326; }
+.tb-plan { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.rp-ops { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 7px; }
+.rp-ops-h { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.rp-ops-h > span:last-child { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rp-ops-rows { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.rp-ops-rows > span:nth-child(odd) { color: var(--ink-2); }
+.rp-ops-rows em { font-style: normal; font-size: 11px; font-weight: 700; margin-left: 4px; color: var(--ink-2); }
+.rp-ops-rows em.m-slow, .rp-ops-rows em.m-lunch { color: #8a5d00; }
+.rp-ops-rows em.m-off, .rp-ops-rows em.m-closed { color: #9a3326; }
+.rp-ops .link { justify-self: start; }
+.neg { color: #9a3326; }
 .danger-link { color: var(--steep); align-self: flex-start; }
 .confirm-box { background: rgba(184, 64, 47, 0.07); border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
 .confirm-box p { margin: 0; font-size: 13px; line-height: 1.45; }
@@ -1767,7 +1785,7 @@ function saveData(withSim) {
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -3162,7 +3180,7 @@ function liftSheet(L) {
       <input class="name" id="nameInput" value="${esc(L.name)}" maxlength="28" aria-label="Lift name">
       <button class="x" data-action="close" aria-label="Close">✕</button>
     </div>
-    <div class="status"><span class="pill ${L.open ? 'on' : 'off'}">${L.open ? 'Running' : 'Stopped'}</span>
+    <div class="status"><span class="pill ${L.planOff ? 'off' : !L.open ? 'off' : liftMode(L) === 'slow' ? 'slow' : 'on'}">${L.planOff ? 'Off today' : !L.open ? 'Stopped' : liftMode(L) === 'slow' ? 'Running slow' : 'Running'}</span>
       <span class="muted">${type.long}</span>
       <button class="link" data-action="toggleOpen">${L.open ? 'Stop lift' : 'Start lift'}</button></div>
     ${state.phase === 'open' ? `<p class="conn"><b>${L.queue.length * AGENT}</b> in line · about ${Math.round(liftWait(L))} min wait · ${L.riders.reduce((a, r) => a + r.length, 0) * AGENT} riding</p>` : ''}
@@ -3175,6 +3193,7 @@ function liftSheet(L) {
       <div><dt>Chairs</dt><dd>${L.chairCount}</dd></div>
     </dl>
     <p class="conn">${esc(feeders)}${departing ? '<br>' + esc(departing) : ''}</p>
+    ${planLine((P) => MODE_WORD[liftModeIn(P, L)])}
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
@@ -3234,7 +3253,8 @@ sheet.addEventListener('click', (e) => {
     renderSheet(); scheduleSave();
   }
   else if (a === 'bookEvent') bookEvent(b.dataset.v);
-  else if (a === 'resortTab') { resortTab = b.dataset.v; renderSheet(); }
+  else if (a === 'resortTab') { resortTab = b.dataset.v; if (resortTab === 'ops') opsEdit = null; renderSheet(); }
+  else if (a.startsWith('ops') && opsAction(a, b)) { /* handled */ }
   else if (a === 'borrow') borrow(+b.dataset.v);
   else if (a === 'buyout' && state.investor) {
     const cost = Math.round(state.investor.paid * BUYOUT);
@@ -3251,6 +3271,7 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'toggleOpen' && obj) {
     obj.open = !obj.open;
+    if (obj.planOff) { obj.planOff = false; if (runOps) { runOps.lifts[obj.id] = 'full'; runOps.off = runOps.off.filter((id) => id !== obj.id); } } // started by hand: runs today despite the plan
     if (selected.kind === 'trail') styleTrail(obj);
     if (selected.kind === 'lift' && !obj.open && state.phase === 'open') {
       for (const g of obj.queue.splice(0)) { if (obj.fromBase) baseDecision(g); else hikeOut(g); }
@@ -3431,7 +3452,7 @@ function serializeWorld() {
   return {
     nextId: world.nextId,
     trails: world.trails.map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
-    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open, cost: L.cost })),
+    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason })),
   };
@@ -3490,12 +3511,12 @@ function clockLabel(min) {
 }
 const LIFT_OP_HOUR = { double: 180, triple: 230, quad: 300, six: 520 };
 // Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
-const STAFF_DAY = 5000, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
+const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
 // Overhead every day of the season, open or not (insurance, utilities, office, property tax),
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -3665,7 +3686,7 @@ function canLoad(L) {
   // Base lifts stop loading at closing time; upper lifts keep running so nobody is stranded.
   return state.time < closeTime() || !L.fromBase;
 }
-const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap / 60);
+const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 
 /* ---------- Route values: how much a guest would enjoy a path from here ---------- */
 // How much a skier of this ability likes today's snow surface.
@@ -3881,7 +3902,7 @@ let dayPull = 1; // today's draw relative to an ordinary weekend day (weekdays l
 function demandForDay() {
   const open = world.trails.filter((t) => runnable(t) && t.reachable && t.returns);
   if (!open.length || !world.lifts.some((L) => L.open && L.fromBase)) return 0;
-  const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap, 0);
+  const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1), 0);
   const variety = new Set(open.map(trailSign)).size;
   const base = pullOf(open, cap, variety);
   const d = dateOf(state.day), dow = d.getUTCDay();
@@ -3889,7 +3910,7 @@ function demandForDay() {
   if (holidayOf(d)) f = 1.55;
   const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : 1;
   const priceF = clamp(Math.exp(-(ticketOn(state.day) - 65) / 65 * 1.8), 0.12, 1.6);
-  const has = (t) => world.buildings.some((B) => B.type === t);
+  const has = (t) => world.buildings.some((B) => B.type === t && bldMode(B) !== 'closed');
   let amen = has('lodge') ? 1.08 : 0.9;
   if (has('restaurant')) amen += 0.05;
   if (has('rental')) amen += 0.06;
@@ -3914,6 +3935,7 @@ function demandForDay() {
   amen *= wxF * (0.45 + 0.55 * openFrac);
   const ev = eventToday();
   if (ev) dayPull *= EVENTS[ev.type].boost;
+  if (runOps && runOps.hours === 'short') amen *= 0.9; // a shorter day tempts fewer people to make the drive
   return Math.min(MAX_G * AGENT, Math.round(base * f * season * priceF * amen * parkF * state.reputation * (ev ? EVENTS[ev.type].boost : 1) * (0.9 + Math.random() * 0.2)));
 }
 function gaussian() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random()); }
@@ -3933,14 +3955,16 @@ function carPath(stall) {
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
 function spawnCar(size) {
   const free = [];
-  for (let i = 0; i < stalls.length && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
-  if (free.length < AGENT) { today.turnedAway += size * AGENT; return; }
+  const open = Math.min(stalls.length, lotsOpen() * SPACES_PER_SECTION);
+  for (let i = 0; i < open && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
+  if (free.length < AGENT) { today.turnedAway += size * AGENT; if (open < stalls.length) today.lotAway = (today.lotAway || 0) + size * AGENT; return; }
   const si = free[0];
   const path = carPath(stalls[si]);
   const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0,
     extra: free.slice(1).map((i) => ({ i, color: pick(CARS) })) };
   for (const i of free) stalls[i].car = car.id;
   cars.push(car);
+  today.lotPeak = Math.max(today.lotPeak || 0, stalls.reduce((a, s) => a + (s.car ? 1 : 0), 0));
 }
 function makeGuest(car, x, z) {
   const r = Math.random(), mix = MOUNTAIN.skiers;
@@ -3951,7 +3975,7 @@ function makeGuest(car, x, z) {
     pat: 4 + Math.random() * 10, qh: 0.3 + Math.random() * 0.5,
     stam: (ab + 1) * 55 + Math.random() * 110, explore: 0.5 + Math.random(),
     // About one in five ski a half day and leave around lunch; the rest plan to stay until mid to late afternoon.
-    sat: 70, fat: 0, leaveAt: (Math.random() < 0.2 ? 750 + Math.random() * 90 : 870 + Math.random() * 120) - (ab === 0 ? 30 : 0),
+    sat: 70 - (today.letdown || 0), fat: 0, leaveAt: (Math.random() < 0.2 ? 750 + Math.random() * 90 : 870 + Math.random() * 120) - (ab === 0 ? 30 : 0),
     lane: (Math.random() * 2 - 1) * 0.5, ph: Math.random() * 6.28, tf: 0.8 + Math.random() * 0.8, ta: 0.14 + 0.08 * ab,
     jc: pick(JACKETS), pc: pick(PANTS), hc: pick(HELMETS),
     seen: {}, seenLift: {}, runs: 0, vert: 0, th: [], st: 'walk', x, z, tx: x, tz: z, yaw: 0, then: null,
@@ -3961,6 +3985,8 @@ function makeGuest(car, x, z) {
     warmed: false, needsRental: Math.random() < [0.75, 0.3, 0.1, 0.04][ab], wantsLesson: ab === 0 && Math.random() < 0.45, lessoned: false,
     bus: false, bid: null, svc: null, resume: null, deck: -1,
   };
+  if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
+  else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
   if (ab >= 2 && !world.trails.some((t) => t.open && t.reachable && trailSign(t) >= ab - 1)) {
     g.sat -= 12; today.complaints.boring++;
     thought(g, 'Not much challenging terrain here.');
@@ -3991,7 +4017,8 @@ function stepLift(L, dt) {
   const riding = L.riders.some((r) => r.length);
   if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
   const total = L.total, gap = total / L.chairCount;
-  const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE;
+  const slow = liftMode(L) === 'slow';
+  const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
   const old = L.phase;
   L.phase = (L.phase + dp) % total;
   for (let i = 0; i < L.chairCount; i++) {
@@ -3999,7 +4026,11 @@ function stepLift(L, dt) {
     if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i);
     if (p1 >= total) loadBottom(L, i);
   }
-  if (L.open) { const c = LIFT_OP_HOUR[L.type] * dt / 3600; today.exp.lifts += c; state.cash -= c; }
+  if (L.open) {
+    const c = LIFT_OP_HOUR[L.type] * dt / 3600 * (slow ? SLOW.cost : 1);
+    today.exp.lifts += c; state.cash -= c;
+    if (today.liftCost) today.liftCost[L.id] = (today.liftCost[L.id] || 0) + c;
+  }
 }
 function unloadTop(L, i) {
   const keep = [];
@@ -4023,7 +4054,8 @@ function loadBottom(L, i) {
   L.riders[i] = [];
   if (!canLoad(L)) return;
   if (L.queue.length) L.qVersion++;
-  const seats = LIFT_TYPES[L.type].seats;
+  // Lean crews miss the odd seat when loading a busy line.
+  const seats = LIFT_TYPES[L.type].seats - (L.queue.length > 6 && Math.random() < staffLevel().miss ? 1 : 0);
   let n = 0;
   while (L.queue.length && n < seats) {
     const g = L.queue.shift();
@@ -4154,6 +4186,140 @@ function updateCar(c, dt) {
   }
 }
 
+/* ---------- Operations: how much of the resort runs each day ----------
+   Three plans (weekdays, weekends and holidays, the quiet ends of the season) say which lifts
+   run full speed, slow or not at all, which buildings open, how many parking sections are
+   plowed and staffed, the hours, the staffing level and the patrol. Cutting back saves money
+   but guests notice, more so on busy days, at higher prices and at a resort with a big name. */
+const OPS_KINDS = [
+  ['weekday', 'Weekdays', 'Mon–Fri in the heart of the season'],
+  ['weekend', 'Weekends', 'Sat, Sun, holidays and event days'],
+  ['quiet', 'Quiet season', 'Weekdays before Dec 20 and from March on'],
+];
+const OPS_NAME = { weekday: 'Weekday', weekend: 'Weekend', quiet: 'Quiet season' };
+const LOT_RUN_DAY = 350;           // plowing, lights and attendants for each open parking section
+const BLD_FIXED = 0.3;             // share of a building's upkeep paid even when it's closed
+const LUNCH_OPEN = 660, LUNCH_CLOSE = 840, LUNCH_RUN = 0.6; // lunch only: 11 to 2, at under half the running cost
+const SLOW = { speed: 0.7, cost: 0.6 };
+const SHORT_OPEN = 540, SHORT_CLOSE = 930; // short hours: 9 AM to 3:30 PM
+const STAFF_LEVELS = {
+  lean: { label: 'Lean', cost: 0.92, svc: 0.75, miss: 0.18, note: 'Slower service and loading' },
+  normal: { label: 'Normal', cost: 1, svc: 1, miss: 0, note: '' },
+  extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
+};
+const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
+const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full' });
+function opsState() {
+  if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
+  for (const [k] of OPS_KINDS) state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) };
+  return state.ops;
+}
+// What kind of day this is, by the calendar alone.
+function dayKind(day) {
+  if (state.event && state.event.days.includes(day)) return 'weekend';
+  if (peakDay(day)) return 'weekend';
+  const d = dateOf(day), m = d.getUTCMonth();
+  return (m === 11 && d.getUTCDate() < 20) || (m >= 2 && m < 6) ? 'quiet' : 'weekday';
+}
+// The plan a day runs: its own kind, unless you picked another for it. Event days always run the weekend plan.
+function planFor(day) {
+  const o = opsState().override, kind = dayKind(day);
+  return o && o.day === day && !(state.event && state.event.days.includes(day)) ? o.plan : kind;
+}
+const hasBld = (type) => world.buildings.some((B) => B.type === type);
+const lunchOnlyOk = (B) => B.type === 'lodge' || B.type === 'restaurant';
+const liftModeIn = (P, L) => P.lifts[L.id] || 'full';
+const bldModeIn = (P, B) => { const m = P.bld[B.id] || 'open'; return m === 'lunch' && !lunchOnlyOk(B) ? 'open' : m; };
+const lotsIn = (P) => clamp(P.lots == null ? state.lotSections : P.lots, 1, state.lotSections);
+// The plan the resort is running right now (during an open day), or null.
+let runOps = null;
+const liftMode = (L) => (runOps && runOps.lifts[L.id]) || 'full';
+const bldMode = (B) => (runOps && runOps.bld[B.id]) || 'open';
+const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
+const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
+const skeletonPatrol = () => !!runOps && runOps.patrol === 'skeleton';
+function bldOpenNow(B) {
+  const m = bldMode(B);
+  if (m === 'closed') return false;
+  return m !== 'lunch' || (state.time >= LUNCH_OPEN && state.time < LUNCH_CLOSE);
+}
+// A snapshot of today's plan, so changes you make during the day apply from tomorrow.
+function resolvePlan(kind, dk) {
+  const P = opsState().plans[kind];
+  const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [] };
+  for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
+  for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
+  return ops;
+}
+function startOps(day) {
+  const ops = resolvePlan(planFor(day), dayKind(day));
+  for (const L of world.lifts) if (ops.lifts[L.id] === 'off' && L.open) { L.open = false; L.planOff = true; ops.off.push(L.id); }
+  runOps = ops;
+  styleLot();
+  return ops;
+}
+// Lifts the plan kept off go back to normal overnight.
+function endOps() {
+  for (const L of world.lifts) if (L.planOff) { L.open = true; L.planOff = false; }
+  runOps = null;
+  styleLot();
+}
+// After loading a day in progress, put the plan back in force.
+function resumeOps(ops) {
+  runOps = ops || null;
+  if (ops) for (const id of ops.off || []) { const L = liftById(id); if (L && L.open) { L.open = false; L.planOff = true; } }
+  styleLot();
+}
+// How much a plan cuts back, from 0 (everything running) up; guests' disappointment scales with it.
+function cutbackScore(ops) {
+  let s = 0;
+  const lifts = world.lifts.filter((L) => L.open || L.planOff);
+  if (lifts.length) s += lifts.reduce((a, L) => a + ({ off: L.fromBase ? 1.4 : 1, slow: 0.35 }[ops.lifts[L.id]] || 0), 0) / lifts.length;
+  const food = world.buildings.filter(lunchOnlyOk), other = world.buildings.filter((B) => !lunchOnlyOk(B));
+  if (food.length) s += food.reduce((a, B) => a + ({ closed: 1, lunch: 0.4 }[ops.bld[B.id]] || 0), 0) / food.length * 0.8;
+  if (other.length) s += other.filter((B) => ops.bld[B.id] === 'closed').length / other.length * 0.5;
+  if (ops.hours === 'short') s += 0.4;
+  if (ops.staff === 'lean') s += 0.4; else if (ops.staff === 'extra') s -= 0.3;
+  if (ops.patrol === 'skeleton') s += 0.15;
+  return s;
+}
+// Satisfaction points each guest loses at the door when today's cutbacks show.
+function letdownFor(ops, day) {
+  const price = clamp((day == null ? (ops.dayKind === 'weekend' ? state.ticketPeak ?? state.ticket : state.ticket) : ticketOn(day)) / 65, 0.6, 1.8);
+  return Math.round(clamp(cutbackScore(ops) * EXPECT[ops.dayKind] * Math.pow(price, 0.6) * state.reputation * 6, -4, 18));
+}
+// The running cost of a plan before guests (staff for lifts and buildings, upkeep, parking, lift power), for comparing plans.
+function planRunCost(P) {
+  const c = MOUNTAIN.costs, lv = STAFF_LEVELS[P.staff] || STAFF_LEVELS.normal, short = P.hours === 'short';
+  const hours = ((short ? SHORT_CLOSE - SHORT_OPEN : DAY_CLOSE - DAY_OPEN) + 30) / 60;
+  let staff = STAFF_DAY, lifts = 0, upkeep = 0;
+  for (const L of world.lifts) {
+    const m = liftModeIn(P, L);
+    if (m === 'off') continue;
+    staff += STAFF_PER_LIFT;
+    lifts += LIFT_OP_HOUR[L.type] * hours * (m === 'slow' ? SLOW.cost : 1);
+  }
+  for (const B of world.buildings) {
+    const m = bldModeIn(P, B);
+    staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1);
+    upkeep += bldUpkeep(B, m, B.type === 'patrol' && P.patrol === 'skeleton');
+  }
+  return Math.round(staff * c * lv.cost * (short ? 0.94 : 1) + lifts + upkeep + lotsIn(P) * LOT_RUN_DAY * c);
+}
+function bldUpkeep(B, mode, skeleton) {
+  const u = bspec(B).upkeep;
+  const run = mode === 'closed' ? 0 : mode === 'lunch' ? LUNCH_RUN : skeleton ? 0.55 : 1;
+  return u * (BLD_FIXED + (1 - BLD_FIXED) * run);
+}
+// Closed parking sections look roped off.
+let lotClosedMat = null;
+function styleLot() {
+  if (!lotClosedMat) { lotClosedMat = LOT_MAT.clone(); lotClosedMat.color.setRGB(0.55, 0.57, 0.6); }
+  const n = lotsOpen();
+  lotGroup.children.forEach((m, k) => { m.material = k < n ? LOT_MAT : lotClosedMat; });
+  renderer.shadowMap.needsUpdate = true;
+}
+
 /* ---------- The day ---------- */
 function simStep(dt) {
   state.time += dt / 60;
@@ -4187,8 +4353,10 @@ function openDay() {
   if (state.phase !== 'closed') return;
   if (state.bankrupt && !visiting) return showGameOver();
   if (state.summer) return newSeason();
+  const ops = startOps(state.day);
   const n = demandForDay();
   if (!n) {
+    endOps();
     const hasNetwork = world.trails.some((t) => t.open && t.reachable && t.returns);
     if (hasNetwork) { toast('None of your connected trails have enough snow to open yet. Wait for a storm or make snow.', true); return; }
     toast(world.lifts.some((L) => L.fromBase)
@@ -4197,11 +4365,15 @@ function openDay() {
     return;
   }
   if (state.tool === 'clear') setTool('explore');
-  state.phase = 'open'; state.time = DAY_OPEN;
+  const short = ops.hours === 'short';
+  state.phase = 'open'; state.time = short ? SHORT_OPEN : DAY_OPEN;
   draft.dirty = !!draft.kind;
   if (state.speed === 0) state.speed = 1;
   today = newToday();
   today.expected = n;
+  today.ops = ops; today.liftCost = {};
+  if (short) today.closeAt = SHORT_CLOSE;
+  today.letdown = letdownFor(ops, state.day);
   sellPasses();
   today.passShare = passShareToday(n);
   finishNight();
@@ -4217,7 +4389,10 @@ function openDay() {
       : `Every base lift is on wind hold. Guests who can’t ride will get refunds. Winds may ease by noon.`, !baseOk);
   }
   schedule = makeSchedule(Math.ceil(n / AGENT));
-  if (shuttleStation()) for (const e of schedule) e.bus = Math.random() < 0.3;
+  if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
+  schedule.sort((a, b) => b.t - a.t);
+  const bus = shuttleStation();
+  if (bus && bldMode(bus) !== 'closed') for (const e of schedule) e.bus = Math.random() < 0.3;
   guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN;
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
@@ -4230,20 +4405,35 @@ function closeEarly() {
   toast('Lifts are closing. Guests are heading home.');
 }
 function endDay() {
-  today.exp.staff = Math.round((STAFF_DAY + STAFF_PER_LIFT * world.lifts.filter((L) => L.open).length + STAFF_PER_BUILDING * world.buildings.length + STAFF_PER_GUEST * today.guests) * MOUNTAIN.costs);
-  today.exp.upkeep = world.buildings.reduce((a, B) => a + bspec(B).upkeep, 0);
+  const ops = today.ops || startOps(state.day), lv = STAFF_LEVELS[ops.staff] || STAFF_LEVELS.normal, short = ops.hours === 'short';
+  const bStaff = world.buildings.reduce((a, B) => a + ({ closed: 0, lunch: 0.5 }[ops.bld[B.id]] ?? 1), 0);
+  today.exp.staff = Math.round((STAFF_DAY + STAFF_PER_LIFT * world.lifts.filter((L) => L.open).length + STAFF_PER_BUILDING * bStaff + STAFF_PER_GUEST * today.guests) * MOUNTAIN.costs * lv.cost * (short ? 0.94 : 1));
+  const upk = (B) => bldUpkeep(B, ops.bld[B.id] || 'open', B.type === 'patrol' && ops.patrol === 'skeleton');
+  today.exp.upkeep = Math.round(world.buildings.reduce((a, B) => a + upk(B), 0));
+  today.exp.parking = Math.round(ops.lots * LOT_RUN_DAY * MOUNTAIN.costs);
   today.exp.cogs = Math.round(today.exp.cogs);
-  state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs;
+  // Short-handed patrol: an injury can turn into a claim against the resort.
+  let claims = 0;
+  const patrolCut = hasBld('patrol') && (ops.patrol === 'skeleton' || world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] === 'closed'));
+  if (patrolCut) {
+    const odds = world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] !== 'closed') ? 0.12 : 0.25;
+    for (let k = 0; k < today.injuries + today.unhelped; k++) if (Math.random() < odds) claims++;
+  }
+  today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
+  state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.claims;
   for (const B of world.buildings) {
-    const cost = bspec(B).upkeep + B.today.cogs;
+    const cost = upk(B) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + r0.lessons + r0.parking + (r0.passes || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
+  // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
+  const repHit = patrolCut ? today.unhelped * 0.006 + claims * 0.015 : 0;
+  if (repHit) state.reputation = clamp(state.reputation - repHit, 0.5, 1.5);
   const evToday = eventToday();
   if (evToday && today.satN && sat >= 65) state.reputation = clamp(state.reputation + EVENTS[evToday.type].rep, 0.5, 1.5);
   let busiest = null;
@@ -4256,7 +4446,8 @@ function endDay() {
   state.lastReport = {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
+    ops: opsReport(ops, claims, repHit),
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
     injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
@@ -4265,6 +4456,7 @@ function endDay() {
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])),
   };
   guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0;
+  endOps();
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) { const y = B.yday; initBldSim(B); B.yday = y; }
   for (const s of stalls) s.car = null;
@@ -4459,11 +4651,12 @@ function serializeSim() {
   };
 }
 function restoreSim(sim) {
-  guests = []; cars = []; schedule = []; gById.clear(); today = null; buses = []; busPending = 0;
+  guests = []; cars = []; schedule = []; gById.clear(); today = null; buses = []; busPending = 0; runOps = null;
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
   if (state.phase !== 'open' || !sim) { if (state.phase === 'open') state.phase = 'closed'; return; }
-  today = sim.today; schedule = sim.schedule || []; nextGid = sim.nextGid || 1; nextCid = sim.nextCid || 1;
+  today = sim.today; schedule = sim.schedule || [];
+  resumeOps(today.ops); nextGid = sim.nextGid || 1; nextCid = sim.nextCid || 1;
   buses = sim.buses || []; busPending = sim.busPending || 0; nextBusAt = sim.nextBusAt || 0;
   for (const B of world.buildings) initBldSim(B);
   for (const r of sim.guests) {
@@ -5045,7 +5238,7 @@ function initBldSim(B) {
 function estWait(B, svc) {
   const pool = POOL[svc], slots = poolSlots(B, pool), avg = (SVC_TIME[svc][0] + SVC_TIME[svc][1]) / 2;
   let thr = slots / avg;
-  if (pool === 'seat' && B.type === 'lodge') thr = Math.min(thr, bspec(B).counter / AGENT);
+  if (pool === 'seat' && B.type === 'lodge') thr = Math.min(thr, bspec(B).counter * staffLevel().svc / AGENT);
   return (B.q[pool].length + (B.used[pool] >= slots ? 3 : 0)) / Math.max(0.05, thr);
 }
 function needs(g) {
@@ -5065,7 +5258,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
     let best = null, bv = -Infinity;
     for (const B of list) {
       const svc = svcFor(B, need);
-      if (!svc) continue;
+      if (!svc || !bldOpenNow(B)) continue;
       const d = distXZ(B.door, here);
       if (d > radius && !(baseToo && B.isBase)) continue;
       const v = 10 - d * 0.12 - estWait(B, svc) * g.qh * 0.6 - (svc === 'dine' ? (g.fancy ? -3 : 1.5) : 0)
@@ -5087,7 +5280,7 @@ function maybeVisit(g, here, radius, baseToo, resume) {
 function maybeApres(g) {
   if (!g.apres || g.apresDone || state.time < 870) return false;
   g.apresDone = true;
-  const list = world.buildings.filter((B) => B.type === 'restaurant');
+  const list = world.buildings.filter((B) => B.type === 'restaurant' && bldOpenNow(B));
   let best = null, bd = Infinity;
   for (const B of list) { const d = distXZ(B.door, g); if (d < bd && (d < 14 || B.isBase)) { bd = d; best = B; } }
   if (!best) return false;
@@ -5113,7 +5306,7 @@ function bldStep(B) {
     while (q.length && B.used[pool] < slots) {
       if (pool === 'seat' && B.type === 'lodge' && state.time < B.counterFree) break;
       const g = q.shift(); B.qv++;
-      if (pool === 'seat' && B.type === 'lodge') B.counterFree = Math.max(B.counterFree, state.time) + AGENT / bspec(B).counter;
+      if (pool === 'seat' && B.type === 'lodge') B.counterFree = Math.max(B.counterFree, state.time) + AGENT / bspec(B).counter / staffLevel().svc;
       serve(g, B);
     }
     for (let i = q.length - 1; i >= 0; i--) {
@@ -5214,7 +5407,7 @@ function resumeGuest(g) {
 }
 function arrivalFlow(g) {
   if (g.needsRental) {
-    const shop = world.buildings.find((B) => B.type === 'rental');
+    const shop = world.buildings.find((B) => B.type === 'rental' && bldOpenNow(B));
     if (shop) return startVisit(g, shop, 'rent', { k: 'arrive' });
     g.needsRental = false; g.sat -= 6; today.complaints.noRental++;
     thought(g, 'No rental shop here, so I rented gear in town.');
@@ -5222,7 +5415,7 @@ function arrivalFlow(g) {
   g.onSkis = true;
   if (g.wantsLesson) {
     g.wantsLesson = false;
-    const school = world.buildings.find((B) => B.type === 'school');
+    const school = world.buildings.find((B) => B.type === 'school' && bldOpenNow(B));
     if (school) return startVisit(g, school, 'lesson', { k: 'base' });
     g.sat -= 4; today.complaints.noSchool++;
     thought(g, 'I wish there was a ski school.');
@@ -5263,12 +5456,13 @@ function firstAidPoint() {
   return hut ? hut.door : roadEnd();
 }
 function patrolStep(dt) {
-  const huts = world.buildings.filter((B) => B.type === 'patrol');
+  const huts = world.buildings.filter((B) => B.type === 'patrol' && bldMode(B) !== 'closed');
+  const onDuty = (c) => !skeletonPatrol() || c.home === 0; // a skeleton patrol is one patroller per hut
   for (const g of guests) {
     if (g.st !== 'hurt' || g.rescuer || g.gone) continue;
     let best = null, bd = Infinity, home = null;
     for (const B of huts) for (const c of B.crew) {
-      if (c.st !== 'idle') continue;
+      if (c.st !== 'idle' || !onDuty(c)) continue;
       const d = Math.hypot(c.x - g.x, c.z - g.z);
       if (d < bd) { bd = d; best = c; home = B; }
     }
@@ -5504,9 +5698,10 @@ function bldSheet(B) {
       ${B.type === 'patrol'
         ? `<div><dt>Avg response</dt><dd>${B.today.calls && today && today.helped ? Math.round(B.today.resp / Math.max(1, B.today.calls)) + ' min' : '–'}</dd></div>`
         : `<div><dt>Revenue today</dt><dd>${money(B.today.revenue)}</dd></div>`}
-      <div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day</dd></div>
+      <div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day${bldMode(B) === 'closed' ? ' · closed today' : bldMode(B) === 'lunch' ? ' · lunch only' : ''}</dd></div>
       <div><dt>Last day</dt><dd>${y ? signedMoney(y.profit) : '–'}</dd></div>
     </dl>
+    ${planLine((P) => MODE_WORD[bldModeIn(P, B)])}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
     ${upgrade}
     ${levelOffer(B)}
@@ -6592,11 +6787,14 @@ const BUILD_TITLES = { tTrail: 'Build trail (2)', tLift: 'Build chairlift (3)', 
 function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
   const onMtn = onMountain * AGENT;
-  const sub = state.phase === 'open'
+  let sub = state.phase === 'open'
     ? (state.time >= closeTime() ? `Lifts closed · <b>${onMtn}</b> heading home` : `Open · <b>${onMtn}</b> on the mountain`)
     : state.phase === 'report' ? 'Day complete' : state.phase === 'season' ? 'Season over'
     : state.summer ? `Summer · season ${state.season + 1} starts in November`
     : `Season ${state.season} · ${state.day < 0 ? 'Pre-season' : state.day > SEASON_LAST ? 'Spring bonus day' : hol || 'Closed overnight'}`;
+  const plan = !world.lifts.length || state.summer || state.phase === 'report' || state.phase === 'season' ? ''
+    : ` · <button class="tb-plan" ${visiting ? 'disabled' : ''}>${OPS_NAME[state.phase === 'open' && runOps ? runOps.kind : planFor(state.day)]} plan</button>`;
+  sub += plan;
   const w = todayWx();
   const base = avgBase();
   const wxKey = state.summer ? 'summer' : `${w.type}${w.hi}${Math.round(base)}${w.snow}`;
@@ -6621,6 +6819,12 @@ function refreshTimebar(force) {
   $('tClear').classList.toggle('locked', locked);
   for (const id of Object.keys(BUILD_TITLES)) $(id).title = locked ? (id === 'tClear' ? 'Trees can only be cleared overnight' : BUILD_TITLES[id].replace(/ \(/, ' plan (')) : BUILD_TITLES[id];
 }
+$('tbSub').onclick = (e) => {
+  if (!e.target.closest('.tb-plan') || visiting) return;
+  opsEdit = null; resortTab = 'ops';
+  if (state.tool !== 'explore') setTool('explore');
+  select({ kind: 'resort', obj: null });
+};
 $('tbGo').onclick = () => { if (state.phase === 'open') closeEarly(); else { autoDays = 0; openDay(); } };
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
 $('rpNext').onclick = () => {
@@ -6735,6 +6939,7 @@ function adviceFor(r) {
     [(c.boring || 0) * 10, `${c.boring} strong skiers found too little challenging terrain. A steeper trail would bring them back.`],
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
     [(r.rev.refunds || 0), `${money(r.rev.refunds || 0)} in tickets was refunded to guests who never got on a lift. More lift capacity from the base would help.`],
+    ...opsTips(r),
   ].filter(([v, t]) => t && v >= 500);
   tips.sort((a, b) => b[0] - a[0]);
   return tips.length ? tips[0][1] : '';
@@ -6743,13 +6948,14 @@ function showReport() {
   if (simulating) return;
   const r = state.lastReport;
   if (!r) return;
-  const ex = { upkeep: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
+  const ex = { upkeep: 0, parking: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking + rv.passes - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = adviceFor(r), NOTES_SHOWN = 5;
   const notes = [];
   if (state.debt > creditLimit()) notes.push(`<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
+  notes.unshift(...opsNotes(r));
   if (r.goals && r.goals.length) notes.unshift(...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.event) notes.unshift(`<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
   if (r.passGuests) notes.push(`${r.passGuests} guests skied on season passes.`);
@@ -6794,14 +7000,16 @@ function showReport() {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
+    ${opsReportHtml(r)}
     ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
     ${notes.length ? `<ul class="rp-notes">${notes.slice(0, NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
     ${notes.length > NOTES_SHOWN ? `<details class="rp-more"><summary>More about today (${notes.length - NOTES_SHOWN})</summary><ul class="rp-notes">${notes.slice(NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul></details>` : ''}
     <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>`;
   $('report').hidden = false;
+  if ($('rpPlan')) $('rpPlan').onclick = planTomorrow;
   $('rpNext').focus({ preventScroll: true });
   armAuto();
 }
@@ -6830,11 +7038,12 @@ function resortSheet() {
   const lotBtn = state.lotSections >= 6 ? ''
     : `<button class="btn secondary" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Expand parking overnight' : short ? `Need ${money(LOT_EXPAND_COST - state.cash)} more for parking` : `Add ${SPACES_PER_SECTION} parking spaces · ${money(LOT_EXPAND_COST)}`}</button>`;
   const nervous = state.debt > creditLimit();
-  const tabs = [['prices', 'Prices'], ['resort', 'Resort'], ['bank', nervous ? 'Bank ⚠' : 'Bank']];
+  const tabs = [['prices', 'Prices'], ['ops', 'Operations'], ['resort', 'Resort'], ['bank', nervous ? 'Bank ⚠' : 'Bank']];
   const head = `<div class="sheet-title"><h3>Resort</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     <div class="tabs">${tabs.map(([k, l]) => `<button data-action="resortTab" data-v="${k}" aria-pressed="${resortTab === k}">${l}</button>`).join('')}</div>`;
   const last = r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Ticket revenue</span><span>${money(r.rev.tickets)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : '';
   if (resortTab === 'bank') return `${head}${loanSection()}`;
+  if (resortTab === 'ops') return `${head}${opsSection()}`;
   if (resortTab === 'resort') return `${head}
     <dl class="kv">
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
@@ -6854,6 +7063,150 @@ function resortSheet() {
     ${last}`;
 }
 let resortTab = 'prices';
+/* ---------- Operations: the plan editor, and what each day's report says about it ---------- */
+let opsEdit = null; // the plan the Operations tab is showing
+const LIFT_MODES = [['full', 'Full'], ['slow', 'Slow'], ['off', 'Off']];
+const MODE_WORD = { full: 'Full speed', slow: 'Slow', off: 'Off', open: 'Open', lunch: 'Lunch only', closed: 'Closed' };
+function opsSeg(action, id, cur, modes, label) {
+  return `<div class="seg ops" role="group" aria-label="${esc(label)}">${modes.map(([k, l]) =>
+    `<button data-action="${action}" data-id="${id}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
+}
+// One line on a lift or building panel: how each plan runs it, with a link to change them.
+function planLine(word) {
+  if (visiting) return '';
+  const o = opsState();
+  return `<p class="conn">Plans: ${OPS_KINDS.map(([k, l]) => `${l.replace(' season', '')} <b>${word(o.plans[k])}</b>`).join(' · ')} <button class="link" data-action="opsOpen">Edit</button></p>`;
+}
+function opsSection() {
+  const o = opsState();
+  const day = state.phase === 'open' ? state.day + 1 : state.day; // the next day you can still plan
+  const kind = opsEdit || planFor(day), P = o.plans[kind];
+  const ev = state.event && state.event.days.includes(day);
+  const pick = OPS_KINDS.map(([k, l]) => `<button data-action="opsDay" data-v="${k}" aria-pressed="${planFor(day) === k}" ${ev ? 'disabled' : ''}>${l}</button>`).join('');
+  const when = state.phase === 'open'
+    ? `<p class="help">Today runs the <b>${OPS_NAME[runOps ? runOps.kind : planFor(state.day)]}</b> plan. Changes apply from tomorrow.</p>`
+    : `<div class="field-label">${esc(dateLabel(day))} runs</div><div class="tabs">${pick}</div>
+       <p class="help">${ev ? 'Event days always run the weekend plan.' : planFor(day) !== dayKind(day) ? `Just for this day; it would normally run the ${OPS_NAME[dayKind(day)].toLowerCase()} plan.` : 'Picked by the calendar. Choose another plan for just this day if you like.'}</p>`;
+  const lifts = world.lifts.map((L) => `<div class="ops-row"><span>${esc(L.name)}${!L.open && !L.planOff ? ' <em>stopped</em>' : ''}</span>${opsSeg('opsLift', L.id, liftModeIn(P, L), LIFT_MODES, L.name)}</div>`).join('');
+  const blds = world.buildings.map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
+    lunchOnlyOk(B) ? [['open', 'Open'], ['lunch', 'Lunch'], ['closed', 'Closed']] : [['open', 'Open'], ['closed', 'Closed']], B.name)}</div>`).join('');
+  const lots = lotsIn(P);
+  const sample = resolvePlan(kind), cost = planRunCost(P), full = planRunCost(blankPlan()), let0 = letdownFor(sample);
+  const feel = let0 <= 0 ? (let0 < 0 ? 'Guests will love the extra staff.' : 'Guests won’t notice anything missing.')
+    : let0 <= 3 ? 'A few guests will notice the cutbacks.' : let0 <= 8 ? 'Guests will notice the cutbacks, and some won’t be happy.' : 'Guests will be disappointed: expect a hit to satisfaction and reputation.';
+  return `${when}
+    <div class="field-label">Edit plan</div>
+    <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]} plan</button>`).join('')}</div>
+    <p class="help">${OPS_KINDS.find(([k]) => k === kind)[2]}.</p>
+    ${world.lifts.length ? `<div class="field-label">Lifts</div><div class="ops-list">${lifts}</div>` : ''}
+    ${world.buildings.length ? `<div class="field-label">Buildings</div><div class="ops-list">${blds}</div>` : ''}
+    <div class="field-label">Parking sections open</div>
+    <div class="stepper"><button data-action="opsLots" data-d="-1" aria-label="Close a parking section" ${lots <= 1 ? 'disabled' : ''}>−</button><output>${lots} of ${state.lotSections} · ${lots * SPACES_PER_SECTION} spaces</output><button data-action="opsLots" data-d="1" aria-label="Open a parking section" ${lots >= state.lotSections ? 'disabled' : ''}>+</button></div>
+    <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
+    <div class="field-label">Staffing</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}
+    ${hasBld('patrol') ? `<div class="field-label">Ski patrol</div>${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}` : ''}
+    <div class="costs"><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
+    <p class="help ${let0 > 8 ? 'warn' : ''}">${feel} Guests expect the most on weekends, at higher prices and as your reputation grows. Slow lifts mean longer lines; lean staff mean slower food and loading; a skeleton patrol can turn an injury into a claim.</p>
+    <button class="btn secondary" data-action="opsReset">Run everything in this plan</button>`;
+}
+function opsAction(a, b) {
+  const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day;
+  const P = o.plans[opsEdit || planFor(day)], v = b.dataset.v, id = +b.dataset.id;
+  if (a === 'opsOpen') { opsEdit = null; resortTab = 'ops'; select({ kind: 'resort', obj: null }); return true; }
+  if (a === 'opsEdit') opsEdit = v;
+  else if (a === 'opsDay') { if (state.phase === 'open') return; o.override = v === dayKind(day) ? null : { day, plan: v }; opsEdit = v; }
+  else if (a === 'opsLift') { if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
+  else if (a === 'opsBld') { if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
+  else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
+  else if (a === 'opsHours') P.hours = v;
+  else if (a === 'opsStaff') P.staff = v;
+  else if (a === 'opsPatrol') P.patrol = v;
+  else if (a === 'opsReset') Object.assign(P, blankPlan());
+  else return false;
+  renderSheet(); refreshTimebar(true); scheduleSave();
+  return true;
+}
+// From the day report: move on to tonight and open the plan for the next day.
+function planTomorrow() {
+  if (state.phase !== 'report') return;
+  autoDays = 0; cancelAuto();
+  nextDay();
+  if (state.phase !== 'closed') return;
+  opsEdit = planFor(state.day); resortTab = 'ops';
+  if (state.tool !== 'explore') setTool('explore');
+  select({ kind: 'resort', obj: null });
+}
+// What the day report shows about operations.
+function opsReport(ops, claims, repHit) {
+  const hours = ((ops.hours === 'short' ? SHORT_CLOSE - SHORT_OPEN : DAY_CLOSE - DAY_OPEN)) / 60;
+  return {
+    kind: ops.kind, dayKind: ops.dayKind, hours: ops.hours, staff: ops.staff, patrol: ops.patrol,
+    lifts: world.lifts.map((L) => {
+      const rides = (today.liftRiders[L.id] || 0) * AGENT;
+      return { id: L.id, name: L.name, mode: ops.lifts[L.id] || 'full', stopped: !L.open && !L.planOff, rides, cost: Math.round((today.liftCost || {})[L.id] || 0),
+        use: rides / Math.max(1, L.stats.cap * (ops.lifts[L.id] === 'slow' ? SLOW.speed : 1) * hours) };
+    }),
+    blds: world.buildings.map((B) => ({ id: B.id, name: B.name, type: B.type, mode: ops.bld[B.id] || 'open', visits: B.yday ? B.yday.visits : 0, profit: B.yday ? B.yday.profit : 0, full: bspec(B).upkeep })),
+    lots: { open: ops.lots, total: state.lotSections, peak: today.lotPeak || 0, away: today.lotAway || 0 },
+    saved: planRunCost(blankPlan()) - planRunCost(ops), letdown: today.letdown || 0, claims, repHit: Math.round(repHit * 1000) / 1000,
+  };
+}
+// The operations part of the day report: what ran, what it carried and what it cost.
+function opsReportHtml(r) {
+  const o = r.ops;
+  if (!o) return '';
+  const rows = [];
+  for (const L of o.lifts) {
+    if (L.stopped) continue;
+    rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
+  }
+  for (const B of o.blds) {
+    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'shuttle' || B.type === 'restroom' ? '' : `${B.visits} served · ${signedMoney(B.profit)}`;
+    rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
+  }
+  rows.push(`<span>Parking <em>${o.lots.open} of ${o.lots.total} open</em></span><span>peak ${o.lots.peak} of ${o.lots.open * SPACES_PER_SECTION}</span>`);
+  const crew = [STAFF_LEVELS[o.staff].label + ' staff', o.hours === 'short' ? 'short hours' : 'full hours'];
+  if (o.patrol === 'skeleton') crew.push('skeleton patrol');
+  const saved = o.saved > 0 ? `saved about ${money(o.saved)}` : o.saved < 0 ? `cost ${money(-o.saved)} extra` : 'everything running';
+  return `<div class="rp-ops">
+      <div class="rp-ops-h"><span><b>Operations</b> · ${OPS_NAME[o.kind]} plan${o.kind !== o.dayKind ? ` on a ${OPS_NAME[o.dayKind].toLowerCase()} day` : ''}</span><span>${saved}</span></div>
+      <div class="rp-ops-rows">${rows.join('')}</div>
+      <p class="help">${crew.join(' · ')}</p>
+      ${visiting ? '' : `<button class="link" id="rpPlan">Adjust the plan for tomorrow</button>`}
+    </div>`;
+}
+// Report notes about the plan, most pressing first.
+function opsNotes(r) {
+  const o = r.ops, out = [];
+  if (!o) return out;
+  if (o.claims) out.push(`<b class="neg">${o.claims === 1 ? 'An injured guest has' : `${o.claims} injured guests have`} filed a claim (${money(r.exp.claims)}).</b> A short-handed patrol was slow to reach them, and word gets around.`);
+  if (o.lots.away) out.push(`<b>${o.lots.away} guests were turned away</b> with ${o.lots.total - o.lots.open} parking ${o.lots.total - o.lots.open === 1 ? 'section' : 'sections'} closed. That’s about ${money(o.lots.away * ticketOn(r.day))} in tickets.`);
+  if (o.letdown >= 4) out.push(`Guests noticed the cutbacks: satisfaction started ${o.letdown} points lower${o.dayKind === 'weekend' ? ', and weekend crowds expect the full resort' : ''}.`);
+  else if (o.letdown < 0) out.push(`Guests loved the extra staff: satisfaction started ${-o.letdown} points higher.`);
+  const hungry = (r.complaints.food || 0) + (r.complaints.lines || 0);
+  if (hungry > 10 && o.blds.some((B) => B.mode !== 'open' && (B.type === 'lodge' || B.type === 'restaurant'))) out.push(`${hungry} guests went hungry or gave up on a line, with food service cut back.`);
+  for (const L of o.lifts) if (L.mode === 'slow' && L.rides && r.busiest && r.busiest.name === L.name && r.busiest.wait > 8) out.push(`${esc(L.name)} ran slow and lines reached ${Math.round(r.busiest.wait)} minutes.`);
+  return out;
+}
+// The best money-saving or money-making change to the plan, for the advisor.
+function opsTips(r) {
+  const o = r.ops, tips = [];
+  if (!o) return tips;
+  const plan = OPS_NAME[o.kind].toLowerCase(), busy = o.dayKind === 'weekend';
+  for (const L of o.lifts) {
+    if (L.stopped || L.mode !== 'full' || busy) continue;
+    if (L.use < 0.2 && L.cost > 600) tips.push([L.cost * 0.4, `${L.name} carried only ${L.rides} riders on ${money(L.cost)} of power. Running it Slow on ${plan} days would save about ${money(L.cost * 0.4)}, or Off if guests can do without it (Resort panel, Operations).`]);
+  }
+  const spare = o.lots.open - Math.ceil((o.lots.peak + 1) / SPACES_PER_SECTION);
+  if (spare > 0 && !busy) tips.push([spare * LOT_RUN_DAY, `Parking peaked at ${o.lots.peak} cars. Closing ${spare} ${spare === 1 ? 'section' : 'sections'} on ${plan} days would save ${money(spare * LOT_RUN_DAY * MOUNTAIN.costs)} a day.`]);
+  if (o.lots.away) tips.push([o.lots.away * ticketOn(r.day), `Closed parking turned ${o.lots.away} guests away. Open more sections in the ${plan} plan.`]);
+  for (const B of o.blds) {
+    if (B.mode === 'open' && (B.type === 'lodge' || B.type === 'restaurant') && B.profit < 0 && !busy && B.visits < 60) tips.push([-B.profit, `${B.name} lost ${money(-B.profit)} serving ${B.visits} guests. Opening it for lunch only on ${plan} days would cut that.`]);
+  }
+  if (busy && o.letdown >= 6) tips.push([o.letdown * r.guests * 3, `Weekend guests were let down by the cutbacks. Run more of the resort in the ${plan} plan; reputation is worth more than the savings.`]);
+  if (o.claims) tips.push([r.exp.claims * 2, `Injury claims cost ${money(r.exp.claims)}. A full patrol costs far less.`]);
+  return tips;
+}
 const VISIT_WORD = { food: 'Having lunch at', warm: 'Warming up at', dine: 'Dining at', apres: 'Enjoying après at', rr: 'Using the restrooms at', rent: 'Getting fitted at' };
 function guestActivity(g) {
   const t = g.then;
@@ -7767,6 +8120,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.4', date: 'Oct 18, 2026', items: [
+    'Operations plans: in the Resort panel, set how the resort runs on weekdays, weekends and in the quiet ends of the season. Run lifts full, slow or off; open buildings all day, for lunch or not at all; close parking sections; shorten hours; staff lean or extra; run a skeleton patrol.',
+    'Cutbacks save money, but guests notice, most on weekends, at high prices and at a famous resort. A short-handed patrol can turn an injury into a claim.',
+    'The day report has an Operations section: what ran, what it carried and what it cost, with a link to adjust tomorrow’s plan.',
+    'Parking sections now cost $350 a day to run, and staff a little less, so a resort with everything open costs about the same as before.',
+  ] },
   { v: '2.3', date: 'Oct 18, 2026', items: [
     'New mountain: Maple Notch, a small New England hill with about 750 feet of gentle, wooded terrain. Families and forgiving crowds make it the easiest mountain, but January thaws and ice storms keep the snowmaking busy.',
     'Maple Notch has five goals of its own, from teaching 60 lessons in a day to making it through the thaw in profit.',
