@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Mountain Mogul: build a ski resort on an untouched mountain.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="vendor/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mogul">
+<meta name="theme-color" content="#14243a">
 <style>*, *::before, *::after { box-sizing: border-box; } html, body { margin: 0; }</style>
 <title>Mountain Mogul</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -643,6 +650,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mGoalsMenu">Goals</button>
           <button id="mFeedback">Send feedback</button>
           <button id="mHint">Show controls</button>
+          <button id="mFull">Full screen</button>
           <button id="mSim" hidden>Simulate (dev)</button>
           <button id="mReset" class="danger">Start this mountain over</button>
         </div>
@@ -6956,6 +6964,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
   else if (k === 'enter' && draft.kind) buildDraft();
   else if (k === 'h') recenter();
+  else if (k === 'f') toggleFullscreen();
   else if (k === 'o') setSlope(!overlay.slope);
   else if (k === 't') setTraffic(!overlay.traffic);
   else if (k === 'p' && state.phase === 'open') { state.speed = state.speed ? 0 : 1; refreshTimebar(true); }
@@ -7027,6 +7036,30 @@ $('badge').onclick = () => {
 };
 $('mTitle').onclick = () => { closeMenu(); if (visiting) returnHome(); saveNow(); showTitle(); };
 $('mHint').onclick = () => { closeMenu(); showHint(true); };
+
+/* ---------- Full screen ---------- */
+// Most browsers can hide their own bars on request. iPhones can't, but a game opened from the
+// home screen fills the whole screen (see the manifest and apple-mobile-web-app tags above).
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+const fsAvailable = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const installedApp = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+function toggleFullscreen() {
+  if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+  if (fsAvailable()) {
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+    Promise.resolve(req.call(el, { navigationUI: 'hide' })).catch(() => toast('Your browser wouldn’t switch to full screen.', true));
+    return;
+  }
+  toast('To play full screen on this device, tap Share, then Add to Home Screen, and open Mountain Mogul from there.');
+}
+function syncFullscreen() {
+  $('mFull').hidden = installedApp() && !fsAvailable();
+  $('mFull').textContent = fsEl() ? 'Exit full screen' : 'Full screen';
+}
+document.addEventListener('fullscreenchange', syncFullscreen);
+document.addEventListener('webkitfullscreenchange', syncFullscreen);
+syncFullscreen();
+$('mFull').onclick = () => { closeMenu(); toggleFullscreen(); };
 $('mReset').onclick = () => { if (visiting) { toast('Return home first.', true); return; } $('menuMain').hidden = true; $('menuConfirm').hidden = false; };
 $('mResetNo').onclick = closeMenu;
 $('mResetYes').onclick = () => {
@@ -7690,6 +7723,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.2.1', date: 'Oct 18, 2026', items: [
+    'Full screen: choose it from the menu (or press F) to hide the browser’s bars. On iPhone, add Mountain Mogul to your home screen and open it from there to fill the screen.',
+  ] },
   { v: '2.2', date: 'Oct 17, 2026', items: [
     'Guests ski longer: most stay into the late afternoon instead of heading home by 2 PM, and about one in five ski a half day.',
     'Staff costs per guest are lower to match, so longer days don’t sink a small resort.',
