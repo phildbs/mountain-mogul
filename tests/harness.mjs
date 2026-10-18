@@ -104,6 +104,29 @@ export const SETUPS = {
     }
     throw new Error('no lodge spot');
   })()`,
+  // Maple Notch: a double chair up the main face, the two gentlest trails back down, and a lodge.
+  mapleStarter: `(() => {
+    let lift = null;
+    for (const [ax, az, bx, bz] of [[0,56,-2,-10],[6,56,0,-12],[-6,56,-4,-8],[10,56,6,-6],[0,60,0,0]]) {
+      const i = evalLift({x:ax,z:az},{x:bx,z:bz},'double');
+      if (!i.problems.length && i.fromBase) { commitLift(i,'double'); lift = i; break; }
+    }
+    if (!lift) throw new Error('no lift line');
+    computeNetwork();
+    const L = world.lifts[0], found = [];
+    for (const sx of [-1, 1]) for (const a of [6, 10, 14, 18, 24]) for (const b of [4, 10, 16, 22, 28]) for (const m of [8, 20, 30]) {
+      const pts = [[L.b.x + 3 * sx, L.b.z + 2], [L.b.x + a * sx, m], [L.a.x + b * sx, 40], [L.a.x + 4 * sx, 58]].map(([x,z]) => ({x, z, y: heightAt(x,z)}));
+      const t = evalTrail(pts, 'wide');
+      if (!t.an.problems.length) found.push({ sx, t, pts });
+    }
+    for (const sx of [-1, 1]) { const best = found.filter((f) => f.sx === sx).sort((p, q) => p.t.an.rating - q.t.an.rating || p.t.an.maxGrade - q.t.an.maxGrade)[0]; if (best) { commitTrail(best.t, best.pts, 'wide'); computeNetwork(); } }
+    if (!world.trails.length) throw new Error('no trails');
+    for (const [x,z] of [[10,62],[-12,62],[12,56],[-14,56],[6,66],[-8,66],[16,60],[-18,60]]) for (const r of [0, Math.PI/2]) {
+      const b = evalBuilding('lodge', x, z, r);
+      if (!b.problems.length) { commitBuilding(b,'lodge',x,z,r); computeNetwork(); syncLabels(); return Math.round(state.cash); }
+    }
+    throw new Error('no lodge spot');
+  })()`,
   // Snow everywhere and a mid-January date, so days can open.
   midwinter: `(() => { for (let k = 0; k < NV*NV; k++) NS[k] = 50; state.day = 40; refreshSnowState(todayWx()); })()`,
   // Run the open day to its end.
