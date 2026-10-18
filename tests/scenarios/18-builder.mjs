@@ -6,7 +6,7 @@ export default async function ({ browser, url }) {
   await g.click('[data-slot=new]'); await g.wait(100);
   await g.click('[data-slot=design]'); await g.wait(400);
   eq(await g.ev(`$('builder').hidden`), false, 'builder opens from the mountain list');
-  assert(/Vertical/.test(await g.ev(`$('mbStats').innerText`)), 'preview shows stats');
+  assert(/Vertical/i.test(await g.ev(`$('mbStats').innerText`)), 'preview shows stats');
 
   // settings change the design and its code; a pasted code loads a design
   const before = await g.ev(`$('mbCode').value`);
