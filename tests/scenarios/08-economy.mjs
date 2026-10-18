@@ -17,6 +17,8 @@ export default async function ({ browser, url }) {
   assert(j.change > -400000 && j.change < 800000, `Juniper starter season 1 cash change in range (${j.change})`);
   const r = await firstSeason(browser, url, 'raven', SETUPS.ravenStarter);
   assert(r.change > -600000 && r.change < 600000, `Raven starter season 1 cash change in range (${r.change})`);
+  const m = await firstSeason(browser, url, 'maple', SETUPS.mapleStarter);
+  assert(m.change > -300000 && m.change < 800000, `Maple starter season 1 cash change in range (${m.change})`);
   const fmt = (n) => `${n >= 0 ? '+' : '−'}$${Math.abs(n).toLocaleString('en-US')}`;
-  return `season 1 before summer upkeep · Juniper starter ${fmt(j.change)}, Raven starter ${fmt(r.change)}`;
+  return `season 1 before summer upkeep · Juniper starter ${fmt(j.change)}, Raven starter ${fmt(r.change)}, Maple starter ${fmt(m.change)}`;
 }
