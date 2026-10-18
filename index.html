@@ -487,6 +487,23 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .cash:hover { border-color: rgba(20, 36, 58, 0.3); }
 .hint { top: calc(74px + env(safe-area-inset-top, 0px)); }
 
+.mb { width: min(620px, 100%); gap: 12px; }
+.mb-top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.mb-prev { position: relative; border-radius: 12px; overflow: hidden; background: #dfe7f0; aspect-ratio: 4 / 3; }
+.mb-prev canvas { width: 100%; height: 100%; display: block; }
+.mb-n { position: absolute; left: 10px; top: 8px; font: 800 18px var(--display); text-transform: uppercase; color: #14243a; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8); }
+.mb-side { display: grid; gap: 10px; }
+.mb-side .kv { grid-template-columns: 1fr 1fr; }
+.mb-grp { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.mb-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 74px; align-items: center; gap: 10px; font-size: 13px; }
+.mb-row > span:first-child { font-weight: 600; }
+.mb-row > span:last-child { color: var(--ink-2); font-size: 12px; text-align: right; }
+.mb-row input[type=range] { width: 100%; accent-color: var(--accent); }
+.mb-row .seg { grid-column: 2 / 4; }
+.mb-code { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; }
+.mb-code input { font: 600 14px ui-monospace, monospace; letter-spacing: 0.06em; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; text-transform: uppercase; min-width: 0; }
+.mb-code .help { grid-column: 1 / -1; min-height: 1em; }
+@media (max-width: 560px) { .mb-top { grid-template-columns: 1fr; } .mb-row { grid-template-columns: 92px minmax(0, 1fr) 64px; } }
 .modal-bg { position: absolute; inset: 0; background: rgba(20, 36, 58, 0.28); display: grid; place-items: center; padding: 16px; z-index: 30; }
 .modal { width: min(460px, 100%); max-height: calc(100% - 32px); overflow-y: auto; padding: 22px; display: grid; gap: 16px; background: rgba(250, 252, 255, 0.97); }
 .cr-btns { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -791,6 +808,23 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <p class="help">What’s confusing, what’s fun, what’s broken? Your note is sent with a snapshot of your game (mountain, date, money and resort size) so problems can be tracked down. Only the developer reads it.</p>
       <textarea id="fbText" maxlength="2000" rows="6" placeholder="I couldn’t figure out how to…"></textarea>
       <div class="row"><button class="btn" id="fbSend">Send</button><span class="help" id="fbMsg"></span></div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="builder" hidden>
+    <div class="panel modal mb" role="dialog" aria-modal="true" aria-labelledby="mbTitle">
+      <div class="cm-head"><div><div class="eyebrow">Mountain builder</div><h2 id="mbTitle">Design your own</h2></div><button class="x" id="mbClose" aria-label="Close">✕</button></div>
+      <div class="mb-top">
+        <div class="mb-prev"><canvas id="mbCanvas" width="320" height="240" aria-label="Map of your mountain"></canvas><span class="mb-n" id="mbName"></span></div>
+        <div class="mb-side">
+          <dl class="kv" id="mbStats"></dl>
+          <button class="btn secondary" id="mbShuffle">Shuffle the land</button>
+          <p class="help">Same settings, different mountain. Every design has a code you can share.</p>
+        </div>
+      </div>
+      <div id="mbBody"></div>
+      <div class="mb-code"><span class="field-label">Mountain code</span><input id="mbCode" maxlength="20" spellcheck="false" autocomplete="off" aria-label="Mountain code"><span class="help" id="mbCodeMsg"></span></div>
+      <button class="btn wide" id="mbStart">Start building</button>
     </div>
   </div>
 
@@ -1111,7 +1145,100 @@ MOUNTAINS.raven = {
     return h;
   },
 };
-const MOUNTAIN = MOUNTAINS[bootMountainId()] || MOUNTAINS.juniper;
+/* ---------- Custom mountains: a recipe of a few settings and a seed ----------
+   A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
+   already carries a mountain id (saves, slots, the online summary, visits, reloads) carries the recipe too. */
+const RECIPE_KEYS = ['vert', 'steep', 'rugged', 'peaks', 'bowl', 'valley', 'snow', 'wind', 'thaw', 'town', 'cash'];
+const RECIPE_MAX = { vert: 9, steep: 9, rugged: 9, peaks: 3, bowl: 1, valley: 9, snow: 9, wind: 9, thaw: 9, town: 9, cash: 2 };
+const RECIPE_MIN = { peaks: 1 };
+const RECIPE_DEFAULT = { vert: 5, steep: 4, rugged: 4, peaks: 2, bowl: 0, valley: 4, snow: 5, wind: 3, thaw: 4, town: 5, cash: 1, seed: 1234 };
+const CUSTOM_CASH = [3000000, 2200000, 1500000];
+const CUSTOM_CASH_WORD = ['Relaxed', 'Standard', 'Tough'];
+function recipeCode(r) { return RECIPE_KEYS.map((k) => r[k]).join('') + r.seed.toString(36).padStart(3, '0'); }
+function parseRecipe(code) {
+  const m = /^(\d{11})([0-9a-z]{3})$/.exec(String(code || '').toLowerCase().replace(/[^0-9a-z]/g, ''));
+  if (!m) return null;
+  const r = {};
+  RECIPE_KEYS.forEach((k, i) => { r[k] = clamp(+m[1][i], RECIPE_MIN[k] || 0, RECIPE_MAX[k]); });
+  r.seed = parseInt(m[2], 36);
+  return r;
+}
+const isCustomId = (mt) => typeof mt === 'string' && mt.startsWith('c:');
+const customId = (r) => 'c:' + recipeCode(r);
+// The code players share: groups of characters, easy to read out.
+const prettyCode = (r) => recipeCode(r).toUpperCase().replace(/^(.{4})(.{4})(.{3})(.{3})$/, '$1-$2-$3-$4');
+const CUSTOM_WORD_A = ['Hawk', 'Bear', 'Cedar', 'Granite', 'Eagle', 'Elk', 'Silver', 'Thunder', 'Wolf', 'Aspen', 'Moose', 'Copper', 'Lone Pine', 'Storm', 'Owl', 'Bluebird', 'Marten', 'Spruce', 'Antler', 'Larch'];
+const CUSTOM_WORD_HILL = ['Hill', 'Knob', 'Notch', 'Mountain'], CUSTOM_WORD_PEAK = ['Peak', 'Mountain', 'Ridge', 'Summit', 'Butte'];
+function makeCustom(r) {
+  const s = 5000 + r.seed, f = (k, n) => r[k] / (n || 9);
+  const rand = (k) => { const x = Math.sin(s * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const H = 13 + 34 * f('vert');                      // height of the main rise
+  const steep = f('steep'), rug = f('rugged'), v0 = 0.02 + 0.16 * f('valley');
+  const big = r.vert >= 4;
+  const words = big ? CUSTOM_WORD_PEAK : CUSTOM_WORD_HILL;
+  const name = `${CUSTOM_WORD_A[Math.floor(rand(1) * CUSTOM_WORD_A.length)]} ${words[Math.floor(rand(2) * words.length)]}`;
+  const cu = 0.42 + 0.16 * rand(3), su = 0.15 + 0.08 * rand(4), eu = 0.8 + 0.08 * rand(5);
+  const top = 2 + H * 1.45;
+  const draw = 0.8 + 0.4 * f('town'), costs = 1.12 - 0.17 * f('town');
+  const mix = [0.4 - 0.18 * steep, 0, 0.2 + 0.06 * steep, 0.04 + 0.12 * steep];
+  mix[1] = 1 - mix[0] - mix[2] - mix[3];
+  return {
+    id: customId(r), custom: true, recipe: { ...r },
+    name, level: 'Custom', dot: '#8a5cc7',
+    blurb: customBlurb(r),
+    cash: CUSTOM_CASH[r.cash],
+    weather: { storm: 0.75 + 0.55 * f('snow'), wind: 0.5 + 1.7 * f('wind'), warm: 0.7 + 0.9 * f('thaw'), temp: -3 + 8 * f('thaw'), ice: 1 + 1.5 * f('thaw') },
+    skiers: mix, // beginner, intermediate, advanced, expert: steeper mountains draw stronger skiers
+    draw, costs,
+    seed: s,
+    baseFt: Math.round((900 + 6600 * clamp(f('vert') * 0.7 + f('snow') * 0.3, 0, 1)) / 10) * 10,
+    treeline: r.vert <= 2 ? 999 : top * 0.76,
+    road: MOUNTAINS.juniper.road,
+    creek: catmull([[0.86, 0.34], [0.87, 0.22], [0.9, 0.12], [0.96, 0.04], [1.06, -0.06], [1.32, -0.26]], 10),
+    height(u, v) {
+      const g = (cu0, cv, rr, a) => a * Math.exp(-((u - cu0) ** 2 + (v - cv) ** 2) / (rr * rr));
+      let h = 2 + 1.0 * fbm(u * 3, v * 3, s + 1, 3);
+      // The main rise: steeper mountains climb faster and stand narrower.
+      const rise = Math.pow(sstep(v0, 1.05, v), 1.45 - 0.6 * steep);
+      const lat = 0.35 + 0.65 * Math.exp(-Math.pow((u - 0.5) / (0.6 - 0.18 * steep), 2));
+      h += H * rise * lat;
+      // Summits, and a bowl scooped below them.
+      h += g(cu, 0.95, 0.17, H * 0.42);
+      if (r.peaks >= 2) h += g(su, 0.87, 0.13, H * 0.24);
+      if (r.peaks >= 3) h += g(eu, 0.88, 0.12, H * 0.22);
+      if (r.bowl) h -= g(cu + 0.12, 0.76, 0.13, H * 0.2) * sstep(0.55, 0.7, v);
+      // Two drainages that make natural trail corridors.
+      const mm = sstep(0.16, 0.42, v) * (1 - sstep(0.88, 1.04, v)), dep = H / 30;
+      h -= mm * dep * (3.2 * Math.exp(-(((u - 0.34 - 0.03 * Math.sin(v * 7)) / 0.045) ** 2)) + 2.6 * Math.exp(-(((u - 0.7 + 0.02 * Math.sin(v * 5)) / 0.04) ** 2)));
+      // Ridges and gullies, from rolling to broken and cliffy.
+      const relief = sstep(0.1, 0.4, v), amp = (0.6 + 3.8 * rug) * (0.5 + H / 60);
+      h += relief * (amp * fbm(u * 7, v * 2.4, s + 5, 4) + amp * 0.75 * ridged(u * 9, v * 3, s + 9, 3) - amp * 0.38);
+      // A wider valley floor keeps the base flat further up.
+      h += (5 + 4 * steep) * sstep(0.14, 0.36, Math.abs(u - 0.5)) * (1 - sstep(0.1, 0.36, v)) * (1 - f('valley'));
+      // Backdrop range beyond the property line, and wooded hills to either side.
+      if (v > 0.9) h += (14 + 22 * f('vert')) * Math.pow(sstep(0.92, 1.38, v), 1.25) * (0.6 + 0.7 * ridged(u * 4, v * 3, s + 11, 4));
+      const side = Math.max(0, -u, u - 1);
+      h += (7 + 6 * f('vert')) * sstep(0, 0.25, side) * (0.6 + 0.8 * fbm(u * 4, v * 4, s + 13, 3)) * sstep(-0.1, 0.3, v);
+      return h;
+    },
+  };
+}
+function customBlurb(r) {
+  const shape = [r.steep >= 6 ? 'steep' : r.steep <= 2 ? 'gentle' : 'rolling', r.rugged >= 6 ? 'rugged' : r.rugged <= 2 ? 'smooth' : ''].filter(Boolean).join(', ');
+  const peaks = r.peaks === 1 ? 'one summit' : `${r.peaks === 2 ? 'two' : 'three'} summits`;
+  const snow = r.snow >= 7 ? 'deep snow' : r.snow <= 2 ? 'thin snow' : 'average snow';
+  const extras = [r.wind >= 6 && 'a lot of wind', r.thaw >= 6 && 'frequent thaws'].filter(Boolean);
+  const where = r.town >= 7 ? 'close to the city: big crowds' : r.town <= 2 ? 'remote: smaller crowds, higher costs' : 'a fair drive from town';
+  return `Your own design: ${shape} terrain with ${peaks}${r.bowl ? ' and an open bowl' : ''}. ${snow[0].toUpperCase() + snow.slice(1)}${extras.length ? `, ${extras.join(' and ')}` : ''}; ${where}.`;
+}
+// A mountain by id: one of the built-in ones, or a custom recipe.
+function mountainDef(mt) {
+  if (isCustomId(mt)) { const r = parseRecipe(mt.slice(2)); if (r) return makeCustom(r); }
+  return MOUNTAINS[mt] || MOUNTAINS.juniper;
+}
+// Leaderboards: one per built-in mountain, and one for every custom mountain together.
+const boardOf = (mt) => (isCustomId(mt) ? 'custom' : mt || 'juniper');
+const MOUNTAIN = mountainDef(bootMountainId());
 const START_CASH = MOUNTAIN.cash;
 
 /* =====================================================================
@@ -1740,7 +1867,7 @@ const slotMt = (s) => (s && s.mountain) || 'juniper';
 // be written from it, or that resort would be replaced with this terrain.
 const onThisMountain = () => practice || !activeSlot() || slotMt(activeSlot()) === MOUNTAIN.id;
 function nextMountainName(mt) {
-  const base = MOUNTAINS[mt].name;
+  const base = mountainDef(mt).name;
   const names = new Set([...slots.list.map((s) => s.name), ...(CLOUD.own || []).map((m) => m.name)]);
   if (!names.has(base)) return base;
   for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
@@ -6356,6 +6483,14 @@ const GOALS = {
     { id: 'clean', title: 'No strings attached', how: 'Finish a season owing nothing and without Bucky’s help.', season: () => !state.debt && !state.investorUsed },
   ],
 };
+// Custom mountains share one set of goals.
+GOALS.custom = [
+  { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
+  { id: 'crowd400', title: 'Full house', how: 'Welcome 400 guests in one day.', day: (r) => r.guests >= 400, prog: () => `Best so far: ${bestGuests()} of 400 guests.` },
+  { id: 'mix', title: 'Something for everyone', how: 'Have green, blue and black trails all open on the same day.', day: () => { const s = new Set(openSigns()); return s.has(0) && s.has(1) && (s.has(2) || s.has(3)); } },
+  { id: 'happy', title: 'Happy campers', how: 'Reach 75% satisfaction on a day with 200 or more guests.', day: (r) => r.guests >= 200 && r.sat >= 75 },
+  { id: 'profit', title: 'Your mountain, your way', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
+];
 GOALS.maple = [
   { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
   { id: 'learn', title: 'Learn to ski', how: 'Teach 60 lessons in one day.', day: () => schoolLessons() >= 60, prog: () => (world.buildings.some((B) => B.type === 'school') ? `Most recent day: ${schoolLessons()} of 60 lessons.` : 'Build a ski school first.') },
@@ -6365,7 +6500,7 @@ GOALS.maple = [
   { id: 'profit', title: 'Through the thaw', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
 ];
 const schoolLessons = () => world.buildings.filter((B) => B.type === 'school').reduce((a, B) => a + (B.yday ? B.yday.visits : 0), 0);
-const goalList = () => GOALS[MOUNTAIN.id] || [];
+const goalList = () => GOALS[MOUNTAIN.custom ? 'custom' : MOUNTAIN.id] || [];
 const bestGuests = () => (state.records && state.records.bestGuests) || 0;
 const starsOf = () => goalList().filter((G) => state.goals && state.goals[G.id]).length;
 const starText = (n, max) => '★'.repeat(n) + '☆'.repeat(Math.max(0, max - n));
@@ -7620,9 +7755,9 @@ function summaryDoc() {
   };
 }
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
-function boardEntries(mt = CLOUD.boardMt || MOUNTAIN.id) {
-  const out = CLOUD.mountains.filter((m) => m.id !== slots.active && (m.mt || 'juniper') === mt);
-  if (!visiting && !practice && slots.active && mt === MOUNTAIN.id && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest });
+function boardEntries(mt = CLOUD.boardMt || boardOf(MOUNTAIN.id)) {
+  const out = CLOUD.mountains.filter((m) => m.id !== slots.active && boardOf(m.mt) === mt);
+  if (!visiting && !practice && slots.active && mt === boardOf(MOUNTAIN.id) && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest });
   return out;
 }
 function ranked(key, mt) {
@@ -8020,8 +8155,8 @@ function boardHtml(limit) {
     const act = m.me || !CLOUD.ready ? '<span></span>' : `<button class="link" data-action="visit" data-v="${esc(m.id)}">Visit</button>`;
     return `<li class="${m.me ? 'me' : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}</b><span>${esc(sub)}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
   }).join('');
-  const mt = CLOUD.boardMt || MOUNTAIN.id;
-  return `<div class="tabs mts">${Object.values(MOUNTAINS).map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${M.id === mt}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
+  const mt = CLOUD.boardMt || boardOf(MOUNTAIN.id);
+  return `<div class="tabs mts">${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${M.id === mt}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
     <div class="tabs">${Object.entries(BOARDS).map(([k, b]) => `<button data-action="board" data-v="${k}" aria-pressed="${k === CLOUD.board}">${b.label}</button>`).join('')}</div>
     ${rows ? `<ol class="board">${rows}</ol>` : '<p class="help">No resorts here yet. Finish a day to put yours on the board.</p>'}`;
 }
@@ -8074,7 +8209,7 @@ function refreshCommunity() {
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
 }
 function refreshCommBtn() {
-  const r = ranked('guests', MOUNTAIN.id), i = r.findIndex((m) => m.me);
+  const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
   $('commBtnLabel').textContent = !visiting && i >= 0 && r.length > 1 ? `#${i + 1} of ${r.length}` : 'Compare';
 }
 function openCommunity() {
@@ -8213,6 +8348,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.5', date: 'Oct 18, 2026', items: [
+    'Mountain builder: choose “Design your own” in the mountain list. Set the vertical, steepness, ruggedness, summits, bowl and base valley, the snow, wind and thaws, the drive from town and your starting cash, and watch a preview as you go.',
+    'Shuffle the land for a different mountain with the same settings. Every design has a code: share it and friends can build on the very same mountain.',
+    'Custom mountains have their own goals and their own Custom leaderboard.',
+    'Fixed: a new mountain showed “Juniper Ridge” in the corner badge until you reloaded.',
+  ] },
   { v: '2.4', date: 'Oct 18, 2026', items: [
     'Operations plans: in the Resort panel, set how the resort runs on weekdays, weekends and in the quiet ends of the season. Run lifts full, slow or off; open buildings all day, for lunch or not at all; close parking sections; shorten hours; staff lean or extra; run a skeleton patrol.',
     'Cutbacks save money, but guests notice, most on weekends, at high prices and at a famous resort. A short-handed patrol can turn an injury into a claim.',
@@ -8370,7 +8511,9 @@ function renderSlots() {
   if (picking && used < MAX_MOUNTAINS) {
     box.innerHTML = `<div class="field-label">Choose a mountain</div>
       <ul class="slots">${Object.values(MOUNTAINS).map((M) => `<li><span class="who"><b><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</b><span>${esc(M.level)} · starts with ${money(M.cash)}</span><span>${esc(M.blurb)}</span></span>
-        <button class="btn secondary" data-slot="pick" data-mt="${M.id}">Start</button></li>`).join('')}</ul>
+        <button class="btn secondary" data-slot="pick" data-mt="${M.id}">Start</button></li>`).join('')}
+        <li><span class="who"><b><i class="diff-dot" style="background:#8a5cc7"></i>Design your own</b><span>Custom · you choose</span><span>Set the height, steepness, snow, wind and distance from town, then shuffle until you like the land.</span></span>
+        <button class="btn secondary" data-slot="design">Design</button></li></ul>
       <button class="link" data-slot="pickNo">Cancel</button>`;
     return;
   }
@@ -8385,7 +8528,7 @@ function renderSlots() {
         return `<li class="ask"><span>Delete <b>${esc(r.name)}</b>${r.foreign ? ' from this device' : ''}? This can’t be undone.</span>
           <button class="yes" data-slot="delYes" data-id="${r.id}">Delete</button><button class="link" data-slot="delNo">Cancel</button></li>`;
       }
-      const M = MOUNTAINS[r.mt] || MOUNTAINS.juniper;
+      const M = mountainDef(r.mt);
       const st = r.here ? (slotById(r.id) || {}).stars : null;
       const sub = `${st ? `★${st} · ` : ''}${r.name.startsWith(M.name) ? '' : `${M.name} · `}${r.foreign ? 'another account’s, only on this device' : r.online ? 'saved online' : r.newer ? 'newer save online' : r.when || 'not started yet'}`;
       const on = r.id === slots.active;
@@ -8431,11 +8574,123 @@ function adoptMountain(id) {
   cloudSave(true);
   refreshTitle();
 }
+/* ---------- Mountain builder: design a mountain before you start ---------- */
+const MB_ROWS = [
+  ['Shape', [
+    ['vert', 'Vertical', null],
+    ['steep', 'Steepness', ['Gentle', 'Gentle', 'Easy', 'Moderate', 'Moderate', 'Moderate', 'Steep', 'Steep', 'Very steep', 'Very steep']],
+    ['rugged', 'Ruggedness', ['Smooth', 'Smooth', 'Rolling', 'Rolling', 'Varied', 'Varied', 'Rugged', 'Rugged', 'Cliffy', 'Cliffy']],
+    ['peaks', 'Summits', [['1', 'One'], ['2', 'Two'], ['3', 'Three']]],
+    ['bowl', 'Open bowl', [['0', 'No'], ['1', 'Yes']]],
+    ['valley', 'Base valley', ['Narrow', 'Narrow', 'Snug', 'Snug', 'Average', 'Average', 'Roomy', 'Roomy', 'Wide', 'Wide']],
+  ]],
+  ['Climate', [
+    ['snow', 'Snowfall', ['Thin', 'Thin', 'Light', 'Light', 'Average', 'Average', 'Good', 'Good', 'Deep', 'Deep']],
+    ['wind', 'Wind', ['Calm', 'Calm', 'Light', 'Light', 'Breezy', 'Breezy', 'Windy', 'Windy', 'Gusty', 'Gusty']],
+    ['thaw', 'Thaws', ['Rare', 'Rare', 'Few', 'Few', 'Some', 'Some', 'Often', 'Often', 'Constant', 'Constant']],
+  ]],
+  ['Location', [
+    ['town', 'Drive from town', ['Remote', 'Remote', 'Far', 'Far', 'An hour', 'An hour', 'Close', 'Close', 'In the city', 'In the city']],
+    ['cash', 'Starting cash', CUSTOM_CASH.map((c, i) => [String(i), `${CUSTOM_CASH_WORD[i]} · ${money(c)}`])],
+  ]],
+];
+let mb = null, mbFrame = 0;
+const mbSeed = () => Math.floor(Math.random() * 46656);
+function openBuilder(code) {
+  mb = parseRecipe(code) || { ...RECIPE_DEFAULT, seed: mbSeed() };
+  $('builder').hidden = false;
+  renderBuilder();
+}
+function closeBuilder() { $('builder').hidden = true; }
+// How hard a design is to run, from its settings.
+function customDifficulty(r) {
+  const v = r.cash * 1.1 + (9 - r.town) / 9 * 1.2 + r.wind / 9 * 0.8 + r.thaw / 9 * 1.1 + (9 - r.snow) / 9 * 0.9 + r.steep / 9 * 0.5;
+  return v < 2 ? 'Easy' : v < 3.2 ? 'Moderate' : v < 4.3 ? 'Hard' : 'Expert';
+}
+function renderBuilder() {
+  const row = ([k, label, words]) => {
+    if (words && Array.isArray(words[0])) {
+      return `<div class="mb-row"><span>${label}</span><div class="seg" role="group" aria-label="${label}">${words.map(([v, w]) =>
+        `<button data-mb="${k}" data-v="${v}" aria-pressed="${String(mb[k]) === v}">${w}</button>`).join('')}</div></div>`;
+    }
+    return `<label class="mb-row"><span>${label}</span><input type="range" min="${RECIPE_MIN[k] || 0}" max="${RECIPE_MAX[k]}" step="1" value="${mb[k]}" data-mb="${k}"><span id="mbW-${k}">${words ? words[mb[k]] : ''}</span></label>`;
+  };
+  $('mbBody').innerHTML = MB_ROWS.map(([title, rows]) => `<div class="mb-grp"><div class="field-label">${title}</div>${rows.map(row).join('')}</div>`).join('');
+  refreshBuilder();
+}
+function refreshBuilder() {
+  for (const [, rows] of MB_ROWS) for (const [k, , words] of rows) { const w = $(`mbW-${k}`); if (w && words && !Array.isArray(words[0])) w.textContent = words[mb[k]]; }
+  document.querySelectorAll('#mbBody [data-mb]').forEach((b) => { if (b.tagName === 'BUTTON') b.setAttribute('aria-pressed', String(String(mb[b.dataset.mb]) === b.dataset.v)); });
+  if (document.activeElement !== $('mbCode')) $('mbCode').value = prettyCode(mb);
+  cancelAnimationFrame(mbFrame);
+  mbFrame = requestAnimationFrame(drawBuilder);
+}
+// A quick painted view of the design: the property seen from the valley, with its stats.
+function drawBuilder() {
+  const M = makeCustom(mb), cv = $('mbCanvas'), ctx = cv.getContext('2d');
+  const W = cv.width, Hc = cv.height, N = 120, lo = -0.06, span = 1.12;
+  const h = new Float32Array(N * N);
+  let min = Infinity, max = -Infinity;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = lo + span * i / (N - 1), v = lo + span * j / (N - 1), y = M.height(u, v);
+    h[j * N + i] = y;
+    if (u >= 0 && u <= 1 && v >= 0 && v <= 1) { if (y < min) min = y; if (y > max) max = y; }
+  }
+  const ft = (y) => Math.round((M.baseFt + (y - min) * FT_PER_UNIT) / 10) * 10;
+  $('mbName').textContent = M.name;
+  $('mbStats').innerHTML = `<div><dt>Vertical</dt><dd>${(ft(max) - ft(min)).toLocaleString('en-US')} ft</dd></div><div><dt>Difficulty</dt><dd>${customDifficulty(mb)}</dd></div>
+    <div><dt>Summit</dt><dd>${ft(max).toLocaleString('en-US')} ft</dd></div><div><dt>Base</dt><dd>${ft(min).toLocaleString('en-US')} ft</dd></div>`;
+  const vw = $('mbW-vert'); if (vw) vw.textContent = `${(ft(max) - ft(min)).toLocaleString('en-US')} ft`;
+  const sky = ctx.createLinearGradient(0, 0, 0, Hc);
+  sky.addColorStop(0, '#c9d9ea'); sky.addColorStop(1, '#eef3f8');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, Hc);
+  const k = 1.55, cw = W / (N - 1) + 1, near = Hc + 10, far = 150;
+  for (let j = N - 1; j >= 0; j--) {
+    const v = lo + span * j / (N - 1), gy = near - (near - far) * (j / (N - 1));
+    for (let i = 0; i < N; i++) {
+      const u = lo + span * i / (N - 1), y = h[j * N + i], x = i / (N - 1) * W, top = gy - y * k;
+      const dx = (h[j * N + Math.min(N - 1, i + 1)] - h[j * N + Math.max(0, i - 1)]), dz = (h[Math.min(N - 1, j + 1) * N + i] - h[Math.max(0, j - 1) * N + i]);
+      const shade = clamp(0.95 - dx * 0.07 + dz * 0.045, 0.5, 1.15);
+      const inside = u >= 0 && u <= 1 && v >= 0 && v <= 1;
+      // Forest as a soft speckle, thinning toward the treeline and on the steepest pitches.
+      const dense = sstep(-0.35, 0.25, fbm(u * 14, v * 14, M.seed + 3, 3)) * (1 - sstep(M.treeline - 6, M.treeline, y)) * (1 - sstep(2.5, 5, Math.abs(dx) + Math.abs(dz)));
+      const forest = clamp(dense * (0.35 + 0.3 * vnoise(i * 0.9, j * 0.9, 7)), 0, 0.7) * (inside ? 1 : 0.7);
+      let r = 236, g = 242, b = 249;
+      r = lerp(r, 58, forest); g = lerp(g, 84, forest); b = lerp(b, 72, forest);
+      const haze = inside ? 0 : 0.35;
+      ctx.fillStyle = `rgb(${Math.round(lerp(r * shade, 226, haze))},${Math.round(lerp(g * shade, 233, haze))},${Math.round(lerp(b * shade, 242, haze))})`;
+      ctx.fillRect(x, top, cw, 70); // rows nearer the viewer paint over the rest
+    }
+  }
+  // The access road, for scale.
+  ctx.strokeStyle = 'rgba(70, 76, 88, 0.75)'; ctx.lineWidth = 2; ctx.beginPath();
+  let started = false;
+  for (const [u, v] of M.road) {
+    const gi = (u - lo) / span * (N - 1), gj = (v - lo) / span * (N - 1);
+    if (gi < 0 || gi > N - 1 || gj < 0 || gj > N - 1) continue;
+    const y = h[Math.round(gj) * N + Math.round(gi)], x = gi / (N - 1) * W, py = near - (near - far) * (gj / (N - 1)) - y * k;
+    if (started) ctx.lineTo(x, py); else { ctx.moveTo(x, py); started = true; }
+  }
+  ctx.stroke();
+}
+$('mbBody').addEventListener('input', (e) => { const k = e.target.dataset.mb; if (!k) return; mb[k] = +e.target.value; refreshBuilder(); });
+$('mbBody').addEventListener('click', (e) => { const b = e.target.closest('button[data-mb]'); if (!b) return; mb[b.dataset.mb] = +b.dataset.v; refreshBuilder(); });
+$('mbShuffle').onclick = () => { mb.seed = mbSeed(); refreshBuilder(); };
+$('mbCode').addEventListener('input', () => {
+  const r = parseRecipe($('mbCode').value);
+  $('mbCodeMsg').textContent = r ? 'Code loaded.' : $('mbCode').value.trim() ? `Codes look like ${prettyCode(RECIPE_DEFAULT)}.` : '';
+  if (r) { mb = r; renderBuilder(); }
+});
+$('mbCode').addEventListener('blur', () => { $('mbCode').value = prettyCode(mb); $('mbCodeMsg').textContent = ''; });
+$('mbClose').onclick = closeBuilder;
+$('builder').addEventListener('click', (e) => { if (e.target.id === 'builder') closeBuilder(); });
+$('mbStart').onclick = () => { closeBuilder(); picking = false; if (newMountain(customId(mb))) startGame(null); };
 $('titleSlots').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-slot]');
   if (!b) return;
   const id = b.dataset.id, act = b.dataset.slot;
   if (act === 'pick') { picking = false; if (newMountain(b.dataset.mt)) startGame(null); return; }
+  if (act === 'design') { openBuilder(MOUNTAIN.custom ? recipeCode(MOUNTAIN.recipe) : null); return; }
   if (act === 'new') picking = true;
   else if (act === 'pickNo') picking = false;
   else if (act === 'del') slotAsk = id;
@@ -8597,7 +8852,7 @@ function start(hot) {
   buildBrush();
   readSlots();
   applySave(loadSave());
-  if (activeSlot() && onThisMountain() && !loadSave()) state.resortName = activeSlot().name; // a new mountain, made before reloading onto it
+  if (activeSlot() && onThisMountain() && !loadSave()) { state.resortName = activeSlot().name; $('resortName').textContent = state.resortName; } // a new mountain, made before reloading onto it
   if (activeSlot() && !activeSlot().when) saveNow(); // fills in the list entry (also for saves from before multiple mountains)
 
   const acres = Math.round(PN * PN * ACRES_PER_CELL);
