@@ -1782,7 +1782,7 @@ function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
-        season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer,
+        season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops },
@@ -3237,6 +3237,15 @@ sheet.addEventListener('click', (e) => {
     rebuildGuns(); updateCash(true); renderSheet(); scheduleSave();
     toast(`Snowmaking added to ${obj.name} · −${money(cost)}`);
   }
+  else if (a === 'baseSmInstall') {
+    const cost = baseSmCost();
+    if (state.phase !== 'closed' || state.cash < cost || state.baseSm) return;
+    state.cash -= cost; state.baseSm = { mode: 'auto', target: 18 };
+    updateCash(true); renderSheet(); scheduleSave();
+    toast(`Base area snowmaking added · −${money(cost)}`);
+  }
+  else if (a === 'baseSmMode' && state.baseSm) { state.baseSm.mode = b.dataset.v; renderSheet(); scheduleSave(); }
+  else if (a === 'waitWeek') waitWeek();
   else if (a === 'smMode' && obj && obj.sm) { obj.sm.mode = b.dataset.v; renderSheet(); scheduleSave(); }
   else if (a === 'smTarget' && obj && obj.sm) { obj.sm.target = clamp(obj.sm.target + +b.dataset.d, 12, 96); renderSheet(); scheduleSave(); }
   else if (a === 'cancelPlan' && obj) { cancelPlan(obj); select(null); toast('Plan cancelled'); scheduleSave(); }
@@ -3677,7 +3686,7 @@ function newToday() {
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
     injuries: 0, helped: 0, unhelped: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -3985,6 +3994,7 @@ function makeGuest(car, x, z) {
     warmed: false, needsRental: Math.random() < [0.75, 0.3, 0.1, 0.04][ab], wantsLesson: ab === 0 && Math.random() < 0.45, lessoned: false,
     bus: false, bid: null, svc: null, resume: null, deck: -1,
   };
+  if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
   if (ab >= 2 && !world.trails.some((t) => t.open && t.reachable && trailSign(t) >= ab - 1)) {
@@ -4374,6 +4384,7 @@ function openDay() {
   today.ops = ops; today.liftCost = {};
   if (short) today.closeAt = SHORT_CLOSE;
   today.letdown = letdownFor(ops, state.day);
+  today.baseBare = baseBare(); today.baseDepth = Math.round(baseDepth());
   sellPasses();
   today.passShare = passShareToday(n);
   finishNight();
@@ -4447,7 +4458,7 @@ function endDay() {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
-    ops: opsReport(ops, claims, repHit),
+    ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
     injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
@@ -4488,11 +4499,11 @@ function nextDay() {
   $('report').hidden = true;
   advanceWeather();
   startOfDaySnow();
-  const smr = runSnowmaking(todayWx().lo);
-  state.cash -= smr.cost;
-  state.nightCost = { snowmaking: smr.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, grooming: 0 };
+  const smr = runSnowmaking(todayWx().lo), bsm = runBaseSnowmaking(todayWx().lo);
+  state.cash -= smr.cost + bsm.cost;
+  state.nightCost = { snowmaking: smr.cost + bsm.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, base: bsm.ran, grooming: 0 };
   chargeInterest(1);
-  const oh = dailyOverhead();
+  const oh = dailyOverhead() * (preOpening() ? OFFSEASON_RATE : 1); // until opening day, a skeleton crew
   state.cash -= oh; state.ohAcc = (state.ohAcc || 0) + oh;
   coverOverdraft();
   updateCash(false);
@@ -5416,9 +5427,9 @@ function arrivalFlow(g) {
   if (g.wantsLesson) {
     g.wantsLesson = false;
     const school = world.buildings.find((B) => B.type === 'school' && bldOpenNow(B));
-    if (school) return startVisit(g, school, 'lesson', { k: 'base' });
-    g.sat -= 4; today.complaints.noSchool++;
-    thought(g, 'I wish there was a ski school.');
+    if (school && today.baseBare) { g.sat -= 3; today.complaints.noLessons++; thought(g, 'No snow on the learning area, so no lessons today.'); }
+    else if (school) return startVisit(g, school, 'lesson', { k: 'base' });
+    else { g.sat -= 4; today.complaints.noSchool++; thought(g, 'I wish there was a ski school.'); }
   }
   baseDecision(g);
 }
@@ -5772,7 +5783,7 @@ const SURFACE = {
   powder: 'Powder', packed: 'Packed powder', groomed: 'Groomed', moguls: 'Moguls', icy: 'Icy', firm: 'Firm',
   spring: 'Spring snow', variable: 'Variable', thin: 'Thin cover', closed: 'Not enough snow',
 };
-Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false });
+Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, baseSm: null });
 
 const midH = () => (MOUNTAIN.baseH + MOUNTAIN.summitH) / 2;
 const elevFrac = (h) => clamp((h - MOUNTAIN.baseH) / (MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -6172,6 +6183,80 @@ function depthAtElev(lo, hi) {
   return n ? s / n : 0;
 }
 
+/* ---------- The base area: snow underfoot between the lodge, the lifts and the trail bottoms ---------- */
+// Low and sunny, the base is the first place to melt. Without snow there, guests slog through mud
+// and the ski school's learning area can't run. Base snowmaking keeps it white.
+const BASE_NEED = 6;               // inches of snow the base area needs
+const BASE_REACH = 7;              // how far around base lifts and buildings counts as the base area
+const BASE_PIPE = 30000;
+let baseZoneCache = null, baseZoneKey = '';
+function baseZone() {
+  const pts = [...world.lifts.filter((L) => L.fromBase).map((L) => L.a), ...world.buildings.filter((B) => B.isBase).map((B) => B.door)];
+  const key = pts.map((p) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('|');
+  if (key === baseZoneKey && baseZoneCache) return baseZoneCache;
+  const out = [];
+  for (const p of pts) {
+    const ci = Math.round(p.x + HALF), cj = Math.round(p.z + HALF);
+    for (let j = cj - BASE_REACH; j <= cj + BASE_REACH; j++) for (let i = ci - BASE_REACH; i <= ci + BASE_REACH; i++) {
+      if (i < PLAY0 || j < PLAY0 || i > PLAY1 || j > PLAY1 || Math.hypot(i - ci, j - cj) > BASE_REACH) continue;
+      if (!isBase({ x: i - HALF, z: j - HALF })) continue;
+      out.push(j * NV + i);
+    }
+  }
+  baseZoneKey = key; baseZoneCache = [...new Set(out)];
+  return baseZoneCache;
+}
+function baseDepth() {
+  const z = baseZone();
+  return z.length ? z.reduce((a, k) => a + NS[k], 0) / z.length : depthAtElev(0, 0.2);
+}
+const baseBare = () => baseZone().length > 0 && baseDepth() < BASE_NEED;
+const baseGuns = () => Math.max(4, Math.ceil(baseZone().length / 60));
+const baseSmCost = () => baseGuns() * GUN_COST + BASE_PIPE;
+// Overnight base snowmaking: the guns cover the base area itself, so the snow shows and melts like any other.
+function runBaseSnowmaking(lo) {
+  const sm = state.baseSm;
+  if (!sm || sm.mode === 'off' || (sm.mode === 'auto' && baseDepth() >= sm.target)) return { cost: 0, ran: false, tooWarm: false };
+  const eff = clamp((28 - tempAt(lo, MOUNTAIN.baseH)) / 12, 0, 1);
+  if (eff <= 0) return { cost: 0, ran: false, tooWarm: true };
+  for (const k of baseZone()) NS[k] += 5 * eff;
+  return { cost: Math.round(baseGuns() * GUN_NIGHT * (0.5 + 0.5 * eff)), ran: true, tooWarm: false };
+}
+function baseSnowSection() {
+  if (!baseZone().length) return '';
+  const d = baseDepth(), sm = state.baseSm, closed = state.phase === 'closed' && !state.summer;
+  const status = d < BASE_NEED ? `<span class="pill off">Bare · ${inch(d)}</span>` : d < BASE_NEED * 1.6 ? `<span class="pill warn">Thin · ${inch(d)}</span>` : `<span class="pill on">${inch(d)}</span>`;
+  const body = !sm
+    ? `<p class="help">Low and sunny, the base melts first. When it’s bare, guests slog through mud to the lifts and the ski school can’t teach. Snowmaking adds ${baseGuns()} guns around your base lifts and buildings.</p>
+       <button class="btn secondary" data-action="baseSmInstall" ${closed && state.cash >= baseSmCost() ? '' : 'disabled'}>${closed ? `Add base snowmaking · ${money(baseSmCost())}` : 'Add base snowmaking overnight'}</button>`
+    : `<div class="seg" role="group" aria-label="Base snowmaking">
+        <button data-action="baseSmMode" data-v="auto" aria-pressed="${sm.mode === 'auto'}">Auto<small>below ${inch(sm.target)}</small></button>
+        <button data-action="baseSmMode" data-v="always" aria-pressed="${sm.mode === 'always'}">Always<small>every cold night</small></button>
+        <button data-action="baseSmMode" data-v="off" aria-pressed="${sm.mode === 'off'}">Off<small>guns idle</small></button></div>
+       <p class="help">${baseGuns()} guns · about ${money(baseGuns() * GUN_NIGHT)} per cold night when running.${state.nightCost && state.nightCost.base ? ' Ran last night.' : ''}</p>`;
+  return `<div class="field-label">Base area</div><div class="status">${status}<span class="muted">needs ${inch(BASE_NEED)} underfoot</span></div>${body}`;
+}
+
+/* ---------- Staying closed for a week ---------- */
+// No snow in the forecast? Push opening back. Until the season's first open day, overhead runs at the
+// summer rate; snowmaking keeps running every cold night, so the week still costs that.
+const preOpening = () => !state.seasonStats || !state.seasonStats.days;
+function waitWeek() {
+  if (state.phase !== 'closed' || state.summer || visiting) return;
+  const cash0 = state.cash, day0 = state.day;
+  let sm = 0, storm = 0;
+  for (let k = 0; k < 7 && state.phase === 'closed' && !state.summer && !state.bankrupt; k++) {
+    waitDay();
+    if (state.phase !== 'closed') break;
+    sm += (state.nightCost && state.nightCost.snowmaking) || 0;
+      if (todayWx().snow >= 6 && todayWx().type !== 'rain') { storm = state.day; break; } // a storm: stop so you can open on the powder
+  }
+  const days = state.day - day0;
+  if (!days) return;
+  toast(`Stayed closed ${days} ${days === 1 ? 'day' : 'days'} · −${money(cash0 - state.cash)}${sm ? ` (snowmaking ${money(sm)})` : ''}. ${storm ? `Stopped early: ${inch(todayWx().snow)} of new snow today!` : `Average trail base now ${inch(avgBase())}.`}`);
+  renderSheet();
+}
+
 /* ---------- Saving snow ---------- */
 function encodeSnow() {
   const bytes = new Uint8Array(NV * NV);
@@ -6213,13 +6298,17 @@ function weatherSheet() {
       <div><dt>New snow</dt><dd>${w.snow >= 0.5 && w.type !== 'rain' ? inch(w.snow) : '0″'}</dd></div>
       <div><dt>Avg trail base</dt><dd>${inch(avgBase())}</dd></div>
       <div><dt>Summit</dt><dd>${inch(depthAtElev(0.75, 1))}</dd></div>
-      <div><dt>Base area</dt><dd>${inch(depthAtElev(0, 0.2))}</dd></div>
+      <div><dt>Base area</dt><dd>${inch(baseDepth())}</dd></div>
       <div><dt>Trails with snow</dt><dd>${open} of ${world.trails.length}</dd></div>
       <div><dt>Season snowfall</dt><dd>${inch(state.seasonStats ? state.seasonStats.snowfall : 0)}</dd></div>
     </dl>
     <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
       Snowmaking needs about 28°F or colder. Trails need ${OPEN_NEED[0]}″ of base to open, and black diamonds need ${OPEN_NEED[2]}″.
-      ${spring ? ` Spring bonus days continue while the average trail base stays at ${SPRING_MIN_BASE}″ or more.` : ''}</p>`;
+      ${spring ? ` Spring bonus days continue while the average trail base stays at ${SPRING_MIN_BASE}″ or more.` : ''}</p>
+    ${baseSnowSection()}
+    ${state.phase === 'closed' && !visiting ? `<div class="field-label">Stay closed</div>
+      <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
+      <p class="help">Skip ahead up to 7 days, stopping early if a big storm arrives.${preOpening() ? ' Until your first open day of the season, overhead runs at the summer rate.' : ' Overhead still runs every day.'} Snowmaking keeps running on cold nights.</p>` : ''}`;
 }
 function trailSnowSection(t) {
   const need = needOf(t), sm = t.sm || {};
@@ -6940,6 +7029,9 @@ function adviceFor(r) {
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
     [(r.rev.refunds || 0), `${money(r.rev.refunds || 0)} in tickets was refunded to guests who never got on a lift. More lift capacity from the base would help.`],
     ...opsTips(r),
+    [r.baseBare ? (c.mud || 0) * 5 + (c.noLessons || 0) * P.lesson : 0, state.baseSm
+      ? `The base area was bare. Set base snowmaking to Always on cold nights (tap the weather in the time bar).`
+      : `The base area was bare, so ${c.mud} guests slogged through mud${c.noLessons ? ` and ${c.noLessons} lessons were lost` : ''}. Base snowmaking (${money(baseSmCost())}, in the weather panel) keeps it white.`],
   ].filter(([v, t]) => t && v >= 500);
   tips.sort((a, b) => b[0] - a[0]);
   return tips.length ? tips[0][1] : '';
@@ -6983,6 +7075,7 @@ function showReport() {
   if (c.rentOut) notes.push(`The rental shop ran out of skis for ${c.rentOut} guests.`);
   if (c.noSchool) notes.push(`${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
   if (c.boring) notes.push(`${c.boring} strong skiers found too little challenging terrain.`);
+  if (r.baseBare) notes.unshift(`<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.`);
   if (c.stranded) notes.push(`${c.stranded} guests had to hike out because a lift was stopped.`);
   $('rpBody').innerHTML = `
     <div><div class="eyebrow">Day report · Season ${state.season}</div><h2 id="rpTitle">${dateLabel(r.day)}</h2></div>
@@ -8125,6 +8218,8 @@ const CHANGES = [
     'Cutbacks save money, but guests notice, most on weekends, at high prices and at a famous resort. A short-handed patrol can turn an injury into a claim.',
     'The day report has an Operations section: what ran, what it carried and what it cost, with a link to adjust tomorrow’s plan.',
     'Parking sections now cost $350 a day to run, and staff a little less, so a resort with everything open costs about the same as before.',
+    'The base area needs snow too. When it melts out, guests slog through mud and the ski school can’t teach. Add base snowmaking from the weather panel.',
+    'No snow in the forecast? Stay closed for a week from the weather panel. Until your first open day of the season, overhead runs at the summer rate.',
   ] },
   { v: '2.3', date: 'Oct 18, 2026', items: [
     'New mountain: Maple Notch, a small New England hill with about 750 feet of gentle, wooded terrain. Families and forgiving crowds make it the easiest mountain, but January thaws and ice storms keep the snowmaking busy.',
