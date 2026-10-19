@@ -5265,7 +5265,7 @@ const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fi
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle', 'transit']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // bus stops sit beside the access road
-const BAY_FRONT = { shuttle: 0.9, transit: 1.35 }; // the bus bay's outer edge, in front of the building
+const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
 // Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
 function snapToRoad(type, p) {
   const r = nearestRoad(p), t = BTYPES[type];
@@ -5293,14 +5293,36 @@ function drivewayPoints(Q, NX = 8, NZ = 5) {
   }
   return out;
 }
-const DRIVE_MAT = new THREE.MeshLambertMaterial({ color: 0x4b5059, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+// The bus bay: the road's asphalt, a yellow curb line, a painted bay and BUS lettering. Across: along the curb; down: curb to road.
+const APRON_TEX = (() => {
+  const W = 256, H = 160, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#464b54'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 1400; i++) { const v = Math.random(); g.fillStyle = v < 0.5 ? `rgba(255,255,255,${v * 0.07})` : `rgba(0,0,0,${(v - 0.5) * 0.12})`; g.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+  const gr = g.createLinearGradient(0, 0.3 * H, 0, 0.62 * H); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.12)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0.3 * H, W, 0.32 * H); // where the buses stand
+  g.fillStyle = 'rgba(232,184,46,0.95)'; g.fillRect(0, 4, W, 5);
+  g.strokeStyle = 'rgba(245,247,250,0.9)'; g.lineWidth = 4; g.setLineDash([14, 10]);
+  g.strokeRect(14, 14, W - 28, 0.62 * H);
+  g.setLineDash([]);
+  g.fillStyle = 'rgba(245,247,250,0.85)'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 40px "Big Shoulders Display", "Arial Narrow", Arial, sans-serif';
+  g.fillText('BUS', W / 2, 0.36 * H);
+  const t = new THREE.CanvasTexture(c);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+})();
+// Drawn over the road where they meet, so the road's edge line breaks at the entrance.
+const DRIVE_MAT = new THREE.MeshLambertMaterial({ map: APRON_TEX, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 // The apron's surface in world space, draped on the ground.
 function drivewayGeo(Q) {
-  const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], idx = [];
-  for (const p of pts) pos.push(p.x, heightAt(p.x, p.z) + 0.045, p.z);
+  const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], uv = [], idx = [];
+  for (const p of pts) { pos.push(p.x, heightAt(p.x, p.z) + 0.05, p.z); uv.push(p.i / NX, 1 - p.j / NZ); }
   for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { const a = j * (NX + 1) + i; idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2); }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
@@ -5314,8 +5336,11 @@ function addDriveway(b) {
   const m = new THREE.Mesh(geo, DRIVE_MAT);
   m.receiveShadow = true; m.renderOrder = 1;
   b.group.add(m);
-  // Buses turn in off the road where the apron meets it.
-  b.approach = { x: (Q.es[0].x + Q.es[1].x) / 2, z: (Q.es[0].z + Q.es[1].z) / 2 };
+  // Buses turn in off the road at one end of the bay and pull up along the curb.
+  const hw = BTYPES[b.type].w / 2, cz = BAY_FRONT[b.type] + 0.45;
+  b.approach = { x: lerp(Q.es[0].x, Q.es[1].x, 0.15), z: lerp(Q.es[0].z, Q.es[1].z, 0.15) };
+  b.bayIn = toWorld(b, -hw * 0.55, cz);
+  b.stop = toWorld(b, 0.2, cz);
 }
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
@@ -5729,15 +5754,15 @@ function modelRestroom() {
 }
 function modelShuttle() {
   const k = new Kit();
-  k.add(bx(3.4, 0.05, 0.9), BM.asphalt, 0, 0.03, 0.45);
-  for (let i = 0; i < 5; i++) k.add(bx(0.4, 0.002, 0.06), BM.white, -1.4 + i * 0.7, 0.06, 0.45);
+  k.add(bx(3.3, 0.06, 0.95), BM.plank, 0, 0.03, -0.45); // platform
+  k.add(bx(3.4, 0.09, 0.12), BM.stone, 0, 0.045, -0.01); // curb
   k.add(bx(2.0, 0.06, 0.75), accentMat(BTYPES.shuttle.accent), 0, 0.7, -0.45);
   k.add(bx(2.06, 0.05, 0.79), BM.snow, 0, 0.75, -0.45);
   for (const sx of [-0.95, 0.95]) for (const sz of [-0.75, -0.15]) k.add(bx(0.05, 0.7, 0.05), BM.dark, sx, 0.35, sz);
   k.add(bx(1.9, 0.5, 0.03), BM.glass, 0, 0.36, -0.78);
   k.add(bx(1.4, 0.04, 0.18), BM.wood, 0, 0.18, -0.62);
-  k.add(bx(0.04, 0.9, 0.04), BM.dark, 1.3, 0.45, 0.0);
-  sign(k, 'shuttle', 1.3, 0.92, 0.03, 0.6);
+  k.add(bx(0.04, 0.9, 0.04), BM.dark, 1.3, 0.45, -0.2);
+  sign(k, 'shuttle', 1.3, 0.92, -0.17, 0.6);
   return k;
 }
 function modelClinic() {
@@ -5786,16 +5811,15 @@ function modelHrest() {
 }
 function modelTransit() {
   const k = new Kit(), acc = accentMat(BTYPES.transit.accent);
-  k.add(bx(5.2, 0.05, 1.2), BM.asphalt, 0, 0.03, 0.75); // bus bay
-  for (let i = 0; i < 7; i++) k.add(bx(0.4, 0.002, 0.06), BM.white, -2.4 + i * 0.8, 0.06, 0.75);
-  k.add(bx(5.0, 0.08, 0.16), BM.stone, 0, 0.04, 0.12); // curb
+  k.add(bx(5.1, 0.06, 1.45), BM.plank, 0, 0.03, -0.5); // platform
+  k.add(bx(5.2, 0.09, 0.14), BM.stone, 0, 0.045, 0.16); // curb
   hall(k, { w: 4.0, d: 1.0, h: 0.6, rise: 0.36, z: -0.75, roof: accentMat(0x4a3570), windows: false, chimney: -1 });
   for (let i = 0; i < 5; i++) { const x = -1.6 + i * 0.8; k.add(bx(0.62, 0.42, 0.04), BM.dark, x, 0.34, -0.24); k.add(bx(0.56, 0.36, 0.05), BM.glow, x, 0.34, -0.235); }
   k.add(bx(4.6, 0.06, 0.62), acc, 0, 0.74, 0.0); // long canopy over the platform
   k.add(bx(4.64, 0.05, 0.66), BM.snow, 0, 0.79, 0.0);
-  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), BM.dark, x, 0.36, 0.26);
+  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), BM.dark, x, 0.36, 0.1);
   for (const x of [-1.5, 1.5]) k.add(bx(0.7, 0.04, 0.16), BM.wood, x, 0.18, -0.1);
-  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.22);
+  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.05);
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
@@ -5896,7 +5920,8 @@ function buildingVisual(b, ghost) {
   const top = b.padY != null ? Math.max(b.padY, fs.hmin) : fs.hmax;
   const baseY = top * VEX + 0.03;
   const fh = Math.max(0.25, (top - fs.hmin) * VEX + 0.25);
-  if (!ghost) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
+  if (!ghost && BY_ROAD.includes(b.type)) { const back = -s.d / 2 - 0.03, front = BAY_FRONT[b.type]; k.add(bx(s.w + 0.06, fh, front - back), BM.stone, 0, -fh / 2 + 0.01, (front + back) / 2); }
+  else if (!ghost) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
   const g = k.build();
   g.position.set(b.x, baseY, b.z);
   g.rotation.y = b.rot * Math.PI / 2;
@@ -5943,7 +5968,7 @@ function clearGhost() {
   if (ghostDrive) { scene.remove(ghostDrive); ghostDrive.geometry.dispose(); ghostDrive = null; }
 }
 let ghostDrive = null;
-const DRIVE_GHOST = new THREE.MeshLambertMaterial({ color: 0x4b5059, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+const DRIVE_GHOST = new THREE.MeshLambertMaterial({ map: APRON_TEX, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 function showGhost(type, tier, x, z, rot, ok, padY) {
   const key = `${type}:${tier}:${rot}`;
   const b = { type, tier, x, z, rot };
@@ -6384,7 +6409,7 @@ const BUS_RUN = { shuttle: { every: 20, seats: 40, share: 0.3 }, transit: { ever
 function busPath(st) {
   let k = 0, bd = Infinity;
   ROAD_WORLD.forEach((p, i) => { const d = distXZ(p, st.approach); if (d < bd) { bd = d; k = i; } });
-  return [...ROAD_WORLD.slice(0, k + 1), st.approach, st.stop];
+  return [...ROAD_WORLD.slice(0, k + 1), st.approach, ...(st.bayIn ? [st.bayIn] : []), st.stop];
 }
 const BUS_GEO = mergeColored([
   [new THREE.BoxGeometry(0.46, 0.34, 1.5).translate(0, 0.24, 0), [0.95, 0.96, 0.98]],
@@ -9395,6 +9420,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.9.1', date: 'Oct 19, 2026', items: [
+    'Shuttle stations and transit centers have a proper bus bay: the pavement runs from the platform curb straight into the road, with a painted bay, and buses pull up along the curb.',
+  ] },
   { v: '2.9', date: 'Oct 19, 2026', items: [
     'A first-aid clinic: ski patrol brings injured guests there, and about half are patched up and head back out. Fewer injuries turn into claims.',
     'A kids’ camp: parents drop the kids off for the day ($110 each, set in Prices), then ski on their own and stay longer.',
