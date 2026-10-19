@@ -16,8 +16,9 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`world.trails[0].open`), false, 'close a trail from the list');
   assert(/Closed/.test(await g.ev(`$('sheet').innerText`)), 'row shows it closed');
   await g.click(`[data-action=qOpen][data-id="${t0}"]`);
+  const g0 = await g.ev(`!!world.trails[0].groomed`);
   await g.click(`[data-action=qGroom][data-id="${t0}"]`);
-  eq(await g.ev(`world.trails[0].groomed`), true, 'groom from the list');
+  eq(await g.ev(`!!world.trails[0].groomed`), !g0, 'grooming toggles from the list');
   const t1 = await g.ev(`world.trails[1].id`);
   await g.click(`[data-action=qSm][data-id="${t1}"]`);
   eq(await g.ev(`world.trails[1].sm.mode`), 'always', 'snow guns step to Always');
@@ -62,7 +63,7 @@ export default async function ({ browser, url }) {
 
   // grouped menu
   await g.click('#badge'); await g.wait(100);
-  assert(/This resort/i.test(await g.ev(`$('menu').innerText`)) && /★ \\d of 5/.test(await g.ev(`$('mGoalsN').textContent`)), 'menu is grouped and shows goals');
+  assert(/This resort/i.test(await g.ev(`$('menu').innerText`)) && /★ \d of 5/.test(await g.ev(`$('mGoalsN').textContent`)), 'menu is grouped and shows goals');
   // history survives a reload
   await g.ev(`closeMenu(); saveNow()`); await g.page.reload(); await g.reloaded();
   eq(await g.ev(`(state.history || []).length`), 1, 'history is saved');
