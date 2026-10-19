@@ -952,7 +952,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="panel modal mb" role="dialog" aria-modal="true" aria-labelledby="mbTitle">
       <div class="cm-head"><div><div class="eyebrow">Mountain builder</div><h2 id="mbTitle">Design your own</h2></div><button class="x" id="mbClose" aria-label="Close">✕</button></div>
       <div class="mb-top">
-        <div class="mb-prev"><canvas id="mbCanvas" width="320" height="240" aria-label="Map of your mountain"></canvas><span class="mb-n" id="mbName"></span></div>
+        <div class="mb-prev"><canvas id="mbCanvas" width="640" height="480" aria-label="Map of your mountain"></canvas><span class="mb-n" id="mbName"></span></div>
         <div class="mb-side">
           <dl class="kv" id="mbStats"></dl>
           <button class="btn secondary" id="mbShuffle">Shuffle the land</button>
@@ -3730,7 +3730,7 @@ function updateLabels() {
       let cnt = '';
       if (open) {
         if (isEatery(B)) cnt = `<b>${Math.min(s.seats, B.used.seat * AGENT)}</b>/${s.seats} seats${B.q.seat.length ? ` · <b>${B.q.seat.length * AGENT}</b> in line` : ''}`;
-        else if (B.type === 'rental' || B.type === 'restroom') { const pl = B.type === 'rental' ? 'rent' : 'rr'; cnt = B.q[pl].length ? `<b>${B.q[pl].length * AGENT}</b> in line` : ''; }
+        else if (B.type === 'rental' || B.type === 'restroom' || B.type === 'hrest') { const pl = B.type === 'rental' ? 'rent' : 'rr'; cnt = B.q[pl].length ? `<b>${B.q[pl].length * AGENT}</b> in line` : ''; }
         else if (B.type === 'school') cnt = B.used.lesson ? `<b>${B.used.lesson * AGENT}</b> in lessons` : '';
         else if (B.type === 'patrol') { const out = B.crew.filter((c) => c.st !== 'idle').length; cnt = out ? `<b>${out}</b> on calls` : ''; }
       }
@@ -3940,6 +3940,65 @@ function roadEnd() {
   return { x: PLAY0 + r[0] * PN - HALF, z: PLAY1 - r[1] * PN - HALF };
 }
 const ROAD_WORLD = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })).filter((p) => Math.abs(p.x) < HALF - 4 && Math.abs(p.z) < HALF - 4);
+// The access road: a draped ribbon of asphalt over the painted roadbed, with lane lines and plowed shoulders.
+const ROAD_HW = 1.15, ROAD_TILE = 6;
+const ROAD_TEX = (() => {
+  const W = 128, H = 384, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#464b54'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 2600; i++) { const v = Math.random(); g.fillStyle = v < 0.5 ? `rgba(255,255,255,${v * 0.07})` : `rgba(0,0,0,${(v - 0.5) * 0.12})`; g.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+  // worn wheel tracks in each lane
+  for (const x of [0.2, 0.38, 0.62, 0.8]) { const gr = g.createLinearGradient((x - 0.06) * W, 0, (x + 0.06) * W, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.13)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect((x - 0.06) * W, 0, 0.12 * W, H); }
+  // salt and packed snow along the edges
+  for (const [x0, x1] of [[0, 0.07], [0.93, 1]]) { const gr = g.createLinearGradient(x0 * W, 0, x1 * W, 0); const a = x0 === 0; gr.addColorStop(a ? 0 : 1, 'rgba(236,240,246,0.95)'); gr.addColorStop(a ? 1 : 0, 'rgba(236,240,246,0)'); g.fillStyle = gr; g.fillRect(x0 * W, 0, (x1 - x0) * W, H); }
+  g.fillStyle = 'rgba(245,247,250,0.9)'; g.fillRect(0.085 * W, 0, 3, H); g.fillRect(0.915 * W - 3, 0, 3, H);
+  g.fillStyle = 'rgba(232,184,46,0.95)';
+  for (let y = 0; y < H; y += 96) { g.fillRect(W / 2 - 5, y + 8, 3, 52); g.fillRect(W / 2 + 2, y + 8, 3, 52); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+})();
+const ROAD_MAT = hazeMaterial('haze', { map: ROAD_TEX, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+let roadMesh = null;
+function roadPath() {
+  const raw = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF }));
+  const out = [];
+  for (let k = 0; k < raw.length - 1; k++) {
+    const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i < n; i++) out.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) });
+  }
+  const e = raw[raw.length - 1], f = raw[raw.length - 2], d = Math.hypot(e.x - f.x, e.z - f.z) || 1;
+  out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
+  return out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1);
+}
+function buildRoad() {
+  if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
+  const P = roadPath(), pos = [], uv = [], hz = [], idx = [];
+  let along = 0;
+  for (let k = 0; k < P.length; k++) {
+    const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)];
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz) || 1, nx = -dz / d, nz = dx / d;
+    if (k) along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
+    for (let s = 0; s <= 2; s++) {
+      const o = (s - 1) * ROAD_HW, x = P[k].x + nx * o, z = P[k].z + nz * o;
+      pos.push(x, heightAt(x, z) + 0.05, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
+    }
+    if (k) { const r = (k - 1) * 3; for (const c of [0, 1]) idx.push(r + c, r + c + 1, r + c + 3, r + c + 1, r + c + 4, r + c + 3); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('haze', new THREE.Float32BufferAttribute(hz, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  roadMesh = new THREE.Mesh(geo, ROAD_MAT);
+  roadMesh.receiveShadow = true; roadMesh.renderOrder = 1;
+  scene.add(roadMesh);
+}
+// How far a point is from the road's centre line, in world units.
+const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
 function sectionOrigin(k) { const e = roadEnd(); return { x: e.x + 0.9 + k * (LOT.w + 0.7), z: e.z - 1.2 }; }
 function sectionTrees(k) {
   const o = sectionOrigin(k), set = new Set();
@@ -4062,9 +4121,9 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -4309,7 +4368,11 @@ function demandForDay() {
   if (has('gift')) amen += 0.01;
   if (has('school')) amen += 0.06;
   if (has('patrol')) amen += 0.03;
-  if (has('shuttle')) amen += 0.1;
+  if (has('shuttle') || has('transit')) amen += 0.1;
+  if (has('transit')) amen += 0.04;
+  if (has('kids')) amen += 0.05;
+  if (has('clinic')) amen += 0.03;
+  if (has('hrest')) amen += 0.02;
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   const w = todayWx();
   let wxF = WX[w.type].demand;
@@ -4381,6 +4444,7 @@ function makeGuest(car, x, z) {
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
   g.wantsTune = ab >= 2 && !g.needsRental && Math.random() < 0.2;
+  g.family = ab >= 1 && Math.random() < 0.16; // brought young kids along
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
@@ -4791,7 +4855,7 @@ function openDay() {
   if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
   schedule.sort((a, b) => b.t - a.t);
   const bus = shuttleStation();
-  if (bus && bldMode(bus) !== 'closed') for (const e of schedule) e.bus = Math.random() < 0.3;
+  if (bus && bldMode(bus) !== 'closed') for (const e of schedule) e.bus = Math.random() < BUS_RUN[bus.type].share;
   guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN;
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
@@ -4815,7 +4879,7 @@ function endDay() {
   let claims = 0;
   const patrolCut = hasBld('patrol') && (ops.patrol === 'skeleton' || world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] === 'closed'));
   if (patrolCut) {
-    const odds = world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] !== 'closed') ? 0.12 : 0.25;
+    const odds = (world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] !== 'closed') ? 0.12 : 0.25) * (hasBld('clinic') ? 0.5 : 1);
     for (let k = 0; k < today.injuries + today.unhelped; k++) if (Math.random() < odds) claims++;
   }
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
@@ -4848,7 +4912,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
-    injuries: today.injuries, helped: today.helped, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -5124,15 +5188,24 @@ const BTYPES = {
   restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
     desc: 'A small block of restrooms for busy areas.' },
   shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 800,
-    desc: 'Buses bring guests in without using parking spaces.' },
+    desc: 'Buses bring guests in without using parking spaces. Builds beside the access road.' },
+  clinic: { name: 'First-aid clinic', where: 'base', cost: 110000, sign: 'FIRST AID', accent: 0xd23c3c, beds: 6, w: 2.8, d: 2.2, upkeep: 850,
+    desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
+  kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
+    desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer.' },
+  hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
+    desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
+  transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1700,
+    desc: 'A heated bus terminal beside the access road. Bigger buses every 12 minutes bring about half your guests.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'patrol', 'restroom', 'shuttle'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
+const BY_ROAD = ['shuttle', 'transit']; // bus stops sit beside the access road
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
 const isEatery = (B) => EATS.includes(B.type);
 const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
-const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, parking: 0 };
+const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, parking: 0 };
 const PRICE_INFO = {
   snack: { label: 'Snack (truck, café)', min: 3, max: 30, step: 1 },
   food: { label: 'Lodge meal', min: 5, max: 60, step: 1 },
@@ -5143,6 +5216,7 @@ const PRICE_INFO = {
   gear: { label: 'Gear (goggles, gloves)', min: 15, max: 200, step: 5 },
   gift: { label: 'Souvenir', min: 3, max: 60, step: 1 },
   lesson: { label: 'Group lesson', min: 20, max: 250, step: 5 },
+  camp: { label: 'Kids’ camp (per child)', min: 20, max: 300, step: 5 },
   parking: { label: 'Parking', min: 0, max: 40, step: 5 },
 };
 
@@ -5550,7 +5624,66 @@ function modelShuttle() {
   sign(k, 'shuttle', 1.3, 0.92, 0.03, 0.6);
   return k;
 }
-const MODELS = { tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+function modelClinic() {
+  const k = new Kit(), acc = accentMat(BTYPES.clinic.accent);
+  hall(k, { w: 2.4, d: 1.5, h: 0.62, rise: 0.42, z: -0.2, roof: accentMat(0x8a2a26), chimney: -1 });
+  door(k, 0, 0.56, 0.46, 0.4, BM.glass);
+  sign(k, 'clinic', 0, 0.86, 0.56, 0.95);
+  // a white panel with a red cross on the gable end
+  k.add(bx(0.04, 0.34, 0.34), BM.white, 1.21, 0.42, -0.2);
+  k.add(bx(0.05, 0.24, 0.07), acc, 1.22, 0.42, -0.2); k.add(bx(0.05, 0.07, 0.24), acc, 1.22, 0.42, -0.2);
+  k.add(bx(1.0, 0.04, 0.5), acc, 0, 0.66, 0.78); // ambulance canopy
+  for (const sx of [-0.46, 0.46]) k.add(bx(0.04, 0.64, 0.04), BM.dark, sx, 0.32, 1.0);
+  k.push(-0.95, 0, 0.85, 0.15); // a patrol toboggan parked out front
+  k.add(bx(0.3, 0.1, 0.78), acc, 0, 0.08, 0); k.add(bx(0.34, 0.03, 0.82), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  return k;
+}
+function modelKids() {
+  const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
+  hall(k, { w: 2.6, d: 1.3, h: 0.56, rise: 0.4, z: -1.0, roof: accentMat(0x2c7fb8), chimney: 1 });
+  door(k, 0, -0.34, 0.42, 0.3, acc);
+  sign(k, 'kids', -0.75, 0.8, -0.34, 0.85);
+  // a fenced play area out front, with a little slide and snowmen
+  for (const x of [-1.7, 1.7]) k.add(bx(0.04, 0.22, 2.0), acc, x, 0.11, 0.65);
+  k.add(bx(3.44, 0.22, 0.04), acc, 0, 0.11, 1.65);
+  for (const x of [-1.7, -0.85, 0, 0.85, 1.7]) k.add(bx(0.06, 0.3, 0.06), BM.wood, x, 0.15, 1.65);
+  k.add(bx(0.32, 0.36, 0.32), accentMat(0xd94f2a), 0.9, 0.18, 0.35);
+  k.add(bx(0.24, 0.04, 0.9), accentMat(0x2c9a55), 0.9, 0.2, 0.85, 0.42);
+  for (const [x, z] of [[-1.0, 0.6], [-0.4, 1.1]]) {
+    const sb = new THREE.SphereGeometry(0.13, 10, 8), st = new THREE.SphereGeometry(0.09, 10, 8);
+    k.add(sb, BM.white, x, 0.12, z); k.add(st, BM.white, x, 0.3, z);
+    k.add(bx(0.03, 0.03, 0.08), accentMat(0xff7a1a), x, 0.31, z + 0.1);
+  }
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 4; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0x7a4bc4), -1.3 + i * 0.3, 0.02, 1.35);
+  return k;
+}
+function modelHrest() {
+  const k = new Kit(), acc = accentMat(BTYPES.hrest.accent);
+  hall(k, { w: 2.1, d: 1.2, h: 0.55, rise: 0.42, z: -0.15, windows: false, chimney: 1 });
+  door(k, -0.5, 0.46, 0.42, 0.26, acc); door(k, 0.5, 0.46, 0.42, 0.26, acc);
+  sign(k, 'hrest', 0, 0.74, 0.46, 0.7);
+  for (const x of [-0.85, 0.85]) { k.add(bx(0.14, 0.12, 0.04), BM.dark, x, 0.42, 0.46); k.add(bx(0.1, 0.08, 0.05), BM.glow, x, 0.42, 0.465); }
+  k.add(bx(2.2, 0.05, 0.4), BM.plank, 0, 0.03, 0.66);
+  return k;
+}
+function modelTransit() {
+  const k = new Kit(), acc = accentMat(BTYPES.transit.accent);
+  k.add(bx(5.2, 0.05, 1.2), BM.asphalt, 0, 0.03, 0.75); // bus bay
+  for (let i = 0; i < 7; i++) k.add(bx(0.4, 0.002, 0.06), BM.white, -2.4 + i * 0.8, 0.06, 0.75);
+  k.add(bx(5.0, 0.08, 0.16), BM.stone, 0, 0.04, 0.12); // curb
+  hall(k, { w: 4.0, d: 1.0, h: 0.6, rise: 0.36, z: -0.75, roof: accentMat(0x4a3570), windows: false, chimney: -1 });
+  for (let i = 0; i < 5; i++) { const x = -1.6 + i * 0.8; k.add(bx(0.62, 0.42, 0.04), BM.dark, x, 0.34, -0.24); k.add(bx(0.56, 0.36, 0.05), BM.glow, x, 0.34, -0.235); }
+  k.add(bx(4.6, 0.06, 0.62), acc, 0, 0.74, 0.0); // long canopy over the platform
+  k.add(bx(4.64, 0.05, 0.66), BM.snow, 0, 0.79, 0.0);
+  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), BM.dark, x, 0.36, 0.26);
+  for (const x of [-1.5, 1.5]) k.add(bx(0.7, 0.04, 0.16), BM.wood, x, 0.18, -0.1);
+  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.22);
+  sign(k, 'transit', 0, 1.0, -0.22, 1.2);
+  return k;
+}
+const MODELS = { clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -5585,15 +5718,17 @@ function segNearBox(a, b, bb, pad) {
   return false;
 }
 function footprintStats(bb) {
-  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false;
+  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity;
   for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) {
     const gx = x + HALF, gz = z + HALF, h = sampleGrid(HT, gx, gz);
     hmin = Math.min(hmin, h); hmax = Math.max(hmax, h);
     gmax = Math.max(gmax, sampleGrid(GR, gx, gz));
     if (sampleGrid(CREEKD, gx, gz) < 1.4) creek = true;
-    if (sampleGrid(ROADD, gx, gz) < 1.8) road = true;
+    const rd = sampleGrid(ROADD, gx, gz);
+    if (rd < 1.8) road = true;
+    roadMin = Math.min(roadMin, rd);
   }
-  return { hmin, hmax, gmax, creek, road };
+  return { hmin, hmax, gmax, creek, road, roadMin };
 }
 function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
@@ -5603,6 +5738,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (fs.hmax - fs.hmin > 3.2) problems.push('The ground is too steep to level here. Look for a gentler spot.');
   if (fs.creek) problems.push('Too close to the creek.');
   if (fs.road) problems.push('That would block the access road.');
+  else if (BY_ROAD.includes(type) && fs.roadMin > 3.6) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, so buses can pull in.`);
   if (lotBoxes().some((lb) => boxOverlap(bb, lb))) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
   if (other) problems.push(`Too close to ${other.name}.`);
@@ -5621,7 +5757,7 @@ function buildingInTheWay(samples, pad) {
 
 /* ---------- Building instances ---------- */
 const LODGE_NAMES = { base: 'Base Lodge', mid: 'Mid-Mountain Lodge', top: 'Summit Lodge' };
-const OTHER_NAMES = { tuning: ['Tune & Demo Center', 'Edge Works'], store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear'], gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut'], truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart'], cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings'], fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room'], restaurant: ['The Juniper Grill', 'Fireside Restaurant', 'Slopeside Grill'], rental: ['Rental Shop'], school: ['Ski School'], patrol: ['Ski Patrol'], restroom: ['Restrooms'], shuttle: ['Shuttle Station'] };
+const OTHER_NAMES = { tuning: ['Tune & Demo Center', 'Edge Works'], store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear'], gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut'], truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart'], cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings'], fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room'], restaurant: ['The Juniper Grill', 'Fireside Restaurant', 'Slopeside Grill'], rental: ['Rental Shop'], school: ['Ski School'], patrol: ['Ski Patrol'], restroom: ['Restrooms'], shuttle: ['Shuttle Station'], clinic: ['First Aid', 'Mountain Clinic'], kids: ['Kids’ Camp', 'Little Rippers', 'Snow Cubs Camp'], hrest: ['Heated Restrooms', 'Warm Stalls'], transit: ['Transit Center', 'Bus Terminal'] };
 function nextBuildingName(type, x, z) {
   const used = new Set(world.buildings.map((b) => b.name));
   let bases;
@@ -5654,6 +5790,7 @@ function addBuilding(b) {
   const a = b.rot * Math.PI / 2;
   b.seatsW = v.seats.map((st) => ({ ...toWorld(b, st.x, st.z), y: b.baseY + st.y, yaw: st.yaw + a }));
   if (b.type === 'shuttle') { b.stop = toWorld(b, 0, 0.45); b.approach = toWorld(b, -4, 0.45); b.door = toWorld(b, 0, -0.35); }
+  if (b.type === 'transit') { b.stop = toWorld(b, 0.4, 0.75); b.approach = toWorld(b, -5, 0.75); b.door = toWorld(b, 0, -0.05); }
   if (b.type === 'school') b.door = toWorld(b, 0, s.d / 2 + 0.2);
   bldGroup.add(b.group);
   world.buildings.push(b);
@@ -5715,10 +5852,10 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
 const POOL = { shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
 const SVC_TIME = { shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
 const COGS = { shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
-const REV_CAT = { shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
-const OFFERS = { lodge: ['food', 'warm', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'] };
-const PRICE_KEY = { tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson' };
-const SVC_WORD = { shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
+const REV_CAT = { camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
+const OFFERS = { lodge: ['food', 'warm', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
+const PRICE_KEY = { tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp' };
+const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
@@ -5729,6 +5866,7 @@ function priceOf(svc, prices) {
   if (svc === 'tune') return prices.tune ?? 35;
   if (svc === 'gear') return prices.gear ?? 60;
   if (svc === 'shop') return prices.gift ?? 14;
+  if (svc === 'camp') return prices.camp ?? 110;
   return svc === 'food' ? prices.food : svc === 'snack' ? prices.snack ?? 11 : svc === 'finedine' ? prices.fine ?? 85 : svc === 'warm' ? Math.round(prices.food * 0.45) : svc === 'dine' ? prices.dining
     : svc === 'apres' ? Math.round(prices.dining * 0.7) : svc === 'rent' ? prices.rental : svc === 'lesson' ? prices.lesson : 0;
 }
@@ -5791,6 +5929,7 @@ function tastes(g, B, svc) {
   if (svc === 'finedine') return g.fancy ? 7 : g.spend > 1.1 ? -1 : -4; // big spenders splurge now and then
   if (svc === 'snack') return g.qh * 3 - 1 - (g.fancy ? 2 : 0);
   if (svc === 'warm' && B.type === 'cafe') return 1.5 + (todayWx().hi < 20 ? 2 : 0);
+  if (svc === 'rr' && B.type === 'hrest') return 1.5;
   return 0;
 }
 // Another open place to eat with a shorter line, counting the trip there: for skipping or leaving a slow food line.
@@ -5935,6 +6074,11 @@ function finishVisit(g) {
   else if (svc === 'snack') { g.ate = true; g.sat += 2; thought(g, `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
+  else if (svc === 'rr' && B && B.type === 'hrest') {
+    const cold = todayWx().hi < 20;
+    g.bl = 0; g.sat += cold ? 4 : 2; g.fat = Math.max(0, g.fat - g.stam * 0.08);
+    if (cold && Math.random() < 0.4) thought(g, `Heated restrooms at ${name}! I could stay in here all day.`);
+  }
   else if (svc === 'rr') { g.bl = 0; g.sat += 1; }
   else if (svc === 'rent') { g.needsRental = false; g.onSkis = true; thought(g, 'All geared up!'); }
   else if (svc === 'lesson') {
@@ -5986,6 +6130,7 @@ function arrivalFlow(g) {
     const tc = world.buildings.find((B) => B.type === 'tuning' && bldOpenNow(B));
     if (tc) return startVisit(g, tc, 'tune', { k: 'arrive' });
   }
+  if (g.family) { g.family = false; campDropOff(g); }
   g.onSkis = true;
   if (g.wantsLesson) {
     g.wantsLesson = false;
@@ -5995,6 +6140,19 @@ function arrivalFlow(g) {
     else { g.sat -= 4; today.complaints.noSchool++; thought(g, 'I wish there was a ski school.'); }
   }
   baseDecision(g);
+}
+// Parents drop the kids at camp on the way in, if there is one with room, and then ski longer.
+function campDropOff(g) {
+  const camp = world.buildings.find((B) => B.type === 'kids' && bldOpenNow(B));
+  if (!camp) { if (!hasBld('kids')) today.complaints.noCamp++; return; }
+  if (camp.today.visits + AGENT > bspec(camp).campers) { g.sat -= 3; today.complaints.campFull++; thought(g, `${camp.name} was full, so the kids are tagging along.`); return; }
+  if (Math.random() > willing(g, 'camp')) { g.sat -= 3; today.complaints.price++; thought(g, `${camp.name} costs too much. The kids are tagging along.`); return; }
+  const amt = svcPrice('camp') * AGENT, c = amt * 0.25;
+  state.cash += amt; camp.today.revenue += amt; today.rev.lessons += amt;
+  camp.today.cogs += c; today.exp.cogs += c;
+  camp.today.visits += AGENT; today.campers += AGENT;
+  g.sat += 6; g.leaveAt += 25;
+  thought(g, `Dropped the kids at ${camp.name}. Time for some real skiing!`);
 }
 function updateNeeds(g, dt) {
   g.bl += dt / 60 / g.blRate;
@@ -6025,7 +6183,10 @@ function moveXZ(o, tx, tz, step) {
   o.x += dx / d * step; o.z += dz / d * step;
   return false;
 }
+const openClinic = () => world.buildings.find((B) => B.type === 'clinic' && bldMode(B) !== 'closed');
 function firstAidPoint() {
+  const clinic = openClinic();
+  if (clinic) return clinic.door;
   const hut = world.buildings.find((B) => B.type === 'patrol' && B.isBase);
   return hut ? hut.door : roadEnd();
 }
@@ -6042,8 +6203,10 @@ function patrolStep(dt) {
     }
     if (best) { best.st = 'go'; best.target = g.id; g.rescuer = true; home.today.calls++; }
     else if (state.time - g.hurtAt > 70) {
-      g.sat = clamp(g.sat - 25, 0, 100); today.unhelped++;
-      thought(g, 'Nobody came to help. I had to limp down on my own.');
+      const clinic = openClinic();
+      g.sat = clamp(g.sat - (clinic ? 18 : 25), 0, 100); today.unhelped++;
+      if (clinic) clinic.today.visits += AGENT;
+      thought(g, clinic ? `Nobody came to help, so I limped down. At least ${clinic.name} looked after me.` : 'Nobody came to help. I had to limp down on my own.');
       g.leaving = true; g.onSkis = false;
       goCar(g);
     }
@@ -6053,16 +6216,27 @@ function patrolStep(dt) {
     const g = gById.get(c.target);
     if (c.st === 'go') {
       if (!g || g.st !== 'hurt') { c.st = 'back'; continue; }
-      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt)) { c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(); c.resp = state.time - g.hurtAt; }
+      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt)) { const cl = openClinic(); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt; }
     } else if (c.st === 'tow') {
       const done = moveXZ(c, c.dest.x, c.dest.z, PATROL_TOW * dt);
       if (g) { g.x = c.x - Math.sin(c.yaw) * 0.55; g.z = c.z - Math.cos(c.yaw) * 0.55; g.yaw = c.yaw; }
       if (done) {
+        const clinic = c.clinic != null ? bldById(c.clinic) : null;
         if (g) {
-          g.sat = clamp(g.sat + 8, 0, 100); today.helped++; today.respSum += c.resp; B.today.resp += c.resp;
-          thought(g, 'Ski patrol got me down safely. Thank you!');
-          g.leaving = true; g.onSkis = false;
-          goCar(g);
+          today.helped++; today.respSum += c.resp; B.today.resp += c.resp;
+          if (clinic) clinic.today.visits += AGENT;
+          if (clinic && Math.random() < 0.5 && state.time < closeTime() - 60) {
+            // Patched up: a sprain strapped, a bruise iced, and back out.
+            g.sat = clamp(g.sat + 14, 0, 100); today.patched++;
+            thought(g, `${clinic.name} patched me up. Back out there!`);
+            g.st = 'walk'; g.onSkis = true; g.fat = 0;
+            baseDecision(g);
+          } else {
+            g.sat = clamp(g.sat + (clinic ? 12 : 8), 0, 100);
+            thought(g, clinic ? `Ski patrol and ${clinic.name} took great care of me.` : 'Ski patrol got me down safely. Thank you!');
+            g.leaving = true; g.onSkis = false;
+            goCar(g);
+          }
         }
         c.st = 'back';
       }
@@ -6074,7 +6248,15 @@ function patrolStep(dt) {
 
 /* ---------- Shuttle buses ---------- */
 let buses = [], busPending = 0, nextBusAt = 0;
-const shuttleStation = () => world.buildings.find((B) => B.type === 'shuttle');
+// A transit center takes over from a shuttle station when there are both.
+const shuttleStation = () => world.buildings.find((B) => B.type === 'transit') || world.buildings.find((B) => B.type === 'shuttle');
+const BUS_RUN = { shuttle: { every: 20, seats: 40, share: 0.3 }, transit: { every: 12, seats: 60, share: 0.5 } };
+// Buses follow the road to the point nearest the stop, then pull in.
+function busPath(st) {
+  let k = 0, bd = Infinity;
+  ROAD_WORLD.forEach((p, i) => { const d = distXZ(p, st.approach); if (d < bd) { bd = d; k = i; } });
+  return [...ROAD_WORLD.slice(0, k + 1), st.approach, st.stop];
+}
 const BUS_GEO = mergeColored([
   [new THREE.BoxGeometry(0.46, 0.34, 1.5).translate(0, 0.24, 0), [0.95, 0.96, 0.98]],
   [new THREE.BoxGeometry(0.47, 0.07, 1.51).translate(0, 0.16, 0), [0.48, 0.29, 0.77]],
@@ -6087,10 +6269,11 @@ function busStep(dt) {
   if (!st) return;
   const waiting = guests.some((g) => g.st === 'busq');
   if (state.time >= nextBusAt && (busPending > 0 || waiting) && !buses.some((b) => b.st !== 'out')) {
-    nextBusAt = state.time + 20;
-    const load = Math.min(Math.ceil(40 / AGENT), busPending);
+    const run = BUS_RUN[st.type];
+    nextBusAt = state.time + run.every;
+    const load = Math.min(Math.ceil(run.seats / AGENT), busPending);
     busPending -= load;
-    const path = [...ROAD_WORLD, st.approach, st.stop];
+    const path = busPath(st);
     buses.push({ id: nextCid++, st: 'in', path, len: pathLen(path), pd: 0, load, dwell: 0 });
   }
   for (const b of buses) {
@@ -6124,6 +6307,7 @@ function busUnload(b, st) {
 function busBoard() {
   for (const g of guests) {
     if (g.st !== 'busq') continue;
+    if (shuttleStation().type === 'transit') g.sat = Math.min(100, g.sat + 2); // a warm terminal to wait in
     g.gone = true; gById.delete(g.id);
     today.satSum += g.sat; today.satN++;
   }
@@ -6144,7 +6328,11 @@ function capOf(type, s) {
     case 'school': return `${s.classes} instructors · ${s.classes * 6} students`;
     case 'patrol': return `${s.crew} patrollers`;
     case 'restroom': return `${s.stalls} stalls`;
-    default: return 'A bus every 20 minutes';
+    case 'clinic': return `${s.beds} treatment beds`;
+    case 'kids': return `${s.campers} children a day`;
+    case 'hrest': return `${s.stalls} heated stalls`;
+    case 'transit': return 'A 60-seat bus every 12 minutes · half your guests can ride';
+    default: return 'A 40-seat bus every 20 minutes';
   }
 }
 function recomputeBldDraft() {
@@ -6162,7 +6350,7 @@ function hoverGhost(p) {
 function bldDraftSheet() {
   if (!draft.btype) {
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-      <p class="help">Choose what to build. Rental shops, ski schools and shuttle stations go in the base area. Food trucks, cafés, lodges, restaurants, patrol huts and restrooms can go anywhere flat enough.</p>
+      <p class="help">Choose what to build. Rental shops, ski schools, kids’ camps and clinics go in the base area; shuttle stations and transit centers go beside the access road. Food trucks, cafés, lodges, restaurants, patrol huts and restrooms can go anywhere flat enough.</p>
       <div class="bpick">${BORDER.map((k) => {
         const t = BTYPES[k];
         return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
@@ -6170,7 +6358,7 @@ function bldDraftSheet() {
       ${state.lotSections < 6 ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Parking</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`;
   }
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
-  const help = !draft.bpos ? `Click where it should go.${t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
+  const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It needs to be in the base area, right beside the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
   let body = '';
   if (info) {
     body = `${problemsHtml(info.problems)}
@@ -6243,7 +6431,9 @@ function bldLive(B) {
     case 'store': case 'gift': return `<b>${Math.min(s.seats, B.used.seat * AGENT)}</b> shopping · <b>${B.q.seat.length * AGENT}</b> in line`;
     case 'rental': case 'tuning': return `<b>${B.used.rent * AGENT}</b> being fitted · <b>${B.q.rent.length * AGENT}</b> in line · ${Math.max(0, s.inventory - B.rented * AGENT)} pairs left`;
     case 'school': return `<b>${B.used.lesson * AGENT}</b> in lessons · <b>${B.q.lesson.length * AGENT}</b> waiting`;
-    case 'restroom': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
+    case 'clinic': return `<b>${B.today.visits}</b> patients today · <b>${today ? today.patched : 0}</b> back on the snow`;
+    case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
+    case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st !== 'idle').length}</b> of ${s.crew} patrollers out on calls`;
     default: return `<b>${today ? today.busGuests : 0}</b> arrived by bus today · <b>${guests.filter((g) => g.st === 'busq').length * AGENT}</b> waiting to leave`;
   }
@@ -6262,8 +6452,8 @@ function levelOffer(B) {
 }
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
-  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' ? 'Bus riders today' : 'Served today';
-  const visits = B.type === 'patrol' ? B.today.calls : B.type === 'shuttle' ? (today ? today.busGuests : 0) : B.today.visits;
+  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : 'Served today';
+  const visits = B.type === 'patrol' ? B.today.calls : B.type === 'shuttle' || B.type === 'transit' ? (today ? today.busGuests : 0) : B.today.visits;
   const y = B.yday;
   const next = t.tiers && t.tiers[B.tier + 1];
   let upgrade = '';
@@ -6279,7 +6469,7 @@ function bldSheet(B) {
     ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}</p>` : ''}
     <dl class="kv">
       <div><dt>${visitsLabel}</dt><dd>${visits}</dd></div>
-      ${B.type === 'patrol'
+      ${B.type === 'clinic' ? '' : B.type === 'patrol'
         ? `<div><dt>Avg response</dt><dd>${B.today.calls && today && today.helped ? Math.round(B.today.resp / Math.max(1, B.today.calls)) + ' min' : '–'}</dd></div>`
         : `<div><dt>Revenue today</dt><dd>${money(B.today.revenue)}</dd></div>`}
       <div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day${bldMode(B) === 'closed' ? ' · closed today' : bldMode(B) === 'lunch' ? ' · lunch only' : ''}</dd></div>
@@ -7391,6 +7581,7 @@ function refreshOnTerrain(i0, j0, i1, j1, skip) {
   for (const L of world.lifts) if (segNearBox(L.a, L.b, box, 3)) rebuildLift(L);
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
+  if (roadPath().some((p) => boxDist(p, box) < 3)) buildRoad();
   for (const p of world.plans) if (p.group) { removePlanVisual(p); planVisual(p); }
   computeNetwork(); syncLabels();
   if (state.wx) refreshSnowState(todayWx());
@@ -7608,6 +7799,8 @@ function adviceFor(r) {
     [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking in Manage › Buildings, or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
     [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
+    [(c.noCamp || 0) * (P.camp ?? 110) * 0.5, !has('kids') && c.noCamp >= 20 ? `${c.noCamp} parents brought young kids along. A kids’ camp would have earned about ${money(c.noCamp * (P.camp ?? 110) * 0.6)} today.` : ''],
+    [(c.campFull || 0) * 6, c.campFull ? `${c.campFull} families found the kids’ camp full. A second camp would take them.` : ''],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
     [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
     [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
@@ -7650,7 +7843,9 @@ function showReport(r = state.lastReport, past = false) {
   if (r.busiest) notes.push(`${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
   if (r.popular) notes.push(`${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
   if (r.lunchPeak && r.lunchPeak.n) notes.push(`The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
-  if (r.busGuests) notes.push(`${r.busGuests} guests arrived on the shuttle without needing a parking space.`);
+  if (r.campers) notes.push(`${r.campers} kids spent the day at camp while their parents skied.`);
+  if (r.patched) notes.push(`${r.patched} injured guests were patched up at the clinic and went back out.`);
+  if (r.busGuests) notes.push(`${r.busGuests} guests arrived by bus without needing a parking space.`);
   if (r.injuries) notes.push(`${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
   if (c.wait) notes.push(`${c.wait} lift rides came after a longer wait than the guest wanted.`);
@@ -7741,7 +7936,7 @@ function resortSheet() {
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
     <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
-    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $95 for a lesson and free parking.</p></details>
+    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $35 for a tune, $60 for gear, $14 for a souvenir, $95 for a lesson, $110 for kids’ camp and free parking.</p></details>
     ${passSection()}
     ${last}`;
 }
@@ -7895,7 +8090,7 @@ function bldsList() {
     const liveTxt = live ? bldLive(B).split('<br>')[0] : '';
     return `<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
-      <div class="l2"><span>${t.tiers ? s.label + ' ' + t.name.toLowerCase() : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : 'served'}${B.type === 'patrol' || B.type === 'restroom' || B.type === 'shuttle' ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
+      <div class="l2"><span>${t.tiers ? s.label + ' ' + t.name.toLowerCase() : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : 'served'}${['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'].includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
       <div class="l3"><span>Upkeep ${money(s.upkeep)}/day</span>${next ? `<span class="pill on">Upgrade available</span>` : ''}</div>
     </li>`;
   }).join('');
@@ -7915,7 +8110,7 @@ function pricesPanel() {
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
     <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
-    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Food, rentals, lessons and parking</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $95 for a lesson and free parking.</p></details>
+    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Food, rentals, lessons and parking</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $35 for a tune, $60 for gear, $14 for a souvenir, $95 for a lesson, $110 for kids’ camp and free parking.</p></details>
     ${passSection()}
     ${eventSection()}`;
 }
@@ -8039,7 +8234,7 @@ function opsReportHtml(r) {
     rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
   }
   for (const B of o.blds) {
-    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'shuttle' || B.type === 'restroom' ? '' : `${B.visits} served · ${signedMoney(B.profit)}`;
+    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} served · ${signedMoney(B.profit)}`;
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
   rows.push(`<span>Parking <em>${o.lots.open} of ${o.lots.total} open</em></span><span>peak ${o.lots.peak} of ${o.lots.open * SPACES_PER_SECTION}</span>`);
@@ -9061,6 +9256,14 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.9', date: 'Oct 21, 2026', items: [
+    'A first-aid clinic: ski patrol brings injured guests there, and about half are patched up and head back out. Fewer injuries turn into claims.',
+    'A kids’ camp: parents drop the kids off for the day ($110 each, set in Prices), then ski on their own and stay longer.',
+    'Heated restrooms: bigger and warmer, so guests come out happier and a little rested, most of all on cold days.',
+    'A transit center: bigger buses every 12 minutes bring about half your guests without using parking. Bus stops now have to go right beside the access road.',
+    'The access road is paved, with lane lines, edge lines and plowed shoulders.',
+    'Sharper mountain pictures on the title screen and in the mountain designer.',
+  ] },
   { v: '2.8', date: 'Oct 20, 2026', items: [
     'New places to eat: food trucks for a quick snack beside a trail or at the top of a lift, cafés for hot chocolate on cold days, and fine dining for guests who love a long meal (and pay for it). The restaurant is now the casual restaurant, with more seats and quicker meals.',
     'Guests choose by personality: the impatient grab a snack, the cold head for a café, and big spenders seek out fine dining. Each has its own price in the Prices panel.',
@@ -9237,7 +9440,7 @@ const thumbCache = new Map();
 function mountainThumb(mt) {
   if (!thumbCache.has(mt)) {
     const cv = document.createElement('canvas');
-    cv.width = 320; cv.height = 200;
+    cv.width = 720; cv.height = 450;
     const M = mountainDef(mt), { min, max } = paintMountain(cv, M);
     thumbCache.set(mt, { cv, vert: Math.round((max - min) * FT_PER_UNIT / 10) * 10 });
   }
@@ -9259,7 +9462,7 @@ function renderSlots() {
   box.classList.toggle('picking', picking && left > 0);
   if (picking && left > 0) {
     box.innerHTML = Object.values(MOUNTAINS).map((M) => `<article class="panel scard pick">
-        <canvas width="320" height="200" data-mt="${M.id}" aria-hidden="true"></canvas>
+        <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.level)} · starts with ${money(M.cash)}</div>
           <h2>${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
           <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button></div></div></article>`).join('')
@@ -9285,7 +9488,7 @@ function renderSlots() {
 function freshCard() {
   const M = MOUNTAIN, max = goalList().length;
   return `<article class="panel scard on">
-    <canvas width="320" height="200" data-mt="${M.id}" aria-hidden="true"></canvas>
+    <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
     <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i><span id="mLevel">${esc(M.level)} mountain</span></div>
       <h2 id="mName">${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
       <dl class="stats"><div><dt>Summit</dt><dd>${ft(M.summitH).toLocaleString('en-US')}</dd></div><div><dt>Base</dt><dd>${ft(M.baseH).toLocaleString('en-US')}</dd></div>
@@ -9318,7 +9521,7 @@ function slotCard(r, active) {
     : r.foreign && CLOUD.ready && ownIds().size < MAX_MOUNTAINS ? `<button class="btn secondary" data-slot="adopt" data-id="${r.id}">Add to my account</button>`
     : `<button class="btn secondary" data-slot="play" data-id="${r.id}">Play</button>`;
   return `<article class="panel scard ${active ? 'on' : ''}">
-    <canvas width="320" height="200" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>
+    <canvas width="720" height="450" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>
     <div class="sc-body">
       <div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i><span ${live ? 'id="mLevel"' : ''}>${esc(level)}</span></div>
       <h2 ${live ? 'id="mName"' : ''}>${esc(r.name)}</h2>
@@ -9425,49 +9628,77 @@ function drawBuilder() {
     <div><dt>Summit</dt><dd>${ft(max).toLocaleString('en-US')} ft</dd></div><div><dt>Base</dt><dd>${ft(min).toLocaleString('en-US')} ft</dd></div>`;
   const vw = $('mbW-vert'); if (vw) vw.textContent = `${(ft(max) - ft(min)).toLocaleString('en-US')} ft`;
 }
-// A quick painted view of a mountain from its valley: snow, forest speckle, shading and the access road.
+// A painted view of a mountain from its valley: snow, forest, rock, shading, haze and the access road.
 // Used by the builder's preview and the title screen's cards. Returns the property's lowest and highest ground.
+// Each pixel column is traced from the valley floor back toward the summit, so the picture is as sharp as the canvas.
 function paintMountain(cv, M) {
   const ctx = cv.getContext('2d');
-  const W = cv.width, Hc = cv.height, N = 120, lo = -0.06, span = 1.12, sc = Hc / 240;
-  const h = new Float32Array(N * N);
+  const W = cv.width, Hc = cv.height, N = 160, lo = -0.06, span = 1.12, sc = Hc / 240;
+  const h = new Float32Array(N * N), wood = new Float32Array(N * N);
   let min = Infinity, max = -Infinity;
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const u = lo + span * i / (N - 1), v = lo + span * j / (N - 1), y = M.height(u, v);
     h[j * N + i] = y;
     if (u >= 0 && u <= 1 && v >= 0 && v <= 1) { if (y < min) min = y; if (y > max) max = y; }
   }
-  const sky = ctx.createLinearGradient(0, 0, 0, Hc);
-  sky.addColorStop(0, '#c9d9ea'); sky.addColorStop(1, '#eef3f8');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, Hc);
-  const k = 1.55 * sc, cw = W / (N - 1) + 1, near = Hc + 10 * sc, far = 150 * sc;
-  for (let j = N - 1; j >= 0; j--) {
-    const v = lo + span * j / (N - 1), gy = near - (near - far) * (j / (N - 1));
-    for (let i = 0; i < N; i++) {
-      const u = lo + span * i / (N - 1), y = h[j * N + i], x = i / (N - 1) * W, top = gy - y * k;
-      const dx = (h[j * N + Math.min(N - 1, i + 1)] - h[j * N + Math.max(0, i - 1)]), dz = (h[Math.min(N - 1, j + 1) * N + i] - h[Math.max(0, j - 1) * N + i]);
-      const shade = clamp(0.95 - dx * 0.07 + dz * 0.045, 0.5, 1.15);
-      const inside = u >= 0 && u <= 1 && v >= 0 && v <= 1;
-      // Forest as a soft speckle, thinning toward the treeline and on the steepest pitches.
-      const dense = sstep(-0.35, 0.25, fbm(u * 14, v * 14, M.seed + 3, 3)) * (1 - sstep(M.treeline - 6, M.treeline, y)) * (1 - sstep(2.5, 5, Math.abs(dx) + Math.abs(dz)));
-      const forest = clamp(dense * (0.35 + 0.3 * vnoise(i * 0.9, j * 0.9, 7)), 0, 0.7) * (inside ? 1 : 0.7);
-      let r = 236, g = 242, b = 249;
-      r = lerp(r, 58, forest); g = lerp(g, 84, forest); b = lerp(b, 72, forest);
-      const haze = inside ? 0 : 0.35;
-      ctx.fillStyle = `rgb(${Math.round(lerp(r * shade, 226, haze))},${Math.round(lerp(g * shade, 233, haze))},${Math.round(lerp(b * shade, 242, haze))})`;
-      ctx.fillRect(x, top, cw, 70 * sc); // rows nearer the viewer paint over the rest
+  const H = (fi, fj) => {
+    fi = clamp(fi, 0, N - 1.001); fj = clamp(fj, 0, N - 1.001);
+    const i = fi | 0, j = fj | 0, a = fi - i, b = fj - j, k0 = j * N + i;
+    return (h[k0] * (1 - a) + h[k0 + 1] * a) * (1 - b) + (h[k0 + N] * (1 - a) + h[k0 + N + 1] * a) * b;
+  };
+  const e = (N - 1) / 119; // slopes measured over the same ground distance as before
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = lo + span * i / (N - 1), v = lo + span * j / (N - 1), y = h[j * N + i];
+    const st = Math.abs(H(i + e, j) - H(i - e, j)) + Math.abs(H(i, j + e) - H(i, j - e));
+    wood[j * N + i] = sstep(-0.35, 0.25, fbm(u * 14, v * 14, M.seed + 3, 3)) * (1 - sstep(M.treeline - 6, M.treeline, y)) * (1 - sstep(2.5, 5, st));
+  }
+  const img = ctx.createImageData(W, Hc), px = img.data;
+  for (let y = 0; y < Hc; y++) {
+    const t = y / Hc, r = lerp(201, 238, t), g = lerp(217, 243, t), b = lerp(234, 248, t);
+    for (let x = 0; x < W; x++) { const o = (y * W + x) * 4; px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255; }
+  }
+  const k = 1.55 * sc, near = Hc + 10 * sc, far = 150 * sc, steps = Math.ceil((near - far) * 2.5);
+  for (let x = 0; x < W; x++) {
+    const fi = x / (W - 1) * (N - 1), u = lo + span * fi / (N - 1);
+    let ybuf = Hc;
+    for (let s = 0; s <= steps && ybuf > 0; s++) {
+      const t = s / steps, fj = t * (N - 1), y = H(fi, fj), top = Math.floor(near - (near - far) * t - y * k);
+      if (top >= ybuf) continue;
+      const v = lo + span * t, dx = H(fi + e, fj) - H(fi - e, fj), dz = H(fi, fj + e) - H(fi, fj - e);
+      const shade = clamp(0.95 - dx * 0.07 + dz * 0.045, 0.5, 1.15), steep = Math.abs(dx) + Math.abs(dz);
+      const out = Math.max(-u, u - 1, -v, v - 1, 0);
+      // Forest: density from the map, broken into clumps and single trees at pixel scale.
+      const wi = Math.min(N - 2, fi | 0), wj = Math.min(N - 2, fj | 0);
+      const dense = wood[wj * N + wi], trees = vnoise(x * 0.32 / sc, fj * 0.8, 11) * 0.65 + vnoise(fi * 0.6, fj * 0.6, 7) * 0.35;
+      const forest = clamp(dense * 1.25 - (1 - trees) * 0.75, 0, 0.88) * (out > 0 ? 0.75 : 1);
+      let r = 238, g = 243, b = 250;
+      const rock = sstep(4.2, 7, steep) * (1 - forest);
+      r = lerp(r, 128, rock * 0.55); g = lerp(g, 126, rock * 0.55); b = lerp(b, 132, rock * 0.55);
+      const tv = vnoise(fi * 3, fj * 3, 5) * 14;
+      r = lerp(r, 44 + tv, forest); g = lerp(g, 72 + tv, forest); b = lerp(b, 60 + tv * 0.6, forest);
+      const haze = Math.min(0.55, sstep(0, 0.08, out) * 0.35 + t * 0.14);
+      const R = lerp(r * shade, 226, haze), G = lerp(g * shade, 233, haze), B = lerp(b * shade, 242, haze);
+      for (let py = Math.max(0, top); py < ybuf; py++) {
+        const o = (py * W + x) * 4;
+        px[o] = R; px[o + 1] = G; px[o + 2] = B;
+      }
+      ybuf = top;
     }
   }
+  ctx.putImageData(img, 0, 0);
   // The access road, for scale.
-  ctx.strokeStyle = 'rgba(70, 76, 88, 0.75)'; ctx.lineWidth = 2 * sc; ctx.beginPath();
-  let started = false;
+  const pts = [];
   for (const [u, v] of M.road) {
-    const gi = (u - lo) / span * (N - 1), gj = (v - lo) / span * (N - 1);
-    if (gi < 0 || gi > N - 1 || gj < 0 || gj > N - 1) continue;
-    const y = h[Math.round(gj) * N + Math.round(gi)], x = gi / (N - 1) * W, py = near - (near - far) * (gj / (N - 1)) - y * k;
-    if (started) ctx.lineTo(x, py); else { ctx.moveTo(x, py); started = true; }
+    const fi = (u - lo) / span * (N - 1), fj = (v - lo) / span * (N - 1);
+    if (fi < 0 || fi > N - 1 || fj < 0 || fj > N - 1) continue;
+    pts.push([fi / (N - 1) * W, near - (near - far) * (fj / (N - 1)) - H(fi, fj) * k]);
   }
-  ctx.stroke();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const [w, c] of [[3.2, 'rgba(240, 244, 250, 0.9)'], [2, 'rgba(70, 76, 88, 0.85)']]) {
+    ctx.strokeStyle = c; ctx.lineWidth = w * sc; ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+  }
   return { min, max };
 }
 $('mbBody').addEventListener('input', (e) => { const k = e.target.dataset.mb; if (!k) return; mb[k] = +e.target.value; refreshBuilder(); });
@@ -9667,6 +9898,7 @@ function start(hot) {
   snapshotTerrain();
   initSun();
   buildTerrain();
+  buildRoad();
   buildTrees();
   buildBoundary();
   buildSnow();
