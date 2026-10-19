@@ -30,7 +30,7 @@ export default async function ({ browser, url }) {
   await g.click('#rpNext'); await g.wait(100);
   await g.ev(`openManage('prices'); $('pricesDetails').open = true; pricesOpen = true; renderSheet()`); await g.wait(100);
   const prices = await g.ev(`$('sheet').innerText`);
-  assert(/Snack \\(truck, café\\)/.test(prices) && /Fine dining meal/.test(prices), 'snack and fine dining prices are set in the Prices panel');
+  assert(/Snack \(truck, café\)/i.test(prices) && /Fine dining meal/i.test(prices), 'snack and fine dining prices are set in the Prices panel');
   eq(await g.ev(`[svcRef('snack'), svcRef('finedine')]`), [11, 85], 'guests compare against $11 snacks and $85 fine dining');
   // food places can run lunch-only from an operations plan
   eq(await g.ev(`lunchOnlyOk(world.buildings.find((B) => B.type === 'truck'))`), true, 'a truck can open for lunch only');
