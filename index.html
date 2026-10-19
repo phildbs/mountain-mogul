@@ -8195,8 +8195,10 @@ $('mResetYes').onclick = () => {
 async function startFromTitle() {
   $('community').hidden = true;
   if (!slots.active && !newMountain()) return;
-  // Played further on another device? Bring that copy here first.
+  // Played further on another device? Bring that copy here first. (The page may have been open for
+  // hours, so ask the server what's there now rather than trusting the list from when it loaded.)
   const s = activeSlot();
+  if (s && CLOUD.ready && CLOUD.uid) await refreshMine();
   if (s && onlineIsNewer(s)) {
     toast('Loading your newer save from online…');
     if (await pullMountain(s.id, 'start')) startGame(); // otherwise the page is reloading onto it
@@ -8344,6 +8346,12 @@ function setupProblem(e) {
   if (msg.includes('invalid api key') || msg.includes('no api key')) return 'The Supabase key in the game is wrong.';
   if (msg.includes('failed to fetch') || msg.includes('network')) return 'Can’t reach the server. Check your connection.';
   return (e && e.message) || 'Something went wrong talking to the server.';
+}
+// Fetch your mountains' online summaries again (quietly: offline just keeps the old list).
+async function refreshMine() {
+  const keep = CLOUD.own;
+  try { await loadMine(); } catch (e) { CLOUD.own = keep; }
+  if (!state.started) refreshTitle();
 }
 async function loadMine() {
   CLOUD.own = null;
@@ -9341,6 +9349,7 @@ function showTitle() {
   readout.hidden = true;
   brushMesh.visible = false;
   refreshTitle();
+  if (CLOUD.ready && CLOUD.uid) refreshMine();
   const t = $('title');
   t.hidden = false;
   requestAnimationFrame(() => t.classList.remove('out'));
@@ -9533,7 +9542,10 @@ function start(hot) {
   }));
   window.addEventListener('pagehide', saveNow);
   // Switching away (closing the tab, another app on a tablet) is often the last chance to upload.
-  document.addEventListener('visibilitychange', () => { if (document.hidden && state.started && !visiting) { saveNow(); cloudSaveNow(); } });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && state.started && !visiting) { saveNow(); cloudSaveNow(); }
+    else if (!document.hidden && !state.started && CLOUD.ready) refreshMine(); // back on the title: anything newer from another device?
+  });
   initCloud();
   requestAnimationFrame((t) => { lastT = t; frame(t); });
 }

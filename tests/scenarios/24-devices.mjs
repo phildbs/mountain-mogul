@@ -19,18 +19,19 @@ export default async function ({ browser, url }) {
   await g.ev(`state.day = 40; openDay()`); await g.ev(SETUPS.finishDay); await g.wait(800);
   eq((await row()).day, 40, 'a finished day is saved online at once');
   await g.ev(`state.day = 113; saveNow(); $('mTitle').onclick()`); await g.wait(800);
-  // the "PC": its copy here is older, and the online one is newer
-  await g.ev(`(() => { const sv = JSON.parse(localStorage.getItem(slotKey(slots.active))); sv.clock.day = 93; localStorage.setItem(slotKey(slots.active), JSON.stringify(sv));
-    activeSlot().savedAt = Date.now() - 600000; writeSlots(); })()`);
-  await g.page.reload(); await g.reloaded();
-  assert(/Newer save online/.test(await g.ev(`$('titleSlots').innerText`)), 'the card says a newer save is online');
-  // an older device never uploads over it
-  await g.ev(`state.day = 93; CLOUD.lastUp = 0; cloudSave(false)`); await g.wait(500);
+  // the "PC", whose game page has been open all along: it last played at day 93, while the
+  // tablet's online copy (day 113) was saved later
+  await g.ev(`(() => { state.day = 93; saveNow();
+    const d = JSON.parse(localStorage.getItem('FAKE_DB')); const r = d.rows.find((x) => x.id === slots.active);
+    r.updated_at = new Date(Date.now() + 600000).toISOString(); localStorage.setItem('FAKE_DB', JSON.stringify(d)); })()`);
+  // an older copy never uploads over the newer one (once it knows about it)
+  await g.ev(`refreshMine()`); await g.wait(300);
+  await g.ev(`CLOUD.lastUp = 0; cloudSave(false)`); await g.wait(500);
   eq((await row()).day, 113, 'the older copy did not overwrite the newer one');
-  // Continue brings the newer one in
-  await g.click('#startBtn'); await g.wait(300);
+  // even with a stale list, Continue checks the server and loads the newer copy
+  await g.ev(`CLOUD.own = CLOUD.own.map((m) => ({ ...m, updatedAt: 0 }))`);
+  await g.click('#startBtn'); await g.wait(1500);
   if (await g.ev(`!state.started`)) await g.reloaded();
-  await g.wait(500);
   eq(await g.ev(`state.day`), 113, 'Continue loaded the newer online copy');
   eq(await g.ev(`onlineIsNewer(activeSlot())`), false, 'and the device is up to date');
   eq(g.errors, [], 'no page errors');
