@@ -14,6 +14,11 @@ export default async function ({ browser, url }) {
   await g.ev(`$('mTitle').onclick()`); await g.wait(800);
   eq((await row()).day, 113, 'going to the title uploads at once');
 
+  // finishing a day uploads it too
+  await g.click('#startBtn'); await g.wait(300);
+  await g.ev(`state.day = 40; openDay()`); await g.ev(SETUPS.finishDay); await g.wait(800);
+  eq((await row()).day, 40, 'a finished day is saved online at once');
+  await g.ev(`state.day = 113; saveNow(); $('mTitle').onclick()`); await g.wait(800);
   // the "PC": its copy here is older, and the online one is newer
   await g.ev(`(() => { const sv = JSON.parse(localStorage.getItem(slotKey(slots.active))); sv.clock.day = 93; localStorage.setItem(slotKey(slots.active), JSON.stringify(sv));
     activeSlot().savedAt = Date.now() - 600000; writeSlots(); })()`);
