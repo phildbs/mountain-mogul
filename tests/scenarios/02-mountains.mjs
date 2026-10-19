@@ -1,7 +1,7 @@
 // Switching between mountains reloads onto the right terrain and never damages a save.
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
-  const g = await openGame(browser, url);
+  const g = await openGame(browser, url, { render: true });
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(600);
   await g.click('[data-slot=new]'); await g.wait(100);
   await g.click('[data-slot=pick][data-mt=raven]'); await g.reloaded();

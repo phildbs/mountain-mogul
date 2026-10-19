@@ -18,7 +18,9 @@ function debugBuild() {
   const sb = '<script src="vendor/supabase.js"></script>';
   if (!s.includes(boot) || !s.includes(sb)) throw new Error('index.html changed shape; update tests/harness.mjs');
   s = s.replace(boot, 'window.__dbg = (c) => eval(c);\n' + boot);
-  return s.replace(sb, sb + '\n<script src="tests/fake-supabase.js"></script>');
+  // Tests run without drawing the 3D view (much faster with no graphics card) unless the URL asks for ?render.
+  const noRender = '<script>window.__mmNoRender = !/[?&]render\\b/.test(location.search);</script>';
+  return s.replace(sb, sb + '\n<script src="tests/fake-supabase.js"></script>\n' + noRender);
 }
 
 export async function startServer() {
@@ -40,8 +42,10 @@ export async function launch() {
   return chromium.launch({ executablePath, args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 }
 
-// A fresh game page. Options: query ('?dev'), mountain ('raven'), mobile, keepStorage.
-export async function openGame(browser, url, { query = '', mountain, width = 1280, height = 900, keepStorage = false } = {}) {
+// A fresh game page. Options: query ('?dev'), mountain ('raven'), mobile, keepStorage, and render
+// (draw the 3D view, as players see it; slow on a machine without a graphics card, so off by default).
+export async function openGame(browser, url, { query = '', mountain, width = 1280, height = 900, keepStorage = false, render = false } = {}) {
+  if (render) query += (query ? '&' : '?') + 'render';
   const page = await browser.newPage({ viewport: { width, height } });
   page.setDefaultNavigationTimeout(120000); // this machine can be slow to start the 3D view
   await page.route('https://accounts.google.com/**', (r) => r.abort());
