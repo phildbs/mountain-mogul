@@ -4140,9 +4140,9 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, lineQuit: 0, lineBreak: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -4263,6 +4263,7 @@ function updateLeaving(g) {
   if (g.leaving) return;
   if (state.time >= g.leaveAt || g.fat >= g.stam || g.sat < 22 || state.time >= closeTime()) {
     g.leaving = true;
+    if (g.sat < 22 && (g.waitOver || 0) > 15) leftEarly(g); // worn down mostly by lift lines
     thought(g, g.sat < 22 ? 'I’ve had enough of this place.' : g.fat >= g.stam ? 'My legs are done for the day.' : 'Time to head home.');
   }
 }
@@ -4282,6 +4283,33 @@ function refundGuest(g, why) {
   thought(g, why || 'No lifts running for me today. At least I got a refund.');
   updateCash(false);
 }
+// Guests who go home early because of lift lines, and the hours they would have stayed.
+function leftEarly(g) {
+  if (g.leftEarly) return;
+  g.leftEarly = true;
+  today.leftLines += AGENT;
+  today.leftHours += Math.max(0, Math.min(g.leaveAt, closeTime()) - state.time) / 60 * AGENT;
+}
+// A guest eyes the line before joining. Only lines far beyond their patience change plans:
+// most take a break in the lodge and come back later; the impatient who've had a few runs go home.
+function balk(g, L, resume) {
+  if (g.leaving || !g.runs || !L.queue || state.time < (g.balkUntil || 0)) return false; // just arrived: they came to ski
+  const w = liftWait(L);
+  if (w < Math.max(22, g.pat * 2.5)) return false;
+  g.balkUntil = state.time + 60;
+  if (g.qh > 0.68 && g.runs >= 3 && w > g.pat * 3.2) {
+    g.sat = clamp(g.sat - 6, 0, 100); today.complaints.lineQuit++;
+    thought(g, `${Math.round(w)} minutes for ${L.name}? I’m done for the day.`);
+    g.leaving = true; leftEarly(g);
+    return false;
+  }
+  const v = bestVisit(g, L.a, 14, true, world.buildings, state.time >= g.lunchAt - 30 && !g.ate ? ['lunch', 'warm'] : ['warm', 'snack']);
+  if (!v) return false;
+  today.complaints.lineBreak++; g.sat = clamp(g.sat - 3, 0, 100); // annoyed, even if the break is nice
+  thought(g, `The line for ${L.name} is about ${Math.round(w)} minutes. Taking a break at ${v.B.name}.`);
+  startVisit(g, v.B, v.svc, resume);
+  return true;
+}
 function baseDecision(g) {
   updateLeaving(g);
   if (g.leaving) {
@@ -4297,6 +4325,8 @@ function baseDecision(g) {
     if (v > bv) { bv = v; best = L; }
   }
   if (!best) { refundGuest(g, world.lifts.some((L) => L.fromBase && L.windHold) ? 'Wind hold on the lifts. Getting my money back.' : null); return goCar(g); }
+  if (balk(g, best, { k: 'base' })) return;
+  if (g.leaving) return baseDecision(g);
   goQueue(g, best, g.onSkis ? 'glide' : 'walk');
 }
 function topDecision(g, L, skipVisit) {
@@ -4351,6 +4381,7 @@ function endOfTrail(g) {
   updateLeaving(g);
   if (L.fromBase && g.leaving) return baseDecision(g);
   if (!g.leaving && canLoad(L) && maybeVisit(g, L.a, L.fromBase ? 14 : 9, L.fromBase, { k: 'liftq', lid: L.id })) return;
+  if (canLoad(L) && L.fromBase && balk(g, L, { k: 'liftq', lid: L.id })) return;
   if (canLoad(L) && !(g.leaving && L.fromBase)) return goQueue(g, L, 'glide');
   if (L.fromBase) return baseDecision(g);
   if (canLoad(L)) return goQueue(g, L, 'glide');
@@ -4545,6 +4576,7 @@ function loadBottom(L, i) {
     today.liftRiders[L.id] = (today.liftRiders[L.id] || 0) + 1;
     if (wait > g.pat) {
       g.sat -= (wait - g.pat) * 1.1; today.complaints.wait++;
+      g.waitOver = (g.waitOver || 0) + wait - g.pat;
       thought(g, `Waited ${Math.round(wait)} minutes for ${L.name}.`);
     }
     g.sat = clamp(g.sat, 0, 100);
@@ -4916,6 +4948,16 @@ function endDay() {
   // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
   const repHit = patrolCut ? today.unhelped * 0.006 + claims * 0.015 : 0;
   if (repHit) state.reputation = clamp(state.reputation - repHit, 0.5, 1.5);
+  // Guests who leave early, fed up with the lines, tell their friends.
+  if (today.leftLines && today.guests) state.reputation = clamp(state.reputation - today.leftLines / today.guests * 0.05, 0.5, 1.5);
+  // The lift with the longest average wait, and what the guests who left early would likely have spent.
+  let jam = null;
+  for (const L of world.lifts) {
+    const n = today.liftRiders[L.id] || 0, w = n ? (today.liftWait[L.id] || 0) / n : 0;
+    if (n >= 10 && (!jam || w > jam.wait)) jam = { name: L.name, wait: w, slow: liftMode(L) === 'slow', type: L.type };
+  }
+  const spendHour = (r0.food + r0.dining + (r0.retail || 0)) / Math.max(1, today.guests * 6);
+  const lostSpend = Math.round(today.leftHours * spendHour / 10) * 10;
   const evToday = eventToday();
   if (evToday && today.satN && sat >= 65) state.reputation = clamp(state.reputation + EVENTS[evToday.type].rep, 0.5, 1.5);
   let busiest = null;
@@ -4931,7 +4973,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
-    injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -7895,6 +7937,7 @@ function adviceFor(r) {
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
     [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
     [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
+    [r.leftLines ? r.leftLines * 30 + (r.lostSpend || 0) : 0, r.jam ? `${r.leftLines} guests went home early, fed up with lift lines; ${r.jam.name} averaged ${Math.round(r.jam.wait)} minutes.${r.jam.slow ? ` Your plan runs it slow; full speed would help.` : ` A faster lift, a second lift beside it, or more terrain off other lifts would spread the crowd.`}` : ''],
     [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
     [(c.boring || 0) * 10, `${c.boring} strong skiers found too little challenging terrain. A steeper trail would bring them back.`],
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
@@ -7931,6 +7974,7 @@ function showReport(r = state.lastReport, past = false) {
     const eased = r.holds.filter((n) => !still.includes(n));
     note(3, eased.length ? `High winds held ${r.holds.join(', ')} in the morning. ${eased.join(', ')} reopened when the wind eased.` : `High winds kept ${r.holds.join(', ')} on hold all day.`);
   }
+  if (r.leftLines) note(4, `${r.leftLines} guests left early, fed up with lift lines.${r.lostSpend >= 100 ? ` They’d likely have spent about ${money(r.lostSpend)} more on food and shopping.` : ''}`);
   if (r.refunded) note(4, `${r.refunded} guests never got on a lift and were refunded ${money(rv.refunds)}.`);
   if (r.turnedAway) note(4, `The parking lot filled up and ${r.turnedAway} guests were turned away. More parking would let them in.`);
   if (r.busiest) note(0, `${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
@@ -7941,6 +7985,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by bus without needing a parking space.`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
+  if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
   if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
   if (c.food) note(3, `${c.food} guests went hungry without finding food.`);
@@ -9359,6 +9404,7 @@ const CHANGES = [
     'Sharper mountain pictures on the title screen and in the mountain designer.',
     'The build menu and the Prices panel are grouped into sections, and each price shows what guests consider normal.',
     'The day report puts problems and money matters first; routine notes fold away under More.',
+    'Lift lines matter more: guests who see a very long line take a break indoors and come back later, the most impatient go home, and the day report shows who left early, what they’d have spent and which lift was the problem. Early leavers hurt your reputation a little.',
   ] },
   { v: '2.8', date: 'Oct 19, 2026', items: [
     'New places to eat: food trucks for a quick snack beside a trail or at the top of a lift, cafés for hot chocolate on cold days, and fine dining for guests who love a long meal (and pay for it). The restaurant is now the casual restaurant, with more seats and quicker meals.',
