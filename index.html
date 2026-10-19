@@ -8155,7 +8155,7 @@ $('badge').onclick = () => {
   $('menu').hidden = !open;
   $('badge').setAttribute('aria-expanded', String(open));
 };
-$('mTitle').onclick = () => { closeMenu(); if (visiting) returnHome(); saveNow(); showTitle(); };
+$('mTitle').onclick = () => { closeMenu(); if (visiting) returnHome(); saveNow(); cloudSaveNow(); showTitle(); };
 $('mHint').onclick = () => { closeMenu(); showHint(true); };
 
 /* ---------- Full screen ---------- */
@@ -8191,11 +8191,20 @@ $('mResetYes').onclick = () => {
   scheduleSave(); toast(`${name} is untouched again`);
 };
 
-function startFromTitle() {
+async function startFromTitle() {
   $('community').hidden = true;
   if (!slots.active && !newMountain()) return;
+  // Played further on another device? Bring that copy here first.
+  const s = activeSlot();
+  if (s && onlineIsNewer(s)) {
+    toast('Loading your newer save from online…');
+    if (await pullMountain(s.id, 'start')) startGame(); // otherwise the page is reloading onto it
+    return;
+  }
   startGame();
 }
+// Upload now rather than on the usual timer: when you leave the game or head back to the title.
+function cloudSaveNow() { if (state.started || loadSave()) { CLOUD.lastUp = 0; cloudSave(false); } }
 
 /* =====================================================================
    COMMUNITY: profiles, cloud saves, leaderboards and visiting resorts
@@ -8275,6 +8284,8 @@ async function cloudSave(manual) {
   // Never save over another account's mountain that is sitting on this device.
   if (!slot || (slot.owner && slot.owner !== CLOUD.uid) || !onThisMountain()) return;
   if (!state.started && !loadSave()) return;
+  // Never upload over newer progress made on another device.
+  if (onlineIsNewer(slot)) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; return; }
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
   CLOUD.uploading = true; CLOUD.lastUp = Date.now();
@@ -8289,7 +8300,9 @@ async function cloudSave(manual) {
       if (error) throw error;
       CLOUD.sentJson = json;
       CLOUD.verified = true;
-      if (!slot.owner) { slot.owner = CLOUD.uid; writeSlots(); }
+      slot.savedAt = Date.now(); // the online copy is this device's own: not 'newer' than it
+      if (!slot.owner) slot.owner = CLOUD.uid;
+      writeSlots();
       CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, public: listed(), updatedAt: Date.now() });
     }
     CLOUD.error = '';
@@ -9518,6 +9531,8 @@ function start(hot) {
     cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   }));
   window.addEventListener('pagehide', saveNow);
+  // Switching away (closing the tab, another app on a tablet) is often the last chance to upload.
+  document.addEventListener('visibilitychange', () => { if (document.hidden && state.started && !visiting) { saveNow(); cloudSaveNow(); } });
   initCloud();
   requestAnimationFrame((t) => { lastT = t; frame(t); });
 }
