@@ -2856,7 +2856,7 @@ function computeNetwork() {
 /* =====================================================================
    DRAFTS: trails and lifts being planned
    ===================================================================== */
-const draft = { kind: null, pts: [], width: 'medium', liftType: 'quad', info: null, dirty: false, btype: null, bpos: null, rot: 0 };
+const draft = { kind: null, pts: [], width: 'medium', liftType: 'quad', info: null, dirty: false, btype: null, bpos: null, rot: 0, grade: false };
 let draftMesh = null, draftLift = null;
 const bandGeo = new THREE.BufferGeometry();
 bandGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 3), 3));
@@ -2917,16 +2917,76 @@ function nearPlan(p, which) {
   }
   return false;
 }
-function evalTrail(pts, width, allowPlans) {
-  const samples = trailSamples(pts);
+/* ---------- Grading a trail downhill ----------
+   A trail that climbs somewhere can be built anyway by reshaping the ground under it: the smallest
+   cut-and-fill that leaves a profile falling the whole way (bumps are cut, dips are filled). */
+const TRAIL_GRADE_DROP = 0.004;  // the least drop allowed per sample (half a unit): about a 1% grade
+const TRAIL_GRADE_BANK = 2.5;    // the cut blends back into the slope over this distance beyond the trail edge
+// Closest non-increasing profile to the samples' heights (pool-adjacent-violators), dropping at least TRAIL_GRADE_DROP per sample.
+function downhillProfile(ys) {
+  const blocks = [];
+  ys.forEach((y, i) => {
+    blocks.push({ s: y + i * TRAIL_GRADE_DROP, n: 1 });
+    while (blocks.length > 1) {
+      const b = blocks[blocks.length - 1], a = blocks[blocks.length - 2];
+      if (a.s / a.n >= b.s / b.n) break;
+      a.s += b.s; a.n += b.n; blocks.pop();
+    }
+  });
+  const out = [];
+  for (const b of blocks) for (let k = 0; k < b.n; k++) out.push(b.s / b.n - out.length * TRAIL_GRADE_DROP);
+  return out;
+}
+// The earth moved to bring the ground under a trail to its downhill profile. Works in a few passes,
+// checking the heights it actually produced, since ground beside one stretch of trail can also sit
+// beside another (on a switchback, say). Returns the cost and the heights the trail ends up with;
+// with dry set, puts the ground back afterwards and only reports.
+function trailEarthwork(samples, target, hw, dry) {
+  const reach = hw + TRAIL_GRADE_BANK;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const s of samples) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
+  const i0 = Math.max(PLAY0, Math.floor(x0 + HALF - reach)), i1 = Math.min(PLAY1, Math.ceil(x1 + HALF + reach));
+  const j0 = Math.max(PLAY0, Math.floor(z0 + HALF - reach)), j1 = Math.min(PLAY1, Math.ceil(z1 + HALF + reach));
+  const verts = []; // [index, nearest sample, weight]
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = i - HALF, z = j - HALF;
+    let best = -1, bd = reach * reach;
+    for (let k = 0; k < samples.length; k++) { const dx = samples[k].x - x, dz = samples[k].z - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = k; } }
+    if (best >= 0) verts.push([j * NV + i, best, 1 - sstep(hw * 0.9, reach, Math.sqrt(bd))]);
+  }
+  const orig = verts.map(([idx]) => HT[idx]);
+  const heights = () => samples.map((s) => sampleGrid(HT, s.x + HALF, s.z + HALF));
+  for (let pass = 0; pass < 6; pass++) {
+    const now = heights();
+    let worst = 0;
+    for (let k = 0; k < now.length; k++) worst = Math.max(worst, Math.abs(target[k] - now[k]));
+    if (worst < 0.02) break;
+    for (const [idx, k, w] of verts) HT[idx] += (target[k] - now[k]) * w;
+  }
+  const ys = heights();
+  let cost = 0;
+  verts.forEach(([idx], n) => { cost += Math.abs(HT[idx] - orig[n]) * GRADE_COST; if (dry) HT[idx] = orig[n]; });
+  return { cost: Math.round(cost / 100) * 100, ys, i0, i1, j0, j1 };
+}
+function evalTrail(pts, width, allowPlans, grade) {
+  let samples = trailSamples(pts);
   let reversed = false;
   if (samples[0].y < samples[samples.length - 1].y) { samples.reverse(); reversed = true; }
-  const an = analyzeTrail(samples);
+  let an = analyzeTrail(samples);
   const hw = TRAIL_WIDTHS[width].hw;
+  // Uphill somewhere? Price grading it downhill, and judge the trail as it would be after.
+  const uphill = an.problems.some((p) => /uphill/.test(p));
+  let earth = null;
+  if (uphill && grade) {
+    const target = downhillProfile(samples.map((s) => s.y)), est = trailEarthwork(samples, target, hw, true);
+    earth = { target, cost: est.cost, ground: samples };
+    samples = samples.map((s, i) => ({ ...s, y: est.ys[i] })); // judged as it would really come out
+    an = analyzeTrail(samples);
+  }
   const treeSet = treeSetAlong(samples, hw + 0.4);
   for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, hw * 1.45 + 0.6, (k) => treeSet.add(k));
   const grading = Math.round(an.len * TRAIL_WIDTHS[width].perUnit / 100) * 100;
-  const cost = grading + treeSet.size * TREE_COST;
+  const cost = grading + treeSet.size * TREE_COST + (earth ? earth.cost : 0);
   const ghost = { samples };
   const last = samples[samples.length - 1];
   const from = connAt(samples[0], ghost, 'start'), to = connAt(last, ghost, 'end');
@@ -2943,12 +3003,16 @@ function evalTrail(pts, width, allowPlans) {
     else if (to && to.kind === 'lift') problems.push(`No trail from the top of ${to.obj.name} leads back to the base yet. Build one first, or end this trail elsewhere.`);
     else problems.push('Finish at the base area, on a trail that leads back to the base, or at the bottom of a lift.');
   }
+  // Grading can't help where a trail doubles back over itself: it would need two heights at once.
+  const still = problems.findIndex((p) => /uphill/.test(p));
+  if (earth && still >= 0) problems[still] = 'Even graded, part of this trail would still climb. Ease the sharp turn where it doubles back.';
   an.problems = problems;
-  return { an, reversed, treeSet, grading, cost, from, to, samples, hw };
+  return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth };
 }
 function commitTrail(info, pts, width) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
+  if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
   const ordered = info.reversed ? [...pts].reverse() : pts.slice();
   const made = { id: world.nextId++, name: nextTrailName(), pts: ordered.map((p) => ({ x: p.x, z: p.z })), width, open: true, sign: null };
   addTrail(made);
@@ -3015,7 +3079,7 @@ function commitBuilding(info, type, x, z, rot) {
 
 function recomputeTrailDraft() {
   if (draft.pts.length < 2) { draft.info = null; return; }
-  const info = evalTrail(draft.pts, draft.width, planning());
+  const info = evalTrail(draft.pts, draft.width, planning(), draft.grade);
   draft.info = info;
   const mat = trailMaterial();
   mat.color.set(0xffd8c9);
@@ -3038,7 +3102,7 @@ function buildDraft() {
   if (planning()) {
     if (draft.kind === 'trail') {
       const pts = info.reversed ? [...draft.pts].reverse() : draft.pts.slice();
-      addPlan({ kind: 'trail', pts: pts.map((p) => ({ x: p.x, z: p.z })), width: draft.width, cost: info.cost });
+      addPlan({ kind: 'trail', pts: pts.map((p) => ({ x: p.x, z: p.z })), width: draft.width, cost: info.cost, grade: !!info.earth });
     } else addPlan({ kind: 'lift', a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z }, type: draft.liftType, cost: info.cost });
     toast('Planned. It will be built overnight.');
     resetDraft(); renderSheet(); scheduleSave();
@@ -3100,7 +3164,7 @@ function planTitle(p) {
 }
 function buildPlan(p) {
   let info;
-  if (p.kind === 'trail') info = evalTrail(p.pts, p.width, false);
+  if (p.kind === 'trail') info = evalTrail(p.pts, p.width, false, p.grade);
   else if (p.kind === 'lift') info = evalLift(p.a, p.b, p.type, false);
   else info = evalBuilding(p.type, p.x, p.z, p.rot, true, p);
   const problems = info.an ? info.an.problems : info.problems;
@@ -3303,8 +3367,10 @@ function trailDraftSheet() {
     </dl>
     <p class="conn">${esc(describeConn(info.from, 'start'))}<br>${esc(describeConn(info.to, 'end'))}</p>
     ${problemsHtml(an.problems)}
+    ${info.uphill ? `<div class="toggle-row"><div><b>Grade it downhill</b><span>${draft.grade ? `Cuts the bumps and fills the dips so the trail falls the whole way · ${money(info.earth ? info.earth.cost : 0)}` : 'Reshape the ground under the trail so it never climbs. Costs extra.'}</span></div>
+      <button class="switch" role="switch" aria-checked="${draft.grade}" data-action="gradeTrail" aria-label="Grade it downhill"><i></i></button></div>` : ''}
     <div class="costs"><span>Grading</span><span>${money(info.grading)}</span>
-      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>`;
+      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}</div>`;
   }
   return `<div class="sheet-title"><h3>New trail</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
@@ -3419,6 +3485,7 @@ sheet.addEventListener('click', (e) => {
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
+  else if (a === 'gradeTrail') { draft.grade = !draft.grade; draft.dirty = true; renderSheet(); }
   else if (a === 'undo') draftUndo();
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
   else if (a === 'build') buildDraft();
@@ -3710,7 +3777,7 @@ function serializeWorld() {
     trails: world.trails.map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
-    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason })),
+    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade })),
   };
 }
 function rebuildWorld(data) {
@@ -8704,6 +8771,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.6.1', date: 'Oct 19, 2026', items: [
+    'Trails that climb a little on the way down can be built anyway: switch on “Grade it downhill” and the ground under the trail is cut and filled so it falls the whole way. The earthwork costs extra, by how much ground moves.',
+  ] },
   { v: '2.6', date: 'Oct 19, 2026', items: [
     'A new Manage bar (the Manage button on phones) gives every panel its own spot: Trails, Lifts, Buildings, Operations, Prices, Snow and Money.',
     'Trails, Lifts and Buildings are now lists with live status, snow depth, crowds and costs, plus quick controls: open or close trails, groom, snow guns, start and stop lifts. Tap a row to fly there.',
