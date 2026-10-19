@@ -3273,7 +3273,8 @@ function draftTap(p) {
   if (!p) return;
   if (draft.kind === 'bld') {
     if (!draft.btype) return;
-    draft.bpos = { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2 };
+    if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); draft.bpos = { x: sn.x, z: sn.z }; draft.rot = sn.rot; }
+    else draft.bpos = { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2 };
     draft.dirty = true;
     return;
   }
@@ -3557,7 +3558,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'share') shareResort();
   else if (a === 'exitTool') setTool('explore');
   else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
-  else if (a === 'rotB') { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
+  else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
   else if (a === 'upgrade' && obj) upgradeLodge(obj);
   else if (a === 'levelB' && obj) {
     const pad = (obj.baseY - 0.03) / VEX, est = levelRect(boxOf(obj), pad, 2.5, true);
@@ -3962,7 +3963,9 @@ const ROAD_TEX = (() => {
 })();
 const ROAD_MAT = hazeMaterial('haze', { map: ROAD_TEX, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 let roadMesh = null;
+let roadPathCache = null;
 function roadPath() {
+  if (roadPathCache) return roadPathCache;
   const raw = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF }));
   const out = [];
   for (let k = 0; k < raw.length - 1; k++) {
@@ -3971,7 +3974,7 @@ function roadPath() {
   }
   const e = raw[raw.length - 1], f = raw[raw.length - 2], d = Math.hypot(e.x - f.x, e.z - f.z) || 1;
   out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
-  return out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1);
+  return (roadPathCache = out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1));
 }
 function buildRoad() {
   if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
@@ -3999,6 +4002,20 @@ function buildRoad() {
 }
 // How far a point is from the road's centre line, in world units.
 const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
+// The nearest point on the road's centre line, and the unit normal pointing from the road toward p.
+function nearestRoad(p) {
+  const P = roadPath();
+  let best = null, bd = Infinity;
+  for (let k = 0; k < P.length - 1; k++) {
+    const a = P[k], b = P[k + 1], dx = b.x - a.x, dz = b.z - a.z, t = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+    const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
+    if (d < bd) { bd = d; best = { q: { x: qx, z: qz }, dx, dz, d }; }
+  }
+  const L = Math.hypot(best.dx, best.dz) || 1;
+  let nx = -best.dz / L, nz = best.dx / L;
+  if ((p.x - best.q.x) * nx + (p.z - best.q.z) * nz < 0) { nx = -nx; nz = -nz; }
+  return { q: best.q, nx, nz, d: best.d };
+}
 function sectionOrigin(k) { const e = roadEnd(); return { x: e.x + 0.9 + k * (LOT.w + 0.7), z: e.z - 1.2 }; }
 function sectionTrees(k) {
   const o = sectionOrigin(k), set = new Set();
@@ -5201,6 +5218,53 @@ const BTYPES = {
 const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // bus stops sit beside the access road
+const BAY_FRONT = { shuttle: 0.9, transit: 1.35 }; // the bus bay's outer edge, in front of the building
+// Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
+function snapToRoad(type, p) {
+  const r = nearestRoad(p), t = BTYPES[type];
+  let rot = 0, bd = Infinity;
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2, dot = Math.sin(a) * r.nx + Math.cos(a) * r.nz; if (dot < bd) { bd = dot; rot = k; } }
+  for (let off = t.d / 2 + 1.2; off < t.d / 2 + 6; off += 0.25) {
+    const x = Math.round((r.q.x + r.nx * off) * 4) / 4, z = Math.round((r.q.z + r.nz * off) * 4) / 4;
+    if (!footprintStats(bAABB(type, 0, x, z, rot)).road) return { x, z, rot };
+  }
+  return { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2, rot };
+}
+// The paved apron from a bus bay's front edge to the edge of the road: four corners, or null when the road is far away.
+function drivewayQuad(b) {
+  const hw = BTYPES[b.type].w / 2 - 0.05, fz = BAY_FRONT[b.type];
+  const cs = [toWorld(b, -hw, fz), toWorld(b, hw, fz)];
+  const es = cs.map((c) => { const r = nearestRoad(c); return r.d > 7 ? null : { x: r.q.x + r.nx * (ROAD_HW - 0.2), z: r.q.z + r.nz * (ROAD_HW - 0.2) }; });
+  return es[0] && es[1] ? { cs, es } : null;
+}
+function drivewayPoints(Q, NX = 8, NZ = 5) {
+  const out = [];
+  for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++) {
+    const a = i / NX, c = j / NZ;
+    const fx = lerp(Q.cs[0].x, Q.cs[1].x, a), fz = lerp(Q.cs[0].z, Q.cs[1].z, a), ex = lerp(Q.es[0].x, Q.es[1].x, a), ez = lerp(Q.es[0].z, Q.es[1].z, a);
+    out.push({ x: lerp(fx, ex, c), z: lerp(fz, ez, c), i, j });
+  }
+  return out;
+}
+const DRIVE_MAT = new THREE.MeshLambertMaterial({ color: 0x4b5059, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+function addDriveway(b) {
+  const Q = drivewayQuad(b);
+  if (!Q) return;
+  const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], idx = [];
+  for (const p of pts) pos.push(p.x, heightAt(p.x, p.z) + 0.045, p.z);
+  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { const a = j * (NX + 1) + i; idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  b.group.updateMatrixWorld(true);
+  geo.applyMatrix4(b.group.matrixWorld.clone().invert());
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, DRIVE_MAT);
+  m.receiveShadow = true; m.renderOrder = 1;
+  b.group.add(m);
+  // Buses turn in off the road where the apron meets it.
+  b.approach = { x: (Q.es[0].x + Q.es[1].x) / 2, z: (Q.es[0].z + Q.es[1].z) / 2 };
+}
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
 const isEatery = (B) => EATS.includes(B.type);
@@ -5738,7 +5802,10 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (fs.hmax - fs.hmin > 3.2) problems.push('The ground is too steep to level here. Look for a gentler spot.');
   if (fs.creek) problems.push('Too close to the creek.');
   if (fs.road) problems.push('That would block the access road.');
-  else if (BY_ROAD.includes(type) && fs.roadMin > 3.6) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, so buses can pull in.`);
+  else if (BY_ROAD.includes(type)) {
+    const a = rot * Math.PI / 2, f = { x: x + Math.sin(a) * BAY_FRONT[type], z: z + Math.cos(a) * BAY_FRONT[type] }, r = nearestRoad(f);
+    if (r.d > ROAD_HW + 3.5 || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, facing it, so buses can pull in.`);
+  }
   if (lotBoxes().some((lb) => boxOverlap(bb, lb))) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
   if (other) problems.push(`Too close to ${other.name}.`);
@@ -5748,6 +5815,8 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (lf) problems.push(`Too close to ${lf.name}.`);
   const treeSet = new Set();
   for (let zz = bb.z0 - 0.6; zz <= bb.z1 + 0.6; zz += 1) for (let xx = bb.x0 - 0.6; xx <= bb.x1 + 0.6; xx += 1) treesInBrush({ x: xx, z: zz }, 0.95, (k) => treeSet.add(k));
+  const Q = BY_ROAD.includes(type) && drivewayQuad({ type, x, z, rot });
+  if (Q) for (const p of drivewayPoints(Q, 6, 3)) treesInBrush(p, 0.9, (k) => treeSet.add(k)); // clear the apron too
   return { problems, treeSet, bb, fs };
 }
 // Trails and lifts can't be built through buildings either.
@@ -5791,6 +5860,7 @@ function addBuilding(b) {
   b.seatsW = v.seats.map((st) => ({ ...toWorld(b, st.x, st.z), y: b.baseY + st.y, yaw: st.yaw + a }));
   if (b.type === 'shuttle') { b.stop = toWorld(b, 0, 0.45); b.approach = toWorld(b, -4, 0.45); b.door = toWorld(b, 0, -0.35); }
   if (b.type === 'transit') { b.stop = toWorld(b, 0.4, 0.75); b.approach = toWorld(b, -5, 0.75); b.door = toWorld(b, 0, -0.05); }
+  if (BY_ROAD.includes(b.type)) addDriveway(b);
   if (b.type === 'school') b.door = toWorld(b, 0, s.d / 2 + 0.2);
   bldGroup.add(b.group);
   world.buildings.push(b);
@@ -6343,7 +6413,8 @@ function recomputeBldDraft() {
 }
 function hoverGhost(p) {
   if (!p || !draft.btype || draft.bpos) return;
-  const x = Math.round(p.x * 2) / 2, z = Math.round(p.z * 2) / 2;
+  let x = Math.round(p.x * 2) / 2, z = Math.round(p.z * 2) / 2;
+  if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); x = sn.x; z = sn.z; draft.rot = sn.rot; }
   const v = evalBuilding(draft.btype, x, z, draft.rot, planning(), null);
   showGhost(draft.btype, 0, x, z, draft.rot, !v.problems.length, v.padY);
 }
@@ -6358,7 +6429,7 @@ function bldDraftSheet() {
       ${state.lotSections < 6 ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Parking</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`;
   }
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
-  const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It needs to be in the base area, right beside the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
+  const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
   let body = '';
   if (info) {
     body = `${problemsHtml(info.problems)}
@@ -6371,7 +6442,7 @@ function bldDraftSheet() {
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
-    <div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>
+    ${BY_ROAD.includes(draft.btype) ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
     ${body}
     ${plan ? PLAN_NOTE : ''}
     <button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>
@@ -8435,7 +8506,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '3') setTool('lift');
   else if (k === '4') setTool('clear');
   else if (k === '5') setTool('bld');
-  else if (k === 'r' && draft.kind === 'bld' && draft.btype) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
+  else if (k === 'r' && draft.kind === 'bld' && draft.btype && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
   else if (k === 'enter' && draft.kind) buildDraft();
   else if (k === 'h') recenter();
@@ -9260,7 +9331,7 @@ const CHANGES = [
     'A first-aid clinic: ski patrol brings injured guests there, and about half are patched up and head back out. Fewer injuries turn into claims.',
     'A kids’ camp: parents drop the kids off for the day ($110 each, set in Prices), then ski on their own and stay longer.',
     'Heated restrooms: bigger and warmer, so guests come out happier and a little rested, most of all on cold days.',
-    'A transit center: bigger buses every 12 minutes bring about half your guests without using parking. Bus stops now have to go right beside the access road.',
+    'A transit center: bigger buses every 12 minutes bring about half your guests without using parking. Bus stops now snap to the access road, with a paved apron where the buses turn in.',
     'The access road is paved, with lane lines, edge lines and plowed shoulders.',
     'Sharper mountain pictures on the title screen and in the mountain designer.',
   ] },

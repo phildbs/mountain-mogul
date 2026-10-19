@@ -15,15 +15,14 @@ export default async function ({ browser, url }) {
         const b = evalBuilding(type, L.x + dx, L.z + dz, r);
         if (!b.problems.length) { commitBuilding(b, type, L.x + dx, L.z + dz, r); out.push(type); ok = true; break; } } }
     }
-    let ok = false;
-    for (let i = ROAD_WORLD.length - 1; i > 0 && !ok; i--) { const p = ROAD_WORLD[i], q = ROAD_WORLD[i - 1];
-      const dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz), nx = -dz / d, nz = dx / d;
-      for (const side of [1, -1]) for (const off of [3.0, 3.4, 3.8]) for (const r of [0, 1, 2, 3]) { if (ok) break;
-        const x = p.x + nx * off * side, z = p.z + nz * off * side, b = evalBuilding('transit', x, z, r);
-        if (!b.problems.length) { commitBuilding(b, 'transit', x, z, r); out.push('transit'); ok = true; } } }
+    // a bus stop snaps to the road from a click nearby
+    const e = roadEnd(), sn = snapToRoad('transit', { x: e.x - 8, z: e.z - 6 }), tb = evalBuilding('transit', sn.x, sn.z, sn.rot);
+    if (!tb.problems.length) { commitBuilding(tb, 'transit', sn.x, sn.z, sn.rot); out.push('transit'); } else out.push(tb.problems.join(' '));
     computeNetwork(); syncLabels();
     return out; })()`);
-  eq(placed, ['patrol', 'clinic', 'kids', 'hrest', 'transit'], 'patrol hut, clinic, kids’ camp and heated restrooms at the base, transit center by the road');
+  eq(placed, ['patrol', 'clinic', 'kids', 'hrest', 'transit'], 'patrol hut, clinic, kids’ camp and heated restrooms at the base, transit center snapped to the road');
+  const drive = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'transit'), Q = drivewayQuad(B); return { q: !!Q, mesh: B.group.children.some((m) => m.material === DRIVE_MAT), gap: Q ? Math.max(...Q.es.map((p) => nearestRoad(p).d)) : 99 }; })()`);
+  assert(drive.q && drive.mesh && drive.gap < 1.2, `a paved apron joins the bay to the road (${JSON.stringify(drive)})`);
   await g.ev(`openDay()`);
   // late morning: a few skiers take a fall
   await g.ev(`(() => { let n = 0; while (state.time < 660 && n < 90000) { simStep(1.5); n++; } })()`);
