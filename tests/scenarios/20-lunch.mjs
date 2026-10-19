@@ -24,7 +24,7 @@ export default async function ({ browser, url }) {
     for (const x of filler) rest.q.seat.push({ ...x, id: -x.id, qT: state.time, svc: 'dine' });
     lodge.q.seat.length = 0; lodge.used.seat = 0;
     const g0 = guests.find((x) => x.st === 'ski' && !x.ate);
-    g0.fancy = true; g0.lunchAt = state.time - 1; g0.qh = 0.3;
+    g0.fancy = true; g0.lunchAt = state.time - 1; g0.qh = 0.3; g0.pat = 6; // an ordinary guest, not one happy to wait 20 minutes
     const pick = bestVisit(g0, rest.door, 30, true, world.buildings, ['lunch']);
     return { pick: pick && pick.B.type, restWait: Math.round(estWait(rest, 'dine')), lodgeWait: Math.round(estWait(lodge, 'food')) };
   })()`);
