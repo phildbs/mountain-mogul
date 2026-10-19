@@ -4061,7 +4061,7 @@ function newToday() {
   return {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
-    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
+    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
     injuries: 0, helped: 0, unhelped: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0 }, satSum: 0, satN: 0,
@@ -4303,7 +4303,10 @@ function demandForDay() {
   if (has('fine')) amen += 0.04; // a fine-dining spot gets talked about
   if (has('cafe')) amen += 0.02;
   if (has('truck')) amen += 0.01;
-  if (has('rental')) amen += 0.06;
+  if (has('rental') || has('tuning')) amen += 0.06;
+  if (has('tuning')) amen += 0.02;
+  if (has('store')) amen += 0.03;
+  if (has('gift')) amen += 0.01;
   if (has('school')) amen += 0.06;
   if (has('patrol')) amen += 0.03;
   if (has('shuttle')) amen += 0.1;
@@ -4375,6 +4378,9 @@ function makeGuest(car, x, z) {
     warmed: false, needsRental: Math.random() < [0.75, 0.3, 0.1, 0.04][ab], wantsLesson: ab === 0 && Math.random() < 0.45, lessoned: false,
     bus: false, bid: null, svc: null, resume: null, deck: -1,
   };
+  // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
+  g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
+  g.wantsTune = ab >= 2 && !g.needsRental && Math.random() < 0.2;
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
@@ -4818,7 +4824,7 @@ function endDay() {
     const cost = upk(B) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
-  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + r0.lessons + r0.parking + (r0.passes || 0) - (today.refunds || 0);
+  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
   const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
@@ -5105,6 +5111,12 @@ const BTYPES = {
     desc: 'Long, pricey meals and après. Guests who love dining out seek it out; it pays on busy days.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
     desc: 'Fits guests with skis and boots when they arrive.' },
+  tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
+    desc: 'Twice the rental shop: more pairs and fitting stations, and ski tuning for strong skiers who bring their own.' },
+  store: { name: 'Ski store', where: 'base', cost: 120000, sign: 'SKI STORE', accent: 0x2c6e8f, seats: 24, counter: 4, w: 3.4, d: 2.2, upkeep: 900,
+    desc: 'Goggles, gloves and gear for guests who forgot something, especially on cold days. Souvenirs too.' },
+  gift: { name: 'Gift kiosk', where: 'any', cost: 25000, sign: 'GIFTS', accent: 0xb5487a, seats: 6, counter: 3, w: 1.5, d: 1.4, upkeep: 180,
+    desc: 'Souvenirs and hand warmers. Small, cheap and steady wherever guests pass by.' },
   school: { name: 'Ski school', where: 'base', cost: 75000, sign: 'SKI SCHOOL', accent: 0x2f8f5e, classes: 8, w: 3.2, d: 4.6, upkeep: 1600,
     desc: 'Beginner lessons on a practice area beside the building. Eight instructors.' },
   patrol: { name: 'Ski patrol', where: 'any', cost: 85000, sign: 'SKI PATROL', accent: 0xc0302a, crew: 2, w: 2.6, d: 2.2, upkeep: 950,
@@ -5114,18 +5126,22 @@ const BTYPES = {
   shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 800,
     desc: 'Buses bring guests in without using parking spaces.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'school', 'patrol', 'restroom', 'shuttle'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'patrol', 'restroom', 'shuttle'];
+const RENTS = ['rental', 'tuning']; // places that fit rental skis
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
 const isEatery = (B) => EATS.includes(B.type);
 const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
-const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, lesson: 95, parking: 0 };
+const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, parking: 0 };
 const PRICE_INFO = {
   snack: { label: 'Snack (truck, café)', min: 3, max: 30, step: 1 },
   food: { label: 'Lodge meal', min: 5, max: 60, step: 1 },
   dining: { label: 'Casual restaurant meal', min: 15, max: 120, step: 2 },
   fine: { label: 'Fine dining meal', min: 30, max: 250, step: 5 },
   rental: { label: 'Ski rental', min: 10, max: 120, step: 5 },
+  tune: { label: 'Ski tuning', min: 10, max: 120, step: 5 },
+  gear: { label: 'Gear (goggles, gloves)', min: 15, max: 200, step: 5 },
+  gift: { label: 'Souvenir', min: 3, max: 60, step: 1 },
   lesson: { label: 'Group lesson', min: 20, max: 250, step: 5 },
   parking: { label: 'Parking', min: 0, max: 40, step: 5 },
 };
@@ -5480,6 +5496,40 @@ function modelFine() {
   for (const s of [-1, 1]) { k.add(bx(0.05, 0.85, 0.05), BM.dark, s * 2.0, 0.42, 1.7); k.add(bx(0.12, 0.14, 0.12), BM.glow, s * 2.0, 0.92, 1.7); }
   return k;
 }
+function modelTuning() {
+  const k = new Kit(), acc = accentMat(BTYPES.tuning.accent);
+  hall(k, { w: 3.6, d: 2.0, h: 0.75, rise: 0.6, z: -0.4, chimney: 1 });
+  k.add(bx(1.1, 0.6, 0.04), BM.dark, -0.9, 0.32, 0.61);              // workshop roll-up door
+  for (let i = 0; i < 5; i++) k.add(bx(1.02, 0.03, 0.05), BM.steel, -0.9, 0.08 + i * 0.12, 0.63);
+  door(k, 0.55, 0.61, 0.46, 0.32, BM.dark);
+  k.add(bx(2.0, 0.05, 0.42), acc, 0.4, 0.78, 0.82, -0.3);
+  sign(k, 'tuning', 0.3, 1.02, 0.61, 1.25);
+  skiRack(k, -1.5, 1.0, 10); skiRack(k, 0.1, 1.0, 10); skiRack(k, 1.4, 1.0, 8);
+  k.add(bx(3.8, 0.06, 1.1), BM.plank, 0, 0.03, 0.95);
+  return k;
+}
+function modelStore() {
+  const k = new Kit(), acc = accentMat(BTYPES.store.accent);
+  hall(k, { w: 3.0, d: 1.8, h: 0.72, rise: 0.55, z: -0.35, roof: accentMat(0x2f3d4f), chimney: -1, windows: false });
+  for (const wx of [-0.95, 0.95]) { k.add(bx(0.9, 0.5, 0.04), BM.dark, wx, 0.34, 0.56); k.add(bx(0.84, 0.44, 0.05), BM.glow, wx, 0.34, 0.565); }
+  for (const [wx, c] of [[-1.15, 0xd94f2a], [-0.75, 0x2565d4], [0.75, 0x2c9a55], [1.15, 0xe0a21b]]) { k.add(bx(0.12, 0.3, 0.06), accentMat(c), wx, 0.3, 0.6); k.add(bx(0.09, 0.09, 0.06), BM.white, wx, 0.5, 0.6); } // jackets in the windows
+  door(k, 0, 0.56, 0.46, 0.34, acc);
+  k.add(bx(3.0, 0.05, 0.36), acc, 0, 0.76, 0.74, -0.25);
+  sign(k, 'store', 0, 1.0, 0.56, 1.2);
+  k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
+  return k;
+}
+function modelGift() {
+  const k = new Kit(), acc = accentMat(BTYPES.gift.accent);
+  k.add(bx(1.1, 0.62, 0.8), BM.log, 0, 0.31, -0.15);
+  k.add(bx(1.3, 0.06, 1.05), BM.roof, 0, 0.66, -0.05, -0.12); k.add(bx(1.24, 0.05, 0.98), BM.snow, 0, 0.71, -0.06, -0.12);
+  k.add(bx(0.86, 0.3, 0.04), BM.dark, 0, 0.42, 0.26); k.add(bx(0.8, 0.24, 0.05), BM.glow, 0, 0.42, 0.265);
+  k.add(bx(1.0, 0.04, 0.3), acc, 0, 0.6, 0.4, -0.35);
+  k.add(bx(0.9, 0.05, 0.16), BM.wood, 0, 0.3, 0.34);
+  sign(k, 'gift', 0, 0.86, 0.12, 0.8);
+  for (const [x, c] of [[-0.55, 0xd94f2a], [-0.45, 0x2565d4], [0.45, 0x2c9a55], [0.55, 0xe0a21b]]) k.add(bx(0.07, 0.07, 0.07), accentMat(c), x, 0.36, 0.42);
+  return k;
+}
 function modelRestroom() {
   const k = new Kit();
   hall(k, { w: 1.5, d: 1.05, h: 0.5, rise: 0.4, z: -0.15, windows: false });
@@ -5500,7 +5550,7 @@ function modelShuttle() {
   sign(k, 'shuttle', 1.3, 0.92, 0.03, 0.6);
   return k;
 }
-const MODELS = { lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -5571,7 +5621,7 @@ function buildingInTheWay(samples, pad) {
 
 /* ---------- Building instances ---------- */
 const LODGE_NAMES = { base: 'Base Lodge', mid: 'Mid-Mountain Lodge', top: 'Summit Lodge' };
-const OTHER_NAMES = { truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart'], cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings'], fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room'], restaurant: ['The Juniper Grill', 'Fireside Restaurant', 'Slopeside Grill'], rental: ['Rental Shop'], school: ['Ski School'], patrol: ['Ski Patrol'], restroom: ['Restrooms'], shuttle: ['Shuttle Station'] };
+const OTHER_NAMES = { tuning: ['Tune & Demo Center', 'Edge Works'], store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear'], gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut'], truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart'], cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings'], fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room'], restaurant: ['The Juniper Grill', 'Fireside Restaurant', 'Slopeside Grill'], rental: ['Rental Shop'], school: ['Ski School'], patrol: ['Ski Patrol'], restroom: ['Restrooms'], shuttle: ['Shuttle Station'] };
 function nextBuildingName(type, x, z) {
   const used = new Set(world.buildings.map((b) => b.name));
   let bases;
@@ -5662,13 +5712,13 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
 /* =====================================================================
    BUILDINGS: how guests use them
    ===================================================================== */
-const POOL = { food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
-const SVC_TIME = { food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
-const COGS = { food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
-const REV_CAT = { food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
-const OFFERS = { lodge: ['food', 'warm', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], school: ['lesson'], restroom: ['rr'] };
-const PRICE_KEY = { lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson' };
-const SVC_WORD = { food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
+const POOL = { shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
+const SVC_TIME = { shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
+const COGS = { shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
+const REV_CAT = { shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
+const OFFERS = { lodge: ['food', 'warm', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'] };
+const PRICE_KEY = { tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson' };
+const SVC_WORD = { shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
@@ -5676,6 +5726,9 @@ function poolSlots(B, pool) {
   return Math.max(1, Math.round(raw / AGENT));
 }
 function priceOf(svc, prices) {
+  if (svc === 'tune') return prices.tune ?? 35;
+  if (svc === 'gear') return prices.gear ?? 60;
+  if (svc === 'shop') return prices.gift ?? 14;
   return svc === 'food' ? prices.food : svc === 'snack' ? prices.snack ?? 11 : svc === 'finedine' ? prices.fine ?? 85 : svc === 'warm' ? Math.round(prices.food * 0.45) : svc === 'dine' ? prices.dining
     : svc === 'apres' ? Math.round(prices.dining * 0.7) : svc === 'rent' ? prices.rental : svc === 'lesson' ? prices.lesson : 0;
 }
@@ -5704,6 +5757,8 @@ function needs(g) {
   if (g.bl >= 1) n.push('rr');
   if (!g.ate && state.time >= g.lunchAt && state.time < 900) n.push('lunch');
   if (!g.warmed && !g.leaving && g.fat > g.stam * 0.55 && state.time < 870) n.push('warm');
+  if (g.wantsGear && !g.leaving && state.time < 900) n.push('gear');
+  if (g.shopper && !g.shopped && state.time > 630 && state.time < 960) n.push('shop');
   return n;
 }
 function svcFor(B, need) {
@@ -5814,6 +5869,7 @@ function bldStep(B) {
       if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.lunchAt = state.time; } // still hungry: eat somewhere else
       if (g.svc === 'rr') g.bl = 0.7;
       if (g.svc === 'rent') { g.needsRental = false; g.sat -= 4; thought(g, 'I gave up on the rental line and rented in town.'); }
+      shopDone(g, g.svc);
       if (g.svc === 'warm') g.warmed = true;
       leaveBuilding(g, B);
     }
@@ -5833,6 +5889,7 @@ function serve(g, B) {
     if (svc === 'food' || svc === 'dine') { g.ate = true; g.skipped = true; }
     if (svc === 'warm') g.warmed = true;
     if (svc === 'rent') { g.needsRental = false; g.sat -= 4; }
+    shopDone(g, svc);
     return leaveBuilding(g, B);
   }
   if (svc === 'rent') B.rented++;
@@ -5851,6 +5908,12 @@ function serve(g, B) {
   }
   if (svc === 'lesson') { g.lx = Math.random(); g.lz = Math.random(); }
 }
+// Shopping is a one-off: done whether they bought, balked at the price or gave up on the line.
+function shopDone(g, svc) {
+  if (svc === 'shop') g.shopped = true;
+  else if (svc === 'gear') g.wantsGear = false;
+  else if (svc === 'tune') g.wantsTune = false;
+}
 function finishVisit(g) {
   const B = bldById(g.bid), svc = g.svc;
   if (B) {
@@ -5866,6 +5929,9 @@ function finishVisit(g) {
     thought(g, cafe ? `A hot chocolate at ${name}. Toasty and recharged!` : 'A hot chocolate break. Feeling recharged!');
   }
   else if (svc === 'dine') { g.ate = true; g.sat += 8; thought(g, `What a meal at ${name}!`); }
+  else if (svc === 'shop') { shopDone(g, svc); g.sat += 1; thought(g, `Picked up a souvenir at ${name}.`); }
+  else if (svc === 'gear') { shopDone(g, svc); g.sat += 6; thought(g, `New goggles from ${name}. I can actually see now!`); }
+  else if (svc === 'tune') { shopDone(g, svc); g.sat += 4; g.onSkis = true; thought(g, `Fresh edges from ${name}. These skis rip!`); }
   else if (svc === 'snack') { g.ate = true; g.sat += 2; thought(g, `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
@@ -5909,10 +5975,16 @@ function resumeGuest(g) {
 }
 function arrivalFlow(g) {
   if (g.needsRental) {
-    const shop = world.buildings.find((B) => B.type === 'rental' && bldOpenNow(B));
+    // Either rental building will do: whichever has the shorter line.
+    const shop = world.buildings.filter((B) => RENTS.includes(B.type) && bldOpenNow(B)).sort((a, b) => estWait(a, 'rent') - estWait(b, 'rent'))[0];
     if (shop) return startVisit(g, shop, 'rent', { k: 'arrive' });
     g.needsRental = false; g.sat -= 6; today.complaints.noRental++;
     thought(g, 'No rental shop here, so I rented gear in town.');
+  }
+  if (g.wantsTune) {
+    g.wantsTune = false;
+    const tc = world.buildings.find((B) => B.type === 'tuning' && bldOpenNow(B));
+    if (tc) return startVisit(g, tc, 'tune', { k: 'arrive' });
   }
   g.onSkis = true;
   if (g.wantsLesson) {
@@ -6064,6 +6136,9 @@ function capOf(type, s) {
   switch (type) {
     case 'lodge': case 'restaurant': case 'fine': return `${s.seats} seats · restrooms (${s.stalls} stalls)`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
+    case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
+    case 'store': return `${s.seats} shoppers at a time`;
+    case 'gift': return `Serves about ${s.counter} a minute`;
     case 'cafe': return `${s.seats} seats · ${s.counter} a minute at the counter · ${s.stalls} restroom stalls`;
     case 'rental': return `${s.stations} fitting stations · ${s.inventory} pairs`;
     case 'school': return `${s.classes} instructors · ${s.classes * 6} students`;
@@ -6165,7 +6240,8 @@ function bldLive(B) {
       }
       return txt;
     }
-    case 'rental': return `<b>${B.used.rent * AGENT}</b> being fitted · <b>${B.q.rent.length * AGENT}</b> in line · ${Math.max(0, s.inventory - B.rented * AGENT)} pairs left`;
+    case 'store': case 'gift': return `<b>${Math.min(s.seats, B.used.seat * AGENT)}</b> shopping · <b>${B.q.seat.length * AGENT}</b> in line`;
+    case 'rental': case 'tuning': return `<b>${B.used.rent * AGENT}</b> being fitted · <b>${B.q.rent.length * AGENT}</b> in line · ${Math.max(0, s.inventory - B.rented * AGENT)} pairs left`;
     case 'school': return `<b>${B.used.lesson * AGENT}</b> in lessons · <b>${B.q.lesson.length * AGENT}</b> waiting`;
     case 'restroom': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st !== 'idle').length}</b> of ${s.crew} patrollers out on calls`;
@@ -7530,7 +7606,7 @@ function adviceFor(r) {
   const greens = world.trails.some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
   const tips = [
     [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking in Manage › Buildings, or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
-    [(c.noRental || 0) * P.rental, !has('rental') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
+    [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
     [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
     [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
@@ -7552,9 +7628,9 @@ let rpPast = false;
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
-  const ex = { upkeep: 0, parking: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
+  const ex = { upkeep: 0, parking: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
-  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.lessons + rv.parking + rv.passes - rv.refunds;
+  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
   const notes = [];
@@ -7599,7 +7675,7 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
-      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals', rv.rentals)}${line('Lessons', rv.lessons)}${line('Parking', rv.parking)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
+      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line('Lessons', rv.lessons)}${line('Parking', rv.parking)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
@@ -8988,6 +9064,7 @@ const CHANGES = [
   { v: '2.8', date: 'Oct 20, 2026', items: [
     'New places to eat: food trucks for a quick snack beside a trail or at the top of a lift, cafés for hot chocolate on cold days, and fine dining for guests who love a long meal (and pay for it). The restaurant is now the casual restaurant, with more seats and quicker meals.',
     'Guests choose by personality: the impatient grab a snack, the cold head for a café, and big spenders seek out fine dining. Each has its own price in the Prices panel.',
+    'New shops: the rental and tuning center rents demo skis and tunes guests\' own gear, the ski store sells gear to guests caught short on cold days, and gift kiosks sell souvenirs anywhere on the mountain. Shop sales get their own line in the day report.',
     'Parking is back in the Buildings tool, as well as in Manage › Buildings.',
     'Fixed: flying to a building from the Manage lists could leave it off-centre on low ground.',
   ] },
