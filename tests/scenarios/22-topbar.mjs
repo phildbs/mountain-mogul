@@ -1,4 +1,5 @@
-// The resort badge never covers the time bar, at any width, even with a long resort name.
+// The top of the screen: the resort badge never covers the time bar, at any width, even with a
+// long resort name, and the cash figure stays current.
 import { openGame, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url, { width: 1280, height: 800 });
@@ -15,5 +16,10 @@ export default async function ({ browser, url }) {
     assert(!r.overBadge && !r.overCash, `at ${w}px the time bar is clear of the badge and cash (${JSON.stringify(r)})`);
     assert(r.dateShown, `at ${w}px the date shows`);
   }
+  // the cash in the corner keeps up with every sale and cost, not just ticket sales
+  await g.page.setViewportSize({ width: 1280, height: 800 });
+  await g.ev(`state.cash += 12345`); await g.wait(300);
+  const shown = await g.ev(`[$('cash').textContent, money(state.cash)]`);
+  if (shown[0] !== shown[1]) throw new Error(`cash display is stale: shows ${shown[0]}, has ${shown[1]}`);
   await g.page.close();
 }
