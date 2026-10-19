@@ -2325,7 +2325,11 @@ function ratingSymbol(r, size = 14) {
   return `<svg width="${s * 1.5}" height="${s}" viewBox="0 0 21 14" aria-hidden="true"><rect x="2" y="3.6" width="6.6" height="6.6" transform="rotate(45 5.3 6.9)" fill="#1a1e26"/><rect x="12.4" y="3.6" width="6.6" height="6.6" transform="rotate(45 15.7 6.9)" fill="#1a1e26"/></svg>`;
 }
 
+// Surface lifts (`surface`) run along the snow: a magic carpet is a covered conveyor, a T-bar pulls skiers up on their skis.
+// Each type's length (units) and vertical (m) limits default to a chairlift's.
 const LIFT_TYPES = {
+  carpet: { name: 'Carpet', long: 'Magic carpet', seats: 1, speed: 0.9, spacing: 0.28, base: 45000, perUnit: 1800, surface: true, minLen: 3, maxLen: 18, minVert: 1.5, maxGrade: 0.22 },
+  tbar: { name: 'T-bar', long: 'T-bar', seats: 2, speed: 2.2, spacing: 1.75, base: 160000, perUnit: 1600, surface: true, minLen: 8, maxLen: 80, minVert: 5, maxGrade: 0.6 },
   double: { name: 'Double', long: 'Double chair', seats: 2, speed: 2.3, spacing: 2.0, base: 350000, perUnit: 4000 },
   triple: { name: 'Triple', long: 'Triple chair', seats: 3, speed: 2.4, spacing: 2.2, base: 500000, perUnit: 5200 },
   quad: { name: 'Quad', long: 'Quad chair', seats: 4, speed: 2.5, spacing: 2.4, base: 750000, perUnit: 6500 },
@@ -2649,13 +2653,40 @@ function chairGeo(seats) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
 }
-const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k, chairGeo(LIFT_TYPES[k].seats)]));
+// A magic carpet's 'chairs' are belt slats; a T-bar's are the bars hanging from its cable.
+function tbarGeo() {
+  const parts = [new THREE.BoxGeometry(0.02, 0.62, 0.02).translate(0, -0.31, 0), new THREE.BoxGeometry(0.34, 0.03, 0.03).translate(0, -0.62, 0)];
+  return mergeGeos(parts);
+}
+function mergeGeos(parts) {
+  let total = 0;
+  const ng = parts.map((g) => { const n = g.toNonIndexed(); total += n.attributes.position.count; return n; });
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3).fill(0.55);
+  let o = 0;
+  for (const g of ng) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
+  k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : chairGeo(LIFT_TYPES[k].seats)]));
 
-function liftLayout(a, b) {
+function liftLayout(a, b, type) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
   const ya = heightAt(a.x, a.z), yb = heightAt(b.x, b.z);
-  const TERM_H = 0.85, TOWER_H = 1.15, CLEAR = 0.55;
   const at = (s) => heightAt(a.x + dx * s, a.z + dz * s);
+  const vertM = (yb - ya) / VEX * 10, horizM = hlen * 10;
+  const done = (sup) => ({ dx, dz, hlen, ya, yb, sup, heading: Math.atan2(dx, dz), slopeM: Math.hypot(vertM, horizM), vertM, horizM });
+  // A magic carpet's belt lies on the snow, following every bump.
+  if (type === 'carpet') {
+    const n = Math.max(2, Math.ceil(hlen / 0.6)), sup = [];
+    for (let i = 0; i <= n; i++) sup.push({ s: i / n, y: at(i / n) + 0.07, term: i === 0 || i === n, belt: true });
+    return done(sup);
+  }
+  const surf = type === 'tbar';
+  const TERM_H = surf ? 1.0 : 0.85, TOWER_H = surf ? 1.05 : 1.15, CLEAR = surf ? 0.8 : 0.55;
   const sup = [{ s: 0, y: ya + TERM_H, term: true }, { s: 1, y: yb + TERM_H, term: true }];
   const nT = Math.max(1, Math.round(hlen / 9));
   for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
@@ -2674,8 +2705,7 @@ function liftLayout(a, b) {
     sup.push({ s: worst.s, y: at(worst.s) + TOWER_H });
     sup.sort((p, q) => p.s - q.s);
   }
-  const vertM = (yb - ya) / VEX * 10, horizM = hlen * 10;
-  return { dx, dz, hlen, ya, yb, sup, heading: Math.atan2(dx, dz), slopeM: Math.hypot(vertM, horizM), vertM, horizM };
+  return done(sup);
 }
 
 function liftTreeSet(a, b) {
@@ -2702,12 +2732,43 @@ function makeTerminal(p, y, heading, color, top) {
   return t;
 }
 
+// A magic carpet: a dark belt on the snow under a clear half-round tunnel, with a loading mat and booth at each end.
+function carpetVisual(L, lay) {
+  const g = new THREE.Group(), { dx, dz, hlen } = lay, nx = -dz / hlen, nz = dx / hlen, R = 0.36, K = 9;
+  const belt = [], tun = [], bi = [], ti = [], ribs = [];
+  lay.sup.forEach((s, i) => {
+    const x = L.a.x + dx * s.s, z = L.a.z + dz * s.s;
+    belt.push(x - nx * 0.26, s.y - 0.02, z - nz * 0.26, x + nx * 0.26, s.y - 0.02, z + nz * 0.26);
+    for (let k = 0; k <= K; k++) { const th = Math.PI * k / K; tun.push(x + nx * R * Math.cos(th), s.y - 0.05 + R * Math.sin(th), z + nz * R * Math.cos(th)); }
+    if (i % 3 === 0) for (let k = 0; k < K; k++) { const a = (i * (K + 1) + k) * 3, b = a + 3; ribs.push(new THREE.Vector3(tun[a], tun[a + 1], tun[a + 2]), new THREE.Vector3(tun[b], tun[b + 1], tun[b + 2])); }
+    if (i) {
+      const a = (i - 1) * 2; bi.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      for (let k = 0; k < K; k++) { const p = (i - 1) * (K + 1) + k, q = p + K + 1; ti.push(p, q, p + 1, p + 1, q, q + 1); }
+    }
+  });
+  const mk = (pos, idx, mat) => { const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals(); return new THREE.Mesh(geo, mat); };
+  const beltM = mk(belt, bi, new THREE.MeshLambertMaterial({ color: 0x2b2f36, side: THREE.DoubleSide }));
+  beltM.receiveShadow = true;
+  const tunM = mk(tun, ti, new THREE.MeshLambertMaterial({ color: 0xd6ecff, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false }));
+  tunM.renderOrder = 2;
+  g.add(beltM, tunM, new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ribs), new THREE.LineBasicMaterial({ color: 0x8b95a3 })));
+  for (const [p, y, top] of [[L.a, lay.ya, false], [L.b, lay.yb, true]]) {
+    const t = new THREE.Group(); t.position.set(p.x, y, p.z); t.rotation.y = lay.heading;
+    const mat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.7), new THREE.MeshLambertMaterial({ color: 0x3a3f48 })); mat.position.set(0, 0.03, top ? 0.4 : -0.4);
+    const booth = new THREE.Mesh(HUT_GEO, WOOD); booth.position.set(0.75, 0.24, top ? 0.3 : -0.3); booth.scale.set(0.7, 0.8, 0.7);
+    const roof = new THREE.Mesh(ROOF_GEO, accentMat(L.color)); roof.position.set(0.75, 0.53, top ? 0.3 : -0.3); roof.scale.set(0.7, 0.8, 0.7);
+    for (const m of [mat, booth, roof]) { m.castShadow = true; m.receiveShadow = true; t.add(m); }
+    g.add(t);
+  }
+  return g;
+}
 function buildLiftVisual(L, lay, withChairs) {
   const g = new THREE.Group();
   const { dx, dz, hlen, heading } = lay;
-  const px = -dz / hlen * 0.33, pz = dx / hlen * 0.33;
+  const carpet = L.type === 'carpet', off = carpet ? 0 : L.type === 'tbar' ? 0.26 : 0.33;
+  const px = -dz / hlen * off, pz = dx / hlen * off;
   for (const s of lay.sup) {
-    if (s.term) continue;
+    if (s.term || s.belt) continue;
     const x = L.a.x + dx * s.s, z = L.a.z + dz * s.s, gy = heightAt(x, z);
     const pole = new THREE.Mesh(POLE_GEO, STEEL);
     pole.position.set(x, gy - 0.1, z); pole.scale.y = s.y - gy + 0.1;
@@ -2718,16 +2779,21 @@ function buildLiftVisual(L, lay, withChairs) {
     sh1.rotation.y = sh2.rotation.y = heading;
     for (const m of [pole, arm, sh1, sh2]) { m.castShadow = true; g.add(m); }
   }
-  g.add(makeTerminal(L.a, lay.ya, heading, L.color, false));
-  g.add(makeTerminal(L.b, lay.yb, heading, L.color, true));
+  if (carpet) g.add(carpetVisual(L, lay));
+  else for (const [p, y, top] of [[L.a, lay.ya, false], [L.b, lay.yb, true]]) {
+    const t = makeTerminal(p, y, heading, L.color, top);
+    if (L.type === 'tbar') t.scale.setScalar(0.75); // a T-bar's drive is smaller than a chairlift's
+    g.add(t);
+  }
 
-  // Cable loop: up on one side, down on the other.
+  // Cable loop: up on one side, down on the other. A carpet's belt returns underneath itself.
   const up = lay.sup.map((s) => new THREE.Vector3(L.a.x + dx * s.s + px, s.y, L.a.z + dz * s.s + pz));
-  const down = lay.sup.map((s) => new THREE.Vector3(L.a.x + dx * s.s - px, s.y, L.a.z + dz * s.s - pz)).reverse();
-  const segs = [];
-  for (const path of [up, down]) for (let i = 0; i < path.length - 1; i++) segs.push(path[i], path[i + 1]);
-  const cable = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), new THREE.LineBasicMaterial({ color: 0x2b313b }));
-  g.add(cable);
+  const down = lay.sup.map((s) => new THREE.Vector3(L.a.x + dx * s.s - px, s.y - (carpet ? 0.05 : 0), L.a.z + dz * s.s - pz)).reverse();
+  if (!carpet) {
+    const segs = [];
+    for (const path of [up, down]) for (let i = 0; i < path.length - 1; i++) segs.push(path[i], path[i + 1]);
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), new THREE.LineBasicMaterial({ color: 0x2b313b })));
+  }
 
   if (withChairs) {
     const cum = (path) => { const c = [0]; for (let i = 1; i < path.length; i++) c.push(c[i - 1] + path[i].distanceTo(path[i - 1])); return c; };
@@ -2782,11 +2848,11 @@ function liftStats(L, lay) {
     ride: lay.slopeM / type.speed,
     lenFt: Math.round(lay.slopeM * 3.281 / 10) * 10,
     vertFt: Math.round(lay.vertM * 3.281 / 10) * 10,
-    towers: lay.sup.filter((s) => !s.term).length,
+    towers: lay.sup.filter((s) => !s.term && !s.belt).length,
   };
 }
 function addLift(L) {
-  L.lay = liftLayout(L.a, L.b);
+  L.lay = liftLayout(L.a, L.b, L.type);
   L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
@@ -3094,14 +3160,17 @@ function commitTrail(info, pts, width) {
 function evalLift(a0, b0, type, allowPlans) {
   let a = a0, b = b0;
   if (heightAt(a.x, a.z) > heightAt(b.x, b.z)) [a, b] = [b, a];
-  const lay = liftLayout(a, b), t = LIFT_TYPES[type];
+  const lay = liftLayout(a, b, type), t = LIFT_TYPES[type];
   const problems = [];
   if (!inProperty(a.x, a.z) || !inProperty(b.x, b.z)) problems.push('Both stations must be on your property.');
   if (sampleGrid(GR, a.x + HALF, a.z + HALF) > 0.5) problems.push('The bottom station site is too steep. Try flatter ground.');
   if (sampleGrid(GR, b.x + HALF, b.z + HALF) > 0.5) problems.push('The top station site is too steep. Try flatter ground.');
-  if (lay.hlen < 12) problems.push('Too short. A lift needs at least 400 ft between stations.');
-  if (lay.hlen > 300) problems.push('Too long. Keep lifts under 9,800 ft.');
-  if (lay.vertM < 20) problems.push('The top station must be at least 65 ft higher than the bottom.');
+  const ftOf = (u) => fmtFt(Math.round(u * 32.81 / 10) * 10);
+  const minLen = t.minLen ?? 12, maxLen = t.maxLen ?? 300, minVert = t.minVert ?? 20;
+  if (lay.hlen < minLen) problems.push(`Too short. A ${t.long.toLowerCase()} needs at least ${ftOf(minLen)} between stations.`);
+  if (lay.hlen > maxLen) problems.push(`Too long. Keep a ${t.long.toLowerCase()} under ${ftOf(maxLen)}.`);
+  if (lay.vertM < minVert) problems.push(`The top station must be at least ${fmtFt(Math.round(minVert * 3.281))} higher than the bottom.`);
+  if (t.maxGrade && lay.vertM / lay.horizM > t.maxGrade) problems.push(`Too steep for a ${t.long.toLowerCase()}. Pick a gentler slope${type === 'carpet' ? ', or use a T-bar' : ', or a chairlift'}.`);
   const stations = world.lifts.map((L) => [L.name, L.a, L.b]);
   if (allowPlans) for (const pl of world.plans) if (pl.kind === 'lift') stations.push(['a planned lift', pl.a, pl.b]);
   for (const [name, sa, sb] of stations) {
@@ -3214,7 +3283,7 @@ function planVisual(p) {
     g = new THREE.Mesh(ribbonGeometry(p.samples, TRAIL_WIDTHS[p.width].hw, null), BLUEPRINT);
     g.renderOrder = 6;
   } else if (p.kind === 'lift') {
-    g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b), false));
+    g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b, p.type), false));
   } else {
     g = blueprint(buildingVisual({ type: p.type, tier: 0, x: p.x, z: p.z, rot: p.rot }, true).group);
   }
@@ -3472,13 +3541,14 @@ function liftDraftSheet() {
     </dl>
     <p class="conn">${info.fromBase ? 'Guests can walk to the bottom station from the base area.' : 'The bottom station is up the mountain. Skiers will need a trail that ends here.'}</p>
     ${problemsHtml(info.problems)}
-    <div class="costs"><span>Lift and ${s.towers} ${s.towers === 1 ? 'tower' : 'towers'}</span><span>${money(info.build)}</span>
+    <div class="costs"><span>${s.towers ? `Lift and ${s.towers} ${s.towers === 1 ? "tower" : "towers"}` : "Lift"}</span><span>${money(info.build)}</span>
       <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>`;
   }
-  return `<div class="sheet-title"><h3>New chairlift</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+  return `<div class="sheet-title"><h3>New lift</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
     <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).map(([k, t]) =>
-      `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.seats} seats · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
+      `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
+    ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
     ${body}
     ${buildRow(info, info && !info.problems.length)}`;
 }
@@ -3912,7 +3982,7 @@ function clockLabel(min) {
   const h = Math.floor(min / 60), m = Math.floor(min % 60);
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
-const LIFT_OP_HOUR = { double: 180, triple: 230, quad: 300, six: 520 };
+const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, six: 520 };
 // Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
 const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
 // Overhead every day of the season, open or not (insurance, utilities, office, property tax),
@@ -5135,6 +5205,12 @@ function guestPos(g) {
     liftPoint(L, p, _cp);
     const up = p < L.upLen, seats = LIFT_TYPES[L.type].seats;
     const dx = L.lay.dx / L.lay.hlen, dz = L.lay.dz / L.lay.hlen;
+    // On a carpet guests stand on the belt; on a T-bar they slide up on their skis, one each side of the bar.
+    if (L.type === 'carpet') return { x: _cp.x, y: _cp.y + 0.02, z: _cp.z, yaw: L.lay.heading, sy: 1 };
+    if (L.type === 'tbar') {
+      const o = (g.seat - 0.5) * 0.34, x = _cp.x - dz * o, z = _cp.z + dx * o;
+      return { x, y: heightAt(x, z) + 0.14, z, yaw: L.lay.heading, sy: 1 };
+    }
     const off = (g.seat - (seats - 1) / 2) * SEAT_W * (up ? 1 : -1);
     return { x: _cp.x - dz * off, y: _cp.y - 0.47 - 0.13 * figScale, z: _cp.z + dx * off, yaw: L.lay.heading + (up ? 0 : Math.PI), sy: 0.72 };
   }
@@ -7102,6 +7178,7 @@ function startOfDaySnow() {
 // Any lift stops above 62 mph. Lifts that top out high on the mountain are exposed
 // and stop above 46 mph (52 for heavy six-packs).
 function windHoldAt(L, wind) {
+  if (LIFT_TYPES[L.type].surface) return wind > 75; // surface lifts keep running in all but a gale
   const exposed = elevFrac(trueY(L.b.x, L.b.z)) > 0.55;
   return wind > 62 || (exposed && wind > (L.type === 'six' ? 52 : 46));
 }
@@ -7758,7 +7835,7 @@ function resampleTrail(t) {
 }
 function rebuildLift(L) {
   liftGroup.remove(L.group); disposeGroup(L.group);
-  L.lay = liftLayout(L.a, L.b); L.stats = liftStats(L, L.lay);
+  L.lay = liftLayout(L.a, L.b, L.type); L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
   initLiftSim(L);
