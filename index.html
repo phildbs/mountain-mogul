@@ -2345,7 +2345,10 @@ const LIFT_TYPES = {
   double: { name: 'Double', long: 'Double chair', seats: 2, speed: 2.3, spacing: 2.0, base: 350000, perUnit: 4000 },
   triple: { name: 'Triple', long: 'Triple chair', seats: 3, speed: 2.4, spacing: 2.2, base: 500000, perUnit: 5200 },
   quad: { name: 'Quad', long: 'Quad chair', seats: 4, speed: 2.5, spacing: 2.4, base: 750000, perUnit: 6500 },
+  hsq: { name: 'Express Quad', long: 'Express quad', seats: 4, speed: 5.0, spacing: 3.2, base: 950000, perUnit: 7500 },
   six: { name: 'Express', long: 'Six-pack express', seats: 6, speed: 5.0, spacing: 4.0, base: 1400000, perUnit: 9500 },
+  // Enclosed, heated cabins: loved on cold days, the only lift sightseers ride, and the first to stop in wind.
+  gondola: { name: 'Gondola', long: 'Gondola', seats: 8, speed: 5.5, spacing: 7.0, base: 3200000, perUnit: 12000, cabin: true, minLen: 20 },
 };
 const liftCapacity = (t) => Math.round(t.seats * t.speed * 3600 / (t.spacing * 10) / 10) * 10;
 const LIFT_COLORS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0x1aa3b8, 0xc23f6e, 0x4f5d73];
@@ -2672,20 +2675,35 @@ function tbarGeo() {
   const parts = [new THREE.BoxGeometry(0.02, 0.62, 0.02).translate(0, -0.31, 0), new THREE.BoxGeometry(0.34, 0.03, 0.03).translate(0, -0.62, 0)];
   return mergeGeos(parts);
 }
-function mergeGeos(parts) {
+function mergeGeos(parts, cols) {
   let total = 0;
   const ng = parts.map((g) => { const n = g.toNonIndexed(); total += n.attributes.position.count; return n; });
   const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3).fill(0.55);
   let o = 0;
-  for (const g of ng) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  ng.forEach((g, i) => {
+    const cnt = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3);
+    if (cols) for (let v = 0; v < cnt; v++) col.set(cols[i], (o + v) * 3);
+    o += cnt;
+  });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geo;
 }
+// A gondola cabin in the lift's colour, with a dark window band and a pale roof, hanging from its grip.
+function cabinGeo() {
+  const W = [0.24, 0.28, 0.36], B = [1, 1, 1], G = [0.8, 0.82, 0.86];
+  return mergeGeos([
+    new THREE.BoxGeometry(0.03, 0.34, 0.03).translate(0, -0.17, 0),
+    new THREE.BoxGeometry(0.5, 0.2, 0.62).translate(0, -0.72, 0),
+    new THREE.BoxGeometry(0.51, 0.16, 0.63).translate(0, -0.54, 0),
+    new THREE.BoxGeometry(0.52, 0.06, 0.64).translate(0, -0.43, 0),
+  ], [G, B, W, G]);
+}
 const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
-  k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : chairGeo(LIFT_TYPES[k].seats)]));
+  k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : k === 'gondola' ? cabinGeo() : chairGeo(LIFT_TYPES[k].seats)]));
 
 function liftLayout(a, b, type) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
@@ -2699,8 +2717,8 @@ function liftLayout(a, b, type) {
     for (let i = 0; i <= n; i++) sup.push({ s: i / n, y: at(i / n) + 0.07, term: i === 0 || i === n, belt: true });
     return done(sup);
   }
-  const surf = type === 'tbar';
-  const TERM_H = surf ? 1.0 : 0.85, TOWER_H = surf ? 1.05 : 1.15, CLEAR = surf ? 0.8 : 0.55;
+  const surf = type === 'tbar', gon = type === 'gondola';
+  const TERM_H = surf ? 1.0 : gon ? 1.5 : 0.85, TOWER_H = surf ? 1.05 : gon ? 2.0 : 1.15, CLEAR = surf ? 0.8 : gon ? 1.3 : 0.55;
   const sup = [{ s: 0, y: ya + TERM_H, term: true }, { s: 1, y: yb + TERM_H, term: true }];
   const nT = Math.max(1, Math.round(hlen / 9));
   for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
@@ -2797,6 +2815,16 @@ function buildLiftVisual(L, lay, withChairs) {
   else for (const [p, y, top] of [[L.a, lay.ya, false], [L.b, lay.yb, true]]) {
     const t = makeTerminal(p, y, heading, L.color, top);
     if (L.type === 'tbar') t.scale.setScalar(0.75); // a T-bar's drive is smaller than a chairlift's
+    if (L.type === 'gondola') {
+      // A gondola station: the drive sits inside a long barn the cabins pass through.
+      t.scale.setScalar(1.35);
+      const barn = new THREE.Group(); barn.position.set(p.x, y, p.z); barn.rotation.y = heading;
+      const walls = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.0, 2.9), new THREE.MeshLambertMaterial({ color: 0xe8e4dc })); walls.position.set(0, 0.5, top ? 0.3 : -0.3);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.14, 3.2), accentMat(L.color)); roof.position.set(0, 1.07, top ? 0.3 : -0.3);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(2.02, 0.22, 2.4), new THREE.MeshLambertMaterial({ color: 0x3a4250 })); band.position.set(0, 0.62, top ? 0.3 : -0.3);
+      for (const m of [walls, roof, band]) { m.castShadow = true; m.receiveShadow = true; barn.add(m); }
+      g.add(barn);
+    }
     g.add(t);
   }
 
@@ -2993,9 +3021,31 @@ function cellsGeo(cells, lift, edgeCol) {
   geo.computeVertexNormals();
   return geo;
 }
+// A low orange fence around a learning area, with gaps at lift stations so guests can get to them.
+const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
+function areaFence(a) {
+  const posts = [], rope = [], seen = new Set();
+  const gap = (x, z) => world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
+  for (const k of a.set) {
+    const x = keyX(k), z = keyZ(k);
+    for (const [dx, dz, x0, z0, x1, z1] of [[1, 0, 0.5, -0.5, 0.5, 0.5], [-1, 0, -0.5, -0.5, -0.5, 0.5], [0, 1, -0.5, 0.5, 0.5, 0.5], [0, -1, -0.5, -0.5, 0.5, -0.5]]) {
+      if (a.set.has(cellKey(x + dx, z + dz))) continue;
+      const ax = x + x0, az = z + z0, bx = x + x1, bz = z + z1;
+      if (gap((ax + bx) / 2, (az + bz) / 2)) continue;
+      rope.push(new THREE.Vector3(ax, heightAt(ax, az) + 0.3, az), new THREE.Vector3(bx, heightAt(bx, bz) + 0.3, bz));
+      const pk = Math.round(ax * 2) + ',' + Math.round(az * 2);
+      if (!seen.has(pk) && (Math.round(ax) + Math.round(az)) % 2 === 0) { seen.add(pk); posts.push(new THREE.BoxGeometry(0.05, 0.36, 0.05).translate(ax, heightAt(ax, az) + 0.16, az)); }
+    }
+  }
+  const g = new THREE.Group();
+  if (rope.length) g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rope), new THREE.LineBasicMaterial({ color: 0xff7a1a })));
+  if (posts.length) g.add(new THREE.Mesh(mergeGeos(posts), FENCE_MAT));
+  return g;
+}
 function addArea(a) {
   a.set = new Set(a.cells);
   a.mesh = new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  a.fence = areaFence(a); areaGroup.add(a.fence);
   a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
   areaGroup.add(a.mesh);
   world.areas.push(a);
@@ -3004,8 +3054,12 @@ function addArea(a) {
 function refreshAreaMesh(a) {
   a.mesh.geometry.dispose();
   a.mesh.geometry = cellsGeo(a.set, 0.13, edgeTint(0));
+  areaGroup.remove(a.fence); disposeFence(a.fence);
+  a.fence = areaFence(a); areaGroup.add(a.fence);
 }
+function disposeFence(f) { f.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material !== FENCE_MAT) o.material.dispose(); }); }
 function removeArea(a) {
+  areaGroup.remove(a.fence); disposeFence(a.fence);
   areaGroup.remove(a.mesh);
   a.mesh.geometry.dispose(); a.mesh.material.dispose();
   world.areas = world.areas.filter((o) => o !== a);
@@ -3094,6 +3148,7 @@ function syncAreaLines() {
   const sig = want.map(([A, L]) => `${A.id}:${L.id}:${A.cells.length}:${L.a.x},${L.a.z},${L.b.x},${L.b.z}`).join('|');
   if (sig === areaSig) return;
   areaSig = sig;
+  for (const A of world.areas) { areaGroup.remove(A.fence); disposeFence(A.fence); A.fence = areaFence(A); areaGroup.add(A.fence); }
   for (const t of world.trails.filter((o) => o.virtual)) removeTrail(t);
   for (const [A, L] of want) for (let k = 0; k < AREA_LINES; k++) {
     addTrail({ id: -(A.id * 1000 + L.id * 10 + k), name: A.name, pts: areaLinePts(A, L, k), width: 'medium', open: true, sign: 0, virtual: true, area: A.id, lift: L.id });
@@ -3732,7 +3787,8 @@ function liftDraftSheet() {
   return `<div class="sheet-title"><h3>New lift</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
     <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).map(([k, t]) =>
-      `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
+      `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : t.cabin ? `${t.seats}-person cabins` : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
+    ${draft.liftType === 'gondola' ? '<p class="help">Enclosed, heated cabins. Skiers prefer it on cold days, and sightseers buy a scenic ride to the top and back when it starts at the base. It stops first in high wind.</p>' : ''}
     ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
     ${body}
     ${buildRow(info, info && !info.problems.length)}`;
@@ -3979,6 +4035,12 @@ function syncLabels() {
     el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'bld', obj: B }); };
     B.labelEl = el; labelLayer.appendChild(el);
   }
+  for (const A of world.areas) {
+    const el = document.createElement('button');
+    el.className = 'flabel bld';
+    el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'area', obj: A }); };
+    A.labelEl = el; labelLayer.appendChild(el);
+  }
   lotLabel = document.createElement('button');
   lotLabel.className = 'flabel lot';
   lotLabel.innerHTML = '<i class="pk">P</i><span>Parking</span>';
@@ -4031,6 +4093,13 @@ function updateLabels() {
       B.labelEl.classList.toggle('off', shut);
       B.labelEl._prio = 2;
     }
+    for (const A of world.areas) {
+      if (!A.labelEl) continue;
+      const n = open ? world.trails.reduce((m, t) => m + (t.virtual && t.area === A.id ? t.count || 0 : 0), 0) * AGENT : 0;
+      A.labelEl.innerHTML = `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`;
+      A.labelEl.classList.toggle('sel', !!(selected && selected.obj === A));
+      A.labelEl._prio = 1;
+    }
     if (lotLabel) {
       const cap = stalls.length, used = open ? stalls.filter((st) => st.car).length : 0;
       lotLabel.innerHTML = `<i class="pk">P</i><span>Parking</span><span class="cnt">${open ? `<b>${used}</b>/${cap} full` : `${cap} spaces`}</span>`;
@@ -4044,6 +4113,11 @@ function updateLabels() {
     else lotLabel.style.display = 'none';
   }
   for (const B of world.buildings) placeLabel(B.labelEl, B.x, B.baseY + 1.6 + B.tier * 0.4, B.z, show || (selected && selected.obj === B));
+  for (const A of world.areas) {
+    if (!A.labelEl) continue;
+    if (!A.center) { let x = 0, z = 0; for (const k of A.cells) { x += keyX(k); z += keyZ(k); } A.center = { x: x / A.cells.length, z: z / A.cells.length }; }
+    placeLabel(A.labelEl, A.center.x, heightAt(A.center.x, A.center.z) + 0.8, A.center.z, show || (selected && selected.obj === A));
+  }
   for (const t of realTrails()) {
     const s = t.samples[Math.floor(t.samples.length * 0.3)];
     placeLabel(t.labelEl, s.x, heightAt(s.x, s.z) + 0.6, s.z, show || (selected && selected.obj === t));
@@ -4190,7 +4264,7 @@ function clockLabel(min) {
   const h = Math.floor(min / 60), m = Math.floor(min % 60);
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
-const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, six: 520 };
+const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, hsq: 420, six: 520, gondola: 900 };
 // Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
 const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
 // Overhead every day of the season, open or not (insurance, utilities, office, property tax),
@@ -4457,7 +4531,7 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, lineQuit: 0, lineBreak: 0, noLearn: 0 }, satSum: 0, satN: 0,
   };
@@ -4540,6 +4614,7 @@ function vLift(L, g, depth, memo) {
   else if (g.leaving) v = L.fromBase ? 18 : -6;
   else {
     v = -liftWait(L) * g.qh + (g.seenLift[L.id] ? 0 : 1.5 * g.explore);
+    if (L.type === 'gondola' && todayWx().hi < 20) v += 2.5; // a warm ride on a cold day
     if (depth < 4) {
       let b = -30;
       for (const D of L.departing) if (runnable(D)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
@@ -4605,7 +4680,7 @@ function baseSkiable() {
 }
 // Guests who never got a single ride get their ticket money back.
 function refundGuest(g, why) {
-  if (g.refunded || g.runs > 0 || g.pass) return;
+  if (g.refunded || g.runs > 0 || g.pass || g.sawView) return;
   g.refunded = true;
   const amt = (g.paid ?? state.ticket) * AGENT;
   state.cash -= amt; today.refunds = (today.refunds || 0) + amt; today.refunded = (today.refunded || 0) + AGENT;
@@ -4765,7 +4840,8 @@ function demandForDay() {
   if (has('kids')) amen += 0.05;
   if (has('clinic')) amen += 0.03;
   if (has('hrest')) amen += 0.02;
-  if (learningOpen()) amen += 0.04; // families and first-timers look for a good learning area
+  if (learningOpen()) amen += 0.04;
+  if (world.lifts.some((L) => L.type === 'gondola' && L.fromBase)) amen += 0.05; // a base gondola is a draw in itself // families and first-timers look for a good learning area
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   const w = todayWx();
   let wxF = WX[w.type].demand;
@@ -4839,6 +4915,10 @@ function makeGuest(car, x, z) {
   g.wantsTune = ab >= 2 && !g.needsRental && Math.random() < 0.2;
   g.family = ab >= 1 && Math.random() < 0.16; // brought young kids along
   g.first = ab === 0 && Math.random() < 0.4; g.learnLaps = 0; // never skied before
+  // Some visitors don't ski at all: with a gondola at the base they buy a scenic ride instead of a lift ticket.
+  if (scenicGondola() && Math.random() < 0.06 * clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5)) {
+    g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.family = false;
+  }
   if (g.first) today.firsts += AGENT;
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
@@ -4894,7 +4974,11 @@ function unloadTop(L, i) {
     const g = gById.get(id);
     if (!g) continue;
     const s = L.b;
-    g.x = s.x; g.z = s.z; g.chair = -1; g.runs++;
+    g.x = s.x; g.z = s.z; g.chair = -1;
+    // Sightseers take in the view and ride straight back down.
+    if (g.sight) { g.chair = i; keep.push(id); if (!g.sawView) { g.sawView = true; g.sat = clamp(g.sat + 10, 0, 100); thought(g, 'What a view from the top!'); } continue; }
+    g.runs++;
+    if (L.type === 'gondola' && todayWx().hi < 20) { g.sat = clamp(g.sat + 1.5, 0, 100); if (Math.random() < 0.15) thought(g, `Warm and cozy on ${L.name}.`); }
     if (!topDecision(g, L)) { g.chair = i; keep.push(id); thought(g, 'No way down from up here! Riding back.'); }
   }
   L.riders[i] = keep;
@@ -4904,7 +4988,9 @@ function loadBottom(L, i) {
     // Guests who rode back down get off at the bottom.
     const g = gById.get(id);
     if (!g) continue;
-    g.x = L.a.x; g.z = L.a.z; g.chair = -1; g.sat -= 8;
+    g.x = L.a.x; g.z = L.a.z; g.chair = -1;
+    if (g.sight) { g.sight = false; g.leaving = true; today.sightseers += AGENT; baseDecision(g); continue; }
+    g.sat -= 8;
     if (L.fromBase) baseDecision(g); else hikeOut(g);
   }
   L.riders[i] = [];
@@ -5318,7 +5404,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -5445,6 +5531,10 @@ function guestPos(g) {
     const dx = L.lay.dx / L.lay.hlen, dz = L.lay.dz / L.lay.hlen;
     // On a carpet guests stand on the belt; on a T-bar they slide up on their skis, one each side of the bar.
     if (L.type === 'carpet') return { x: _cp.x, y: _cp.y + 0.02, z: _cp.z, yaw: L.lay.heading, sy: 1 };
+    if (L.type === 'gondola') {
+      const o = ((g.seat % 4) - 1.5) * 0.1 * (up ? 1 : -1), f = (g.seat < 4 ? -0.13 : 0.13);
+      return { x: _cp.x - dz * o + dx * f, y: _cp.y - 0.8, z: _cp.z + dx * o + dz * f, yaw: L.lay.heading + (up ? 0 : Math.PI), sy: 0.72 };
+    }
     if (L.type === 'tbar') {
       const o = (g.seat - 0.5) * 0.34, x = _cp.x - dz * o, z = _cp.z + dx * o;
       return { x, y: heightAt(x, z) + 0.14, z, yaw: L.lay.heading, sy: 1 };
@@ -5697,7 +5787,7 @@ function addDriveway(b) {
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
 const isEatery = (B) => EATS.includes(B.type);
 const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
-const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, parking: 0 };
+const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0 };
 const PRICE_INFO = {
   snack: { label: 'Snack (truck, café)', min: 3, max: 30, step: 1 },
   food: { label: 'Lodge meal', min: 5, max: 60, step: 1 },
@@ -5709,6 +5799,7 @@ const PRICE_INFO = {
   gift: { label: 'Souvenir', min: 3, max: 60, step: 1 },
   lesson: { label: 'Group lesson', min: 20, max: 250, step: 5 },
   camp: { label: 'Kids’ camp (per child)', min: 20, max: 300, step: 5 },
+  scenic: { label: 'Scenic gondola ride', min: 5, max: 80, step: 5 },
   parking: { label: 'Parking', min: 0, max: 40, step: 5 },
 };
 
@@ -6372,6 +6463,7 @@ function priceOf(svc, prices) {
   if (svc === 'gear') return prices.gear ?? 60;
   if (svc === 'shop') return prices.gift ?? 14;
   if (svc === 'camp') return prices.camp ?? 110;
+  if (svc === 'scenic') return prices.scenic ?? 25;
   return svc === 'food' ? prices.food : svc === 'snack' ? prices.snack ?? 11 : svc === 'finedine' ? prices.fine ?? 85 : svc === 'warm' ? Math.round(prices.food * 0.45) : svc === 'dine' ? prices.dining
     : svc === 'apres' ? Math.round(prices.dining * 0.7) : svc === 'rent' ? prices.rental : svc === 'lesson' ? prices.lesson : 0;
 }
@@ -6623,6 +6715,11 @@ function resumeGuest(g) {
   return baseDecision(g);
 }
 function arrivalFlow(g) {
+  if (g.sight) {
+    const gon = scenicGondola();
+    if (gon && canLoad(gon)) { thought(g, `Here for the scenic ride up ${gon.name}.`); return goQueue(g, gon, 'walk'); }
+    g.sight = false; g.leaving = true; return baseDecision(g);
+  }
   if (g.needsRental) {
     // Either rental building will do: whichever has the shorter line.
     const shop = world.buildings.filter((B) => RENTS.includes(B.type) && bldOpenNow(B)).sort((a, b) => estWait(a, 'rent') - estWait(b, 'rent'))[0];
@@ -6944,7 +7041,7 @@ function bldLive(B) {
   }
 }
 // Prices in sections, each with what guests consider normal.
-const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Parking', ['parking']]];
+const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides and parking', ['scenic', 'parking']]];
 const groupedPrices = () => `<p class="help">Guests compare each price with what’s normal, shown beside it. Charge more and some will pass.</p>`
   + PRICE_GROUPS.map(([label, keys]) => `<h4 class="price-group">${label}</h4>${keys.map(priceStepper).join('')}`).join('');
 function priceStepper(key) {
@@ -7420,7 +7517,8 @@ function startOfDaySnow() {
 function windHoldAt(L, wind) {
   if (LIFT_TYPES[L.type].surface) return wind > 75; // surface lifts keep running in all but a gale
   const exposed = elevFrac(trueY(L.b.x, L.b.z)) > 0.55;
-  return wind > 62 || (exposed && wind > (L.type === 'six' ? 52 : 46));
+  if (L.type === 'gondola') return wind > 52 || (exposed && wind > 40); // cabins swing: gondolas stop first
+  return wind > 62 || (exposed && wind > (L.type === 'six' || L.type === 'hsq' ? 52 : 46));
 }
 function setWindHolds(wind) {
   for (const L of world.lifts) L.windHold = windHoldAt(L, wind);
@@ -7739,7 +7837,9 @@ function passShareToday(n) {
   const holders = state.passSale.sold * PASS_VISITS / PASS_SEASON_DAYS * (dayPull / PASS_AVG_PULL);
   return clamp(holders / n, 0, PASS_MAX_SHARE);
 }
+const scenicGondola = () => world.lifts.find((L) => L.type === 'gondola' && L.fromBase && L.open && !L.windHold);
 function payTicket(g) {
+  if (g.sight) { g.paid = svcPrice('scenic'); state.cash += g.paid * AGENT; today.rev.tickets += g.paid * AGENT; return; }
   if (Math.random() < (today.passShare || 0)) { g.pass = true; g.paid = 0; today.passGuests += AGENT; return; }
   g.paid = ticketOn(state.day);
   state.cash += g.paid * AGENT; today.rev.tickets += g.paid * AGENT;
@@ -8376,6 +8476,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
   if (r.lunchPeak && r.lunchPeak.n) note(0, `The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
   if (r.firsts) note(1, `${r.firsts} first-timers came today${r.learners ? `; ${r.learners} beginners skied the learning area` : ''}.`);
+  if (r.sightseers) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by bus without needing a parking space.`);
@@ -9792,6 +9893,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11', date: 'Oct 19, 2026', items: [
+    'The express quad: a detachable quad, twice as fast as a regular one for much less than the six-pack. It cuts lift lines.',
+    'The gondola: enclosed, heated 8-person cabins. Skiers prefer it on cold days, and when it starts at the base, sightseers who don’t ski buy a scenic ride up and back (set the price in Prices). It is the first lift to stop in high wind.',
+    'Learning areas have a low orange fence and a name tag on the map showing how many are learning.',
+  ] },
   { v: '2.10', date: 'Oct 19, 2026', items: [
     'Surface lifts: the magic carpet, a covered conveyor for gentle beginner slopes, and the T-bar, a cheap lift that pulls skiers up on their skis and keeps running in wind that stops chairlifts.',
     'Learning areas: in the Landscape tool, paint a gentle slope at the base and build it as a groomed learning area, then serve it with a magic carpet or T-bar. Guests ski it anywhere, weaving their own lines.',
