@@ -30,13 +30,18 @@ The publishable key in `index.html` is meant to be public. Never put the secret 
 `tests/` drives the game in a headless browser against a stand-in for the online database
 (`tests/fake-supabase.js`), so nothing touches the real Supabase project. Each scenario checks
 one area: saves and multiple mountains, switching mountains, the tutorial, loans, bankruptcy,
-visits, auto-advance, balance and goals/passes.
+visits, auto-advance, balance, goals and passes, operations plans, the mountain builder, the
+Manage panels and more.
+
+To keep runs quick on machines without a graphics card, the tests play the game without drawing
+the 3D view (the simulation and every panel still run). The mountain-switching scenario draws it,
+so a broken scene still fails; pass `render: true` to `openGame` to draw in any other scenario.
 
 ```
 cd tests
 npm install
 npx playwright install chromium   # first time only
-node run.mjs                      # everything (about 15 minutes)
+node run.mjs                      # everything (about 10 minutes)
 node run.mjs loans visits         # just the scenarios whose names match
 ```
 
