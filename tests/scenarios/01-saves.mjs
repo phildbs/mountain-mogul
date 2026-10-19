@@ -1,4 +1,4 @@
-// Up to three mountains per account: creating, upgrading an old single save, signing in,
+// Up to five mountains per account: creating, upgrading an old single save, signing in,
 // the limit, deleting, a second device and signing out.
 import { openGame, assert, eq, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -22,25 +22,25 @@ export default async function ({ browser, url }) {
   const sw = await g.ev(`({ owner: activeSlot().owner, own: CLOUD.own.length })`);
   eq(sw.owner, 'user-B', 'empty account takes the device mountain'); eq(sw.own, 1, 'and saves it online');
 
-  for (let k = 0; k < 2; k++) { await g.click('[data-slot=new]'); await g.wait(100); await g.click('[data-slot=pick][data-mt=juniper]'); await g.wait(600); await g.ev(`saveNow(); cloudSave(true); $('mTitle').onclick()`); await g.wait(500); }
-  eq((await v()).own, 3, 'three mountains online');
-  eq(await g.ev(`newMountain()`), false, 'a fourth is refused');
+  for (let k = 0; k < 4; k++) { await g.click('[data-slot=new]'); await g.wait(100); await g.click('[data-slot=pick][data-mt=juniper]'); await g.wait(600); await g.ev(`saveNow(); cloudSave(true); $('mTitle').onclick()`); await g.wait(500); }
+  eq((await v()).own, 5, 'five mountains online');
+  eq(await g.ev(`newMountain()`), false, 'a sixth is refused');
   eq(await g.ev(`!!document.querySelector('[data-slot=new]')`), false, 'New mountain hidden at the limit');
 
   const second = await g.ev(`slots.list[1].id`);
   await g.click(`[data-slot=del][data-id="${second}"]`); await g.wait(100); await g.click('[data-slot=delYes]'); await g.wait(600);
-  eq(await g.ev(`CLOUD.own.length + '/' + slots.list.length`), '2/2', 'deleted locally and online');
+  eq(await g.ev(`CLOUD.own.length + '/' + slots.list.length`), '4/4', 'deleted locally and online');
 
   // a second device: only the session and the online database carry over
   await g.ev(`(() => { slots = { active: null, list: [] }; for (const k of Object.keys(localStorage)) if (!k.startsWith('FAKE')) localStorage.removeItem(k); })()`);
   await g.page.reload(); await g.reloaded();
   const dev2 = await g.ev(`({ local: slots.list.length, rows: slotRows().length })`);
-  eq(dev2.local, 1, 'second device pulls the newest mountain'); eq(dev2.rows, 2, 'and lists the other one online');
+  eq(dev2.local, 1, 'second device pulls the newest mountain'); eq(dev2.rows, 4, 'and lists the others online');
 
-  // the server refuses a fourth mountain made elsewhere
+  // the server refuses a sixth mountain made elsewhere
   await g.ev(`(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.rows.push({ id: 'elsewhere', owner: CLOUD.uid, public: false, summary: { name: 'Elsewhere' }, save: null, updated_at: new Date().toISOString() }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); })()`);
   await g.ev(`newMountain(); saveNow()`); await g.ev(`cloudSave(true)`); await g.wait(300);
-  assert(/3 mountains online/.test(await g.ev(`CLOUD.error`)), 'limit error shown');
+  assert(/5 mountains online/.test(await g.ev(`CLOUD.error`)), 'limit error shown');
 
   await g.ev(`signOut()`); await g.wait(1200);
   eq((await v()).n, 0, 'signing out clears the device');

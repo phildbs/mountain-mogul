@@ -45,7 +45,7 @@ export default async function ({ browser, url }) {
   const n = await g.ev(`starsOf()`);
   assert(n >= 1, 'at least one star');
   eq(await g.ev(`$('mGoals').textContent.trim()`), `${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n} of 5 goals`, 'title shows the stars');
-  assert(new RegExp(`★${n}`).test(await g.ev(`$('titleSlots').innerText`)), 'mountain list shows the stars');
+  assert(new RegExp(`${n} of 5 goals`).test(await g.ev(`$('titleSlots').innerText`)), 'mountain card shows the stars');
   await g.page.reload(); await g.reloaded();
   eq(await g.ev(`starsOf() + '/' + state.passPrice + '/' + state.passSale.sold`), `${n}/0/${sale.sold}`, 'goals and passes survive a reload');
   await g.click('#mGoals'); await g.wait(200);

@@ -1,5 +1,5 @@
 // Stand-in for Supabase for the tests, with the same rules as supabase/schema.sql: owners,
-// the three-mountain limit, public resorts from guests hidden, and only your own rows writable.
+// the five-mountain limit, public resorts from guests hidden, and only your own rows writable.
 (() => {
   const db = () => JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}');
   const put = (d) => localStorage.setItem('FAKE_DB', JSON.stringify(d));
@@ -26,7 +26,7 @@
         const o = q.obj, ex = d.rows.find((r) => r.id === o.id);
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }
         else {
-          if (d.rows.filter((r) => r.owner === me).length >= 3) return { data: null, error: { code: 'P0001', message: 'mountain_limit' } };
+          if (d.rows.filter((r) => r.owner === me).length >= 5) return { data: null, error: { code: 'P0001', message: 'mountain_limit' } };
           d.rows.push({ owner: me, ...o });
         }
         put(d); return { data: null, error: null };

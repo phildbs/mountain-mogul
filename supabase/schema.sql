@@ -2,7 +2,7 @@
 -- Paste this whole file into Supabase: SQL Editor -> New query -> Run.
 -- It is safe to run more than once, and upgrades older setups in place.
 
--- One row per resort. Each account can keep up to three.
+-- One row per resort. Each account can keep up to five.
 create table if not exists public.mountains (
   id uuid primary key default gen_random_uuid(),
   owner uuid not null default auth.uid() references auth.users (id) on delete cascade,
@@ -60,15 +60,15 @@ create policy "delete own" on public.mountains
 grant select on public.mountains to anon;
 grant select, insert, update, delete on public.mountains to authenticated;
 
--- At most three resorts per account. Saving over an existing resort is always fine
+-- At most five resorts per account. Saving over an existing resort is always fine
 -- (an upsert runs this check before it knows the row already exists).
 create or replace function public.mountains_limit()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
 begin
   if exists (select 1 from public.mountains where id = new.id) then return new; end if;
-  if (select count(*) from public.mountains where owner = new.owner) >= 3 then
-    raise exception 'mountain_limit' using hint = 'Each account can keep 3 mountains.';
+  if (select count(*) from public.mountains where owner = new.owner) >= 5 then
+    raise exception 'mountain_limit' using hint = 'Each account can keep 5 mountains.';
   end if;
   return new;
 end;

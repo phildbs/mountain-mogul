@@ -11,10 +11,11 @@ export default async function ({ browser, url }) {
       const box = (id) => { const r = $(id).getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; };
       const hit = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
       const b = box('badge'), t = box('timebar'), c = box('cashBox'), d = box('tbDate');
-      return { overBadge: hit(b, t), overCash: hit(c, t), dateShown: d.r - d.l > 20 && d.l >= 0 };
+      return { overBadge: hit(b, t), overCash: hit(c, t), dateShown: d.r - d.l > 20 && d.l >= 0, top: t.t };
     })()`);
     assert(!r.overBadge && !r.overCash, `at ${w}px the time bar is clear of the badge and cash (${JSON.stringify(r)})`);
     assert(r.dateShown, `at ${w}px the date shows`);
+    if (w >= 900) assert(r.top < 40, `at ${w}px the time bar stays at the top; the badge shrinks instead (top ${Math.round(r.top)})`);
   }
   // the cash in the corner keeps up with every sale and cost, not just ticket sales
   await g.page.setViewportSize({ width: 1280, height: 800 });
