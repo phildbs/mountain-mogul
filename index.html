@@ -535,6 +535,7 @@ body.visiting .badge { cursor: default; }
 .field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-bottom: -6px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 10px; }
 .seg.lifts { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+.seg.land3 { grid-template-columns: 1fr 1fr 1fr; }
 .seg button {
   border: 0; background: none; padding: 7px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--ink-2);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 34px;
@@ -2127,6 +2128,7 @@ function countInBrush(p, r) { let n = 0; treesInBrush(p, r, () => n++); return n
 const stroke = { active: false, trees: 0, cost: 0, broke: false, last: null };
 function clearAt(p) {
   if (state.landMode === 'level') return levelAt(p);
+  if (state.landMode === 'area') return areaPaintAt(p);
   if (!inProperty(p.x, p.z)) return;
   const r = state.brushR;
   let n = 0;
@@ -2169,6 +2171,12 @@ function endStroke() {
   if (!stroke.active) return;
   stroke.active = false;
   if (!stroke.cost) dropUndo();
+  if (state.landMode === 'area') {
+    if (stroke.areaWhy && !(areaDraft && areaDraft.erase)) toast(`Some ground was left out: ${stroke.areaWhy}.`);
+    stroke.areaWhy = ''; stroke.last = null;
+    renderSheet();
+    return;
+  }
   if (state.landMode === 'level') {
     if (stroke.box) refreshOnTerrain(stroke.box.i0, stroke.box.j0, stroke.box.i1, stroke.box.j1);
     if (stroke.broke) toast('Not enough cash to keep leveling', true);
@@ -2224,7 +2232,7 @@ function setTool(tool) {
     toast('Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { resetDraft(); draft.btype = null; }
+  if (tool !== state.tool) { resetDraft(); draft.btype = null; if (state.tool === 'clear') clearAreaDraft(); }
   state.tool = tool;
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
@@ -2254,6 +2262,10 @@ function showReadout(p, px, py, pinned) {
   const dif = DIFF[difficulty(g)];
   let html = `<b>${ftVis(p.y).toLocaleString('en-US')} ft</b> <span class="muted">·</span> ${Math.round(g * 100)}% grade <span class="muted">·</span> <span style="color:${dif.css}">${dif.name}</span>`;
   if (!owned) html += `<br><span class="muted">Outside your property</span>`;
+  else if (state.tool === 'clear' && state.landMode === 'area') {
+    const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
+    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Gentle enough for a learning area';
+  }
   else if (state.tool === 'clear' && state.landMode === 'level') {
     html += stroke.active ? `<br>Leveling to ${ft(stroke.target).toLocaleString('en-US')} ft · −${money(stroke.cost)}` : `<br><span class="muted">Press here to level to ${ftVis(p.y).toLocaleString('en-US')} ft</span>`;
   }
@@ -2351,9 +2363,9 @@ const trueY = (x, z) => heightAt(x, z) / VEX;
 function isBase(p) { return inProperty(p.x, p.z) && trueY(p.x, p.z) < MOUNTAIN.baseH + 3.5; }
 
 function nextTrailName() {
-  const used = new Set(world.trails.map((t) => t.name));
+  const used = new Set(realTrails().map((t) => t.name));
   for (const n of TRAIL_NAMES) if (!used.has(n)) return n;
-  return 'Trail ' + (world.trails.length + 1);
+  return 'Trail ' + (realTrails().length + 1);
 }
 function nextLiftName(type) {
   const used = new Set(world.lifts.map((l) => l.name.split(' ')[0]));
@@ -2442,7 +2454,7 @@ const ACROSS = [0, 0.06, 0.15, 0.5, 0.85, 0.94, 1];
 function surfaceIndex() {
   const grid = new Map(), C = 3, pads = [];
   const put = (x, z, e) => { const k = Math.floor(x / C) + ',' + Math.floor(z / C); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(e); };
-  for (const t of world.trails) {
+  for (const t of realTrails()) {
     const hw = TRAIL_WIDTHS[t.width].hw;
     for (const sm of t.samples) put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, id: t.id });
     for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: hw * 1.45, id: t.id });
@@ -2540,6 +2552,7 @@ function addTrail(t) {
 const BARE_TINT = new THREE.Color(0x8a7a5e);
 const TRAFFIC_LO = new THREE.Color(0xffffff), TRAFFIC_MID = new THREE.Color(0xffc94d), TRAFFIC_HI = new THREE.Color(0xe8492f);
 function styleTrail(t) {
+  if (t.virtual) { t.mesh.visible = false; return; } // lines inside a learning area aren't drawn
   const sel = selected && selected.obj === t;
   if (overlay.traffic && state.phase === 'open' && t.open) {
     const c = clamp(t.crowd || 0, 0, 2);
@@ -2552,6 +2565,7 @@ function styleTrail(t) {
   t.mesh.material.emissive.set(sel ? 0x6a2a12 : 0x000000);
 }
 function refreshTrailMesh(t, idx) {
+  if (t.virtual) return;
   t.mesh.geometry.dispose();
   t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(idx || surfaceIndex(), t.id));
 }
@@ -2604,7 +2618,7 @@ function makePad(x, z, r) {
 function rebuildPads() {
   for (const m of [...padGroup.children]) { padGroup.remove(m); m.geometry.dispose(); }
   for (const L of world.lifts) { padGroup.add(makePad(L.a.x, L.a.z, 5)); padGroup.add(makePad(L.b.x, L.b.z, 5.5)); }
-  for (const t of world.trails) {
+  for (const t of realTrails()) {
     const r = TRAIL_WIDTHS[t.width].hw * 1.45 + 0.6;
     for (const s of [t.samples[0], t.samples[t.samples.length - 1]]) {
       if (world.lifts.some((L) => distXZ(s, L.a) < 3 || distXZ(s, L.b) < 3)) continue;
@@ -2900,7 +2914,7 @@ const STATION_R = 6;
 function trailNear(p, exclude) {
   let best = null, bd = Infinity;
   for (const o of world.trails) {
-    if (o === exclude) continue;
+    if (o === exclude || o.virtual) continue;
     const r = Math.max(2.5, TRAIL_WIDTHS[o.width].hw + 0.6);
     for (let i = 0; i < o.samples.length; i++) {
       const d = distXZ(p, o.samples[i]);
@@ -2919,8 +2933,176 @@ function connAt(p, self, which) {
   if (isBase(p)) return { kind: 'base' };
   return null;
 }
+/* ---------- Terrain areas ----------
+   Painted areas of the mountain. A learning area is a gentle groomed slope served by a magic carpet
+   or T-bar. Guests ski it anywhere they like, so each serving lift gets a few weaving ski lines,
+   kept as hidden trails so skiing, snow and the network all work as they do on a trail. */
+world.areas = [];
+const areaGroup = new THREE.Group();
+scene.add(areaGroup);
+const AREA_CELL_COST = 450, AREA_MAX_GRADE = 0.24, AREA_MIN_CELLS = 25, AREA_GROOM_CELL = 4, AREA_LINES = 4;
+const AREA_NAMES = ['Bunny Hill', 'Little Bear Slope', 'Learning Area', 'Snowflake Hill', 'First Tracks', 'Cub Run'];
+const cellKey = (x, z) => x * 4096 + z, keyX = (k) => Math.round(k / 4096), keyZ = (k) => k - Math.round(k / 4096) * 4096;
+const acresOf = (n) => n * 100 / 4046.86;
+const areaAt = (x, z) => world.areas.find((a) => a.set.has(cellKey(Math.round(x), Math.round(z))));
+function nextAreaName() {
+  const used = new Set(world.areas.map((a) => a.name));
+  return AREA_NAMES.find((n) => !used.has(n)) || `Learning Area ${world.areas.length + 1}`;
+}
+// Cells already taken by trails, buildings, the parking lot and other areas, and what's there.
+function areaBlocks(skip) {
+  const m = new Map(), mark = (x, z, why) => { const k = cellKey(Math.round(x), Math.round(z)); if (!m.has(k)) m.set(k, why); };
+  for (const t of realTrails()) {
+    const hw = TRAIL_WIDTHS[t.width].hw + 0.3, c = Math.ceil(hw);
+    for (const sm of t.samples) for (let dz = -c; dz <= c; dz++) for (let dx = -c; dx <= c; dx++) if (dx * dx + dz * dz <= hw * hw) mark(sm.x + dx, sm.z + dz, 'on a trail');
+  }
+  const box = (b, why) => { for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) mark(x, z, why); };
+  for (const B of world.buildings) box(boxOf(B, 0.5), 'too close to a building');
+  for (const b of lotBoxes()) box({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.z0 - 0.5, z1: b.z1 + 0.5 }, 'on the parking lot');
+  for (const a of world.areas) if (a !== skip) for (const k of a.cells) if (!m.has(k)) m.set(k, 'already part of another area');
+  return m;
+}
+// Why a cell can't be part of a learning area, or '' when it can.
+function cellProblem(x, z, blocks) {
+  if (!inProperty(x, z)) return 'outside your property';
+  const b = blocks && blocks.get(cellKey(x, z));
+  if (b) return b;
+  if (roadDist(x, z) < 2) return 'on the road';
+  if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
+  if (sampleGrid(GR, x + HALF, z + HALF) > AREA_MAX_GRADE) return 'too steep for beginners';
+  return '';
+}
+// A flat grid of cells draped on the ground, lit like the snow; the outer cells take the edge colour.
+function cellsGeo(cells, lift, edgeCol) {
+  const pos = [], uv = [], col = [], idx = [];
+  for (const k of cells) {
+    const x = keyX(k), z = keyZ(k);
+    const edge = edgeCol && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => !cells.has(cellKey(x + dx, z + dz)));
+    const o = pos.length / 3, c = edge ? edgeCol : [1, 1, 1];
+    for (const [dx, dz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
+      const X = x + dx, Z = z + dz;
+      pos.push(X, heightAt(X, Z) + lift, Z); uv.push(X * 0.34, Z * 0.34); col.push(c[0], c[1], c[2]);
+    }
+    idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+function addArea(a) {
+  a.set = new Set(a.cells);
+  a.mesh = new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
+  areaGroup.add(a.mesh);
+  world.areas.push(a);
+  areaSig = null;
+}
+function refreshAreaMesh(a) {
+  a.mesh.geometry.dispose();
+  a.mesh.geometry = cellsGeo(a.set, 0.13, edgeTint(0));
+}
+function removeArea(a) {
+  areaGroup.remove(a.mesh);
+  a.mesh.geometry.dispose(); a.mesh.material.dispose();
+  world.areas = world.areas.filter((o) => o !== a);
+  areaSig = null;
+}
+function styleArea(a) {
+  a.mesh.material.emissive.set(selected && selected.obj === a ? 0x6a2a12 : 0x000000);
+}
+
+/* Painting a new area with the Landscape brush. */
+let areaDraft = null, areaDraftMesh = null;
+const AREA_DRAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x3d8bfd, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+function areaPaintAt(p) {
+  if (!areaDraft) areaDraft = { cells: new Set(), erase: false };
+  if (!areaDraft.blocks) areaDraft.blocks = areaBlocks();
+  const r = state.brushR;
+  for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++) {
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
+    const k = cellKey(x, z);
+    if (areaDraft.erase) { areaDraft.cells.delete(k); continue; }
+    const why = cellProblem(x, z, areaDraft.blocks);
+    if (why) stroke.areaWhy = why; else areaDraft.cells.add(k);
+  }
+  drawAreaDraft();
+}
+function drawAreaDraft() {
+  if (areaDraftMesh) { scene.remove(areaDraftMesh); areaDraftMesh.geometry.dispose(); areaDraftMesh = null; }
+  if (!areaDraft || !areaDraft.cells.size) return;
+  areaDraftMesh = new THREE.Mesh(cellsGeo(areaDraft.cells, 0.16, null), AREA_DRAFT_MAT);
+  areaDraftMesh.renderOrder = 4;
+  scene.add(areaDraftMesh);
+}
+function clearAreaDraft() {
+  areaDraft = null;
+  drawAreaDraft();
+}
+function areaDraftInfo() {
+  if (!areaDraft || !areaDraft.cells.size) return null;
+  const n = areaDraft.cells.size, treeSet = new Set(), problems = [];
+  for (const k of areaDraft.cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
+  if (n < AREA_MIN_CELLS) problems.push('Paint a bigger area: at least about half an acre.');
+  return { n, treeSet, problems, prep: n * AREA_CELL_COST, cost: n * AREA_CELL_COST + treeSet.size * TREE_COST };
+}
+function commitArea() {
+  const info = areaDraftInfo();
+  if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  pushUndo('building a learning area');
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  const a = { id: world.nextId++, name: nextAreaName(), kind: 'learn', cells: [...areaDraft.cells], cost: info.cost };
+  addArea(a);
+  clearAreaDraft();
+  computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
+  toast(`Built ${a.name} · −${money(info.cost)}. Add a magic carpet or T-bar with both stations in it.`);
+  renderSheet();
+}
+
+/* Ski lines: for each lift with both stations in or beside an area, a few lines weave down it,
+   two on each side of the lift. They're rebuilt only when areas or lifts change, with fixed ids,
+   so guests skiing them survive a reload. */
+let areaSig = null;
+function nearCell(A, p, r) {
+  for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++)
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 <= r * r && A.set.has(cellKey(x, z))) return true;
+  return false;
+}
+const servesArea = (A, L) => nearCell(A, L.a, 3) && nearCell(A, L.b, 3);
+const areaLifts = (A) => world.lifts.filter((L) => servesArea(A, L));
+function areaLinePts(A, L, k) {
+  const top = L.b, bot = L.a, dx = bot.x - top.x, dz = bot.z - top.z, len = Math.hypot(dx, dz) || 1;
+  const ux = dx / len, uz = dz / len, nx = -uz, nz = ux, side = k % 2 ? 1 : -1;
+  const pts = [{ x: top.x + ux * 1.2 + nx * side * 1.2, z: top.z + uz * 1.2 + nz * side * 1.2 }];
+  const steps = Math.max(3, Math.round(len / 3.5));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps, amp = 1.6 + 2.8 * (0.5 + 0.5 * Math.sin(i * 1.9 + k * 2.3));
+    let x = top.x + dx * t + nx * side * amp, z = top.z + dz * t + nz * side * amp;
+    for (let s = 0; s < 6 && !A.set.has(cellKey(Math.round(x), Math.round(z))); s++) { x -= nx * side * amp / 7; z -= nz * side * amp / 7; }
+    pts.push({ x, z });
+  }
+  pts.push({ x: bot.x - ux * 1.6 + nx * side * 1.2, z: bot.z - uz * 1.6 + nz * side * 1.2 });
+  return pts;
+}
+function syncAreaLines() {
+  const want = [];
+  for (const A of world.areas) for (const L of world.lifts) if (servesArea(A, L)) want.push([A, L]);
+  const sig = want.map(([A, L]) => `${A.id}:${L.id}:${A.cells.length}:${L.a.x},${L.a.z},${L.b.x},${L.b.z}`).join('|');
+  if (sig === areaSig) return;
+  areaSig = sig;
+  for (const t of world.trails.filter((o) => o.virtual)) removeTrail(t);
+  for (const [A, L] of want) for (let k = 0; k < AREA_LINES; k++) {
+    addTrail({ id: -(A.id * 1000 + L.id * 10 + k), name: A.name, pts: areaLinePts(A, L, k), width: 'medium', open: true, sign: 0, virtual: true, area: A.id, lift: L.id });
+  }
+}
 function computeNetwork() {
+  syncAreaLines();
   for (const t of world.trails) {
+    if (t.virtual) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
     t.from = connAt(t.samples[0], t, 'start');
     t.to = connAt(t.samples[t.samples.length - 1], t, 'end');
   }
@@ -3420,7 +3602,9 @@ function pickFeature(p) {
     if (d < 1.6 && d < bd) { bd = d; best = { kind: 'lift', obj: L }; }
   }
   if (best) return best;
-  for (const t of world.trails) {
+  const A = areaAt(p.x, p.z);
+  if (A) return { kind: 'area', obj: A };
+  for (const t of realTrails()) {
     const r = TRAIL_WIDTHS[t.width].hw + 0.6;
     for (const s of t.samples) {
       const d = distXZ(p, s);
@@ -3441,6 +3625,7 @@ function select(feat) {
   selected = feat;
   if (prev && prev.kind === 'trail' && world.trails.includes(prev.obj)) styleTrail(prev.obj);
   if (feat && feat.kind === 'trail') styleTrail(feat.obj);
+  for (const a of world.areas) styleArea(a);
   sheetConfirm = false;
   renderSheet();
   labelsDirty = true;
@@ -3463,7 +3648,7 @@ function renderSheet() {
   else if (state.tool === 'clear') html = landSheet();
   else if (state.tool === 'trail') html = trailDraftSheet();
   else if (state.tool === 'lift') html = liftDraftSheet();
-  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel })[selected.kind](selected.obj);
+  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
   document.querySelectorAll('#manage [data-m]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.m === m)));
@@ -3559,6 +3744,22 @@ function removeBlock(what, note) {
     : `<button class="link danger-link" data-action="remove">Remove ${what}</button>`;
 }
 
+function areaSheet(A) {
+  const lifts = areaLifts(A), lines = world.trails.filter((t) => t.virtual && t.area === A.id), open = state.phase === 'open' && today;
+  const skiing = open ? lines.reduce((n, t) => n + (t.count || 0), 0) * AGENT : 0;
+  const runs = open ? lines.reduce((n, t) => n + ((today.trailRuns || {})[t.id] || 0), 0) * AGENT : 0;
+  return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(0x2f9e6a)}"></span>
+      <input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name">
+      <button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">Learning area · ${acresOf(A.cells.length).toFixed(1)} acres of gentle, groomed snow where first-timers find their feet.</p>
+    ${lifts.length ? `<p class="conn">Served by ${lifts.map((L) => esc(L.name)).join(', ')}.</p>`
+      : '<p class="conn warn">No lift serves it yet. Build a magic carpet or T-bar with both stations inside it.</p>'}
+    <dl class="kv">
+      ${open ? `<div><dt>Skiing now</dt><dd>${skiing}</dd></div><div><dt>Runs today</dt><dd>${runs}</dd></div>` : ''}
+      <div><dt>Grooming</dt><dd>${money(A.cells.length * AREA_GROOM_CELL)}/night</dd></div>
+    </dl>
+    ${state.phase === 'closed' ? removeBlock('this learning area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
+}
 function trailSheet(t) {
   const an = t.an, sign = trailSign(t);
   const from = describeConn(t.from, 'start'), to = describeConn(t.to, 'end');
@@ -3654,7 +3855,10 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'landMode') { state.landMode = b.dataset.v; renderSheet(); hover.dirty = true; }
+  else if (a === 'landMode') { state.landMode = b.dataset.v; if (b.dataset.v !== 'area') clearAreaDraft(); renderSheet(); hover.dirty = true; }
+  else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
+  else if (a === 'areaClear') { clearAreaDraft(); renderSheet(); }
+  else if (a === 'areaBuild') commitArea();
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
     const cost = snowmakingCost(obj);
@@ -3716,8 +3920,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'qLift') { const L = liftById(+b.dataset.id); if (L) setOpen('lift', L, !L.open); }
   else if (a === 'qGroom') { const t = trailById(+b.dataset.id); if (t) { t.groomed = !t.groomed; updateTrailSnow(t, todayWx()); renderSheet(); scheduleSave(); } }
   else if (a === 'qSm') { const t = trailById(+b.dataset.id); if (t && t.sm) { t.sm.mode = SM_NEXT[t.sm.mode] || 'auto'; renderSheet(); scheduleSave(); } }
-  else if (a === 'bulkGroom') { for (const t of world.trails) { t.groomed = b.dataset.v === '1'; updateTrailSnow(t, todayWx()); } renderSheet(); scheduleSave(); toast(b.dataset.v === '1' ? 'Every trail will be groomed tonight.' : 'Grooming stopped on every trail.'); }
-  else if (a === 'bulkSm') { let n = 0; for (const t of world.trails) if (t.sm && t.sm.on) { t.sm.mode = b.dataset.v; n++; } renderSheet(); scheduleSave(); toast(`Snow guns on ${n} ${n === 1 ? 'trail' : 'trails'}: ${SM_WORD[b.dataset.v]}`); }
+  else if (a === 'bulkGroom') { for (const t of realTrails()) { t.groomed = b.dataset.v === '1'; updateTrailSnow(t, todayWx()); } renderSheet(); scheduleSave(); toast(b.dataset.v === '1' ? 'Every trail will be groomed tonight.' : 'Grooming stopped on every trail.'); }
+  else if (a === 'bulkSm') { let n = 0; for (const t of realTrails()) if (t.sm && t.sm.on) { t.sm.mode = b.dataset.v; n++; } renderSheet(); scheduleSave(); toast(`Snow guns on ${n} ${n === 1 ? 'trail' : 'trails'}: ${SM_WORD[b.dataset.v]}`); }
   else if (a === 'pastReport') { const h = (state.history || [])[+b.dataset.i]; if (h) showReport(h, true); } else if (a === 'sign' && obj) {
     const v = +b.dataset.v;
     obj.sign = v === obj.an.rating ? null : v;
@@ -3727,6 +3931,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'removeYes' && obj) {
     pushUndo(`removing ${obj.name}`);
     if (selected.kind === 'trail') removeTrail(obj);
+    else if (selected.kind === 'area') { state.cash += Math.round((obj.cost || 0) * 0.25); removeArea(obj); updateCash(true); }
     else if (selected.kind === 'bld') { state.cash += Math.round((obj.spent || 0) * 0.25); removeBuilding(obj); updateCash(true); }
     else { state.cash += Math.round((obj.cost || 0) * 0.25); removeLift(obj); updateCash(true); }
     toast(`Removed ${obj.name}`);
@@ -3756,7 +3961,7 @@ function project(x, y, z) {
 }
 function syncLabels() {
   labelLayer.innerHTML = '';
-  for (const t of world.trails) {
+  for (const t of realTrails()) {
     const el = document.createElement('button');
     el.className = 'flabel';
     el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'trail', obj: t }); };
@@ -3794,7 +3999,7 @@ function updateLabels() {
   const show = state.started && (cam.viewH < 150 || open);
   if (labelsDirty) {
     labelsDirty = false;
-    for (const t of world.trails) {
+    for (const t of realTrails()) {
       const n = open ? (t.count || 0) * AGENT : 0;
       t.labelEl.innerHTML = `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`;
       t.labelEl.classList.toggle('sel', !!(selected && selected.obj === t));
@@ -3839,7 +4044,7 @@ function updateLabels() {
     else lotLabel.style.display = 'none';
   }
   for (const B of world.buildings) placeLabel(B.labelEl, B.x, B.baseY + 1.6 + B.tier * 0.4, B.z, show || (selected && selected.obj === B));
-  for (const t of world.trails) {
+  for (const t of realTrails()) {
     const s = t.samples[Math.floor(t.samples.length * 0.3)];
     placeLabel(t.labelEl, s.x, heightAt(s.x, s.z) + 0.6, s.z, show || (selected && selected.obj === t));
   }
@@ -3924,9 +4129,10 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: world.trails.map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade })),
   };
 }
@@ -3935,6 +4141,7 @@ function rebuildWorld(data) {
   for (const L of [...world.lifts]) removeLift(L);
   for (const B of [...world.buildings]) removeBuilding(B);
   for (const p of [...world.plans]) cancelPlan(p);
+  for (const a of [...world.areas]) removeArea(a);
   selected = null;
   world.nextId = (data && data.nextId) || 1;
   if (data) {
@@ -3942,6 +4149,7 @@ function rebuildWorld(data) {
     for (const B of data.buildings || []) addBuilding({ ...B });
     for (const p of data.plans || []) addPlan({ ...p });
     for (const t of data.trails || []) addTrail({ ...t, pts: t.pts.map((p) => ({ x: p.x, z: p.z })) });
+    for (const a of data.areas || []) addArea({ ...a });
   }
   computeNetwork();
   syncLabels();
@@ -4236,6 +4444,8 @@ let guests = [], cars = [], schedule = [], today = null;
 let nextGid = 1, nextCid = 1;
 const gById = new Map();
 const trailById = (id) => world.trails.find((t) => t.id === id);
+// Trails the player built, without the ski lines generated inside learning areas.
+const realTrails = () => world.trails.filter((t) => !t.virtual);
 const liftById = (id) => world.lifts.find((L) => L.id === id);
 const SKI_SPEED = [0.38, 0.46, 0.53, 0.58].map((v) => v / PACE); // units per game second on a moderate pitch
 const WALK = 0.13 / PACE, GLIDE = 0.35 / PACE, CAR_SPEED = 0.8 / PACE;
@@ -4503,7 +4713,7 @@ const ticketOn = (day) => (state.ticketPeak != null && peakDay(day) ? state.tick
 const pullOf = (open, cap, variety) => (110 + 140 * Math.pow(open.length, 0.65) + cap / 14 + variety * 40) * MOUNTAIN.draw;
 let dayPull = 1; // today's draw relative to an ordinary weekend day (weekdays less, holidays and powder more)
 function demandForDay() {
-  const open = world.trails.filter((t) => runnable(t) && t.reachable && t.returns);
+  const open = realTrails().filter((t) => runnable(t) && t.reachable && t.returns);
   if (!open.length || !world.lifts.some((L) => L.open && L.fromBase)) return 0;
   const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1), 0);
   const variety = new Set(open.map(trailSign)).size;
@@ -4544,7 +4754,7 @@ function demandForDay() {
     const okFrac = 1 - heldCap / Math.max(1, allCap);
     wxF *= okFrac > 0 ? 0.55 + 0.45 * okFrac : pmOk ? 0.45 : 0.15;
   }
-  const openFrac = open.length / Math.max(1, world.trails.length);
+  const openFrac = open.length / Math.max(1, realTrails().length);
   amen *= wxF * (0.45 + 0.55 * openFrac);
   const ev = eventToday();
   if (ev) dayPull *= EVENTS[ev.type].boost;
@@ -5073,13 +5283,13 @@ function endDay() {
     if (n && (!busiest || n * AGENT > busiest.n)) busiest = { name: L.name, n: n * AGENT, wait: (today.liftWait[L.id] || 0) / n };
   }
   let popular = null;
-  for (const t of world.trails) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
+  for (const t of realTrails()) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
-    wx: today.wx, holds: today.holds, trailsOpen: world.trails.filter(runnable).length, trailsTotal: world.trails.length, base: avgBase(),
+    wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
@@ -5998,7 +6208,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (lotBoxes().some((lb) => boxOverlap(bb, lb))) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
   if (other) problems.push(`Too close to ${other.name}.`);
-  const tr = world.trails.find((tt) => tt.samples.some((s) => boxDist(s, bb) < TRAIL_WIDTHS[tt.width].hw * 0.85));
+  const tr = realTrails().find((tt) => tt.samples.some((s) => boxDist(s, bb) < TRAIL_WIDTHS[tt.width].hw * 0.85));
   if (tr) problems.push(`That overlaps ${tr.name}.`);
   const lf = world.lifts.find((L) => segNearBox(L.a, L.b, bb, 0.8) || boxDist(L.a, bb) < 2.5 || boxDist(L.b, bb) < 2.5);
   if (lf) problems.push(`Too close to ${lf.name}.`);
@@ -7145,7 +7355,9 @@ function updatePlumes(time) {
 function finishNight() {
   const w = todayWx();
   let groom = 0;
-  for (const t of world.trails) if (runnable(t) && t.groomed) { groom += Math.round(t.an.len * GROOM_PER_UNIT); t.icy = false; }
+  for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += Math.round(t.an.len * GROOM_PER_UNIT); t.icy = false; }
+  for (const a of world.areas) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night
+  for (const t of world.trails) if (t.virtual) t.icy = false;
   state.cash -= groom;
   state.nightCost = { ...(state.nightCost || {}), grooming: groom };
   refreshSnowState(w);
@@ -7197,7 +7409,7 @@ function middayWind() {
   today.pmHolds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
 }
 function avgBase() {
-  const ts = world.trails;
+  const ts = realTrails();
   if (!ts.length) return midDepth();
   return ts.reduce((a, t) => a + (t.base || 0), 0) / ts.length;
 }
@@ -7319,7 +7531,7 @@ function weatherSheet(noHead) {
   const head = noHead ? '' : `<div class="sheet-title"><h3>Weather & snow</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   if (state.summer) return `${head}<p class="help">It’s summer. The snow is gone and the mountain is green. Build and plan for next season, then start it from the time bar.</p>`;
   const w = todayWx(), days = state.wx.days;
-  const open = world.trails.filter(runnable).length;
+  const open = realTrails().filter(runnable).length;
   const sm = state.nightCost || {};
   const holds = world.lifts.filter((L) => L.windHold);
   const spring = state.day > SEASON_LAST;
@@ -7334,7 +7546,7 @@ function weatherSheet(noHead) {
       <div><dt>Avg trail base</dt><dd>${inch(avgBase())}</dd></div>
       <div><dt>Summit</dt><dd>${inch(depthAtElev(0.75, 1))}</dd></div>
       <div><dt>Base area</dt><dd>${inch(baseDepth())}</dd></div>
-      <div><dt>Trails with snow</dt><dd>${open} of ${world.trails.length}</dd></div>
+      <div><dt>Trails with snow</dt><dd>${open} of ${realTrails().length}</dd></div>
       <div><dt>Season snowfall</dt><dd>${inch(state.seasonStats ? state.seasonStats.snowfall : 0)}</dd></div>
     </dl>
     <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
@@ -7373,7 +7585,7 @@ function seasonOver() { return state.day > SPRING_LAST || (state.day > SEASON_LA
 function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0 }; }
 
 /* ---------- Goals: five per mountain, earning stars ---------- */
-const openSigns = () => world.trails.filter((t) => runnable(t) && t.reachable && t.returns).map(trailSign);
+const openSigns = () => realTrails().filter((t) => runnable(t) && t.reachable && t.returns).map(trailSign);
 const GOALS = {
   juniper: [
     { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
@@ -7480,7 +7692,7 @@ function eventSection() {
 const PASS_DEFAULT = 399, PASS_VISITS = 8, PASS_SEASON_DAYS = 140, PASS_AVG_PULL = 0.62, PASS_MAX_SHARE = 0.7;
 const passesSoldThisSeason = () => !!(state.passSale && state.passSale.season === state.season);
 function passBuyers(price) {
-  const open = world.trails.filter((t) => runnable(t) && t.reachable && t.returns);
+  const open = realTrails().filter((t) => runnable(t) && t.reachable && t.returns);
   if (!open.length || !price) return 0;
   const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap, 0);
   const priceF = clamp(Math.exp(-(price - PASS_DEFAULT) / PASS_DEFAULT * 2.2), 0.05, 2);
@@ -7854,6 +8066,8 @@ function refreshOnTerrain(i0, j0, i1, j1, skip) {
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
   if (roadPath().some((p) => boxDist(p, box) < 3)) buildRoad();
+  for (const a of world.areas) refreshAreaMesh(a);
+  areaSig = null;
   for (const p of world.plans) if (p.group) { removePlanVisual(p); planVisual(p); }
   computeNetwork(); syncLabels();
   if (state.wx) refreshSnowState(todayWx());
@@ -7881,11 +8095,24 @@ function levelAt(p) {
   updateCash(true);
 }
 function landSheet() {
-  const lvl = state.landMode === 'level';
-  return `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-    <div class="seg" role="group" aria-label="Landscape mode">
-      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
-      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button></div>
+  const lvl = state.landMode === 'level', area = state.landMode === 'area';
+  const head = `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <div class="seg land3" role="group" aria-label="Landscape mode">
+      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !area}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
+      <button data-action="landMode" data-v="area" aria-pressed="${area}">Learning area<small>paint, then build</small></button></div>`;
+  if (area) {
+    const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
+    return `${head}
+    <p class="help">Paint a gentle slope where first-timers can learn. Steep ground, trails, buildings and the road are left out. Then add a magic carpet or T-bar with both stations inside it.</p>
+    <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${acresOf(info.n).toFixed(1)} acres</dd></div><div><dt>Upkeep</dt><dd>${money(info.n * AREA_GROOM_CELL)}/day grooming</dd></div></dl>
+    ${problemsHtml(info.problems)}
+    <div class="costs"><span>Grooming and fencing</span><span>${money(info.prep)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>
+    <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button></div>` : ''}
+    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+  }
+  return `${head}
     <p class="help">${lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for glades, views and building sites.'}</p>
@@ -8066,7 +8293,7 @@ const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
 // The day's single most valuable fix, judged by money (or guests) lost, so players know what to do next.
 function adviceFor(r) {
   const c = r.complaints || {}, has = (t) => world.buildings.some((B) => B.type === t), P = state.prices;
-  const greens = world.trails.some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
+  const greens = realTrails().some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
   const tips = [
     [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking in Manage › Buildings, or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
@@ -8286,7 +8513,7 @@ function trailStatus(t) {
 const trailNeedsCare = (t) => trailStatus(t)[1] !== 'on' || t.surface === 'icy';
 const SM_NEXT = { auto: 'always', always: 'off', off: 'auto' }, SM_WORD = { auto: 'Auto', always: 'Always', off: 'Off' };
 function trailsList() {
-  const ts = world.trails;
+  const ts = realTrails();
   if (!ts.length) return `<p class="help">No trails yet. Build one with the Trail tool: start at the top of a lift and finish at the base.</p>`;
   const v = listView.trails, open = ts.filter((t) => runnable(t) && t.reachable && t.returns);
   const groomCost = ts.filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + Math.round(t.an.len * GROOM_PER_UNIT), 0);
@@ -8892,7 +9119,7 @@ function summaryDoc() {
     v: 1, mt: MOUNTAIN.id, stars: starsOf(), name: state.resortName || 'Juniper Ridge', creator: state.creator || '', updatedAt: Date.now(),
     season: state.season || 1, when: state.bankrupt ? 'Foreclosed' : state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
     cash: Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100,
-    trails: world.trails.length, lifts: world.lifts.length, buildings: world.buildings.length,
+    trails: realTrails().length, lifts: world.lifts.length, buildings: world.buildings.length,
     bestGuests: rc.bestGuests, bestDayProfit: rc.bestDayProfit, bestSeasonProfit: rc.bestSeasonProfit, totalVisitors: rc.totalVisitors,
   };
 }
@@ -9463,7 +9690,7 @@ const TUT_STEPS = [
   { title: 'Build a chairlift', how: () => `Pick <b>Lift</b>. ${isCoarse ? 'Tap' : 'Click'} the cleared base area for the bottom station, then partway up the mountain for the top station. Building clears the trees in its way automatically; that cost is included in the price shown. Press <b>Build</b>.`,
     done: () => world.lifts.some((L) => L.fromBase) },
   { title: 'Cut a trail back down', how: () => `Pick <b>Trail</b>. Start at the top of your lift, add points down the mountain and finish in the base area. Trees along the trail are cleared for you, at a cost. Press <b>Build</b>.`,
-    done: () => world.trails.some((t) => t.reachable && t.returns) },
+    done: () => realTrails().some((t) => t.reachable && t.returns) },
   { title: 'Build a lodge', how: () => 'Guests need somewhere to eat and warm up. Pick <b>Buildings</b>, choose the lodge and place it near the bottom of your lift.',
     done: () => world.buildings.some((B) => B.type === 'lodge') },
   { title: 'Open for the day', how: () => 'Press <b>Open for the day</b> at the top. Try 2× or 4× speed and watch guests ride and ski.',
@@ -9672,7 +9899,7 @@ function openFeedback() {
 function feedbackContext() {
   return {
     v: VERSION, mt: MOUNTAIN.id, resort: state.resortName, started: !!state.started, season: state.season, date: dateLabel(state.day),
-    phase: state.phase, cash: Math.round(state.cash), debt: Math.round(state.debt || 0), lifts: world.lifts.length, trails: world.trails.length,
+    phase: state.phase, cash: Math.round(state.cash), debt: Math.round(state.debt || 0), lifts: world.lifts.length, trails: realTrails().length,
     buildings: world.buildings.length, lastGuests: state.lastReport ? state.lastReport.guests : null, stars: starsOf(), rep: Math.round(state.reputation * 100) / 100,
     tutorial: practice, visiting: !!visiting, guest: CLOUD.guest, screen: `${innerWidth}x${innerHeight}`, touch: isCoarse, ua: navigator.userAgent.slice(0, 160),
   };
