@@ -1,6 +1,7 @@
 // Balance guards: a starter resort's first season on each mountain lands in a sensible range,
 // and the developer simulator leaves the resort untouched when not keeping results.
 import { openGame, assert, SETUPS } from '../harness.mjs';
+export const slow = true; // a whole simulated season on each mountain: run it when the economy changes
 async function firstSeason(browser, url, mountain, setup) {
   const g = await openGame(browser, url, { query: '?dev', mountain });
   await g.click('#startBtn'); await g.wait(400);

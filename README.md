@@ -41,7 +41,8 @@ so a broken scene still fails; pass `render: true` to `openGame` to draw in any 
 cd tests
 npm install
 npx playwright install chromium   # first time only
-node run.mjs                      # everything (about 10 minutes)
+node run.mjs                      # everything but the season-long balance check (about 5 minutes)
+node run.mjs all                  # everything, balance check included (about 10 minutes)
 node run.mjs loans visits         # just the scenarios whose names match
 ```
 

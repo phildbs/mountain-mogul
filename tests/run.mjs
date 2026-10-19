@@ -1,13 +1,16 @@
-// Runs every scenario in tests/scenarios (or the ones named on the command line).
-//   cd tests && npm install && node run.mjs            # everything
+// Runs the scenarios in tests/scenarios (or the ones named on the command line).
+//   cd tests && npm install && node run.mjs            # everything except the slow balance check
+//   node run.mjs all                                   # everything, balance check included
 //   node run.mjs loans visits                          # just those
+// A scenario that exports `slow = true` (the season-long balance check) runs only with `all` or by name:
+// run it when prices, costs or crowds change.
 import { readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startServer, launch } from './harness.mjs';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'scenarios');
-const only = process.argv.slice(2);
+const args = process.argv.slice(2), all = args.includes('all'), only = args.filter((a) => a !== 'all');
 const files = readdirSync(dir).filter((f) => f.endsWith('.mjs') && (!only.length || only.some((o) => f.includes(o)))).sort();
 
 const server = await startServer();
@@ -16,6 +19,7 @@ let failed = 0;
 for (const f of files) {
   const t0 = Date.now();
   const mod = await import(pathToFileURL(join(dir, f)));
+  if (mod.slow && !all && !only.length) { console.log(`SKIP ${f} (slow: run with "all" or by name)`); continue; }
   try {
     const note = await mod.default({ browser, url: server.url });
     console.log(`PASS ${f} (${((Date.now() - t0) / 1000).toFixed(0)}s)${note ? ' · ' + note : ''}`);
