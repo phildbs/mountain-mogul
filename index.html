@@ -2938,7 +2938,7 @@ function clearTreeSet(set) {
    How trails and lifts connect. Recomputed from geometry whenever
    anything is built or removed, so new construction links up on its own.
    ===================================================================== */
-const STATION_R = 6;
+const STATION_R = 6, TRANSFER_R = 22;
 function trailNear(p, exclude) {
   let best = null, bd = Infinity;
   for (const o of world.trails) {
@@ -3021,9 +3021,11 @@ function cellsGeo(cells, lift, edgeCol) {
   geo.computeVertexNormals();
   return geo;
 }
-// A low orange fence around a learning area, with gaps at lift stations so guests can get to them.
+// Learning areas are left open, with no fence: an empty group keeps the area code simple.
+const FENCE_ON = false;
 const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
 function areaFence(a) {
+  if (!FENCE_ON) return new THREE.Group();
   const posts = [], rope = [], seen = new Set();
   const gap = (x, z) => world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
   for (const k of a.set) {
@@ -3185,6 +3187,11 @@ function computeNetwork() {
     L.feeders = world.trails.filter((t) => t.to && t.to.obj === L);
     L.departing = world.trails.filter((t) => t.from && t.from.obj === L);
   }
+  // Lifts whose bottom station is a short, level or downhill glide from another lift's top: guests can cross over.
+  for (const L of world.lifts) {
+    L.transfers = world.lifts.filter((M) => M !== L && !M.fromBase && distXZ(L.b, M.a) < TRANSFER_R && trueY(M.a.x, M.a.z) <= trueY(L.b.x, L.b.z) + 0.6);
+  }
+  for (const M of world.lifts) M.transferFrom = world.lifts.filter((L) => L.transfers.includes(M));
   // Which lifts and trails a guest arriving at the base can reach.
   const liftR = new Set(world.lifts.filter((L) => L.fromBase));
   const trailR = new Set();
@@ -3194,6 +3201,7 @@ function computeNetwork() {
       if (trailR.has(t) || !t.from) continue;
       if ((t.from.kind === 'lift' && liftR.has(t.from.obj)) || (t.from.kind === 'trail' && trailR.has(t.from.obj))) { trailR.add(t); changed = true; }
     }
+    for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
     for (const t of trailR) {
       if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
       if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L)) { liftR.add(L); changed = true; }
@@ -3218,7 +3226,7 @@ function computeNetwork() {
       if (t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || (t.to.kind === 'lift' && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
     }
     for (const L of world.lifts) {
-      if (!liftRet.has(L) && L.departing.some((t) => ret.has(t))) { liftRet.add(L); changed = true; }
+      if (!liftRet.has(L) && (L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)))) { liftRet.add(L); changed = true; }
     }
   }
   for (const t of world.trails) { t.reachable = trailR.has(t); t.drains = drains.has(t); t.returns = ret.has(t); }
@@ -3852,9 +3860,10 @@ function liftSheet(L) {
   const s = L.stats, type = LIFT_TYPES[L.type];
   const notes = [];
   if (!L.reachable) notes.push(L.fromBase ? '' : 'Guests can’t reach this lift yet. Build a trail from another lift that ends at its bottom station.');
-  if (!L.departing.length) notes.push('No trails leave the top station yet.');
-  const feeders = L.fromBase ? 'Loads at the base area.' : L.feeders.length ? `Reached by ${L.feeders.map((t) => t.name).join(', ')}.` : 'No trail reaches the bottom station.';
-  const departing = L.departing.length ? `From the top: ${L.departing.map((t) => t.name).join(', ')}.` : '';
+  if (!L.departing.length && !L.transfers.length) notes.push('No trails leave the top station yet.');
+  const from = [...L.feeders.map((t) => t.name), ...L.transferFrom.map((M) => `the top of ${M.name}`)];
+  const feeders = L.fromBase ? 'Loads at the base area.' : from.length ? `Reached by ${from.join(', ')}.` : 'No trail reaches the bottom station.';
+  const departing = [L.departing.length ? `From the top: ${L.departing.map((t) => t.name).join(', ')}.` : '', L.transfers.length ? `Guests can glide over to ${L.transfers.map((M) => M.name).join(', ')}.` : ''].join(' ');
   const hex = '#' + L.color.toString(16).padStart(6, '0');
   return `<div class="sheet-title">
       <span class="swatch" style="background:${hex}"></span>
@@ -4618,6 +4627,7 @@ function vLift(L, g, depth, memo) {
     if (depth < 4) {
       let b = -30;
       for (const D of L.departing) if (runnable(D)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
+      for (const M of L.transfers || []) if (canLoad(M)) b = Math.max(b, vLift(M, g, depth + 1, memo) - 0.5 - distXZ(L.b, M.a) * 0.03);
       v += 0.85 * b;
     }
   }
@@ -4744,6 +4754,14 @@ function topDecision(g, L, skipVisit) {
     const v = noisy(vTrail(D, 0, g, 0, memo));
     if (v > bv) { bv = v; best = D; }
   }
+  // Or glide over to a lift that loads near this one's top.
+  let hop = null;
+  for (const M of L.transfers || []) {
+    if (!canLoad(M) || g.leaving) continue;
+    const v = noisy(vLift(M, g, 1, memo) - 0.5 - distXZ(L.b, M.a) * 0.03);
+    if (v > bv) { bv = v; hop = M; }
+  }
+  if (hop) { g.onSkis = true; goQueue(g, hop, 'glide'); return true; }
   if (!best) return false;
   const s0 = best.samples[0];
   g.onSkis = true;
@@ -9893,10 +9911,14 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11.1', date: 'Oct 19, 2026', items: [
+    'Lifts connect at the top: when another lift loads a short, level glide from a lift’s top station, guests can cross over to it without a trail. The lift panel shows the connection.',
+    'Learning areas no longer have a fence, so they look open and natural.',
+  ] },
   { v: '2.11', date: 'Oct 19, 2026', items: [
     'The express quad: a detachable quad, twice as fast as a regular one for much less than the six-pack. It cuts lift lines.',
     'The gondola: enclosed, heated 8-person cabins. Skiers prefer it on cold days, and when it starts at the base, sightseers who don’t ski buy a scenic ride up and back (set the price in Prices). It is the first lift to stop in high wind.',
-    'Learning areas have a low orange fence and a name tag on the map showing how many are learning.',
+    'Learning areas have a name tag on the map showing how many are learning.',
   ] },
   { v: '2.10', date: 'Oct 19, 2026', items: [
     'Surface lifts: the magic carpet, a covered conveyor for gentle beginner slopes, and the T-bar, a cheap lift that pulls skiers up on their skis and keeps running in wind that stops chairlifts.',
