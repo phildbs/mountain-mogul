@@ -598,6 +598,8 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .tb-go.calm { background: var(--ink); box-shadow: none; }
 .tb-go.calm:hover { background: #22364f; }
 .tool.locked { opacity: 0.4; }
+.tool:disabled { opacity: 0.35; cursor: default; }
+.tool:disabled:hover { background: none; color: var(--ink-2); }
 .cash { cursor: pointer; }
 .cash:hover { border-color: rgba(20, 36, 58, 0.3); }
 .hint { top: calc(74px + env(safe-area-inset-top, 0px)); }
@@ -883,6 +885,10 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="tool" id="tClear" aria-pressed="false" title="Clear trees (4)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3 L4 11 h3 L3 17 h12 L11 11 h3 Z"/><path d="M9 17v4"/><path d="M15 14l6 6M21 14l-6 6"/></svg>
         Landscape
+      </button>
+      <button class="tool" id="tUndo" disabled title="Nothing to undo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        Undo
       </button>
       <div class="sizes" id="sizes" hidden>
         <button class="size" data-r="1.6" aria-pressed="false" aria-label="Small brush" title="Small brush"><span style="width:8px;height:8px"></span></button>
@@ -2042,6 +2048,7 @@ function saveData(withSim) {
 function clearSave() { try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
+  clearUndo();
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
   state.cash = START_CASH; state.cleared = 0;
@@ -2146,6 +2153,7 @@ function strokeTo(p) {
 function endStroke() {
   if (!stroke.active) return;
   stroke.active = false;
+  if (!stroke.cost) dropUndo();
   if (state.landMode === 'level') {
     if (stroke.box) refreshOnTerrain(stroke.box.i0, stroke.box.j0, stroke.box.i1, stroke.box.j1);
     if (stroke.broke) toast('Not enough cash to keep leveling', true);
@@ -3159,6 +3167,7 @@ function buildDraft() {
     return;
   }
   if (info.cost > state.cash) return;
+  pushUndo(draft.kind === 'trail' ? 'the new trail' : 'the new lift');
   const made = draft.kind === 'trail' ? commitTrail(info, draft.pts, draft.width) : commitLift(info, draft.liftType);
   computeNetwork();
   syncLabels();
@@ -3553,6 +3562,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'levelB' && obj) {
     const pad = (obj.baseY - 0.03) / VEX, est = levelRect(boxOf(obj), pad, 2.5, true);
     if (state.phase !== 'closed' || est.cost > state.cash) return;
+    pushUndo(`leveling around ${obj.name}`);
     state.cash -= est.cost; obj.spent = (obj.spent || 0) + est.cost; obj.padY = pad;
     gradeAndRefresh(levelRect(boxOf(obj), pad, 2.5, false));
     updateCash(true); renderSheet(); scheduleSave();
@@ -3563,6 +3573,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'smInstall' && obj) {
     const cost = snowmakingCost(obj);
     if (state.phase !== 'closed' || state.cash < cost) return;
+    pushUndo(`snowmaking on ${obj.name}`);
     state.cash -= cost; obj.sm = { on: true, mode: 'auto', target: Math.max(needOf(obj) + 12, 30) };
     rebuildGuns(); updateCash(true); renderSheet(); scheduleSave();
     toast(`Snowmaking added to ${obj.name} · −${money(cost)}`);
@@ -3570,6 +3581,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'baseSmInstall') {
     const cost = baseSmCost();
     if (state.phase !== 'closed' || state.cash < cost || state.baseSm) return;
+    pushUndo('base snowmaking');
     state.cash -= cost; state.baseSm = { mode: 'auto', target: 18 };
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Base area snowmaking added · −${money(cost)}`);
@@ -3605,6 +3617,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'repay') repay(+b.dataset.v);
   else if (a === 'expandLot') {
     if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
+    pushUndo('the parking expansion');
     state.cash -= LOT_EXPAND_COST; state.lotSections++; buildLot(); updateCash(true);
     toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
   }
@@ -3626,6 +3639,7 @@ sheet.addEventListener('click', (e) => {
   } else if (a === 'remove') { sheetConfirm = true; renderSheet(); }
   else if (a === 'removeNo') { sheetConfirm = false; renderSheet(); }
   else if (a === 'removeYes' && obj) {
+    pushUndo(`removing ${obj.name}`);
     if (selected.kind === 'trail') removeTrail(obj);
     else if (selected.kind === 'bld') { state.cash += Math.round((obj.spent || 0) * 0.25); removeBuilding(obj); updateCash(true); }
     else { state.cash += Math.round((obj.cost || 0) * 0.25); removeLift(obj); updateCash(true); }
@@ -4740,6 +4754,7 @@ function openDay() {
   }
   if (state.tool === 'clear') setTool('explore');
   const short = ops.hours === 'short';
+  clearUndo();
   state.phase = 'open'; state.time = short ? SHORT_OPEN : DAY_OPEN;
   draft.dirty = !!draft.kind;
   if (state.speed === 0) state.speed = 1;
@@ -6028,6 +6043,7 @@ function buildBuildingDraft() {
     return;
   }
   if (info.cost > state.cash) return;
+  pushUndo(`the new ${BTYPES[draft.btype].name.toLowerCase()}`);
   const b = commitBuilding(info, draft.btype, draft.bpos.x, draft.bpos.z, draft.rot);
   computeNetwork(); syncLabels(); updateCash(true);
   toast(`Built ${b.name} · −${money(info.cost)}`);
@@ -6043,6 +6059,7 @@ function upgradeLodge(B) {
   const grade = levelRect(v.bb, pad, 2.5, true).cost;
   const cost = next.cost + v.treeSet.size * TREE_COST + grade;
   if (cost > state.cash) { toast(`Upgrading needs ${money(cost)}`, true); return; }
+  pushUndo(`the ${B.name} upgrade`);
   clearTreeSet(v.treeSet);
   state.cash -= cost; B.spent += cost;
   B.padY = pad;
@@ -7961,6 +7978,7 @@ canvas.addEventListener('pointerdown', (e) => {
     const paint = state.tool === 'clear' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
     if (paint) {
       gesture = { type: 'paint' };
+      pushUndo(state.landMode === 'level' ? 'leveling the ground' : 'clearing trees');
       stroke.active = true;
       const p = pickTerrain(e.clientX, e.clientY);
       stroke.target = p ? trueY(p.x, p.z) : 0;
@@ -8043,7 +8061,11 @@ const typingIn = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELE
 const dialogOpen = () => [...document.querySelectorAll('.modal-bg')].some((m) => !m.hidden);
 window.addEventListener('keydown', (e) => {
   if (typingIn(e.target) || typingIn(document.activeElement) || dialogOpen()) return;
-  if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && draft.pts.length) { e.preventDefault(); draftUndo(); return; }
+  if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (draft.pts.length) draftUndo(); else undoLast();
+    return;
+  }
   if (e.key === ' ') spaceDown = true;
   if (!state.started || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target && e.target.tagName === 'BUTTON' && e.key === 'Enter') return;
@@ -8084,6 +8106,7 @@ function rotate(dir) { cam.azGoal += dir * Math.PI / 4; scheduleSave(); }
 function zoomCenter(f) { cam.viewGoal = clamp((cam.viewGoal || cam.viewH) * f, VIEW_MIN, VIEW_MAX); scheduleSave(); }
 
 $('tExplore').onclick = () => setTool('explore');
+$('tUndo').onclick = undoLast;
 $('tClear').onclick = () => setTool('clear');
 $('tTrail').onclick = () => setTool('trail');
 $('tLift').onclick = () => setTool('lift');
@@ -8314,6 +8337,40 @@ async function loadMine() {
   const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at').eq('owner', CLOUD.uid);
   if (error) throw error;
   CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, public: r.public, updatedAt: Date.parse(r.updated_at) }));
+}
+/* ---------- Undo: put back the last change made overnight ----------
+   Before each change (clearing or leveling ground, building, removing, upgrading) the resort is
+   snapshotted, the same data a save holds. Undo restores the latest snapshot: ground, trees,
+   buildings and cash. Opening for the day clears the list, since the day can't be unmade. */
+const UNDO_MAX = 10;
+let undoStack = [], undoing = false;
+function pushUndo(label) {
+  if (visiting || simulating || !state.started || state.phase !== 'closed') return;
+  undoStack.push({ label, snap: JSON.stringify(saveData(false)) });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  syncUndo();
+}
+const dropUndo = () => { undoStack.pop(); syncUndo(); }; // the change didn't happen after all
+function clearUndo() { if (undoing) return; undoStack = []; syncUndo(); }
+function syncUndo() {
+  const b = $('tUndo'), last = undoStack[undoStack.length - 1];
+  b.disabled = !last;
+  b.title = last ? `Undo ${last.label} (Ctrl+Z)` : 'Nothing to undo';
+}
+function undoLast() {
+  const u = undoStack.pop();
+  if (!u || state.phase !== 'closed' || visiting) { syncUndo(); return; }
+  const view = { x: cam.target.x, z: cam.target.z, az: cam.az, azGoal: cam.azGoal, viewH: cam.viewH };
+  const before = state.cash;
+  undoing = true;
+  try { applySave(JSON.parse(u.snap)); } finally { undoing = false; }
+  Object.assign(cam, { az: view.az, azGoal: view.azGoal, viewH: view.viewH }); cam.target.x = view.x; cam.target.z = view.z;
+  afterLoad(); updateCash(true);
+  state.started = true; winterView = false; styleSnowVisuals();
+  saveNow();
+  const back = state.cash - before;
+  toast(`Undid ${u.label}${back > 0 ? ` · ${money(back)} back` : ''}`);
+  syncUndo();
 }
 function afterLoad() {
   if (state.phase === 'report') showReport();
@@ -8825,6 +8882,7 @@ const CHANGES = [
     'A new title screen: each of your mountains gets its own card, with a painted view of the mountain, its season and date, cash, lifts and trails, best day, goal stars and when you last played.',
     'Five mountains per account, up from three. An empty card starts a new one, with a card for each mountain to choose from (or design your own).',
     'On tablet-size screens the time bar always stays at the top: the resort badge shrinks to its icon, and the cash box tightens, to make room.',
+    'Undo: the new Undo button (or Ctrl+Z) takes back your last changes overnight, up to ten: clearing trees, leveling ground, building, removing and upgrading, with the money refunded.',
   ] },
   { v: '2.6.1', date: 'Oct 19, 2026', items: [
     'Trails that climb a little on the way down can be built anyway: switch on “Grade it downhill” and the ground under the trail is cut and filled so it falls the whole way. The earthwork costs extra, by how much ground moves.',
