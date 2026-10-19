@@ -3,7 +3,7 @@ import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('[data-slot=new]'); await g.wait(100);
-  assert(/Maple Notch/.test(await g.ev(`$('titleSlots').innerText`)), 'picker lists Maple Notch');
+  assert(/Maple Notch/i.test(await g.ev(`$('titleSlots').innerText`)), 'picker lists Maple Notch');
   await g.click('[data-slot=pick][data-mt=maple]'); await g.reloaded();
   const m = await g.ev(`({ id: MOUNTAIN.id, cash: state.cash, vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH), base: ft(MOUNTAIN.baseH), level: $('mLevel').textContent, goals: goalList().map((G) => G.id) })`);
   eq([m.id, m.cash], ['maple', 2200000], 'Maple Notch with its starting cash');
@@ -19,7 +19,7 @@ export default async function ({ browser, url }) {
   // milder: the same calendar day runs warmer than the climate table, and freezing rain is likelier
   eq(await g.ev(`MOUNTAIN.weather.temp`), 4, 'milder climate');
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
-  assert(/Maple Notch/.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Maple Notch');
+  assert(/Maple Notch/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Maple Notch');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
