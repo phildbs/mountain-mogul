@@ -4053,13 +4053,37 @@ function lotMesh(o) {
   m.receiveShadow = true; m.renderOrder = 1;
   return m;
 }
+// Short strips of asphalt join each section's driving aisles to the next one's, so cars can pass between them.
+const lotLinks = new THREE.Group();
+scene.add(lotLinks);
+const LINK_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+function linkMesh(x0, x1, z0, z1) {
+  const NX = 3, NZ = 3, pos = [], idx = [];
+  for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++) {
+    const x = lerp(x0, x1, i / NX), z = lerp(z0, z1, j / NZ);
+    pos.push(x, heightAt(x, z) + 0.1, z);
+    if (i < NX && j < NZ) { const a = j * (NX + 1) + i; idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, LINK_MAT);
+  m.receiveShadow = true; m.renderOrder = 1;
+  return m;
+}
 function buildLot() {
   for (const m of [...lotGroup.children]) { lotGroup.remove(m); m.geometry.dispose(); }
+  for (const m of [...lotLinks.children]) { lotLinks.remove(m); m.geometry.dispose(); }
   stalls = [];
   for (let k = 0; k < state.lotSections; k++) {
     const o = sectionOrigin(k);
     clearTreeSet(sectionTrees(k));
     lotGroup.add(lotMesh(o));
+    if (k) {
+      const x0 = sectionOrigin(k - 1).x + LOT.w - 0.05, x1 = o.x + 0.05;
+      for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
+    }
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
@@ -9434,6 +9458,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
   { v: '2.9.1', date: 'Oct 19, 2026', items: [
+    'Parking sections are joined by short strips of asphalt across their driving aisles.',
     'Shuttle stations and transit centers have a proper bus bay: the pavement runs from the platform curb straight into the road, with a painted bay, and buses pull up along the curb.',
   ] },
   { v: '2.9', date: 'Oct 19, 2026', items: [
