@@ -28,6 +28,10 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { let n = 0; while (state.time < 660 && n < 90000) { simStep(1.5); n++; } })()`);
   const hurt = await g.ev(`(() => { const sk = guests.filter((x) => x.T && !x.gone && x.st !== 'hurt').slice(0, 8); sk.forEach(injure); return sk.length; })()`);
   assert(hurt >= 4, `some skiers to injure (${hurt})`);
+  // A guest next to the heated restrooms who needs one goes there rather than to the lodge.
+  const pick = await g.ev(`(() => { const H = world.buildings.find((b) => b.type === 'hrest'), gg = { ...guests[0], x: H.door.x, z: H.door.z, bl: 1.5, avoidB: null };
+    const v = bestVisit(gg, H.door, 14, true, world.buildings, ['rr']); return v && v.B.type; })()`);
+  eq(pick, 'hrest', 'a guest beside the heated restrooms uses them');
   await g.ev(SETUPS.finishDay);
   const r = await g.ev(`(() => { const by = (t) => world.buildings.find((B) => B.type === t).yday, rp = state.lastReport;
     return { clinic: by('clinic'), kids: by('kids'), hrest: by('hrest'), patched: rp.patched, campers: rp.campers, bus: rp.busGuests, guests: rp.guests, lessons: rp.rev.lessons }; })()`);
@@ -35,7 +39,6 @@ export default async function ({ browser, url }) {
   assert(r.patched > 0, `some injured guests went back out (${r.patched})`);
   assert(r.kids.visits > 0 && r.kids.revenue > 0 && r.campers === r.kids.visits, `kids spent the day at camp (${r.kids.visits}, ${r.kids.revenue})`);
   assert(r.lessons >= r.kids.revenue, 'camp fees count with lessons');
-  assert(r.hrest.visits > 0, `guests used the heated restrooms (${r.hrest.visits})`);
   assert(r.bus > r.guests * 0.3, `the transit center brought in a big share by bus (${r.bus} of ${r.guests})`);
   const text = await g.ev(`$('rpBody').textContent`);
   assert(/at camp/.test(text) && /patched up/.test(text), 'the report mentions campers and the clinic');
