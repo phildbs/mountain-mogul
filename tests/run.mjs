@@ -23,6 +23,8 @@ for (const f of files) {
     failed++;
     console.log(`FAIL ${f}: ${e.message.split('\n')[0]}`);
   }
+  // A failed test can leave its page open, still running the game; close it so it can't slow the next ones.
+  for (const ctx of browser.contexts()) for (const p of ctx.pages()) await p.close().catch(() => {});
 }
 await browser.close();
 server.close();

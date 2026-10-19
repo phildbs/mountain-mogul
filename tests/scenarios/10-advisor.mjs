@@ -19,7 +19,8 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`$('crisis').hidden`), true, 'no crisis yet');
   assert(/getting nervous/.test(await g.ev(`$('toast').textContent`)), 'bank warns');
   await g.ev(`resortTab = 'bank'; select({ kind: 'resort', obj: null })`); await g.wait(200);
-  assert(/Bank ⚠/.test(await g.ev(`$('sheet').innerText`)), 'Bank tab is flagged');
+  assert(/bank is nervous/i.test(await g.ev(`$('sheet').innerText`)), 'Money shows the warning');
+  eq(await g.ev(`document.querySelector('#manage [data-m=money]').dataset.warn`), '1', 'Money button is flagged');
   assert(/bank is nervous/.test(await g.ev(`$('sheet').innerText`)), 'Resort panel shows the warning');
   eq(g.errors, [], 'no page errors');
   await g.page.close();

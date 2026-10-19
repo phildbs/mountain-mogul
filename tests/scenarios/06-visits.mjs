@@ -16,7 +16,7 @@ export default async function ({ browser, url }) {
   await g.click('#badge');
   eq(await g.ev(`$('menu').hidden`), true, 'menu stays closed');
   await g.click('#cashBox'); await g.wait(200);
-  eq(await g.ev(`[...document.querySelectorAll('#sheet button')].map(b => b.textContent.trim()).join()`), '✕', 'finances read only');
+  eq(await g.ev(`[...document.querySelectorAll('#sheet button:not([data-action=manage])')].map(b => b.textContent.trim()).join()`), '✕', 'finances read only');
   await g.ev(`select(null)`); await g.click('#tbGo'); await g.ev(SETUPS.finishDay);
   assert(await g.ev(`state.lastReport.guests`) > 0, 'watched a day');
   await g.click('#visitHome'); await g.wait(1200);
