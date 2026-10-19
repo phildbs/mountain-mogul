@@ -517,6 +517,8 @@ body.visiting .badge { cursor: default; }
 .rsym { display: inline-flex; align-items: center; gap: 5px; }
 .rsym.big { flex: none; }
 .help { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
+.pnorm { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.price-group { margin: 10px 0 -2px; font-size: 13px; color: var(--ink); }
 .field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-bottom: -6px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 10px; }
 .seg.lifts { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
@@ -5210,12 +5212,15 @@ const BTYPES = {
     desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
   kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
     desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer.' },
-  hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
+  hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'HEATED RESTROOMS', accent: 0xc0552d, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
     desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1700,
     desc: 'A heated bus terminal beside the access road. Bigger buses every 12 minutes bring about half your guests.' },
 };
 const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
+// The build menu's sections.
+const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
+  ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle', 'transit']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // bus stops sit beside the access road
 const BAY_FRONT = { shuttle: 0.9, transit: 1.35 }; // the bus bay's outer edge, in front of the building
@@ -5247,18 +5252,23 @@ function drivewayPoints(Q, NX = 8, NZ = 5) {
   return out;
 }
 const DRIVE_MAT = new THREE.MeshLambertMaterial({ color: 0x4b5059, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-function addDriveway(b) {
-  const Q = drivewayQuad(b);
-  if (!Q) return;
+// The apron's surface in world space, draped on the ground.
+function drivewayGeo(Q) {
   const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], idx = [];
   for (const p of pts) pos.push(p.x, heightAt(p.x, p.z) + 0.045, p.z);
   for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { const a = j * (NX + 1) + i; idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2); }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+function addDriveway(b) {
+  const Q = drivewayQuad(b);
+  if (!Q) return;
+  const geo = drivewayGeo(Q);
   b.group.updateMatrixWorld(true);
   geo.applyMatrix4(b.group.matrixWorld.clone().invert());
-  geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, DRIVE_MAT);
   m.receiveShadow = true; m.renderOrder = 1;
   b.group.add(m);
@@ -5727,7 +5737,7 @@ function modelHrest() {
   const k = new Kit(), acc = accentMat(BTYPES.hrest.accent);
   hall(k, { w: 2.1, d: 1.2, h: 0.55, rise: 0.42, z: -0.15, windows: false, chimney: 1 });
   door(k, -0.5, 0.46, 0.42, 0.26, acc); door(k, 0.5, 0.46, 0.42, 0.26, acc);
-  sign(k, 'hrest', 0, 0.74, 0.46, 0.7);
+  sign(k, 'hrest', 0, 0.76, 0.46, 1.05);
   for (const x of [-0.85, 0.85]) { k.add(bx(0.14, 0.12, 0.04), BM.dark, x, 0.42, 0.46); k.add(bx(0.1, 0.08, 0.05), BM.glow, x, 0.42, 0.465); }
   k.add(bx(2.2, 0.05, 0.4), BM.plank, 0, 0.03, 0.66);
   return k;
@@ -5888,7 +5898,10 @@ const FOOT_BAD = new THREE.MeshBasicMaterial({ color: 0xc8322b, transparent: tru
 function clearGhost() {
   if (ghost) { scene.remove(ghost); ghost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); ghost = null; ghostKey = ''; }
   if (footMesh) { scene.remove(footMesh); footMesh.geometry.dispose(); footMesh = null; }
+  if (ghostDrive) { scene.remove(ghostDrive); ghostDrive.geometry.dispose(); ghostDrive = null; }
 }
+let ghostDrive = null;
+const DRIVE_GHOST = new THREE.MeshLambertMaterial({ color: 0x4b5059, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 function showGhost(type, tier, x, z, rot, ok, padY) {
   const key = `${type}:${tier}:${rot}`;
   const b = { type, tier, x, z, rot };
@@ -5914,6 +5927,10 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
   footMesh = new THREE.Mesh(geo, ok ? FOOT_OK : FOOT_BAD);
   footMesh.renderOrder = 4;
   scene.add(footMesh);
+  // Bus stops preview the paved apron out to the road.
+  if (ghostDrive) { scene.remove(ghostDrive); ghostDrive.geometry.dispose(); ghostDrive = null; }
+  const Q = BY_ROAD.includes(type) && drivewayQuad(b);
+  if (Q) { ghostDrive = new THREE.Mesh(drivewayGeo(Q), DRIVE_GHOST); ghostDrive.renderOrder = 3; scene.add(ghostDrive); }
 }
 
 /* =====================================================================
@@ -6421,12 +6438,11 @@ function hoverGhost(p) {
 function bldDraftSheet() {
   if (!draft.btype) {
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-      <p class="help">Choose what to build. Rental shops, ski schools, kids’ camps and clinics go in the base area; shuttle stations and transit centers go beside the access road. Food trucks, cafés, lodges, restaurants, patrol huts and restrooms can go anywhere flat enough.</p>
-      <div class="bpick">${BORDER.map((k) => {
+      <p class="help">Choose what to build. Most buildings can go anywhere flat enough; some belong in the base area, and bus stops go beside the access road.</p>
+      ${BGROUPS.map(([label, keys]) => `<div class="field-label">${label}</div><div class="bpick">${keys.map((k) => {
         const t = BTYPES[k];
-        return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
-      }).join('')}
-      ${state.lotSections < 6 ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Parking</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`;
+        return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${BY_ROAD.includes(k) ? ' · by the road' : t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
+      }).join('')}${keys.includes('transit') && state.lotSections < 6 ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Parking</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
   }
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
   const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
@@ -6509,9 +6525,13 @@ function bldLive(B) {
     default: return `<b>${today ? today.busGuests : 0}</b> arrived by bus today · <b>${guests.filter((g) => g.st === 'busq').length * AGENT}</b> waiting to leave`;
   }
 }
+// Prices in sections, each with what guests consider normal.
+const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Parking', ['parking']]];
+const groupedPrices = () => `<p class="help">Guests compare each price with what’s normal, shown beside it. Charge more and some will pass.</p>`
+  + PRICE_GROUPS.map(([label, keys]) => `<h4 class="price-group">${label}</h4>${keys.map(priceStepper).join('')}`).join('');
 function priceStepper(key) {
-  const info = PRICE_INFO[key];
-  return `<div class="field-label">${info.label} price</div>
+  const info = PRICE_INFO[key], norm = PRICE_DEFAULTS[key];
+  return `<div class="field-label">${info.label} price <span class="pnorm">· normal ${norm ? money(norm) : 'free'}</span></div>
     <div class="stepper"><button data-action="setPrice" data-k="${key}" data-d="-${info.step}" aria-label="Lower ${info.label.toLowerCase()} price">−</button><output>${money(state.prices[key])}</output><button data-action="setPrice" data-k="${key}" data-d="${info.step}" aria-label="Raise ${info.label.toLowerCase()} price">+</button></div>`;
 }
 function levelOffer(B) {
@@ -7897,40 +7917,43 @@ function showReport(r = state.lastReport, past = false) {
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
-  const notes = [];
-  if (state.debt > creditLimit()) notes.push(`<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
-  notes.unshift(...opsNotes(r));
-  if (r.goals && r.goals.length) notes.unshift(...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
-  if (r.event) notes.unshift(`<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
-  if (r.passGuests) notes.push(`${r.passGuests} guests skied on season passes.`);
-  if (r.wx) notes.push(`${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
+  // Notes are ranked so problems and money matters come first; routine ones fold away under More.
+  const ranked = [];
+  const note = (p, ...texts) => { for (const t of texts) ranked.push([p, ranked.length, t]); };
+  if (state.debt > creditLimit()) note(5, `<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
+  note(4, ...opsNotes(r));
+  if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
+  if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
+  if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
+  if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
   if (r.holds && r.holds.length) {
     const still = r.pmHolds || r.holds;
     const eased = r.holds.filter((n) => !still.includes(n));
-    notes.push(eased.length ? `High winds held ${r.holds.join(', ')} in the morning. ${eased.join(', ')} reopened when the wind eased.` : `High winds kept ${r.holds.join(', ')} on hold all day.`);
+    note(3, eased.length ? `High winds held ${r.holds.join(', ')} in the morning. ${eased.join(', ')} reopened when the wind eased.` : `High winds kept ${r.holds.join(', ')} on hold all day.`);
   }
-  if (r.refunded) notes.push(`${r.refunded} guests never got on a lift and were refunded ${money(rv.refunds)}.`);
-  if (r.turnedAway) notes.push(`The parking lot filled up and ${r.turnedAway} guests were turned away. More parking would let them in.`);
-  if (r.busiest) notes.push(`${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
-  if (r.popular) notes.push(`${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
-  if (r.lunchPeak && r.lunchPeak.n) notes.push(`The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
-  if (r.campers) notes.push(`${r.campers} kids spent the day at camp while their parents skied.`);
-  if (r.patched) notes.push(`${r.patched} injured guests were patched up at the clinic and went back out.`);
-  if (r.busGuests) notes.push(`${r.busGuests} guests arrived by bus without needing a parking space.`);
-  if (r.injuries) notes.push(`${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
+  if (r.refunded) note(4, `${r.refunded} guests never got on a lift and were refunded ${money(rv.refunds)}.`);
+  if (r.turnedAway) note(4, `The parking lot filled up and ${r.turnedAway} guests were turned away. More parking would let them in.`);
+  if (r.busiest) note(0, `${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
+  if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
+  if (r.lunchPeak && r.lunchPeak.n) note(0, `The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
+  if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
+  if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
+  if (r.busGuests) note(1, `${r.busGuests} guests arrived by bus without needing a parking space.`);
+  if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
-  if (c.wait) notes.push(`${c.wait} lift rides came after a longer wait than the guest wanted.`);
-  if (c.steep) notes.push(`${c.steep} runs were too steep for the skier taking them.`);
-  if (c.food) notes.push(`${c.food} guests went hungry without finding food.`);
-  if (c.lines) notes.push(`${c.lines} guests gave up on a long line at a building.`);
-  if (c.price) notes.push(`${c.price} guests decided a price was too high.`);
-  if (c.rr) notes.push(`${c.rr} guests couldn’t find a restroom in time.`);
-  if (c.noRental) notes.push(`${c.noRental} guests needed rental gear and had to rent in town.`);
-  if (c.rentOut) notes.push(`The rental shop ran out of skis for ${c.rentOut} guests.`);
-  if (c.noSchool) notes.push(`${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
-  if (c.boring) notes.push(`${c.boring} strong skiers found too little challenging terrain.`);
-  if (r.baseBare) notes.unshift(`<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
-  if (c.stranded) notes.push(`${c.stranded} guests had to hike out because a lift was stopped.`);
+  if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
+  if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
+  if (c.food) note(3, `${c.food} guests went hungry without finding food.`);
+  if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
+  if (c.price) note(2, `${c.price} guests decided a price was too high.`);
+  if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
+  if (c.noRental) note(3, `${c.noRental} guests needed rental gear and had to rent in town.`);
+  if (c.rentOut) note(3, `The rental shop ran out of skis for ${c.rentOut} guests.`);
+  if (c.noSchool) note(2, `${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
+  if (c.boring) note(2, `${c.boring} strong skiers found too little challenging terrain.`);
+  if (r.baseBare) note(4, `<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
+  if (c.stranded) note(3, `${c.stranded} guests had to hike out because a lift was stopped.`);
+  const notes = ranked.sort((x, y) => y[0] - x[0] || x[1] - y[1]).map((n) => n[2]);
   $('rpBody').innerHTML = `
     <div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
     <dl class="rp-hero">
@@ -7941,7 +7964,7 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
-      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line('Lessons', rv.lessons)}${line('Parking', rv.parking)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
+      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
@@ -8007,7 +8030,7 @@ function resortSheet() {
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
     <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
-    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $35 for a tune, $60 for gear, $14 for a souvenir, $95 for a lesson, $110 for kids’ camp and free parking.</p></details>
+    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${groupedPrices()}</details>
     ${passSection()}
     ${last}`;
 }
@@ -8181,7 +8204,7 @@ function pricesPanel() {
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
     <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
-    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Food, rentals, lessons and parking</summary>${Object.keys(PRICE_INFO).map(priceStepper).join('')}<p class="help">Guests compare each price with what’s normal: $11 for a snack, $16 for a lodge meal, $38 at a casual restaurant, $85 for fine dining, $45 for rentals, $35 for a tune, $60 for gear, $14 for a souvenir, $95 for a lesson, $110 for kids’ camp and free parking.</p></details>
+    <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Food, shops, lessons and parking</summary>${groupedPrices()}</details>
     ${passSection()}
     ${eventSection()}`;
 }
@@ -9327,7 +9350,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.9', date: 'Oct 21, 2026', items: [
+  { v: '2.9', date: 'Oct 19, 2026', items: [
     'A first-aid clinic: ski patrol brings injured guests there, and about half are patched up and head back out. Fewer injuries turn into claims.',
     'A kids’ camp: parents drop the kids off for the day ($110 each, set in Prices), then ski on their own and stay longer.',
     'Heated restrooms: bigger and warmer, so guests come out happier and a little rested, most of all on cold days.',
@@ -9335,7 +9358,7 @@ const CHANGES = [
     'The access road is paved, with lane lines, edge lines and plowed shoulders.',
     'Sharper mountain pictures on the title screen and in the mountain designer.',
   ] },
-  { v: '2.8', date: 'Oct 20, 2026', items: [
+  { v: '2.8', date: 'Oct 19, 2026', items: [
     'New places to eat: food trucks for a quick snack beside a trail or at the top of a lift, cafés for hot chocolate on cold days, and fine dining for guests who love a long meal (and pay for it). The restaurant is now the casual restaurant, with more seats and quicker meals.',
     'Guests choose by personality: the impatient grab a snack, the cold head for a café, and big spenders seek out fine dining. Each has its own price in the Prices panel.',
     'New shops: the rental and tuning center rents demo skis and tunes guests\' own gear, the ski store sells gear to guests caught short on cold days, and gift kiosks sell souvenirs anywhere on the mountain. Shop sales get their own line in the day report.',
