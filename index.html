@@ -5517,6 +5517,8 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
     for (const B of list) {
       const svc = svcFor(B, need);
       if (!svc || !bldOpenNow(B)) continue;
+      if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
+      if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
       if (d > radius && !(baseToo && B.isBase)) continue;
       const v = 10 - d * 0.12 - estWait(B, svc) * g.qh * 0.6 - (svc === 'dine' ? (g.fancy ? -3 : 1.5) : 0)
@@ -5526,6 +5528,19 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
     if (best) return best;
   }
   return null;
+}
+// Another open place to eat with a shorter line, counting the trip there: for skipping or leaving a slow food line.
+// Returns { B, svc } or null.
+function otherEatery(g, from, mustBeat = Infinity) {
+  let best = null, bt = mustBeat;
+  for (const B of world.buildings) {
+    if (B === from || !bldOpenNow(B) || (g.avoidB === B.id && state.time < g.avoidUntil)) continue;
+    const svc = svcFor(B, 'lunch');
+    if (!svc) continue;
+    const t = estWait(B, svc) + distXZ(B.door, from.door || from) / 5; // about 5 units a minute on skis
+    if (t < bt) { bt = t; best = { B, svc }; }
+  }
+  return best;
 }
 function maybeVisit(g, here, radius, baseToo, resume) {
   const n = needs(g);
@@ -5568,12 +5583,26 @@ function bldStep(B) {
       serve(g, B);
     }
     for (let i = q.length - 1; i >= 0; i--) {
-      const g = q[i];
-      if (state.time - g.qT <= g.pat * 1.6 + 4) continue;
+      const g = q[i], waited = state.time - g.qT, food = pool === 'seat' && (g.svc === 'food' || g.svc === 'dine');
+      // Hungry guests in a slow line look around every few minutes, and go where they'll eat sooner.
+      if (food && waited > 5 && waited <= g.pat * 1.6 + 4 && state.time >= (g.qLook || 0)) {
+        g.qLook = state.time + 3;
+        const alt = otherEatery(g, B, estWait(B, g.svc) * (i + 1) / Math.max(1, q.length) - 5);
+        if (alt) {
+          q.splice(i, 1); B.qv++;
+          g.sat -= 2; g.avoidB = B.id; g.avoidUntil = state.time + 60;
+          thought(g, `The line at ${B.name} is barely moving. Trying ${alt.B.name} instead.`);
+          const resume = g.resume;
+          g.x = B.door.x; g.z = B.door.z; g.bid = null; g.svc = null;
+          startVisit(g, alt.B, alt.svc, resume);
+          continue;
+        }
+      }
+      if (waited <= g.pat * 1.6 + 4) continue;
       q.splice(i, 1); B.qv++;
       g.sat -= 6; today.complaints.lines++;
       thought(g, `The line at ${B.name} was too long.`);
-      if (g.svc === 'food' || g.svc === 'dine') g.lunchAt = state.time + 25;
+      if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.lunchAt = state.time; } // still hungry: eat somewhere else
       if (g.svc === 'rr') g.bl = 0.7;
       if (g.svc === 'rent') { g.needsRental = false; g.sat -= 4; thought(g, 'I gave up on the rental line and rented in town.'); }
       if (g.svc === 'warm') g.warmed = true;
