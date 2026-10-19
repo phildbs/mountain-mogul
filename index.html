@@ -2940,7 +2940,7 @@ function connAt(p, self, which) {
 world.areas = [];
 const areaGroup = new THREE.Group();
 scene.add(areaGroup);
-const AREA_CELL_COST = 450, AREA_MAX_GRADE = 0.24, AREA_MIN_CELLS = 25, AREA_GROOM_CELL = 4, AREA_LINES = 4;
+const AREA_CELL_COST = 450, AREA_MAX_GRADE = 0.24, AREA_MIN_CELLS = 25, AREA_GROOM_CELL = 2, AREA_LINES = 4;
 const AREA_NAMES = ['Bunny Hill', 'Little Bear Slope', 'Learning Area', 'Snowflake Hill', 'First Tracks', 'Cub Run'];
 const cellKey = (x, z) => x * 4096 + z, keyX = (k) => Math.round(k / 4096), keyZ = (k) => k - Math.round(k / 4096) * 4096;
 const acresOf = (n) => n * 100 / 4046.86;
@@ -4457,9 +4457,9 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, lineQuit: 0, lineBreak: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, lineQuit: 0, lineBreak: 0, noLearn: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -4484,8 +4484,20 @@ function surfacePref(T, g) {
   if (s === 'thin') return -2;
   return 0;
 }
+// A learning area that has a lift serving it, so first-timers can use it.
+let learnCache = { at: -1, v: false }; // checked once per sim step: it's asked for every trail a guest weighs
+const learningOpen = () => {
+  if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && runnable(t) && t.reachable) };
+  return learnCache.v;
+};
 function trailFit(T, g) {
   const r = trailSign(T);
+  // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
+  if (T.virtual) {
+    if (g.ab >= 2) return -14;
+    if (g.ab === 1) return -6;
+    return (g.first && g.learnLaps < 3 ? 9 : g.learnLaps < 5 ? 1.5 : -2) - (T.crowd || 0) * 2.5;
+  }
   let v;
   if (r > g.ab) v = -7 * (r - g.ab);
   else if (r === g.pref) v = 3;
@@ -4493,6 +4505,7 @@ function trailFit(T, g) {
   else v = 1.2 - 0.4 * (g.ab - r - 1);
   v += Math.min(2, T.an.len / 160) + surfacePref(T, g);
   v -= (T.crowd || 0) * 2.5;
+  if (g.first && g.learnLaps < 3 && !g.lessoned && learningOpen()) v -= 4; // not ready for real trails yet
   const seen = g.seen[T.id] || 0;
   if (!seen) v += 1.3 * g.explore;
   else if (seen >= 2 && v > 2) v += 0.8;
@@ -4674,6 +4687,18 @@ function endOfTrail(g) {
   g.seen[T.id] = (g.seen[T.id] || 0) + 1;
   g.fat += T.an.vert * PACE * FATIGUE; g.vert += T.an.vert;
   today.trailRuns[T.id] = (today.trailRuns[T.id] || 0) + 1;
+  if (T.virtual) {
+    // A lap of the learning area: first-timers gain confidence fast.
+    if (!g.learnLaps) today.learners += AGENT;
+    g.learnLaps++;
+    g.sat += (g.first ? 3 : 1.5) * RUN_W;
+    if (g.first && g.learnLaps === 3) thought(g, `I can turn and stop now! Time to try a real green run.`);
+    else if (g.first && g.learnLaps === 1 && Math.random() < 0.5) thought(g, `First time on skis. ${T.name} is the perfect place to start.`);
+  } else if (g.first && g.learnLaps < 3 && !g.lessoned) {
+    // A first-timer with nowhere gentle to learn ends up on a real trail.
+    g.sat -= 3 * RUN_W;
+    if (!g.noLearnSaid) { g.noLearnSaid = true; today.complaints.noLearn++; thought(g, `It's my first time on skis and ${T.name} is scary. I wish there was a bunny hill.`); }
+  }
   if (r > g.ab) {
     g.sat -= 7 * RUN_W; today.complaints.steep++;
     thought(g, `${T.name} was way too steep for me.`);
@@ -4740,6 +4765,7 @@ function demandForDay() {
   if (has('kids')) amen += 0.05;
   if (has('clinic')) amen += 0.03;
   if (has('hrest')) amen += 0.02;
+  if (learningOpen()) amen += 0.04; // families and first-timers look for a good learning area
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   const w = todayWx();
   let wxF = WX[w.type].demand;
@@ -4812,6 +4838,8 @@ function makeGuest(car, x, z) {
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
   g.wantsTune = ab >= 2 && !g.needsRental && Math.random() < 0.2;
   g.family = ab >= 1 && Math.random() < 0.16; // brought young kids along
+  g.first = ab === 0 && Math.random() < 0.4; g.learnLaps = 0; // never skied before
+  if (g.first) today.firsts += AGENT;
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
@@ -4955,7 +4983,7 @@ function updateSki(g, dt) {
   const sp = SKI_SPEED[g.ab] * (0.8 + Math.min(0.3, T.gr[i0])) * (r > g.ab ? 0.55 : 1) * rough;
   g.s += sp * dt;
   // Falls are rare, likelier on terrain beyond the skier and on crowded trails.
-  const risk = 1.6e-6 * (r > g.ab ? 4 : 1) * (1 + (T.crowd || 0)) * (g.ab === 0 && !g.lessoned ? 1.4 : 1)
+  const risk = 1.6e-6 * (r > g.ab ? 4 : 1) * (1 + (T.crowd || 0)) * (g.ab === 0 && !g.lessoned ? 1.4 : 1) * (g.first && g.learnLaps < 3 && !g.lessoned && !T.virtual ? 1.5 : 1)
     * (surf === 'icy' ? 2 : surf === 'thin' ? 1.6 : 1) * (todayWx().type === 'ice' ? 1.6 : 1);
   if (Math.random() < risk * dt) return injure(g);
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 <= g.s) {
@@ -5290,7 +5318,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6336,7 +6364,7 @@ const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', t
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
-  const raw = pool === 'seat' ? s.seats : pool === 'rr' ? (s.stalls || 0) : pool === 'rent' ? s.stations : pool === 'lesson' ? s.classes * 6 : 0;
+  const raw = pool === 'seat' ? s.seats : pool === 'rr' ? (s.stalls || 0) : pool === 'rent' ? s.stations : pool === 'lesson' ? s.classes * 6 * (learningOpen() ? 1.5 : 1) : 0; // a learning area lets the school run bigger classes
   return Math.max(1, Math.round(raw / AGENT));
 }
 function priceOf(svc, prices) {
@@ -6559,8 +6587,8 @@ function finishVisit(g) {
   else if (svc === 'rr') { g.bl = 0; g.sat += 1; }
   else if (svc === 'rent') { g.needsRental = false; g.onSkis = true; thought(g, 'All geared up!'); }
   else if (svc === 'lesson') {
-    g.lessoned = true; g.sat += 8;
-    if (Math.random() < 0.35) { g.ab = 1; thought(g, 'My lesson was great. I’m ready for blue runs!'); }
+    g.lessoned = true; g.sat += 8; g.learnLaps = Math.max(g.learnLaps || 0, 3);
+    if (Math.random() < (learningOpen() ? 0.5 : 0.35)) { g.ab = 1; thought(g, 'My lesson was great. I’m ready for blue runs!'); }
     else thought(g, 'My lesson was great. I’m getting the hang of it!');
   }
   // Lodges and restaurants have restrooms, so a meal or warm-up covers that too.
@@ -8298,6 +8326,7 @@ function adviceFor(r) {
     [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking in Manage › Buildings, or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
     [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
+    [(c.noLearn || 0) * 10, `${c.noLearn} first-timers had nowhere gentle to learn. Paint a learning area at the base (Landscape › Learning area) and add a magic carpet.`],
     [(c.noCamp || 0) * (P.camp ?? 110) * 0.5, !has('kids') && c.noCamp >= 20 ? `${c.noCamp} parents brought young kids along. A kids’ camp would have earned about ${money(c.noCamp * (P.camp ?? 110) * 0.6)} today.` : ''],
     [(c.campFull || 0) * 6, c.campFull ? `${c.campFull} families found the kids’ camp full. A second camp would take them.` : ''],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
@@ -8346,11 +8375,13 @@ function showReport(r = state.lastReport, past = false) {
   if (r.busiest) note(0, `${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
   if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
   if (r.lunchPeak && r.lunchPeak.n) note(0, `The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
+  if (r.firsts) note(1, `${r.firsts} first-timers came today${r.learners ? `; ${r.learners} beginners skied the learning area` : ''}.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by bus without needing a parking space.`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
+  if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.`);
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
   if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
@@ -9761,6 +9792,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.10', date: 'Oct 20, 2026', items: [
+    'Surface lifts: the magic carpet, a covered conveyor for gentle beginner slopes, and the T-bar, a cheap lift that pulls skiers up on their skis and keeps running in wind that stops chairlifts.',
+    'Learning areas: in the Landscape tool, paint a gentle slope at the base and build it as a groomed learning area, then serve it with a magic carpet or T-bar. Guests ski it anywhere, weaving their own lines.',
+    'First-timers: about four in ten beginners have never skied before. They want a few laps of a learning area before real trails, and without one they struggle, fall more and complain. A served learning area also lets the ski school run bigger classes, with more students moving up to blue runs.',
+  ] },
   { v: '2.9.1', date: 'Oct 19, 2026', items: [
     'Parking sections are joined by short strips of asphalt across their driving aisles.',
     'Shuttle stations and transit centers have a proper bus bay: the pavement runs from the platform curb straight into the road, with a painted bay, and buses pull up along the curb.',
