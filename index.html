@@ -9911,6 +9911,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11.2', date: 'Oct 20, 2026', items: [
+    'Fixed: on mid-size screens the cash box and time bar could keep switching between their large and compact sizes as the clock and cash changed. The top bar now settles on one layout.',
+  ] },
   { v: '2.11.1', date: 'Oct 19, 2026', items: [
     'Lifts connect at the top: when another lift loads a short, level glide from a lift’s top station, guests can cross over to it without a trail. The lift panel shows the connection.',
     'Learning areas no longer have a fence, so they look open and natural.',
@@ -10487,16 +10490,33 @@ window.addEventListener('resize', resize);
 // cash tighten up. Only on screens too narrow even for that does the time bar drop below (phones already
 // stack it there).
 const TOP_FITS = ['', 'badge-sm', 'badge-icon', 'tb-tight', 'tb-low'];
+// The layout is worked out afresh only when the window or the day's phase changes (the time bar's buttons
+// differ when open). In between it may only tighten: re-fitting from scratch every check made the cash box and
+// time bar flip between sizes whenever the clock or cash figure grew or shrank by a few pixels.
+let fitKey = '';
 function fitTopBar() {
   const body = document.body;
-  for (const c of TOP_FITS) if (c) body.classList.remove(c);
-  if (innerWidth <= 640 || !$('timebar').getBoundingClientRect().width) return;
-  for (const c of TOP_FITS) {
-    if (c) body.classList.add(c);
+  const key = `${innerWidth}x${innerHeight}:${state.phase}`, full = key !== fitKey;
+  fitKey = key;
+  if (innerWidth <= 640 || !$('timebar').getBoundingClientRect().width) { for (const c of TOP_FITS) if (c) body.classList.remove(c); return; }
+  const fits = () => {
     const b = $('badge').getBoundingClientRect(), t = $('timebar').getBoundingClientRect(), k = $('cashBox').getBoundingClientRect();
-    if (t.left >= b.right + 10 && t.right <= k.left - 10) return;
-    if (c && c !== 'tb-low') body.classList.remove(c); // try the next, smaller step
+    return t.left >= b.right + 10 && t.right <= k.left - 10;
+  };
+  let i = full ? 0 : Math.max(0, TOP_FITS.findIndex((c) => c && body.classList.contains(c)));
+  if (full) for (const c of TOP_FITS) if (c) body.classList.remove(c);
+  else if (fits()) return;
+  // Step to tighter layouts until everything fits. A fresh fit keeps a little extra room so small changes don't tip it over.
+  for (; i < TOP_FITS.length; i++) {
+    for (const c of TOP_FITS) if (c) body.classList.remove(c);
+    if (TOP_FITS[i]) body.classList.add(TOP_FITS[i]);
+    if (TOP_FITS[i] === 'tb-low') return;
+    if (full ? fitsWithRoom(24) : fits()) return;
   }
+}
+function fitsWithRoom(r) {
+  const b = $('badge').getBoundingClientRect(), t = $('timebar').getBoundingClientRect(), k = $('cashBox').getBoundingClientRect();
+  return t.left >= b.right + 10 + r && t.right <= k.left - 10 - r;
 }
 
 let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0, fitT = 0;
