@@ -9337,8 +9337,16 @@ async function cloudSave(manual) {
   CLOUD.uploading = false;
   refreshCommunity();
 }
+// The owner can open any resort read-only (see the privacy page); everyone else only sees public ones.
+const isOwner = () => !CLOUD.guest && (CLOUD.email || '').toLowerCase() === OWNER_EMAIL;
+async function adminMountain(id) {
+  if (!isOwner() || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { data, error } = await CLOUD.sb.rpc('admin_mountain', { mid: id });
+  return error || !data ? null : data;
+}
 async function fetchSave(id) {
-  const { data, error } = await CLOUD.sb.from('mountains').select('save').eq('id', id).maybeSingle();
+  let { data, error } = await CLOUD.sb.from('mountains').select('save').eq('id', id).maybeSingle();
+  if (!error && !data) data = await adminMountain(id);
   if (error || !data || !data.save) return null;
   const sv = { ...data.save, sim: null };
   if (sv.clock && sv.clock.phase === 'open') sv.clock = { ...sv.clock, phase: 'closed', time: DAY_OPEN };
@@ -9427,7 +9435,8 @@ const LINK_VISIT = (() => {
 })();
 const shareUrl = (id) => `${location.origin}${location.pathname}?visit=${encodeURIComponent(id)}`;
 async function fetchSummary(id) {
-  const { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary').eq('id', id).maybeSingle();
+  let { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary').eq('id', id).maybeSingle();
+  if (!error && !data) data = await adminMountain(id);
   return error || !data ? null : { ...data.summary, id: data.id, owner: data.owner };
 }
 // Opened from a share link: visit that resort, or explain why not.
@@ -9919,6 +9928,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11.4', date: 'Oct 20, 2026', items: [
+    'Privacy update: to understand how the game is played and fix problems, the developer can now open a read-only view of any resort, including private ones. Looking never changes a resort, and private resorts are still never shown to other players. The privacy page has the details.',
+  ] },
   { v: '2.11.3', date: 'Oct 20, 2026', items: [
     'The app icon’s lift line no longer pokes past the mountain, and the loading screen shows the logo on navy to match the home-screen app’s splash.',
   ] },

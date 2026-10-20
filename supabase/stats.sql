@@ -35,11 +35,11 @@ begin
     'by_mountain', (select coalesce(jsonb_agg(jsonb_build_object('mt', mt, 'n', n) order by n desc), '[]'::jsonb)
                     from (select coalesce(summary->>'mt', '') mt, count(*) n from mountains group by 1) x),
     'top', (select coalesce(jsonb_agg(t), '[]'::jsonb) from (
-              select summary->>'name' as name, summary->>'mt' as mt, summary->>'when' as "when",
+              select id, public, summary->>'name' as name, summary->>'mt' as mt, summary->>'when' as "when",
                      coalesce((summary->>'lifts')::int, 0) as lifts, coalesce((summary->>'trails')::int, 0) as trails,
                      coalesce((summary->>'bestGuests')::int, 0) as best_guests, coalesce((summary->>'cash')::bigint, 0) as cash,
                      coalesce((summary->>'stars')::int, 0) as stars, updated_at
-              from mountains order by coalesce((summary->>'bestGuests')::int, 0) desc, updated_at desc limit 10) t),
+              from mountains order by coalesce((summary->>'bestGuests')::int, 0) desc, updated_at desc limit 100) t),
     'feedback_count', (select count(*) from feedback),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
                    select created_at, message from feedback order by created_at desc limit 10) f)
@@ -48,3 +48,20 @@ end;
 $$;
 revoke all on function public.admin_stats(text) from public, anon;
 grant execute on function public.admin_stats(text) to authenticated;
+
+-- Owner-only: open any resort (public or private) read-only, for the developer's view from the stats page.
+create or replace function public.admin_mountain(mid uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if lower(coalesce(auth.jwt() ->> 'email', '')) <> 'phildbs@gmail.com' or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  return (select jsonb_build_object('id', id, 'owner', owner, 'public', public, 'summary', summary, 'save', save) from mountains where id = mid);
+end;
+$$;
+revoke all on function public.admin_mountain(uuid) from public, anon;
+grant execute on function public.admin_mountain(uuid) to authenticated;
