@@ -337,6 +337,15 @@ body.visiting .badge { cursor: default; }
   transition: opacity 0.25s ease;
 }
 .toast.bad { background: var(--steep); }
+/* A newer version is published: offered from the top of the screen, over the title screen too. */
+.updatebar {
+  position: fixed; z-index: 1000; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top, 0px));
+  display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 14px; max-width: calc(100vw - 24px); width: max-content;
+  background: var(--ink); color: #fff; border-radius: 14px; font: 600 13.5px var(--ui); box-shadow: 0 8px 24px rgba(20, 36, 58, 0.3);
+}
+.updatebar[hidden] { display: none; }
+.updatebar .go { border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: 700 13.5px var(--ui); padding: 7px 13px; cursor: pointer; }
+.updatebar .later { border: 0; background: none; color: rgba(255, 255, 255, 0.72); font: 600 13px var(--ui); padding: 7px 6px; cursor: pointer; }
 
 .hint {
   position: absolute; left: 50%; transform: translateX(-50%);
@@ -809,6 +818,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 
 
 <div id="app">
+  <div class="updatebar" id="updateBar" role="status" hidden><span></span><button class="go" id="updateGo" type="button">Update</button><button class="later" id="updateLater" type="button" aria-label="Not now">Later</button></div>
   <canvas id="view" tabindex="0" aria-label="Mountain view"></canvas>
 
   <div id="hud" hidden>
@@ -9428,6 +9438,8 @@ function afterLoad() {
   updateCamera();
 }
 /* ---------- Share links: mtmogul.com/?visit=<resort id> opens a visit to that resort ---------- */
+// Reloaded for an update: tidy the cache-busting tag off the address.
+if (new URLSearchParams(location.search).has('u')) { const q = new URLSearchParams(location.search); q.delete('u'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
 const LINK_VISIT = (() => {
   const q = new URLSearchParams(location.search), id = q.get('visit');
   if (id) { q.delete('visit'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
@@ -9928,6 +9940,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11.5', date: 'Oct 20, 2026', items: [
+    'Updates: when a new version is published, a banner offers to save and reload into it, so the home-screen app no longer stays on an old version.',
+  ] },
   { v: '2.11.4', date: 'Oct 20, 2026', items: [
     'Privacy update: to understand how the game is played and fix problems, the developer can now open a read-only view of any resort, including private ones. Looking never changes a resort, and private resorts are still never shown to other players. The privacy page has the details.',
   ] },
@@ -10077,6 +10092,37 @@ const CHANGES = [
   ] },
 ];
 const VERSION = CHANGES[0].v;
+/* ---------- Updates ----------
+   An installed app can sit in memory on an old version for days. Now and then (and whenever the game comes back
+   into view) check whether a newer version is published, and offer to save and reload into it. */
+const newerVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; } return false; };
+let updateCheckedAt = 0, updateOffered = '';
+async function checkForUpdate(force) {
+  if (DEV || simulating || location.protocol === 'file:' || (!force && Date.now() - updateCheckedAt < 60000)) return;
+  updateCheckedAt = Date.now();
+  try {
+    const r = await fetch(`${location.pathname}?check=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const m = (await r.text()).match(/\{ v: '(\d+(?:\.\d+)*)'/);
+    if (m && newerVer(m[1], VERSION) && updateOffered !== m[1]) {
+      updateOffered = m[1];
+      $('updateBar').querySelector('span').textContent = `Version ${m[1]} is ready.`;
+      $('updateBar').hidden = false;
+    }
+  } catch (e) { /* offline: try again later */ }
+}
+$('updateGo').onclick = async () => {
+  $('updateGo').disabled = true; $('updateGo').textContent = 'Saving…';
+  try {
+    saveNow();
+    if (CLOUD.ready && state.started && !visiting) { CLOUD.lastUp = 0; await Promise.race([cloudSave(false), new Promise((res) => setTimeout(res, 3000))]); }
+  } catch (e) { /* reload anyway: the local save is done */ }
+  location.replace(`${location.pathname}?u=${Date.now()}${location.hash}`);
+};
+$('updateLater').onclick = () => { $('updateBar').hidden = true; };
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+setInterval(() => checkForUpdate(), 5 * 60 * 1000);
+setTimeout(() => checkForUpdate(true), 6000);
 $('versionTag').innerHTML = `<b>v${VERSION}</b> · What’s new`;
 /* ---------- Feedback: a note plus a snapshot of the game, readable only by the developer ---------- */
 let fbSentAt = 0;
