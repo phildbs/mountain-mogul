@@ -54,6 +54,10 @@ th { text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: 
 td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
 td.num, th.num { text-align: right; }
 .scroll { overflow-x: auto; }
+.sortb { border: 0; background: none; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sortb span { font-size: 9px; color: var(--accent); }
+.sortb.on { color: var(--ink); }
+th.num .sortb { justify-content: flex-end; width: 100%; }
 .visit { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: rgba(20, 36, 58, 0.3); text-underline-offset: 3px; }
 .priv { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
 .fb { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
@@ -138,18 +142,44 @@ td.num, th.num { text-align: right; }
         <section class="card"><h2>Mountains picked</h2><p class="note">${num(d.mountains)} mountains started.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
       </div>
       <section class="card" style="margin-bottom:12px">
-        <h2>Resorts</h2><p class="note">By their biggest day. Tap a name to visit it read-only. Nothing you do there changes it.</p>
-        <div class="scroll"><table>
-          <thead><tr><th>Resort</th><th>Mountain</th><th>Date in game</th><th class="num">Lifts</th><th class="num">Trails</th><th class="num">Best day</th><th class="num">Cash</th><th>Played</th></tr></thead>
-          <tbody>${d.top.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td></tr>`).join('')}</tbody>
-        </table></div>
+        <h2>Resorts</h2><p class="note">Tap a column heading to sort. Tap a name to visit it read-only. Nothing you do there changes it.</p>
+        <div class="scroll" id="resorts"></div>
       </section>
       <section class="card">
         <h2>Feedback</h2><p class="note">${num(d.feedback_count)} ${d.feedback_count === 1 ? 'message' : 'messages'} from the “Send feedback” button. Newest first.</p>
         ${d.feedback.length ? `<ul class="fb">${d.feedback.map((f) => `<li><time>${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(f.message)}</li>`).join('')}</ul>` : '<p class="note">None yet.</p>'}
       </section>`;
+    rows = d.top; renderResorts();
   }
 
+  const SEASON_MONTHS = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']; // in-game dates run through a winter
+  // The resorts table sorts by any column: tap a heading, tap again to reverse.
+  const COLS = [
+    ['name', 'Resort', 'text', (t) => (t.name || 'Unnamed').toLowerCase()],
+    ['mt', 'Mountain', 'text', (t) => mtName(t.mt ?? '')],
+    ['when', 'Date in game', 'num', (t) => { const m = /Season (\d+)\D+(\w{3}) (\d+)/.exec(t.when || ''); return m ? +m[1] * 1000 + SEASON_MONTHS.indexOf(m[2]) * 40 + +m[3] : 0; }],
+    ['lifts', 'Lifts', 'num', (t) => t.lifts],
+    ['trails', 'Trails', 'num', (t) => t.trails],
+    ['best_guests', 'Best day', 'num', (t) => t.best_guests],
+    ['cash', 'Cash', 'num', (t) => t.cash],
+    ['updated_at', 'Played', 'num', (t) => +new Date(t.updated_at)],
+  ];
+  let rows = [], sort = { k: 'best_guests', dir: -1 };
+  try { const v = JSON.parse(localStorage.getItem('mmStatsSort')); if (v && COLS.some((c) => c[0] === v.k)) sort = v; } catch (e) { /* keep the default */ }
+  function renderResorts() {
+    const col = COLS.find((c) => c[0] === sort.k), key = col[3];
+    const list = [...rows].sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || (b.best_guests - a.best_guests); });
+    const th = ([k, label, kind]) => `<th class="${kind === 'num' && k !== 'updated_at' && k !== 'when' ? 'num' : ''}" aria-sort="${sort.k === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button class="sortb${sort.k === k ? ' on' : ''}" data-k="${k}">${label}<span aria-hidden="true">${sort.k === k ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
+    $('resorts').innerHTML = `<table><thead><tr>${COLS.map(th).join('')}</tr></thead>
+      <tbody>${list.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td></tr>`).join('')}</tbody></table>`;
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.sortb'); if (!b) return;
+    const k = b.dataset.k, kind = COLS.find((c) => c[0] === k)[2];
+    sort = sort.k === k ? { k, dir: -sort.dir } : { k, dir: kind === 'text' ? 1 : -1 };
+    try { localStorage.setItem('mmStatsSort', JSON.stringify(sort)); } catch (e2) { /* fine without it */ }
+    renderResorts();
+  });
   $('refresh').onclick = load;
   load().catch((e) => gate(`<span class="err">${esc(e.message || e)}</span>`));
 })();
