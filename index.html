@@ -2363,9 +2363,9 @@ function showHint(force) {
    TRAILS & LIFTS: DEFINITIONS
    ===================================================================== */
 const TRAIL_WIDTHS = {
-  narrow: { label: 'Narrow', hw: 1.6, perUnit: 450 },
-  medium: { label: 'Medium', hw: 2.6, perUnit: 700 },
-  wide: { label: 'Wide', hw: 4.0, perUnit: 1050 },
+  narrow: { label: 'Narrow', hw: 1.6, perUnit: 450, bridge: 15000 },
+  medium: { label: 'Medium', hw: 2.6, perUnit: 700, bridge: 25000 },
+  wide: { label: 'Wide', hw: 4.0, perUnit: 1050, bridge: 40000 },
 };
 const widthFt = (w) => Math.round(TRAIL_WIDTHS[w].hw * 2 * FT_PER_UNIT / 5) * 5;
 const RATINGS = [
@@ -2441,7 +2441,7 @@ const CORD = (() => {
   return t;
 })();
 
-function trailSamples(pts) {
+function trailSamples(pts, hw = 0) {
   if (pts.length < 2) return [];
   const dense = catmull(pts.map((p) => [p.x, p.z]), 14);
   const out = [{ x: dense[0][0], z: dense[0][1] }];
@@ -2461,8 +2461,45 @@ function trailSamples(pts) {
   const last = dense[dense.length - 1];
   if (need < 0.45) out.push({ x: last[0], z: last[1] });
   for (const s of out) s.y = trueY(s.x, s.z);
+  bridgeOver(out, hw);
   return out;
 }
+/* ---------- Creek bridges ----------
+   Where a trail crosses the creek it goes over on a timber bridge: the samples over the creek bed
+   run straight from bank to bank, the ground beneath is left alone, and a deck is drawn there. */
+const BRIDGE_D = 2.3;      // creek-centre distance (cells) the bridge spans; the creek bed is carved within 1.9
+const BRIDGE_MAX = 12;     // longest span; more than this and the trail is running along the creek
+const BRIDGE_APPROACH = 8; // samples (4 units) of levelled trail bed either side of a bridge
+const overCreek = (x, z) => sampleGrid(CREEKD, x + HALF, z + HALF) < BRIDGE_D;
+// A stretch is bridged wherever any part of the trail's width is over the creek, so the deck
+// spans the whole crossing even when a wide trail meets the creek at an angle.
+function bridgeOver(samples, hw) {
+  const n = samples.length;
+  samples.forEach((s, i) => {
+    const a = samples[Math.max(0, i - 1)], b = samples[Math.min(n - 1, i + 1)];
+    const L = Math.hypot(b.x - a.x, b.z - a.z) || 1, px = -(b.z - a.z) / L, pz = (b.x - a.x) / L;
+    const across = [-1, -0.5, 0, 0.5, 1].map((f) => ({ x: s.x + px * f * hw, z: s.z + pz * f * hw }));
+    s.bridge = across.some((p) => overCreek(p.x, p.z));
+  });
+  for (const [i0, i1] of bridgeSpans(samples)) {
+    const a = samples[i0 - 1], b = samples[i1 + 1];
+    const ya = a ? a.y : b ? b.y : samples[i0].y, yb = b ? b.y : ya;
+    for (let i = i0; i <= i1; i++) samples[i].y = lerp(ya, yb, (i - i0 + 1) / (i1 - i0 + 2));
+  }
+}
+function bridgeSpans(samples) {
+  const out = [];
+  for (let i = 0; i < samples.length; i++) {
+    if (!samples[i].bridge) continue;
+    let j = i; while (j + 1 < samples.length && samples[j + 1].bridge) j++;
+    out.push([i, j]); i = j;
+  }
+  return out;
+}
+// The height of snow a skier stands on: flat across the bridge deck, the ground elsewhere.
+const surfaceAt = (x, z, deckY, onDeck) => (onDeck ? Math.max(heightAt(x, z), deckY * VEX) : heightAt(x, z));
+// How much earthworks may move a cell: none in the water, blending back in up the banks.
+const creekKeep = (idx) => sstep(1.15, 1.45, CREEKD[idx]);
 
 function analyzeTrail(samples) {
   const n = samples.length;
@@ -2478,7 +2515,7 @@ function analyzeTrail(samples) {
     if (g > res.maxGrade) res.maxGrade = g;
     // Short dips are fine: skiers carry speed through them. Sustained climbs are not.
     if (g < -0.08) { uphill = true; res.bad.add(i); }
-    if (sampleGrid(GR, samples[i].x + HALF, samples[i].z + HALF) > 1.05 || g > 1.0) { cliff = true; res.bad.add(i); }
+    if ((!samples[i].bridge && sampleGrid(GR, samples[i].x + HALF, samples[i].z + HALF) > 1.05) || g > 1.0) { cliff = true; res.bad.add(i); }
     if (!inProperty(samples[i].x, samples[i].z)) { outside = true; res.bad.add(i); }
   }
   res.avgGrade = res.len > 0 ? res.vert / res.len : 0;
@@ -2486,6 +2523,9 @@ function analyzeTrail(samples) {
   if (cliff) res.problems.push('Crosses terrain too steep to ski. Route around the red section.');
   if (uphill) res.problems.push('Part of the trail runs uphill. Skiers can only go down.');
   if (outside) res.problems.push('Part of the trail is outside your property.');
+  res.bridges = bridgeSpans(samples);
+  const along = res.bridges.filter(([a, b]) => (b - a + 1) * 0.5 > BRIDGE_MAX);
+  if (along.length) { res.problems.push('The trail runs along the creek. Cross it more directly.'); for (const [a, b] of along) for (let i = a; i <= b; i++) res.bad.add(i); }
   if (res.len < 8) res.problems.push('Too short. Make the trail at least 260 ft long.');
   else if (res.vert < 1) res.problems.push('The trail needs to drop at least 30 ft.');
   return res;
@@ -2536,10 +2576,11 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask) {
     const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
     if (i > 0) dist += distXZ(samples[i], samples[i - 1]);
     const isBad = bad && bad.has(i);
+    const onDeck = samples[i].bridge || (i > 0 && samples[i - 1].bridge) || (i + 1 < n && samples[i + 1].bridge);
     for (let k = 0; k < m; k++) {
       const off = (ACROSS[k] - 0.5) * 2 * hw;
       const x = samples[i].x - dz * off, z = samples[i].z + dx * off, o = i * m + k;
-      pos[o * 3] = x; pos[o * 3 + 1] = heightAt(x, z) + 0.14; pos[o * 3 + 2] = z;
+      pos[o * 3] = x; pos[o * 3 + 1] = surfaceAt(x, z, samples[i].y, onDeck) + 0.14; pos[o * 3 + 2] = z;
       uv[o * 2] = ACROSS[k]; uv[o * 2 + 1] = dist / 3;
       let c = [1, 1, 1];
       if (isBad) c = [1, 0.42, 0.36];
@@ -2580,7 +2621,7 @@ const edgeTint = (r) => RATINGS[r].col.map((c) => lerp(1, c, 0.75));
 const trailSign = (t) => (t.sign == null ? t.an.rating : t.sign);
 
 function addTrail(t) {
-  t.samples = trailSamples(t.pts);
+  t.samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw);
   t.an = analyzeTrail(t.samples);
   t.len = (t.samples.length - 1) * 0.5;
   t.gr = t.samples.map((_, i) => {
@@ -2596,6 +2637,7 @@ function addTrail(t) {
   t.mesh.renderOrder = 2;
   trailGroup.add(t.mesh);
   world.trails.push(t);
+  buildBridges(t);
   styleTrail(t);
 }
 const BARE_TINT = new THREE.Color(0x8a7a5e);
@@ -2615,10 +2657,12 @@ function styleTrail(t) {
 }
 function refreshTrailMesh(t, idx) {
   if (t.virtual) return;
+  buildBridges(t);
   t.mesh.geometry.dispose();
   t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(idx || surfaceIndex(), t.id));
 }
 function removeTrail(t) {
+  if (t.bridgeGroup) trailGroup.remove(t.bridgeGroup);
   trailGroup.remove(t.mesh);
   t.mesh.geometry.dispose(); t.mesh.material.dispose();
   world.trails = world.trails.filter((o) => o !== t);
@@ -2946,6 +2990,47 @@ function addLift(L) {
   liftGroup.add(L.group);
   initLiftSim(L);
   world.lifts.push(L);
+}
+// A timber skier bridge under each stretch of trail over the creek: a deck as wide as the trail
+// (its snow is the trail itself), a railing each side, and posts down to the creek bed.
+const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+const BRIDGE_DARK = new THREE.MeshLambertMaterial({ color: 0x5e3d28 });
+function buildBridges(t) {
+  if (t.bridgeGroup) trailGroup.remove(t.bridgeGroup); // shared geometry and materials: nothing to dispose
+  t.bridgeGroup = null;
+  const S = t.samples, spans = t.virtual ? [] : bridgeSpans(S);
+  if (!spans.length) return;
+  const g = new THREE.Group(), hw = TRAIL_WIDTHS[t.width].hw;
+  const box = (mat, x, y, z, sx, sy, sz, yaw, pitch) => {
+    const m = new THREE.Mesh(UNIT_BOX, mat);
+    m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(0, yaw, 0, 'YXZ'); m.rotateX(-pitch);
+    m.castShadow = true; m.receiveShadow = true; g.add(m);
+  };
+  for (const [i0, i1] of spans) {
+    const a0 = Math.max(0, i0 - 1), a1 = Math.min(S.length - 1, i1 + 1); // from bank to bank
+    for (let i = a0; i < a1; i++) {
+      const a = S[i], b = S[i + 1], len = distXZ(a, b);
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, my = ((a.y + b.y) / 2) * VEX;
+      const yaw = Math.atan2(b.x - a.x, b.z - a.z), pitch = Math.atan2((b.y - a.y) * VEX, len);
+      const px = Math.cos(yaw), pz = -Math.sin(yaw); // across the deck
+      box(WOOD, mx, my - 0.02, mz, 2 * hw + 0.3, 0.2, len + 0.02, yaw, pitch);
+      for (const side of [-1, 1]) {
+        // where the bank rises above the deck the bridge meets it like an abutment: no railing there
+        const ex = mx + px * side * (hw + 0.1), ez = mz + pz * side * (hw + 0.1);
+        const ax = a.x + px * side * (hw + 0.1), az = a.z + pz * side * (hw + 0.1);
+        const bx = b.x + px * side * (hw + 0.1), bz = b.z + pz * side * (hw + 0.1);
+        if (heightAt(ax, az) > a.y * VEX + 0.45 || heightAt(bx, bz) > b.y * VEX + 0.45 || heightAt(ex, ez) > my + 0.45) continue;
+        box(BRIDGE_DARK, ex, my + 0.55, ez, 0.08, 0.08, len + 0.02, yaw, pitch);
+        if ((i - a0) % 2 === 0) {
+          const top = a.y * VEX + 0.6;
+          const bottom = Math.min(top - 0.6, heightAt(ax, az)) - 0.1;
+          box(BRIDGE_DARK, ax, (top + bottom) / 2, az, 0.1, top - bottom, 0.1, yaw, 0);
+        }
+      }
+    }
+  }
+  t.bridgeGroup = g;
+  trailGroup.add(g);
 }
 function disposeGroup(g) {
   g.traverse((o) => {
@@ -3382,10 +3467,11 @@ function trailEarthwork(samples, target, hw, dry) {
     const x = i - HALF, z = j - HALF;
     let best = -1, bd = reach * reach;
     for (let k = 0; k < samples.length; k++) { const dx = samples[k].x - x, dz = samples[k].z - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = k; } }
-    if (best >= 0) verts.push([j * NV + i, best, 1 - sstep(hw * 0.9, reach, Math.sqrt(bd))]);
+    const w = (1 - sstep(hw * 0.9, reach, Math.sqrt(bd))) * creekKeep(j * NV + i);
+    if (best >= 0 && w > 0) verts.push([j * NV + i, best, w]);
   }
   const orig = verts.map(([idx]) => HT[idx]);
-  const heights = () => samples.map((s) => sampleGrid(HT, s.x + HALF, s.z + HALF));
+  const heights = () => samples.map((s, k) => (s.bridge ? target[k] : sampleGrid(HT, s.x + HALF, s.z + HALF)));
   for (let pass = 0; pass < 6; pass++) {
     const now = heights();
     let worst = 0;
@@ -3398,8 +3484,34 @@ function trailEarthwork(samples, target, hw, dry) {
   verts.forEach(([idx], n) => { cost += Math.abs(HT[idx] - orig[n]) * GRADE_COST; if (dry) HT[idx] = orig[n]; });
   return { cost: Math.round(cost / 100) * 100, ys, i0, i1, j0, j1 };
 }
+// Shapes the ground at a bridge: under the deck and its approaches the bed is cut or filled level
+// across the trail's width to the deck's height, so the trail meets the bridge flush and no bank
+// pokes through beside it. The water is never touched.
+function bridgeEarthwork(samples, hw, dry) {
+  const reach = hw + TRAIL_GRADE_BANK;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const s of samples) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
+  const i0 = Math.max(PLAY0, Math.floor(x0 + HALF - reach)), i1 = Math.min(PLAY1, Math.ceil(x1 + HALF + reach));
+  const j0 = Math.max(PLAY0, Math.floor(z0 + HALF - reach)), j1 = Math.min(PLAY1, Math.ceil(z1 + HALF + reach));
+  let cost = 0;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const x = i - HALF, z = j - HALF, idx = j * NV + i;
+    let best = null, bd = reach * reach;
+    for (const s of samples) { const d = (s.x - x) ** 2 + (s.z - z) ** 2; if (d < bd) { bd = d; best = s; } }
+    if (!best) continue;
+    // Under the deck it only cuts, down to the deck: the gap below it (and the water) stays open.
+    // Elsewhere it may also fill. Neither touches the water itself.
+    if (best.bridge && HT[idx] < best.y) continue;
+    const w = (1 - sstep(hw + 0.3, reach, Math.sqrt(bd))) * (best.bridge ? sstep(0.8, 1.0, CREEKD[idx]) : creekKeep(idx));
+    if (w <= 0) continue;
+    const nh = lerp(HT[idx], best.y, w);
+    cost += Math.abs(nh - HT[idx]) * GRADE_COST;
+    if (!dry) HT[idx] = nh;
+  }
+  return { cost: Math.round(cost / 100) * 100, i0, i1, j0, j1 };
+}
 function evalTrail(pts, width, allowPlans, grade) {
-  let samples = trailSamples(pts);
+  let samples = trailSamples(pts, TRAIL_WIDTHS[width].hw);
   let reversed = false;
   if (samples[0].y < samples[samples.length - 1].y) { samples.reverse(); reversed = true; }
   let an = analyzeTrail(samples);
@@ -3413,10 +3525,21 @@ function evalTrail(pts, width, allowPlans, grade) {
     samples = samples.map((s, i) => ({ ...s, y: est.ys[i] })); // judged as it would really come out
     an = analyzeTrail(samples);
   }
+  // Bridge approaches: the ground under the trail either side of a bridge is levelled across its
+  // width so the trail meets the deck flush.
+  let approach = null;
+  if (an.bridges.length) {
+    const near = new Set();
+    for (const [i0, i1] of an.bridges) for (let k = 1; k <= BRIDGE_APPROACH; k++) { near.add(i0 - k); near.add(i1 + k); }
+    const sub = samples.filter((s, i) => near.has(i) || s.bridge).map((s) => ({ ...s }));
+    approach = { ground: sub, cost: bridgeEarthwork(sub, hw, true).cost };
+  }
   const treeSet = treeSetAlong(samples, hw + 0.4);
+  for (const s of samples) if (s.bridge) treesInBrush(s, hw + 1.8, (k) => treeSet.add(k));
   for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, hw * 1.45 + 0.6, (k) => treeSet.add(k));
   const grading = Math.round(an.len * TRAIL_WIDTHS[width].perUnit / 100) * 100;
-  const cost = grading + treeSet.size * TREE_COST + (earth ? earth.cost : 0);
+  const bridges = an.bridges.length, bridgeCost = bridges * TRAIL_WIDTHS[width].bridge + (approach ? approach.cost : 0);
+  const cost = grading + treeSet.size * TREE_COST + (earth ? earth.cost : 0) + bridgeCost;
   const ghost = { samples };
   const last = samples[samples.length - 1];
   const from = connAt(samples[0], ghost, 'start'), to = connAt(last, ghost, 'end');
@@ -3437,12 +3560,13 @@ function evalTrail(pts, width, allowPlans, grade) {
   const still = problems.findIndex((p) => /uphill/.test(p));
   if (earth && still >= 0) problems[still] = 'Even graded, part of this trail would still climb. Ease the sharp turn where it doubles back.';
   an.problems = problems;
-  return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth };
+  return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth, approach, bridges, bridgeCost };
 }
 function commitTrail(info, pts, width) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
+  if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
   const ordered = info.reversed ? [...pts].reverse() : pts.slice();
   const made = { id: world.nextId++, name: nextTrailName(), pts: ordered.map((p) => ({ x: p.x, z: p.z })), width, open: true, sign: null };
   addTrail(made);
@@ -3570,7 +3694,7 @@ function blueprint(obj) {
 function planVisual(p) {
   let g;
   if (p.kind === 'trail') {
-    p.samples = trailSamples(p.pts);
+    p.samples = trailSamples(p.pts, TRAIL_WIDTHS[p.width].hw);
     g = new THREE.Mesh(ribbonGeometry(p.samples, TRAIL_WIDTHS[p.width].hw, null), BLUEPRINT);
     g.renderOrder = 6;
   } else if (p.kind === 'lift') {
@@ -3808,7 +3932,7 @@ function trailDraftSheet() {
     ${info.uphill ? `<div class="toggle-row"><div><b>Grade it downhill</b><span>${draft.grade ? `Cuts the bumps and fills the dips so the trail falls the whole way · ${money(info.earth ? info.earth.cost : 0)}` : 'Reshape the ground under the trail so it never climbs. Costs extra.'}</span></div>
       <button class="switch" role="switch" aria-checked="${draft.grade}" data-action="gradeTrail" aria-label="Grade it downhill"><i></i></button></div>` : ''}
     <div class="costs"><span>Grading</span><span>${money(info.grading)}</span>
-      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}</div>`;
+      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}${info.bridges ? `<span>${info.bridges > 1 ? `${info.bridges} creek bridges` : 'Creek bridge'} and approaches</span><span>${money(info.bridgeCost)}</span>` : ''}</div>`;
   }
   return `<div class="sheet-title"><h3>New trail</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
@@ -5585,7 +5709,7 @@ function guestPos(g) {
     const wave = Math.sin(g.s * g.tf + g.ph);
     const off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw;
     const x = lerp(a.x, b.x, t) - dz * off, z = lerp(a.z, b.z, t) + dx * off;
-    return { x, y: heightAt(x, z) + 0.14, z, yaw: Math.atan2(dx, dz) - Math.cos(g.s * g.tf + g.ph) * 0.5, sy: 1 };
+    return { x, y: surfaceAt(x, z, lerp(a.y, b.y, t), a.bridge || b.bridge) + 0.14, z, yaw: Math.atan2(dx, dz) - Math.cos(g.s * g.tf + g.ph) * 0.5, sy: 1 };
   }
   if (g.st === 'ride') {
     const L = g.L;
@@ -8181,7 +8305,7 @@ function levelBrush(p, r, target, strength, dry) {
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const d = Math.hypot(i - gx, j - gz);
     if (d > r) continue;
-    const idx = j * NV + i, w = (1 - sstep(r * 0.5, r, d)) * strength;
+    const idx = j * NV + i, w = (1 - sstep(r * 0.5, r, d)) * strength * creekKeep(idx);
     const nh = lerp(HT[idx], target, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
     if (!dry) HT[idx] = nh;
@@ -8196,9 +8320,9 @@ function levelRect(bb, target, margin, dry) {
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF;
     const d = Math.hypot(Math.max(bb.x0 - 0.3 - x, 0, x - bb.x1 - 0.3), Math.max(bb.z0 - 0.3 - z, 0, z - bb.z1 - 0.3));
-    const w = 1 - sstep(0, margin, d);
+    const idx = j * NV + i, w = (1 - sstep(0, margin, d)) * creekKeep(idx);
     if (w <= 0) continue;
-    const idx = j * NV + i, nh = lerp(HT[idx], target, w);
+    const nh = lerp(HT[idx], target, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
     if (!dry) HT[idx] = nh;
   }
@@ -8229,7 +8353,7 @@ function applyTerrainChange(i0, j0, i1, j1) {
   renderer.shadowMap.needsUpdate = true;
 }
 function resampleTrail(t) {
-  t.samples = trailSamples(t.pts);
+  t.samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw);
   t.an = analyzeTrail(t.samples);
   t.len = (t.samples.length - 1) * 0.5;
   t.gr = t.samples.map((_, i) => {
@@ -8327,6 +8451,8 @@ function restoreTerrain(b64) {
     for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
     const f = new Float32Array(bytes.buffer);
     for (let i = 0; i + 1 < f.length; i += 2) HT[f[i]] = f[i + 1];
+    // Before bridges, a trail across the creek filled its bed in. Dig it back out; the trail now bridges it.
+    for (let k = 0; k < NV * NV; k++) if (CREEKD[k] < 1.9) HT[k] = lerp(HT0[k], HT[k], creekKeep(k));
   }
   applyTerrainChange(0, 0, WN, WN);
 }
@@ -9971,6 +10097,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.12', date: 'Oct 21, 2026', items: [
+    'Creek bridges: a trail across the creek now crosses on a timber skier bridge instead of filling the creek in, with the ground shaped level on each side so the trail meets it flush. A bridge adds $15k to $40k depending on the trail’s width, plus the shaping on steep ground. Trails already crossing the creek get their bridge for free.',
+  ] },
   { v: '2.11.6', date: 'Oct 21, 2026', items: [
     'Behind the scenes: if the game hits an error, it now sends a short anonymous report so it can be fixed quickly. Saves from every earlier version are checked before each update.',
   ] },
