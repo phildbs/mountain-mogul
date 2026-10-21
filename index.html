@@ -150,6 +150,7 @@ button { font: inherit; color: inherit; }
 .manage button[data-warn="1"] { color: var(--steep); }
 .manage button[data-warn="1"]::after { content: '⚠ bank'; font-size: 9.5px; margin-top: -2px; }
 #tManage { display: none; }
+.dock .ph { display: none; }
 .cam-btn.layer-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .undofab { left: calc(96px + env(safe-area-inset-left, 0px)) !important; }
 .tut { left: calc(96px + env(safe-area-inset-left, 0px)) !important; }
@@ -221,7 +222,7 @@ button { font: inherit; color: inherit; }
 }
 .visitbar b { font-weight: 700; }
 .visitbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.visiting .dock .tool:not(#tExplore):not(#tManage), body.visiting .manage [data-m=ops], body.visiting .manage [data-m=prices], body.visiting .dock .sep, body.visiting .tb-wait, body.visiting .hint { display: none; }
+body.visiting .dock .tool:not(#tExplore):not(#tManage):not(.ph), body.visiting .manage [data-m=ops], body.visiting .manage [data-m=prices], body.visiting .dock .sep, body.visiting .tb-wait, body.visiting .hint { display: none; }
 body.visiting .badge { cursor: default; }
 .menu .rename { display: flex; gap: 6px; padding: 6px 6px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .menu .rename input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; font: 500 14px var(--ui); }
@@ -793,12 +794,23 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     grid-template-areas: "when clock wx" "speed wait go"; row-gap: 6px; column-gap: 6px; white-space: normal;
   }
   .tb-when { grid-area: when; min-width: 0; }
-  .tb-date, .tb-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tb-clock { grid-area: clock; }
+  .tb-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tb-sub { white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+  .tb-clock { grid-area: clock; min-width: 0; text-align: left; }
   .tb-wx { grid-area: wx; justify-self: end; }
   .tb-speed { grid-area: speed; justify-self: start; }
   .tb-wait { grid-area: wait; }
   .tb-go { grid-area: go; justify-self: end; }
+  /* a slim top row: resort name left, cash right; the time bar sits right under it */
+  .badge { padding: 6px 12px 6px 8px; gap: 8px; }
+  .badge .peak { width: 22px; height: 22px; }
+  .badge .name { font-size: 17px !important; max-width: 52vw; }
+  .badge .sub { display: none; }
+  .cash { padding: 6px 12px; }
+  .cash .label { display: none; }
+  .cash .value { font-size: 19px !important; }
+  .timebar { top: calc(58px + env(safe-area-inset-top, 0px)); grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "clock when wx" "speed speed go"; padding: 6px 6px 6px 12px; }
+  .timebar .tb-wait { grid-area: speed; justify-self: stretch; } /* only one of the two shows at a time */
   .visitbar { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; transform: none; font-size: 12.5px; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .visitbar span { white-space: normal; flex: 1 1 100%; }
   .visitbar .btn { flex: 1 1 100%; padding: 10px; }
@@ -807,6 +819,17 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   .dock .sep { display: none; }
   .dock:has(.sizes:not([hidden])) #tManage { display: none; }
   .undofab { top: 42%; }
+  /* the phone bar: lists first, build tools in a tray */
+  .dock .ph { display: flex; }
+  .dock #tManage, .dock #tExplore { display: none; }
+  .dock:not(.build) #tTrail, .dock:not(.build) #tLift, .dock:not(.build) #tBld, .dock:not(.build) #tClear, .dock:not(.build) #tUndo { display: none; }
+  .dock.build .ph:not(#pBuild) { display: none; }
+  .dock.build:has(.sizes:not([hidden])) #tTrail, .dock.build:has(.sizes:not([hidden])) #tLift, .dock.build:has(.sizes:not([hidden])) #tBld { display: none; }
+  .dock #pBuild { order: 10; background: var(--accent); color: #fff; border-radius: 12px; }
+  .sheet .mtabs { flex: none; position: sticky; top: -12px; z-index: 1; margin: -12px -12px 0; padding: 12px 12px 6px; background: rgb(247, 250, 254); border-radius: 16px 16px 0 0; }
+  .sheet .mtabs:empty { display: none; }
+  .dock #pBuild[aria-pressed="true"] { background: var(--ink); }
+  body.visiting .dock #pBuild { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   #title, .toast { transition: none; }
@@ -892,7 +915,19 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button id="hintClose" aria-label="Hide controls">✕</button>
     </div>
 
-    <div class="panel dock" role="toolbar" aria-label="Tools">
+    <div class="panel dock" id="dock" role="toolbar" aria-label="Tools">
+      <!-- Phones: the resort's lists one tap away, and the build tools in a tray behind Build -->
+      <button class="tool ph" data-pm="trails" aria-pressed="false">Trails</button>
+      <button class="tool ph" data-pm="lifts" aria-pressed="false">Lifts</button>
+      <button class="tool ph" data-pm="blds" aria-pressed="false">Buildings</button>
+      <button class="tool ph" data-pm="more" aria-pressed="false" title="Operations, prices, snow and money">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+        More
+      </button>
+      <button class="tool ph" id="pBuild" aria-pressed="false" title="Build trails, lifts and buildings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Build</span>
+      </button>
       <button class="tool" id="tManage" aria-pressed="false" title="Manage the resort">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="15" cy="12" r="1.6" fill="currentColor"/><circle cx="10" cy="18" r="1.6" fill="currentColor"/></svg>
         Manage
@@ -1093,6 +1128,11 @@ const MAX_MOUNTAINS = 5;
 let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
+// Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
+const MORE_LISTS = ['ops', 'prices', 'snow', 'money'];
+let lastMore = 'ops';
+const isPhone = () => matchMedia('(max-width: 640px)').matches;
+const pickTool = (name) => (isPhone() ? `Tap <b>Build</b>, then <b>${name}</b>.` : `Pick <b>${name}</b>.`);
 /* ---------- Crash reports ----------
    When the game hits an error on a player's device, send a short anonymous report (the error, the version and
    the kind of device) so a bad release shows up on the owner's stats page. A few per visit at most, never twice
@@ -2280,6 +2320,7 @@ function setTool(tool) {
   }
   if (tool !== state.tool) { resetDraft(); draft.btype = null; if (state.tool === 'clear') clearAreaDraft(); }
   state.tool = tool;
+  if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
@@ -3888,6 +3929,7 @@ function renderSheet() {
   const nervous = state.debt > creditLimit();
   if ($('manage').querySelector('[data-m=money]').dataset.warn !== (nervous ? '1' : '')) $('manage').querySelector('[data-m=money]').dataset.warn = nervous ? '1' : '';
   $('tManage').setAttribute('aria-pressed', String(!!(selected && selected.kind === 'manage' && state.tool === 'explore')));
+  for (const b of document.querySelectorAll('.dock .ph[data-pm]')) b.setAttribute('aria-pressed', String(!!m && (b.dataset.pm === m || (b.dataset.pm === 'more' && MORE_LISTS.includes(m)))));
   sheet.classList.toggle('wide', !!(selected && selected.kind === 'manage' && state.tool === 'explore'));
   sheet.hidden = !html || !state.started;
   $('undoFab').hidden = !(state.started && (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length);
@@ -8507,6 +8549,29 @@ $('manage').addEventListener('click', (e) => {
   if (!b) return;
   if (selected && selected.kind === 'manage' && selected.obj === b.dataset.m) select(null); else openManage(b.dataset.m);
 });
+// Phones: list buttons open (or close) their list; More opens the last of the other four;
+// Build swaps the bar for the build tools until Done.
+for (const b of document.querySelectorAll('.dock .ph[data-pm]')) {
+  const k = b.dataset.pm;
+  if (k !== 'more') b.insertAdjacentHTML('afterbegin', $('manage').querySelector(`[data-m=${k}] svg`).outerHTML);
+  b.onclick = () => {
+    const key = k === 'more' ? (visiting && !VISIT_MANAGE.includes(lastMore) ? 'snow' : lastMore) : k;
+    const cur = selected && selected.kind === 'manage' && state.tool === 'explore' ? selected.obj : null;
+    if (cur && (cur === key || (k === 'more' && MORE_LISTS.includes(cur)))) select(null); else openManage(key);
+  };
+}
+function setBuildTray(on) {
+  $('dock').classList.toggle('build', on);
+  $('pBuild').setAttribute('aria-pressed', String(on));
+  $('pBuild').querySelector('span').textContent = on ? 'Done' : 'Build';
+  $('pBuild').querySelector('path').setAttribute('d', on ? 'M5 12.5l4.5 4.5L19 7' : 'M12 5v14M5 12h14');
+}
+$('pBuild').onclick = () => {
+  const on = !$('dock').classList.contains('build');
+  if (on) { if (selected && selected.kind === 'manage') select(null); }
+  else if (state.tool !== 'explore') setTool('explore');
+  setBuildTray(on);
+};
 $('tManage').onclick = () => { if (selected && selected.kind === 'manage' && state.tool === 'explore') select(null); else openManage(lastManage); };
 $('tbGo').onclick = () => { if (state.phase === 'open') closeEarly(); else { autoDays = 0; openDay(); } };
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
@@ -8782,10 +8847,13 @@ function openManage(key) {
   if (state.tool !== 'explore') setTool('explore');
   closeMenu();
   lastManage = key;
+  if (MORE_LISTS.includes(key)) lastMore = key;
+  if ($('dock').classList.contains('build')) setBuildTray(false);
   select({ kind: 'manage', obj: key });
 }
 function managePanel(key) {
-  const tabs = MANAGE.filter(([k]) => !visiting || VISIT_MANAGE.includes(k))
+  // On phones the bar already has Trails, Lifts and Buildings, so the tabs are the More group.
+  const tabs = MANAGE.filter(([k]) => (!visiting || VISIT_MANAGE.includes(k)) && MORE_LISTS.includes(k) && MORE_LISTS.includes(key))
     .map(([k, l]) => `<button data-action="manage" data-v="${k}" aria-pressed="${k === key}">${l}${k === 'money' && state.debt > creditLimit() ? ' ⚠' : ''}</button>`).join('');
   const head = `<div class="mtabs" role="tablist">${tabs}</div>
     <div class="sheet-title"><h3>${MANAGE_TITLE[key]}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
@@ -10023,11 +10091,11 @@ const TUT_CASH = 4000000;
 // trees, so players see that building clears them as it goes.
 const TUT_CLEAR = [{ x0: -14, x1: 40, z0: 42, z1: 70 }];
 const TUT_STEPS = [
-  { title: 'Build a chairlift', how: () => `Pick <b>Lift</b>. ${isCoarse ? 'Tap' : 'Click'} the cleared base area for the bottom station, then partway up the mountain for the top station. Building clears the trees in its way automatically; that cost is included in the price shown. Press <b>Build</b>.`,
+  { title: 'Build a chairlift', how: () => `${pickTool('Lift')} ${isCoarse ? 'Tap' : 'Click'} the cleared base area for the bottom station, then partway up the mountain for the top station. Building clears the trees in its way automatically; that cost is included in the price shown. Press <b>Build</b>.`,
     done: () => world.lifts.some((L) => L.fromBase) },
-  { title: 'Cut a trail back down', how: () => `Pick <b>Trail</b>. Start at the top of your lift, add points down the mountain and finish in the base area. Trees along the trail are cleared for you, at a cost. Press <b>Build</b>.`,
+  { title: 'Cut a trail back down', how: () => `${pickTool('Trail')} Start at the top of your lift, add points down the mountain and finish in the base area. Trees along the trail are cleared for you, at a cost. Press <b>Build</b>.`,
     done: () => realTrails().some((t) => t.reachable && t.returns) },
-  { title: 'Build a lodge', how: () => 'Guests need somewhere to eat and warm up. Pick <b>Buildings</b>, choose the lodge and place it near the bottom of your lift.',
+  { title: 'Build a lodge', how: () => `Guests need somewhere to eat and warm up. ${pickTool('Buildings')} Choose the lodge and place it near the bottom of your lift.`,
     done: () => world.buildings.some((B) => B.type === 'lodge') },
   { title: 'Open for the day', how: () => 'Press <b>Open for the day</b> at the top. Try 2× or 4× speed and watch guests ride and ski.',
     done: () => state.phase === 'open' },
@@ -10097,6 +10165,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.13', date: 'Oct 21, 2026', items: [
+    'Phones: the bottom bar now opens Trails, Lifts and Buildings in one tap, with Operations, Prices, Snow and Money under More. Build opens the build tools; Done puts them away. The top of the screen is slimmer and no longer cuts off the day’s status.',
+  ] },
   { v: '2.12', date: 'Oct 21, 2026', items: [
     'Creek bridges: a trail across the creek now crosses on a timber skier bridge instead of filling the creek in, with the ground shaped level on each side so the trail meets it flush. A bridge adds $15k to $40k depending on the trail’s width, plus the shaping on steep ground. Trails already crossing the creek get their bridge for free.',
   ] },
