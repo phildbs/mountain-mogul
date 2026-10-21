@@ -1093,6 +1093,36 @@ const MAX_MOUNTAINS = 5;
 let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
+/* ---------- Crash reports ----------
+   When the game hits an error on a player's device, send a short anonymous report (the error, the version and
+   the kind of device) so a bad release shows up on the owner's stats page. A few per visit at most, never twice
+   the same, and reporting can never cause trouble of its own. */
+const errQueue = [], errSeen = new Set();
+let errSent = 0;
+function noteError(message, source) {
+  try {
+    message = String(message || 'Unknown error').slice(0, 500);
+    if (/ResizeObserver loop|^Script error\.?$/.test(message) || errSeen.has(message) || errSeen.size >= 8) return;
+    errSeen.add(message);
+    errQueue.push({ message, source: String(source || '').slice(0, 1500) });
+    flushErrors();
+  } catch (e) { /* ignore */ }
+}
+window.addEventListener('error', (e) => noteError(e.message, e.error && e.error.stack ? e.error.stack : `${e.filename}:${e.lineno}:${e.colno}`));
+window.addEventListener('unhandledrejection', (e) => { const r = e.reason; noteError(r && r.message ? r.message : r, r && r.stack); });
+async function flushErrors() {
+  try {
+    if (DEV || !CLOUD.ready || !CLOUD.sb) return; // queued until the game is online
+    while (errQueue.length && errSent < 8) {
+      const r = errQueue.shift();
+      errSent++;
+      await CLOUD.sb.from('errors').insert({
+        version: VERSION, message: r.message, source: r.source, device: navigator.userAgent.slice(0, 200),
+        context: { phase: state.phase, mt: MOUNTAIN.id, started: !!state.started, w: innerWidth, h: innerHeight, visiting: !!visiting },
+      });
+    }
+  } catch (e) { /* not ready yet, or offline: leave it */ }
+}
 let simulating = false, simCrisis = false;
 // The mountains saved on this device. Each has its own save; owner is the account it
 // belongs to (null until this device first goes online).
@@ -9582,6 +9612,7 @@ async function initCloud() {
     readAuthReturn();
     CLOUD.status = 'live';
     CLOUD.ready = true;
+    flushErrors();
     // A sign-in link opened on this device swaps in that account.
     sb.auth.onAuthStateChange((ev, s) => {
       if (!s) return;
@@ -9940,6 +9971,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.11.6', date: 'Oct 21, 2026', items: [
+    'Behind the scenes: if the game hits an error, it now sends a short anonymous report so it can be fixed quickly. Saves from every earlier version are checked before each update.',
+  ] },
   { v: '2.11.5', date: 'Oct 20, 2026', items: [
     'Updates: when a new version is published, a banner offers to save and reload into it, so the home-screen app no longer stays on an old version.',
   ] },

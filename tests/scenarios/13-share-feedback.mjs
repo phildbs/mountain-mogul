@@ -29,6 +29,13 @@ export default async function ({ browser, url }) {
   eq(fb[0].context.lifts, 1, 'context includes the resort size');
   await a.click('#fbSend'); await a.wait(200);
   assert(/Write a few words/.test(await a.ev(`$('fbMsg').textContent`)), 'empty note refused');
+
+  // crash reports: sent once per message, with the version and context
+  await a.ev(`noteError('Test boom', 'at fake.js:1'); noteError('Test boom', 'again')`); await a.wait(400);
+  const errs = await a.ev(`JSON.parse(localStorage.getItem('FAKE_DB')).errors`);
+  eq(errs.length, 1, 'one crash report, duplicates dropped');
+  eq(errs[0].version, await a.ev(`VERSION`), 'report carries the version');
+  eq(errs[0].context.mt, 'juniper', 'report carries the mountain');
   const db = await a.ev(`localStorage.getItem('FAKE_DB')`);
   await a.page.close();
 

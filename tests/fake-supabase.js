@@ -22,6 +22,12 @@
         (d.feedback || (d.feedback = [])).push({ user_id: me, message: m, context: q.obj.context, created_at: new Date().toISOString() });
         put(d); return { data: null, error: null };
       }
+      // errors: crash reports, insert-only like feedback
+      if (table === 'errors') {
+        if (q.op !== 'insert' || !me) return { data: null, error: { code: '42501', message: 'permission denied for table errors' } };
+        (d.errors || (d.errors = [])).push({ user_id: me, ...q.obj });
+        put(d); return { data: null, error: null };
+      }
       if (q.op === 'upsert') {
         const o = q.obj, ex = d.rows.find((r) => r.id === o.id);
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }

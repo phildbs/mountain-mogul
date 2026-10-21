@@ -60,6 +60,13 @@ td.num, th.num { text-align: right; }
 th.num .sortb { justify-content: flex-end; width: 100%; }
 .visit { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: rgba(20, 36, 58, 0.3); text-underline-offset: 3px; }
 .priv { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
+.errs details { border-top: 1px solid var(--line); padding: 8px 0; }
+.errs summary { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; cursor: pointer; list-style: none; font-size: 13.5px; }
+.errs summary::-webkit-details-marker { display: none; }
+.errs .ver { font-weight: 700; color: #b3261e; font-variant-numeric: tabular-nums; }
+.errs .msg { overflow-wrap: anywhere; }
+.errs .cnt { grid-column: 2; color: var(--muted); font-size: 12px; }
+.errs pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; background: rgba(20, 36, 58, 0.05); border-radius: 8px; padding: 8px; margin: 8px 0 4px; max-height: 220px; overflow: auto; }
 .fb { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 .fb li { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fb time { display: block; color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
@@ -105,10 +112,11 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       if (/admin_stats/.test(error.message)) return gate('<span class="err">The stats function isn’t set up yet.</span> Run <b>supabase/stats.sql</b> in the Supabase SQL Editor.');
       return gate(`<span class="err">${esc(error.message)}</span>`);
     }
-    render(data);
+    const er = await sb.rpc('admin_errors');
+    render(data, er.error ? { missing: /admin_errors/.test(er.error.message), message: er.error.message } : er.data);
   }
 
-  function render(d) {
+  function render(d, errs) {
     $('when').textContent = `Updated ${new Date(d.generated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
     $('refresh').hidden = false;
     // last 14 days, filling in days with no visitors
@@ -132,6 +140,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <div class="card tile"><dt>Playing</dt><dd>${num(d.played_24h)}</dd><small>saved a game in 24 h · ${num(d.played_7d)} this week</small></div>
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
+      <section class="card" style="margin-bottom:12px" id="errs">${errorsHtml(errs)}</section>
       <section class="card" style="margin-bottom:12px">
         <h2>New players per day</h2><p class="note">The last 14 days, in your time zone.</p>
         <div class="cols" role="img" aria-label="New players per day">${days.map((x) => `<div class="col" title="${x.label}: ${x.n} new"><b>${x.n || ''}</b><i style="height:${(x.n / max) * 82}%"></i></div>`).join('')}</div>
@@ -153,6 +162,14 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
   }
 
   const SEASON_MONTHS = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']; // in-game dates run through a winter
+  // Crash reports from players' devices, grouped by version and message.
+  function errorsHtml(e) {
+    if (!e || e.missing) return '<h2>Errors</h2><p class="note">Crash reporting isn’t set up yet. Run <b>supabase/errors.sql</b> in the Supabase SQL Editor.</p>';
+    if (e.message) return `<h2>Errors</h2><p class="note err">${esc(e.message)}</p>`;
+    if (!e.groups.length) return '<h2>Errors</h2><p class="note">No errors reported in the last two weeks. ✓</p>';
+    return `<h2>Errors</h2><p class="note">${num(e.last_24h)} in the last 24 hours · ${num(e.last_7d)} this week from ${num(e.players_7d)} ${e.players_7d === 1 ? 'player' : 'players'}. Newest first; tap one for details.</p>
+      <div class="errs">${e.groups.map((g) => `<details><summary><span class="ver">v${esc(g.version)}</span><span class="msg">${esc(g.message)}</span><span class="cnt">${num(g.n)}× · ${num(g.players)} ${g.players === 1 ? 'player' : 'players'} · ${ago(g.last_seen)}</span></summary><pre>${esc(g.source || '(no details)')}</pre><p class="note">${esc(g.device || '')}</p></details>`).join('')}</div>`;
+  }
   // The resorts table sorts by any column: tap a heading, tap again to reverse.
   const COLS = [
     ['name', 'Resort', 'text', (t) => (t.name || 'Unnamed').toLowerCase()],
