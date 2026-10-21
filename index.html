@@ -497,6 +497,13 @@ a.vtag { text-decoration: none; }
   font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: 0.06em; text-transform: uppercase;
 }
 #loading svg { width: 128px; height: 128px; border-radius: 28px; }
+#loading[data-trouble] > span { display: none; }
+.boot-trouble { max-width: 340px; padding: 0 20px; text-align: center; font: 500 15px/1.45 var(--ui); letter-spacing: 0; text-transform: none; color: #dfe7f1; }
+.boot-trouble p { margin: 0 0 10px; }
+.boot-trouble .small { font-size: 13px; color: #9fb0c4; }
+.boot-trouble .row { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+.boot-trouble button { font: 700 15px var(--ui); border: 0; border-radius: 12px; padding: 12px 18px; background: var(--accent); color: #fff; cursor: pointer; }
+.boot-trouble #bootLow { background: rgba(255, 255, 255, 0.12); }
 
 /* ---------- Labels, handles, side sheet ---------- */
 .layer { position: absolute; inset: 0; pointer-events: none !important; overflow: hidden; }
@@ -864,6 +871,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <div class="mgrp">Game</div>
           <button id="mFull">Full screen</button>
           <button id="mHint">Show controls</button>
+          <button id="mGfx">Graphics <span class="mval" id="mGfxV"></span></button>
           <button id="mFeedback">Send feedback</button>
           <button id="mSim" hidden>Simulate (dev)</button>
           <div class="msep"></div>
@@ -1103,6 +1111,29 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div id="loading"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#14243a"/><path fill="#e8f0f8" d="M215 122 L39.5 409 L418.5 409 Z M368 204 L198.5 409 L482.3 409 Z"/><path fill="#fff" d="M215 122 L167.3 200 L196 184 L226 209 L258.2 183 Z"/><rect y="409" width="512" height="103" fill="#c9472a"/><path stroke="#c9472a" stroke-width="9" d="M147.2 420 L264 274"/></svg><span>Shaping the mountain…</span></div>
 </div>
 
+<script>
+// If the game hasn't finished loading after a while, or its 3D view couldn't start, say so and offer a
+// way out instead of leaving the loading screen up. Kept apart from the game script so it still works
+// when that script fails.
+window.mmBootTrouble = function (why) {
+  var L = document.getElementById('loading');
+  if (!L || L.getAttribute('data-trouble')) return;
+  L.setAttribute('data-trouble', why);
+  var low = false; try { low = localStorage.getItem('mm.gfx') === 'low'; } catch (e) { /* ignore */ }
+  var box = document.createElement('div');
+  box.className = 'boot-trouble';
+  box.innerHTML = '<p>' + (why === 'gl'
+      ? 'Your browser couldn’t start the 3D view. This usually follows a graphics crash: the browser pauses 3D for a little while.'
+      : 'This is taking longer than it should.') + '</p>'
+    + '<p class="small">If it keeps happening, close the browser completely (swipe it away) and open the game again.' + (low ? '' : ' Low graphics is lighter on older phones.') + '</p>'
+    + '<div class="row"><button type="button" id="bootRetry">Try again</button>' + (low ? '' : '<button type="button" id="bootLow">Low graphics</button>') + '</div>';
+  L.appendChild(box);
+  document.getElementById('bootRetry').onclick = function () { location.reload(); };
+  var lb = document.getElementById('bootLow');
+  if (lb) lb.onclick = function () { try { localStorage.setItem('mm.gfx', 'low'); } catch (e) { /* ignore */ } location.reload(); };
+};
+setTimeout(function () { window.mmBootTrouble('slow'); }, 20000);
+</script>
 <script src="vendor/three.min.js"></script>
 <script src="vendor/supabase.js"></script>
 <script>
@@ -1137,29 +1168,54 @@ const pickTool = (name) => (isPhone() ? `Tap <b>Build</b>, then <b>${name}</b>.`
    When the game hits an error on a player's device, send a short anonymous report (the error, the version and
    the kind of device) so a bad release shows up on the owner's stats page. A few per visit at most, never twice
    the same, and reporting can never cause trouble of its own. */
-const errQueue = [], errSeen = new Set();
+// Reports wait in localStorage until they're sent, so a crash that stops the game before it gets online
+// (or kills the page outright) is still reported on the next visit that does.
+const ERRQ_KEY = 'mm.errq', ALIVE_KEY = 'mm.alive', BOOT_MARK = 'mm.booting';
+const readJSON = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+const errQueue = readJSON(ERRQ_KEY) || [], errSeen = new Set(errQueue.map((r) => r.message));
 let errSent = 0;
-function noteError(message, source) {
+const storeErrs = () => { try { localStorage.setItem(ERRQ_KEY, JSON.stringify(errQueue.slice(0, 8))); } catch (e) { /* ignore */ } };
+function noteError(message, source, ctx) {
   try {
     message = String(message || 'Unknown error').slice(0, 500);
     if (/ResizeObserver loop|^Script error\.?$/.test(message) || errSeen.has(message) || errSeen.size >= 8) return;
     errSeen.add(message);
-    errQueue.push({ message, source: String(source || '').slice(0, 1500) });
+    let v = null; try { v = VERSION; } catch (e) { /* still loading */ }
+    errQueue.push({ message, source: String(source || '').slice(0, 1500), v, ctx: ctx || null });
+    storeErrs();
     flushErrors();
   } catch (e) { /* ignore */ }
 }
+// Breadcrumbs. While the game is on screen it notes what's happening every few seconds; leaving the page
+// normally (or switching apps) clears that note. Finding it on the next visit means the browser closed the
+// page while it was being played, which no error handler gets to see. The same goes for a launch that
+// never got past the loading screen.
+(() => {
+  try {
+    const a = readJSON(ALIVE_KEY), b = readJSON(BOOT_MARK), recent = (x) => x && Date.now() - x.t < 3600e3;
+    if (recent(a)) noteError('The page closed unexpectedly while playing', '', a);
+    else if (recent(b)) noteError('The last launch didn’t finish loading', '', b);
+    localStorage.removeItem(ALIVE_KEY);
+    localStorage.setItem(BOOT_MARK, JSON.stringify({ t: Date.now() }));
+  } catch (e) { /* ignore */ }
+})();
+const clearAlive = () => { try { localStorage.removeItem(ALIVE_KEY); } catch (e) { /* ignore */ } };
+addEventListener('pagehide', clearAlive);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') clearAlive(); });
 window.addEventListener('error', (e) => noteError(e.message, e.error && e.error.stack ? e.error.stack : `${e.filename}:${e.lineno}:${e.colno}`));
 window.addEventListener('unhandledrejection', (e) => { const r = e.reason; noteError(r && r.message ? r.message : r, r && r.stack); });
 async function flushErrors() {
   try {
     if (DEV || !CLOUD.ready || !CLOUD.sb) return; // queued until the game is online
     while (errQueue.length && errSent < 8) {
-      const r = errQueue.shift();
+      const r = errQueue[0];
       errSent++;
-      await CLOUD.sb.from('errors').insert({
-        version: VERSION, message: r.message, source: r.source, device: navigator.userAgent.slice(0, 200),
-        context: { phase: state.phase, mt: MOUNTAIN.id, started: !!state.started, w: innerWidth, h: innerHeight, visiting: !!visiting },
+      const { error } = await CLOUD.sb.from('errors').insert({
+        version: r.v || VERSION, message: r.message, source: r.source, device: navigator.userAgent.slice(0, 200),
+        context: r.ctx || { phase: state.phase, mt: MOUNTAIN.id, started: !!state.started, w: innerWidth, h: innerHeight, visiting: !!visiting, gfx: GFX },
       });
+      if (error) return;
+      errQueue.shift(); storeErrs();
     }
   } catch (e) { /* not ready yet, or offline: leave it */ }
 }
@@ -1579,10 +1635,21 @@ const isCoarse = matchMedia('(pointer: coarse)').matches;
 // The automated tests can run the whole game without drawing it (see tests/harness.mjs): drawing the
 // 3D scene is by far the slowest part on a machine with no graphics card. Players never set this.
 const NO_RENDER = !!window.__mmNoRender;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isCoarse ? 1.5 : 2)); // phones: less GPU memory, fewer graphics resets
+// Graphics levels. Phones get a lighter scene (simpler trees, lower resolution) so the browser is less
+// likely to crash its graphics. Low, picked in the menu or switched on after repeated graphics crashes,
+// also drops shadows and edge smoothing.
+const GFX = (() => { try { if (localStorage.getItem('mm.gfx') === 'low') return 'low'; } catch (e) { /* ignore */ } return isCoarse ? 'phone' : 'full'; })();
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: GFX !== 'low', alpha: true, powerPreference: GFX === 'full' ? 'high-performance' : 'default' });
+} catch (e) {
+  noteError(`3D view couldn’t start (${GFX}): ${e.message}`, e.stack, { t: Date.now(), gfx: GFX, w: innerWidth, h: innerHeight, dpr: devicePixelRatio });
+  window.mmBootTrouble('gl');
+  throw e;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, { full: 2, phone: 1.25, low: 1 }[GFX]));
 renderer.setClearColor(0x000000, 0);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = GFX !== 'low';
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
 
@@ -1594,18 +1661,37 @@ canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   if (glLost) return;
   glLost = true;
+  try {
+    const recent = (readJSON('mm.glresets') || []).filter((t) => Date.now() - t < 300e3).concat(Date.now());
+    localStorage.setItem('mm.glresets', JSON.stringify(recent));
+    noteError(`Graphics reset (${GFX})`, '', crumbs());
+    if (recent.length >= 2 && GFX !== 'low') { localStorage.setItem('mm.gfx', 'low'); localStorage.setItem('mm.gfxAuto', '1'); }
+  } catch (err) { /* ignore */ }
   setTimeout(recoverGraphics, 1500);
 });
 canvas.addEventListener('webglcontextrestored', () => { if (glLost) recoverGraphics(); });
 function recoverGraphics() {
   if (!glLost) return;
   glLost = false;
+  reloadSame();
+}
+// Saves and reloads straight back to where the player was (same terrain, same view).
+function reloadSame() {
   let then = null;
   if (state.started && visiting) then = { visit: visiting.id, fromTitle: visiting.fromTitle };
   else if (state.started && !practice) then = 'start';
   try { if (!visiting) saveNow(); } catch (e) { /* ignore */ }
-  reloadInto(then, MOUNTAIN.id); // same terrain, then straight back to the game
+  reloadInto(then, MOUNTAIN.id);
 }
+// What the player was doing, for crash reports.
+function crumbs() {
+  return { t: Date.now(), v: VERSION, gfx: GFX, mt: MOUNTAIN.id, phase: state.phase, tool: state.tool, started: !!state.started,
+    view: Math.round(cam.viewH), az: +cam.az.toFixed(2), sheet: selected ? selected.kind : null, speed: state.speed,
+    w: innerWidth, h: innerHeight, dpr: devicePixelRatio, trails: world.trails.length, lifts: world.lifts.length };
+}
+setInterval(() => {
+  if (state.started && document.visibilityState === 'visible') try { localStorage.setItem(ALIVE_KEY, JSON.stringify(crumbs())); } catch (e) { /* ignore */ }
+}, 4000);
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(HAZE, 430, 640);
@@ -1616,7 +1702,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff3e2, 0.78);
 sun.position.set(-190, 270, 130);
 sun.castShadow = true;
-const SM = isCoarse ? 2048 : 4096;
+const SM = { full: 4096, phone: 2048, low: 1024 }[GFX];
 sun.shadow.mapSize.set(SM, SM);
 Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 150, bottom: -150, near: 10, far: 900 });
 sun.shadow.bias = -0.0004;
@@ -1727,12 +1813,14 @@ function recolorTerrain(i0, j0, i1, j1) {
 
 function buildTreeGeometry() {
   const parts = [];
-  const trunk = new THREE.CylinderGeometry(0.045, 0.07, 0.36, 5, 1, true);
+  const trunk = new THREE.CylinderGeometry(0.045, 0.07, 0.36, GFX === 'full' ? 5 : 3, 1, true);
   trunk.translate(0, 0.17, 0);
   parts.push([trunk, () => [0.3, 0.2, 0.14]]);
   const layers = [[0.46, 0.62, 0.22, 0.0], [0.36, 0.56, 0.55, 0.15], [0.25, 0.52, 0.88, 0.3]];
+  if (GFX === 'low') layers[2] = [0.3, 0.62, 0.78, 0.3];
+  if (GFX === 'low') layers.splice(1, 1); // Low graphics: two tiers instead of three
   for (const [r, h, b, snowBias] of layers) {
-    const cone = new THREE.ConeGeometry(r, h, 7, 2, true);
+    const cone = new THREE.ConeGeometry(r, h, GFX === 'full' ? 7 : 5, 2, true); // fewer sides on phones
     cone.translate(0, b + h / 2, 0);
     parts.push([cone, (y) => {
       const t = (y - b) / h;
@@ -9433,6 +9521,12 @@ document.addEventListener('fullscreenchange', syncFullscreen);
 document.addEventListener('webkitfullscreenchange', syncFullscreen);
 syncFullscreen();
 $('mFull').onclick = () => { closeMenu(); toggleFullscreen(); };
+$('mGfxV').textContent = GFX === 'low' ? 'Low' : 'Standard';
+$('mGfx').onclick = () => {
+  closeMenu();
+  try { if (GFX === 'low') localStorage.removeItem('mm.gfx'); else localStorage.setItem('mm.gfx', 'low'); localStorage.removeItem('mm.glresets'); } catch (e) { /* ignore */ }
+  reloadSame();
+};
 $('mReset').onclick = () => { if (visiting) { toast('Return home first.', true); return; } $('menuMain').hidden = true; $('menuConfirm').hidden = false; };
 $('mResetNo').onclick = closeMenu;
 $('mResetYes').onclick = () => {
@@ -10165,6 +10259,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.14', date: 'Oct 21, 2026', items: [
+    'Phones: a lighter 3D scene (simpler trees, lower resolution) to stop the browser crashing while you zoom around. If it still struggles, choose Graphics › Low in the menu; the game also switches by itself after two graphics crashes.',
+    'If the 3D view can’t start, you now get a message with Try again and Low graphics instead of a stuck loading screen.',
+  ] },
   { v: '2.13', date: 'Oct 21, 2026', items: [
     'Phones: the bottom bar now opens Trails, Lifts and Buildings in one tap, with Operations, Prices, Snow and Money under More. Build opens the build tools; Done puts them away. The top of the screen is slimmer and no longer cuts off the day’s status.',
   ] },
@@ -10916,6 +11014,11 @@ function start(hot) {
   resize();
   renderer.shadowMap.needsUpdate = true;
   $('loading').remove();
+  try { localStorage.removeItem(BOOT_MARK); } catch (e) { /* ignore */ }
+  if (readJSON('mm.gfxAuto')) {
+    try { localStorage.removeItem('mm.gfxAuto'); } catch (e) { /* ignore */ }
+    setTimeout(() => toast('Graphics were reset twice, so the game switched to Low graphics. Change it in the menu.'), 1500);
+  }
 
   if (hot && hot.started) {
     $('title').hidden = true;
