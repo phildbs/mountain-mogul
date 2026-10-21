@@ -17,6 +17,7 @@ drop policy if exists "players add their own error reports" on public.errors;
 create policy "players add their own error reports" on public.errors
   for insert to authenticated with check (user_id = auth.uid());
 revoke all on public.errors from anon;
+revoke all on public.errors from authenticated; -- Supabase grants everything by default; reports are add-only
 grant insert on public.errors to authenticated;
 
 create or replace function public.admin_errors()
