@@ -37,21 +37,34 @@ $$;
 revoke all on function public.is_profile_user(uuid) from public;
 grant execute on function public.is_profile_user(uuid) to anon, authenticated;
 
--- Anyone can read public resorts saved from a real profile; you can always read your own.
+-- Anyone can read public resorts (guests' included: the leaderboards mark those "Guest"); you can always read your own.
 drop policy if exists "read public or own" on public.mountains;
 create policy "read public or own" on public.mountains
-  for select using ((public and public.is_profile_user(owner)) or auth.uid() = owner);
+  for select using (public or auth.uid() = owner);
 
 -- You can only create, change or delete your own resorts.
--- Guests (anonymous accounts) can save, but only signed-in players can be public.
 drop policy if exists "insert own" on public.mountains;
 create policy "insert own" on public.mountains
-  for insert with check (auth.uid() = owner and (not public or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false));
+  for insert with check (auth.uid() = owner);
 
 drop policy if exists "update own" on public.mountains;
 create policy "update own" on public.mountains
   for update using (auth.uid() = owner)
-  with check (auth.uid() = owner and (not public or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false));
+  with check (auth.uid() = owner);
+
+-- Every save is stamped with whether its owner is a guest, from the account itself, so the
+-- leaderboards can say so and a client can't claim otherwise.
+create or replace function public.mountains_guest_flag()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+begin
+  new.summary := coalesce(new.summary, '{}'::jsonb) || jsonb_build_object('guest', not public.is_profile_user(new.owner));
+  return new;
+end;
+$$;
+drop trigger if exists mountains_guest_flag on public.mountains;
+create trigger mountains_guest_flag before insert or update on public.mountains
+  for each row execute function public.mountains_guest_flag();
 
 drop policy if exists "delete own" on public.mountains;
 create policy "delete own" on public.mountains
@@ -77,11 +90,6 @@ drop trigger if exists mountains_limit on public.mountains;
 create trigger mountains_limit before insert on public.mountains
   for each row execute function public.mountains_limit();
 
--- Take any guest resorts that were already public off the leaderboards.
--- Their saves are kept; they reappear if that player signs in.
-update public.mountains m set public = false
-from auth.users u
-where u.id = m.owner and u.is_anonymous and m.public;
 
 -- Player feedback from the in-game form: a note plus a snapshot of the game.
 -- Players (guests included) can send it but never read it; read it in the dashboard.
