@@ -28,7 +28,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`!!document.querySelector('[data-slot=new]')`), false, 'New mountain hidden at the limit');
 
   const second = await g.ev(`slots.list[1].id`);
-  await g.click(`[data-slot=del][data-id="${second}"]`); await g.wait(100); await g.click('[data-slot=delYes]'); await g.wait(600);
+  await g.click(`[data-slot=more][data-id="${second}"]`); await g.wait(100); await g.click(`[data-slot=del][data-id="${second}"]`); await g.wait(100); await g.click('[data-slot=delYes]'); await g.wait(600);
   eq(await g.ev(`CLOUD.own.length + '/' + slots.list.length`), '4/4', 'deleted locally and online');
 
   // a second device: only the session and the online database carry over

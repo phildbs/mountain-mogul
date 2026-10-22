@@ -476,7 +476,30 @@ body.visiting .badge { cursor: default; }
 .shelf { flex: none; display: flex; flex-direction: column; gap: 8px; width: min(400px, 100%); }
 /* Cards stack down the left, picture beside the details, so the mountain on the right stays clear. */
 .scard { width: 100%; padding: 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); overflow: hidden; text-align: left; }
-.scard canvas { display: block; width: 100%; height: 100%; min-height: 96px; object-fit: cover; background: #dfe7f0; }
+.scard canvas, .scard .sc-map { display: block; width: 100%; height: 100%; min-height: 96px; object-fit: cover; background: #dfe7f0; }
+/* The resort you'll play: its picture as a wide banner across the top, so it reads as a place, not a sliver. */
+.scard.on { grid-template-columns: 1fr; }
+.scard.on canvas, .scard.on .sc-map { height: 150px; min-height: 0; }
+.tutbig { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; text-align: left; padding: 10px 14px; }
+.tutbig > span:first-child { font-size: 22px; }
+.tutbig b { display: block; font-size: 14px; } .tutbig small { display: block; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+.ccard { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; }
+.ccard .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.ccard p { margin: 2px 0 0; font-size: 14px; }
+.ccard .soc { font-size: 12.5px; color: #b8344f; font-weight: 600; }
+.ccard .actions { display: flex; gap: 8px; }
+.ccard .actions .btn { flex: 1; padding: 9px 10px; font-size: 13.5px; box-shadow: none; }
+.newbar { display: flex; align-items: center; gap: 8px; width: min(400px, 100%); padding: 9px 12px; border: 0; cursor: pointer; font: 500 13px var(--ui); color: var(--ink); text-align: left; margin-bottom: 8px; }
+.newbar b { background: var(--accent); color: #fff; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; }
+.newbar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.newbar i { font-style: normal; color: var(--accent); font-weight: 600; white-space: nowrap; }
+.tfoot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; width: min(400px, 100%); }
+.tfoot button, .tfoot a { border: 0; background: none; padding: 2px 0; font: 600 12.5px var(--ui); color: var(--ink-2); cursor: pointer; text-decoration: none; }
+.tfoot button:hover, .tfoot a:hover { color: var(--ink); text-decoration: underline; }
+.sc-foot .more { font-size: 18px; line-height: 1; letter-spacing: 1px; text-decoration: none; }
+.sc-foot .danger-link { color: var(--steep); margin-left: auto; }
+.sc-foot .danger-link + .link { margin-left: 8px; }
+.wn-older summary { cursor: pointer; font-weight: 700; margin: 10px 0; }
 .scard:not(.on) .sc-facts, .scard:not(.on) .goal-link, .scard.pick p { display: none; }
 .scard:not(.on) .sc-body { gap: 3px; padding: 9px 12px; }
 .scard:not(.on) h2 { font-size: 20px; }
@@ -1134,13 +1157,13 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div id="title" hidden>
     <h1 class="wordmark">Mountain<br><span>Mogul</span></h1>
     <p class="tagline">Start with an untouched mountain. Build it into a ski resort.</p>
+    <button class="panel newbar" id="newBar" type="button" hidden></button>
     <div class="shelf" id="titleSlots" hidden></div>
-    <div class="tlinks">
-      <button class="vtag" id="tutBtn" type="button"><b>Tutorial</b></button>
-      <button class="vtag" id="titleComm" type="button"><b>Community</b> · leaderboards</button>
-      <button class="vtag" id="versionTag" type="button"></button>
-      <button class="vtag" id="fbLink" type="button">Send feedback</button>
-      <a class="vtag" id="statsLink" href="stats.html" hidden><b>Stats</b></a>
+    <div class="tfoot">
+      <button id="tutBtn" type="button">Tutorial</button>
+      <button id="versionTag" type="button"></button>
+      <button id="fbLink" type="button">Send feedback</button>
+      <a id="statsLink" href="stats.html" hidden>Stats</a>
     </div>
     <div class="panel acctcard" id="titleAcct" hidden></div>
   </div>
@@ -10013,6 +10036,7 @@ async function loadBoard(force) {
   const soc = (id) => CLOUD.social.get(id) || { likes: 0, visits: 0 };
   CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at), ...soc(r.id) })).filter((m) => m.name);
   refreshCommunity();
+  if (!state.started && !$('title').hidden) refreshTitle();
 }
 // Plain-language reasons for the setup problems a new Supabase project can have.
 function setupProblem(e) {
@@ -10644,7 +10668,6 @@ $('cmProfile').onsubmit = (e) => {
 };
 $('commBtn').onclick = () => { closeMenu(); if (state.tool !== 'explore') setTool('explore'); select({ kind: 'community', obj: null }); };
 $('mComm').onclick = openCommunity;
-$('titleComm').onclick = openCommunity;
 $('visitHome').onclick = returnHome;
 
 /* =====================================================================
@@ -10729,195 +10752,75 @@ $('mGoalsMenu').onclick = openGoals;
 $('glClose').onclick = () => { $('goalsBox').hidden = true; };
 $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox') $('goalsBox').hidden = true; });
 
-// Major changes only, newest first. The top entry is the version shown on the title screen.
+// What's new, for players: the changes that affect how you play or use the site, newest first.
+// The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.20', date: 'Oct 22, 2026', items: [
-    'Likes: tap ♡ Like while visiting someone’s resort (signed-in players, once per resort). Likes show on the boards and in Browse, with a new Most liked ranking, and your standing card counts your likes and visits.',
-    'Bonuses: each new like on your resort pays $100,000 at the start of the next day (up to 10 likes a season), and becoming a staff pick pays $1,000,000.',
-    'Staff picks now wear a gold ★ Staff pick badge on the leaderboard, in Browse, on creator pages and while visiting.',
-    'Resort settings (name, public or private, sharing) are now changed from inside the mountain, so it’s always clear which resort you’re changing. Your creator profile can still be edited from the title screen.',
+  { v: '2.21', date: 'Oct 23, 2026', title: 'A cleaner title screen', items: [
+    'Your resort card shows a map of your actual trails and lifts.',
+    'A Community card shows your rank, likes and visits, one tap from the leaderboard and Browse.',
   ] },
-  { v: '2.19', date: 'Oct 22, 2026', items: [
-    'Creator profiles: signed-in players set one creator name for all their resorts (Community › Profile › You), and get a creator page with their totals and public resorts. Tap any creator’s name on the leaderboard, in Browse or while visiting to see their page.',
-    'Your profile can be public or private: private takes your name off your resorts and closes your page. Names you typed before carry over.',
+  { v: '2.20', date: 'Oct 22, 2026', title: 'Likes and staff picks', items: [
+    'Tap ♡ Like while visiting someone’s resort. Each new like on yours pays $100,000 (up to 10 a season).',
+    'Staff picks get a gold badge, a spot in Browse and a $1,000,000 bonus.',
   ] },
-  { v: '2.18', date: 'Oct 22, 2026', items: [
-    'Browse: a new Community tab for exploring other players’ resorts across every mountain, in shelves: Staff picks, Recently active, Rising stars and Biggest resorts. Tap Visit to look around any of them.',
+  { v: '2.19', date: 'Oct 22, 2026', title: 'Creator profiles', items: [
+    'Sign in to set one creator name for all your resorts and get your own page. Tap any creator’s name to see theirs.',
   ] },
-  { v: '2.17', date: 'Oct 22, 2026', items: [
-    'Community: a cleaner window with Leaderboard and Profile tabs, a card showing where your resort stands (“#3 of 12 · 25 guests behind Elk Basin”), one ranking menu instead of six tabs, and a Visit button on every resort.',
-    'Guests are on the leaderboards now, marked “Guest”. Sign in to put your name on your resort and keep it safe on any device.',
-    'New resorts get a name of their own, and the welcome lets you rename yours; the 🎲 button suggests one.',
+  { v: '2.18', date: 'Oct 22, 2026', title: 'Community, Browse and everyone on the boards', items: [
+    'Browse other players’ resorts: staff picks, recently active, rising stars and the biggest.',
+    'Guests appear on the leaderboards too, marked “Guest”. New resorts get a name of their own.',
   ] },
-  { v: '2.16', date: 'Oct 22, 2026', items: [
-    'What next? Tap the lightbulb by your resort’s name for the next few things worth doing, worked out from your resort, each with a button that takes you there. It pulses when something needs you.',
-    'Pre-season is clearer: new mountains start with a welcome that explains the wait for snow, and the top bar shows what’s holding up opening day, such as “Waiting for snow · trails 4″ of 12″”.',
+  { v: '2.16', date: 'Oct 22, 2026', title: 'What next?', items: [
+    'Tap the lightbulb by your resort’s name for your next steps. New mountains explain the wait for snow.',
   ] },
-  { v: '2.15', date: 'Oct 22, 2026', items: [
-    'Parking: the main lot now grows to four sections, onto clear, level ground only. Need more? Build a satellite Parking lot beside the access road (Buildings › Getting here): 96 spaces, upgradable to 192. Cars fill the main lot first. Guests walk from a satellite to the nearest lift, and a shuttle station beside it saves them a long walk. Resorts with a bigger main lot keep it.',
+  { v: '2.15', date: 'Oct 22, 2026', title: 'More parking', items: [
+    'The main lot grows to four sections. After that, build satellite parking lots beside the road; a shuttle station by one saves guests the walk.',
   ] },
-  { v: '2.14', date: 'Oct 21, 2026', items: [
-    'Phones: a lighter 3D scene (simpler trees, lower resolution) to stop the browser crashing while you zoom around. If it still struggles, choose Graphics › Low in the menu; the game also switches by itself after two graphics crashes.',
-    'If the 3D view can’t start, you now get a message with Try again and Low graphics instead of a stuck loading screen.',
+  { v: '2.14', date: 'Oct 21, 2026', title: 'Better on phones', items: [
+    'A new bottom bar: Trails, Lifts, Buildings and More, with the build tools behind Build.',
+    'Lighter graphics on phones, and Graphics › Low in the menu if yours still struggles.',
   ] },
-  { v: '2.13', date: 'Oct 21, 2026', items: [
-    'Phones: the bottom bar now opens Trails, Lifts and Buildings in one tap, with Operations, Prices, Snow and Money under More. Build opens the build tools; Done puts them away. The top of the screen is slimmer and no longer cuts off the day’s status.',
+  { v: '2.12', date: 'Oct 21, 2026', title: 'Creek bridges', items: [
+    'Trails cross the creek on a timber bridge ($15k to $40k, by width).',
   ] },
-  { v: '2.12', date: 'Oct 21, 2026', items: [
-    'Creek bridges: a trail across the creek now crosses on a timber skier bridge instead of filling the creek in, with the ground shaped level on each side so the trail meets it flush. A bridge adds $15k to $40k depending on the trail’s width, plus the shaping on steep ground. Trails already crossing the creek get their bridge for free.',
+  { v: '2.11', date: 'Oct 19, 2026', title: 'Express lifts and gondolas', items: [
+    'The express quad cuts lift lines; the gondola keeps skiers warm and sells scenic rides. Lifts can connect at the top.',
   ] },
-  { v: '2.11.6', date: 'Oct 21, 2026', items: [
-    'Behind the scenes: if the game hits an error, it now sends a short anonymous report so it can be fixed quickly. Saves from every earlier version are checked before each update.',
+  { v: '2.10', date: 'Oct 19, 2026', title: 'Beginners and learning areas', items: [
+    'Magic carpets and T-bars, and learning areas you paint at the base. First-timers need one before real trails.',
   ] },
-  { v: '2.11.5', date: 'Oct 20, 2026', items: [
-    'Updates: when a new version is published, a banner offers to save and reload into it, so the home-screen app no longer stays on an old version.',
+  { v: '2.9', date: 'Oct 19, 2026', title: 'Clinics, kids’ camps and transit', items: [
+    'A first-aid clinic, kids’ camp, heated restrooms and a transit center. Very long lift lines now send guests home early.',
   ] },
-  { v: '2.11.4', date: 'Oct 20, 2026', items: [
-    'Privacy update: to understand how the game is played and fix problems, the developer can now open a read-only view of any resort, including private ones. Looking never changes a resort, and private resorts are still never shown to other players. The privacy page has the details.',
+  { v: '2.8', date: 'Oct 19, 2026', title: 'Food and shops', items: [
+    'Food trucks, cafés and fine dining; a rental and tuning center, ski store and gift kiosks. Each has its own price.',
   ] },
-  { v: '2.11.3', date: 'Oct 20, 2026', items: [
-    'The app icon’s lift line no longer pokes past the mountain, and the loading screen shows the logo on navy to match the home-screen app’s splash.',
+  { v: '2.7', date: 'Oct 19, 2026', title: 'Five mountains and Undo', items: [
+    'Keep up to five mountains, saved online so they follow you between devices. Undo takes back your last changes overnight.',
   ] },
-  { v: '2.11.2', date: 'Oct 20, 2026', items: [
-    'Fixed: on mid-size screens the cash box and time bar could keep switching between their large and compact sizes as the clock and cash changed. The top bar now settles on one layout.',
+  { v: '2.6', date: 'Oct 19, 2026', title: 'Manage your resort', items: [
+    'Lists of your trails, lifts and buildings with live status and quick controls, and Money with your last 14 days.',
   ] },
-  { v: '2.11.1', date: 'Oct 19, 2026', items: [
-    'Lifts connect at the top: when another lift loads a short, level glide from a lift’s top station, guests can cross over to it without a trail. The lift panel shows the connection.',
-    'Learning areas no longer have a fence, so they look open and natural.',
+  { v: '2.5', date: 'Oct 18, 2026', title: 'Design your own mountain', items: [
+    'Set the height, steepness, snow, wind and more, then share the code so friends can build on the same land.',
   ] },
-  { v: '2.11', date: 'Oct 19, 2026', items: [
-    'The express quad: a detachable quad, twice as fast as a regular one for much less than the six-pack. It cuts lift lines.',
-    'The gondola: enclosed, heated 8-person cabins. Skiers prefer it on cold days, and when it starts at the base, sightseers who don’t ski buy a scenic ride up and back (set the price in Prices). It is the first lift to stop in high wind.',
-    'Learning areas have a name tag on the map showing how many are learning.',
+  { v: '2.4', date: 'Oct 18, 2026', title: 'Operations plans', items: [
+    'Decide how the resort runs on weekdays, weekends and quiet days. The base area needs snow too, and you can stay closed for a week.',
   ] },
-  { v: '2.10', date: 'Oct 19, 2026', items: [
-    'Surface lifts: the magic carpet, a covered conveyor for gentle beginner slopes, and the T-bar, a cheap lift that pulls skiers up on their skis and keeps running in wind that stops chairlifts.',
-    'Learning areas: in the Landscape tool, paint a gentle slope at the base and build it as a groomed learning area, then serve it with a magic carpet or T-bar. Guests ski it anywhere, weaving their own lines.',
-    'First-timers: about four in ten beginners have never skied before. They want a few laps of a learning area before real trails, and without one they struggle, fall more and complain. A served learning area also lets the ski school run bigger classes, with more students moving up to blue runs.',
+  { v: '2.3', date: 'Oct 18, 2026', title: 'Maple Notch', items: [
+    'A small, family-friendly New England hill, and the easiest mountain, if you can ride out the January thaws.',
   ] },
-  { v: '2.9.1', date: 'Oct 19, 2026', items: [
-    'Parking sections are joined by short strips of asphalt across their driving aisles.',
-    'Shuttle stations and transit centers have a proper bus bay: the pavement runs from the platform curb straight into the road, with a painted bay, and buses pull up along the curb.',
+  { v: '2.0', date: 'Oct 17, 2026', title: 'Goals, season passes and events', items: [
+    'Five goals per mountain to earn stars. Sell season passes, set weekend prices and book events for bigger crowds.',
   ] },
-  { v: '2.9', date: 'Oct 19, 2026', items: [
-    'A first-aid clinic: ski patrol brings injured guests there, and about half are patched up and head back out. Fewer injuries turn into claims.',
-    'A kids’ camp: parents drop the kids off for the day ($110 each, set in Prices), then ski on their own and stay longer.',
-    'Heated restrooms: bigger and warmer, so guests come out happier and a little rested, most of all on cold days.',
-    'A transit center: bigger buses every 12 minutes bring about half your guests without using parking. Bus stops now snap to the access road, with a paved apron where the buses turn in.',
-    'The access road is paved, with lane lines, edge lines and plowed shoulders.',
-    'Sharper mountain pictures on the title screen and in the mountain designer.',
-    'The build menu and the Prices panel are grouped into sections, and each price shows what guests consider normal.',
-    'The day report puts problems and money matters first; routine notes fold away under More.',
-    'Lift lines matter more: guests who see a very long line take a break indoors and come back later, the most impatient go home, and the day report shows who left early, what they’d have spent and which lift was the problem. Early leavers hurt your reputation a little.',
+  { v: '1.5', date: 'Oct 16, 2026', title: 'Bank loans', items: [
+    'Borrow to grow faster and pay it back any time. Run out of money and the bank steps in.',
   ] },
-  { v: '2.8', date: 'Oct 19, 2026', items: [
-    'New places to eat: food trucks for a quick snack beside a trail or at the top of a lift, cafés for hot chocolate on cold days, and fine dining for guests who love a long meal (and pay for it). The restaurant is now the casual restaurant, with more seats and quicker meals.',
-    'Guests choose by personality: the impatient grab a snack, the cold head for a café, and big spenders seek out fine dining. Each has its own price in the Prices panel.',
-    'New shops: the rental and tuning center rents demo skis and tunes guests\' own gear, the ski store sells gear to guests caught short on cold days, and gift kiosks sell souvenirs anywhere on the mountain. Shop sales get their own line in the day report.',
-    'Parking is back in the Buildings tool, as well as in Manage › Buildings.',
-    'Fixed: flying to a building from the Manage lists could leave it off-centre on low ground.',
+  { v: '1.4', date: 'Oct 16, 2026', title: 'Raven Peak', items: [
+    'A taller, steeper mountain with an alpine bowl for stronger skiers.',
   ] },
-  { v: '2.7', date: 'Oct 19, 2026', items: [
-    'A new title screen: each of your mountains gets its own card, with a painted view of the mountain, its season and date, cash, lifts and trails, best day, goal stars and when you last played.',
-    'Five mountains per account, up from three. An empty card starts a new one, with a card for each mountain to choose from (or design your own).',
-    'On tablet-size screens the time bar always stays at the top: the resort badge shrinks to its icon, and the cash box tightens, to make room.',
-    'Undo: the new Undo button (or Ctrl+Z) takes back your last changes overnight, up to ten: clearing trees, leveling ground, building, removing and upgrading, with the money refunded.',
-    'Saves follow you between devices: a finished day, going back to the title or leaving the game uploads at once, and Continue loads a newer copy saved on another device.',
-  ] },
-  { v: '2.6.1', date: 'Oct 19, 2026', items: [
-    'Trails that climb a little on the way down can be built anyway: switch on “Grade it downhill” and the ground under the trail is cut and filled so it falls the whole way. The earthwork costs extra, by how much ground moves.',
-    'Fixed: on mid-size screens the resort badge could cover the date; the time bar now drops below it when space is tight.',
-    'Fixed: the cash in the corner now keeps up with every sale and cost through the day, not just ticket sales.',
-  ] },
-  { v: '2.6', date: 'Oct 19, 2026', items: [
-    'A new Manage bar (the Manage button on phones) gives every panel its own spot: Trails, Lifts, Buildings, Operations, Prices, Snow and Money.',
-    'Trails, Lifts and Buildings are now lists with live status, snow depth, crowds and costs, plus quick controls: open or close trails, groom, snow guns, start and stop lifts. Tap a row to fly there.',
-    'Money shows your season so far and the last 14 open days. Tap any day to reread its report.',
-    'Map labels show what’s closed or slowed and step aside instead of piling up. Traffic and Slope map moved next to the camera controls.',
-    'The menu is grouped, with your goals and leaderboard rank, and today’s operations plan is a chip in the time bar.',
-  ] },
-  { v: '2.5', date: 'Oct 18, 2026', items: [
-    'Mountain builder: choose “Design your own” in the mountain list. Set the vertical, steepness, ruggedness, summits, bowl and base valley, the snow, wind and thaws, the drive from town and your starting cash, and watch a preview as you go.',
-    'Shuffle the land for a different mountain with the same settings. Every design has a code: share it and friends can build on the very same mountain.',
-    'Custom mountains have their own goals and their own Custom leaderboard.',
-    'Fixed: a new mountain showed “Juniper Ridge” in the corner badge until you reloaded.',
-  ] },
-  { v: '2.4', date: 'Oct 18, 2026', items: [
-    'Operations plans: in the Resort panel, set how the resort runs on weekdays, weekends and in the quiet ends of the season. Run lifts full, slow or off; open buildings all day, for lunch or not at all; close parking sections; shorten hours; staff lean or extra; run a skeleton patrol.',
-    'Cutbacks save money, but guests notice, most on weekends, at high prices and at a famous resort. A short-handed patrol can turn an injury into a claim.',
-    'The day report has an Operations section: what ran, what it carried and what it cost, with a link to adjust tomorrow’s plan.',
-    'Parking sections now cost $350 a day to run, and staff a little less, so a resort with everything open costs about the same as before.',
-    'The base area needs snow too. When it melts out, guests slog through mud and the ski school can’t teach. Add base snowmaking from the weather panel.',
-    'No snow in the forecast? Stay closed for a week from the weather panel. Until your first open day of the season, overhead runs at the summer rate.',
-  ] },
-  { v: '2.3', date: 'Oct 18, 2026', items: [
-    'New mountain: Maple Notch, a small New England hill with about 750 feet of gentle, wooded terrain. Families and forgiving crowds make it the easiest mountain, but January thaws and ice storms keep the snowmaking busy.',
-    'Maple Notch has five goals of its own, from teaching 60 lessons in a day to making it through the thaw in profit.',
-  ] },
-  { v: '2.2.1', date: 'Oct 18, 2026', items: [
-    'Full screen: choose it from the menu (or press F) to hide the browser’s bars. On iPhone, add Mountain Mogul to your home screen and open it from there to fill the screen.',
-  ] },
-  { v: '2.2', date: 'Oct 17, 2026', items: [
-    'Guests ski longer: most stay into the late afternoon instead of heading home by 2 PM, and about one in five ski a half day.',
-    'Staff costs per guest are lower to match, so longer days don’t sink a small resort.',
-    'A re-centre button (or H) brings the view back to your resort, and typing in a text box no longer moves the map.',
-    'Auto-advance waits 10 seconds on the day report, and pauses as soon as you scroll or tap it so you can read.',
-  ] },
-  { v: '2.1', date: 'Oct 17, 2026', items: [
-    'Share your resort: a link from the Community panel lets friends visit it, and start their own.',
-    'Send feedback from the menu or the title screen. Tell us what’s confusing, fun or broken.',
-  ] },
-  { v: '2.0', date: 'Oct 17, 2026', items: [
-    'Goals: five per mountain, from your first open day to a season in profit. Earn stars that show on your mountain card, in your list and on the leaderboards.',
-    'Season passes: set a price in the Resort panel. Passes sell on opening day for cash up front; pass holders then ski free, mostly on busy days.',
-    'Each mountain draws its own crowd. Raven Peak attracts stronger skiers but fewer visitors, and costs more to run.',
-    'The day report now gives one tip: the fix most likely to pay off, with what it’s costing you.',
-    'The bank warns you when you owe more than your limit, before it calls in the loan.',
-    'Set a separate lift ticket price for weekends and holidays.',
-    'Book events: a race weekend, a holiday torchlight parade or a spring pond skim draw bigger crowds and can lift your reputation.',
-    'Goals show your progress, like your best day so far.',
-  ] },
-  { v: '1.9', date: 'Oct 17, 2026', items: [
-    'Auto-advance: turn on Auto next to the speed buttons (or on the day report) and each new day starts and opens by itself, up to 7 days in a row.',
-  ] },
-  { v: '1.8', date: 'Oct 16, 2026', items: [
-    'Running a resort costs more: bigger crews, pricier lift power, overhead every day of the season (even closed days) and upkeep over the summer. A small resort now has to grow to really pay off.',
-    'Crowds swing more: quiet weekdays, busy weekends, packed holidays and big powder days. The day report shows guests turned away when the lot is full.',
-    'Reputation now takes consistently happy guests to climb.',
-    'On phones, the screen stays on while you play.',
-  ] },
-  { v: '1.7', date: 'Oct 16, 2026', items: [
-    'Hit rock bottom and the bank calls in your loan. Bucky Moneybags of Avalanche Capital may bail you out, once, for 10% of every day’s revenue. Buy Bucky out when you can.',
-    'Crash again (or turn Bucky down) and your resort is foreclosed. Start the mountain over, or play another.',
-  ] },
-  { v: '1.6', date: 'Oct 16, 2026', items: [
-    'Visiting another resort is now read only: look around and check its finances, then press Watch a day to see it run with their prices.',
-    'A Back to title button takes you home from a visit.',
-  ] },
-  { v: '1.5', date: 'Oct 16, 2026', items: [
-    'Bank loans: borrow from the Resort panel (tap your cash), pay 10% a year in nightly interest, and repay any time. Your credit limit grows with reputation and your best season.',
-    'Run out of cash overnight and the bank covers it, with a fee and a hit to your reputation.',
-    'The title screen leads with your resort’s name. Start fresh with New mountain.',
-  ] },
-  { v: '1.4', date: 'Oct 16, 2026', items: [
-    'New intermediate mountain, Raven Peak: taller and steeper, with an alpine bowl, a narrow base valley, more wind and a $2M budget.',
-    'Pick a mountain when you start a new one. Leaderboards now rank each mountain separately.',
-    'Tutorial and Community moved to their own card on the title screen.',
-  ] },
-  { v: '1.3', date: 'Oct 16, 2026', items: [
-    'Keep up to three mountains per account. Switch between them, start a new one or delete one from the title screen.',
-  ] },
-  { v: '1.2', date: 'Oct 16, 2026', items: [
-    'New tutorial: a practice resort that starts in mid-January with snow on the ground, extra cash and calmer weather, and walks you through your first lift, trail, lodge and day.',
-  ] },
-  { v: '1.1', date: 'Oct 16, 2026', items: [
-    'Sign in with Google or email from the title screen, and sign out from the account card.',
-    'Leaderboards only show resorts from signed-in players.',
-    'Phone-friendly time bar and tool dock, with an Undo button while drawing.',
-  ] },
-  { v: '1.0', date: 'Oct 16, 2026', items: [
-    'Build a ski resort on Juniper Ridge: clear trees, cut trails, run lifts and open for the season.',
-    'Online saves, leaderboards and visiting other players’ resorts.',
+  { v: '1.0', date: 'Oct 16, 2026', title: 'Mountain Mogul opens', items: [
+    'Build a ski resort on Juniper Ridge: clear trees, cut trails, run lifts and open for the season. A tutorial walks you through it.',
   ] },
 ];
 const VERSION = CHANGES[0].v;
@@ -10952,7 +10855,7 @@ $('updateLater').onclick = () => { $('updateBar').hidden = true; };
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
 setInterval(() => checkForUpdate(), 5 * 60 * 1000);
 setTimeout(() => checkForUpdate(true), 6000);
-$('versionTag').innerHTML = `<b>v${VERSION}</b> · What’s new`;
+$('versionTag').textContent = 'What’s new';
 /* ---------- Feedback: a note plus a snapshot of the game, readable only by the developer ---------- */
 let fbSentAt = 0;
 function openFeedback() {
@@ -10991,10 +10894,24 @@ $('fbClose').onclick = () => { $('feedbackBox').hidden = true; };
 $('feedbackBox').addEventListener('click', (e) => { if (e.target.id === 'feedbackBox') $('feedbackBox').hidden = true; });
 $('cmShare').onclick = shareResort;
 
-$('versionTag').onclick = () => {
-  $('wnList').innerHTML = CHANGES.map((c) => `<section><h3>Version ${c.v}<span>${c.date}</span></h3><ul>${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`).join('');
+// What's new: the latest updates, older ones folded away. Opening it clears the "New" banner.
+const wnItem = (c) => `<section><h3>${esc(c.title)}<span>${c.date}</span></h3><ul>${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`;
+function openWhatsNew() {
+  $('wnList').innerHTML = CHANGES.slice(0, 8).map(wnItem).join('')
+    + (CHANGES.length > 8 ? `<details class="wn-older"><summary>Earlier updates</summary>${CHANGES.slice(8).map(wnItem).join('')}</details>` : '')
+    + `<p class="help">Version ${VERSION}</p>`;
   $('whatsNew').hidden = false;
-};
+  try { localStorage.setItem('mm.seenVersion', VERSION); } catch (e) { /* ignore */ }
+  refreshNewBar();
+}
+function refreshNewBar() {
+  let seen = null; try { seen = localStorage.getItem('mm.seenVersion'); } catch (e) { /* ignore */ }
+  const returning = slots.list.length > 0 || (CLOUD.own || []).length > 0;
+  $('newBar').hidden = !returning || seen === VERSION;
+  $('newBar').innerHTML = `<b>New</b><span>${esc(CHANGES[0].title)}</span><i>See what’s new ›</i>`;
+}
+$('versionTag').onclick = openWhatsNew;
+$('newBar').onclick = openWhatsNew;
 $('wnClose').onclick = () => { $('whatsNew').hidden = true; };
 $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew') $('whatsNew').hidden = true; });
 
@@ -11002,6 +10919,7 @@ let titleTime = 0, BADGE_SUB = '';
 function refreshTitle() { renderSlots(); }
 /* ---------- Your mountains: a shelf of cards, one per save ---------- */
 let slotAsk = null; // the mountain waiting for a delete confirmation
+let slotMore = null; // the mountain whose ⋯ menu is open
 let picking = false; // choosing which mountain to start next
 function slotRows() {
   const rows = new Map();
@@ -11022,6 +10940,44 @@ function mountainThumb(mt) {
     thumbCache.set(mt, { cv, vert: Math.round((max - min) * FT_PER_UNIT / 10) * 10 });
   }
   return thumbCache.get(mt);
+}
+// A top-down map of the resort as built: shaded snow, forest, the road and lots, trails, lifts and buildings.
+// Made from the live world, so only for the resort loaded on this page; kept with its save slot.
+function resortMap(W = 360, H = 154) {
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  // frame everything built (trails, lifts, buildings and the lot), with a margin, at the card's shape
+  const pts = [...realTrails().flatMap((t) => t.samples), ...world.lifts.flatMap((L) => [L.a, L.b]), ...world.buildings.map((B) => B), ...lotBoxes().flatMap((b) => [{ x: b.x0, z: b.z0 }, { x: b.x1, z: b.z1 }])];
+  let x0 = Math.min(...pts.map((p) => p.x)), x1 = Math.max(...pts.map((p) => p.x)), z0 = Math.min(...pts.map((p) => p.z)), z1 = Math.max(...pts.map((p) => p.z));
+  if (!pts.length) { x0 = -40; x1 = 40; z0 = 20; z1 = 70; }
+  x0 -= 10; x1 += 10; z0 -= 8; z1 += 8;
+  const sc = Math.min(W / (x1 - x0), H / (z1 - z0)), ox = (x0 + x1) / 2 - W / sc / 2, oz = (z0 + z1) / 2 - H / sc / 2;
+  const X = (x) => (x - ox) * sc, Z = (z) => (z - oz) * sc;
+  const img = g.createImageData(W, H);
+  for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+    const gx = px / sc + ox + HALF, gz = py / sc + oz + HALF;
+    const hx = sampleGrid(HT, gx + 1, gz) - sampleGrid(HT, gx - 1, gz), hz = sampleGrid(HT, gx, gz + 1) - sampleGrid(HT, gx, gz - 1);
+    const shade = clamp(0.86 + (-hx * 0.6 - hz * 0.4) * 0.9, 0.55, 1.08), cr = sampleGrid(CREEKD, gx, gz) < 1.2;
+    const o = (py * W + px) * 4;
+    img.data[o] = cr ? 120 : 232 * shade; img.data[o + 1] = cr ? 160 : 238 * shade; img.data[o + 2] = cr ? 205 : 246 * shade; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  g.fillStyle = 'rgba(52, 92, 72, 0.55)';
+  const tr = Math.max(1.2, sc * 0.9);
+  for (let k = 0; k < trees.n; k++) if (trees.alive[k]) { const x = X(trees.x[k]), y = Z(trees.z[k]); if (x >= -2 && y >= -2 && x < W + 2 && y < H + 2) { g.beginPath(); g.arc(x, y, tr, 0, 6.283); g.fill(); } }
+  g.strokeStyle = '#5b6370'; g.lineWidth = 1.6; g.beginPath(); ROAD_WORLD.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.stroke();
+  g.fillStyle = '#5d6470';
+  for (const b of lotBoxes()) g.fillRect(X(b.x0), Z(b.z0), (b.x1 - b.x0) * sc, (b.z1 - b.z0) * sc);
+  for (const t of realTrails()) {
+    const w = TRAIL_WIDTHS[t.width].hw * 2 * sc, path = () => { g.beginPath(); t.samples.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); };
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = `rgb(${RATINGS[trailSign(t)].col.map((c) => Math.round(c * 255)).join(',')})`; g.lineWidth = w + 1.6; path(); g.stroke();
+    g.strokeStyle = '#fbfdff'; g.lineWidth = Math.max(1, w - 0.6); path(); g.stroke();
+  }
+  g.lineCap = 'butt';
+  for (const L of world.lifts) { g.strokeStyle = '#1b2533'; g.lineWidth = 1.3; g.beginPath(); g.moveTo(X(L.a.x), Z(L.a.z)); g.lineTo(X(L.b.x), Z(L.b.z)); g.stroke(); g.fillStyle = '#1b2533'; for (const p of [L.a, L.b]) g.fillRect(X(p.x) - 1.5, Z(p.z) - 1.5, 3, 3); }
+  for (const B of world.buildings) { const bb = boxOf(B); g.fillStyle = B.type === 'parking' ? '#5d6470' : '#8a5a3b'; g.fillRect(X(bb.x0), Z(bb.z0), Math.max(2, (bb.x1 - bb.x0) * sc), Math.max(2, (bb.z1 - bb.z0) * sc)); }
+  return cv.toDataURL('image/jpeg', 0.78);
 }
 function paintThumbs() {
   for (const cv of document.querySelectorAll('#titleSlots canvas[data-mt]')) cv.getContext('2d').drawImage(mountainThumb(cv.dataset.mt).cv, 0, 0, cv.width, cv.height);
@@ -11056,10 +11012,24 @@ function renderSlots() {
   const ordered = activeRow ? [activeRow, ...rows.filter((r) => r !== activeRow)] : rows;
   const cards = ordered.map((r) => slotCard(r, r === activeRow));
   if (!rows.length) cards.push(freshCard());
+  cards.splice(1, 0, communityCard());
+  if (CLOUD.ready) loadBoard(false);
+  refreshNewBar();
   if (left > 0) cards.push(`<button class="scard empty" data-slot="new"><b>+ New mountain</b><span>${left} of ${MAX_MOUNTAINS} ${left === 1 ? 'slot' : 'slots'} free</span></button>`);
   else cards.push(`<div class="scard empty full"><b>All ${MAX_MOUNTAINS} slots used</b><span>Delete a mountain to start another.</span></div>`);
   box.innerHTML = cards.join('');
   paintThumbs();
+}
+// Community on the title screen: your rank, likes and visits, and a way into the leaderboard and Browse.
+function communityCard() {
+  const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
+  const so = CLOUD.social && slots.active ? CLOUD.social.get(slots.active) : null;
+  const others = CLOUD.mountains.length;
+  const line = i >= 0 && r.length > 1 ? `You’re <b>#${i + 1}</b> of ${r.length} on ${esc(mountainDef(MOUNTAIN.id).name)}`
+    : others ? `<b>${others}</b> ${others === 1 ? 'resort' : 'resorts'} built by other players` : 'See what other players are building';
+  const soc = so && (so.likes || so.visits) ? `<span class="soc">❤ ${so.likes} · ${so.visits} ${so.visits === 1 ? 'visit' : 'visits'}</span>` : '';
+  return `<article class="panel ccard"><div class="cc-text"><div class="eyebrow">Community</div><p>${line}</p>${soc}</div>
+    <div class="actions"><button class="btn secondary" data-slot="board">Leaderboard</button><button class="btn secondary" data-slot="browse">Browse resorts</button></div></article>`;
 }
 // The mountain on screen before you've made anything: start here, or choose another.
 function freshCard() {
@@ -11070,7 +11040,8 @@ function freshCard() {
       <h2 id="mName">${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
       <dl class="stats"><div><dt>Summit</dt><dd>${ft(M.summitH).toLocaleString('en-US')}</dd></div><div><dt>Base</dt><dd>${ft(M.baseH).toLocaleString('en-US')}</dd></div>
         <div><dt>Vertical</dt><dd>${(ft(M.summitH) - ft(M.baseH)).toLocaleString('en-US')}</dd></div><div><dt>Acres</dt><dd>${Math.round(PN * PN * ACRES_PER_CELL).toLocaleString('en-US')}</dd></div></dl>
-      <div class="actions"><button class="btn" id="startBtn">Start building</button><button class="link goal-link" id="mGoals"><span class="stars">${starText(0, max)}</span> ${max} goals to earn</button></div></div></article>`;
+      <div class="actions"><button class="btn" id="startBtn">Start building</button><button class="link goal-link" id="mGoals"><span class="stars">${starText(0, max)}</span> ${max} goals to earn</button></div>
+      <button class="btn secondary tutbig" data-slot="tutorial"><span>🎓</span><span><b>New to tycoon games?</b><small>Take the 3-minute tutorial first</small></span></button></div></article>`;
 }
 function slotCard(r, active) {
   const M = mountainDef(r.mt);
@@ -11080,6 +11051,12 @@ function slotCard(r, active) {
   const stars = live ? starsOf() : sum.stars ?? (slotById(r.id) || {}).stars ?? 0;
   const max = (GOALS[isCustomId(r.mt) ? 'custom' : r.mt] || []).length || 5;
   const has = live && !!loadSave();
+  // the map of the resort: made fresh for the one loaded here, kept with its slot for the others
+  const slot = slotById(r.id), mapKey = `${state.day}:${world.trails.length}:${world.lifts.length}:${world.buildings.length}`;
+  if (live && has && slot && slot.thumbAt !== mapKey) {
+    try { slot.thumb = resortMap(); slot.thumbAt = mapKey; writeSlots(); } catch (e) { /* the painted mountain will do */ }
+  }
+  const pic = slot && slot.thumb && (live ? world.lifts.length || world.trails.length : sum.lifts || sum.trails) ? `<img class="sc-map" src="${slot.thumb}" alt="Map of ${esc(r.name)}">` : `<canvas width="720" height="450" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>`;
   if (slotAsk === r.id) {
     return `<article class="panel scard ask"><div class="sc-body"><h2>${esc(r.name)}</h2>
       <p>Delete ${esc(r.name)}${r.foreign ? ' from this device' : ''}? This can’t be undone.</p>
@@ -11098,14 +11075,14 @@ function slotCard(r, active) {
     : r.foreign && CLOUD.ready && ownIds().size < MAX_MOUNTAINS ? `<button class="btn secondary" data-slot="adopt" data-id="${r.id}">Add to my account</button>`
     : `<button class="btn secondary" data-slot="play" data-id="${r.id}">Play</button>`;
   return `<article class="panel scard ${active ? 'on' : ''}">
-    <canvas width="720" height="450" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>
+    ${pic}
     <div class="sc-body">
       <div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i><span ${live ? 'id="mLevel"' : ''}>${esc(level)}</span></div>
       <h2 ${live ? 'id="mName"' : ''}>${esc(r.name)}</h2>
       <p class="sc-when">${esc(r.when || sum.when || 'Not started yet')}${r.savedAt ? ` · <span>played ${ago(r.savedAt)}</span>` : ''}</p>
       ${facts ? `<dl class="sc-facts">${facts}</dl>` : ''}
       <div class="actions">${play}${live ? '<button class="link goal-link" id="mGoals">' : '<span class="goal-link static">'}<span class="stars">${starText(stars, max)}</span> ${stars} of ${max} goals${live ? '</button>' : '</span>'}</div>
-      <div class="sc-foot"><span class="sc-badge">${esc(badge)}</span>${isCustomId(r.mt) ? `<span class="sc-badge">Code ${esc(prettyCode(parseRecipe(r.mt.slice(2))))}</span>` : ''}<button class="link" data-slot="del" data-id="${r.id}">Delete</button></div>
+      <div class="sc-foot"><span class="sc-badge">${esc(badge)}</span>${isCustomId(r.mt) ? `<span class="sc-badge">Code ${esc(prettyCode(parseRecipe(r.mt.slice(2))))}</span>` : ''}${slotMore === r.id ? `<button class="link danger-link" data-slot="del" data-id="${r.id}">Delete this mountain</button><button class="link" data-slot="more" data-id="${r.id}">Cancel</button>` : `<button class="link more" data-slot="more" data-id="${r.id}" aria-label="More options for ${esc(r.name)}" title="More">⋯</button>`}</div>
     </div></article>`;
 }
 async function deleteMountain(id) {
@@ -11297,10 +11274,13 @@ $('titleSlots').addEventListener('click', async (e) => {
   if (!b) return;
   const id = b.dataset.id, act = b.dataset.slot;
   if (act === 'pick') { picking = false; if (newMountain(b.dataset.mt)) startGame(null); return; }
+  if (act === 'tutorial') return startTutorial();
+  if (act === 'board' || act === 'browse') return openCommunity(act);
+  if (act === 'more') { slotMore = slotMore === id ? null : id; return renderSlots(); }
   if (act === 'design') { openBuilder(MOUNTAIN.custom ? recipeCode(MOUNTAIN.recipe) : null); return; }
   if (act === 'new') picking = true;
   else if (act === 'pickNo') picking = false;
-  else if (act === 'del') slotAsk = id;
+  else if (act === 'del') { slotAsk = id; slotMore = null; }
   else if (act === 'delNo') slotAsk = null;
   else if (act === 'delYes') { slotAsk = null; await deleteMountain(id); return; }
   else if (act === 'adopt') return adoptMountain(id);
