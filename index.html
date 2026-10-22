@@ -5231,7 +5231,7 @@ function carPath(stall) {
     const q = { x: a.x + dx * t, z: a.z + dz * t }, d = Math.hypot(q.x - stall.road.x, q.z - stall.road.z);
     if (d < bd) { bd = d; bi = i; bq = q; }
   }
-  return [...ROAD_WORLD.slice(0, bi + 1), bq, stall.road, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
+  return [...ROAD_WORLD.slice(0, bi + 1), bq, stall.road, stall.gate, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
 function spawnCar(size) {
@@ -6078,8 +6078,8 @@ const BTYPES = {
   parking: { name: 'Parking lot', where: 'any', cost: 75000, sign: 'P', accent: 0x2565d4,
     desc: 'A satellite lot beside the access road for when the main lot is full. Guests walk from it to the nearest lift; a shuttle station beside it saves them the walk. Upgrades to 192 spaces.',
     tiers: [
-      { label: '96 spaces', spaces: 96, sections: 1, w: 8.5, d: 8.0, upkeep: 350 },
-      { label: '192 spaces', spaces: 192, sections: 2, w: 16.9, d: 8.0, upkeep: 700, cost: 75000 },
+      { label: '96 spaces', spaces: 96, sections: 1, w: 8.5, d: 8.8, upkeep: 350 },
+      { label: '192 spaces', spaces: 192, sections: 2, w: 16.9, d: 8.8, upkeep: 700, cost: 75000 },
     ],
   },
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1700,
@@ -6091,7 +6091,7 @@ const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fi
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['parking', 'shuttle', 'transit']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit', 'parking']; // bus stops and satellite lots sit beside the access road
-const BAY_FRONT = { shuttle: 0.05, transit: 0.22, parking: 4.0 }; // the platform's curb; the bus bay is the paved apron from here to the road
+const BAY_FRONT = { shuttle: 0.05, transit: 0.22, parking: 4.4 }; // the platform's curb; the bus bay is the paved apron from here to the road
 // Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
 function snapToRoad(type, p) {
   const r = nearestRoad(p), t = BTYPES[type];
@@ -6105,7 +6105,7 @@ function snapToRoad(type, p) {
 }
 // The paved apron from a bus bay's front edge to the edge of the road: four corners, or null when the road is far away.
 function drivewayQuad(b) {
-  const t = BTYPES[b.type], hw = (t.tiers ? t.tiers[b.tier || 0] : t).w / 2 - 0.05, fz = BAY_FRONT[b.type];
+  const t = BTYPES[b.type], hw = b.type === 'parking' ? LOT_SAT.drive : (t.tiers ? t.tiers[b.tier || 0] : t).w / 2 - 0.05, fz = BAY_FRONT[b.type];
   const cs = [toWorld(b, -hw, fz), toWorld(b, hw, fz)];
   const es = cs.map((c) => { const r = nearestRoad(c); return r.d > 7 ? null : { x: r.q.x + r.nx * (ROAD_HW - 0.2), z: r.q.z + r.nz * (ROAD_HW - 0.2) }; });
   return es[0] && es[1] ? { cs, es } : null;
@@ -6651,19 +6651,22 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-// A satellite lot: sections side by side, entered from the road side (+z), aisles running to the back.
-const LOT_SAT = { w: 8.4, d: 8.0 };
+// A satellite lot: sections side by side, aisles running back from a paved lane along the front (+z),
+// which a single driveway joins to the road.
+const LOT_SAT = { w: 8.4, d: 8.0, lane: 0.8, drive: 1.2 };
+const LOT_FRONT = LOT_SAT.d / 2 - LOT_SAT.lane / 2; // front edge of the stalls; the lane runs from here to the curb
 function satSectionX(tier, k) { const n = BTYPES.parking.tiers[tier].sections; return -n * LOT_SAT.w / 2 + k * LOT_SAT.w; }
 function modelParking(tier) {
-  const k = new Kit(), n = BTYPES.parking.tiers[tier].sections, H = LOT_SAT.d / 2;
+  const k = new Kit(), n = BTYPES.parking.tiers[tier].sections, H = LOT_FRONT, B = LOT_FRONT - LOT_SAT.d;
   for (let s = 0; s < n; s++) {
     const x0 = satSectionX(tier, s), x1 = x0 + LOT_SAT.w, geo = new THREE.BufferGeometry();
     // the texture across the stalls (canvas x) runs from the front back; across the bays (canvas y) runs along x
-    geo.setAttribute('position', new THREE.Float32BufferAttribute([x0, 0.03, H, x1, 0.03, H, x0, 0.03, -H, x1, 0.03, H, x1, 0.03, -H, x0, 0.03, -H], 3));
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([x0, 0.03, H, x1, 0.03, H, x0, 0.03, B, x1, 0.03, H, x1, 0.03, B, x0, 0.03, B], 3));
     geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1], 2));
     k.add(geo, LOT_MAT);
   }
+  k.add(bx(n * LOT_SAT.w, 0.02, LOT_SAT.lane), LOT_DRIVE_MAT, 0, 0.03, H + LOT_SAT.lane / 2); // the front lane
   const x = satSectionX(tier, 0) - 0.15;
   k.add(bx(0.06, 1.1, 0.06), BM.dark, x, 0.55, H - 0.2);
   k.add(bx(0.05, 0.42, 0.42), accentMat(BTYPES.parking.accent), x, 1.15, H - 0.2);
@@ -6671,7 +6674,7 @@ function modelParking(tier) {
 }
 // The spaces in a satellite lot, in world coordinates, with the way in from the road.
 function satStalls(B) {
-  const out = [], n = bspec(B).sections, H = LOT_SAT.d / 2;
+  const out = [], n = bspec(B).sections, H = LOT_FRONT;
   const Q = drivewayQuad(B), road = Q ? { x: (Q.es[0].x + Q.es[1].x) / 2, z: (Q.es[0].z + Q.es[1].z) / 2 } : toWorld(B, 0, H + 1.5);
   const yawOf = (lx, lz) => { const d = toWorld(B, lx, lz), o = toWorld(B, 0, 0); return Math.atan2(d.x - o.x, d.z - o.z); };
   for (let sec = 0; sec < n; sec++) {
@@ -6680,7 +6683,7 @@ function satStalls(B) {
       const xa = sx + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
         const lz = H - 0.25 - c * 0.5;
-        out.push({ ...toWorld(B, xa + side * 0.95, lz), aisle: toWorld(B, xa, lz), entry: toWorld(B, xa, H + 0.45), road, heading: yawOf(side, 0), car: null, sat: B.id });
+        out.push({ ...toWorld(B, xa + side * 0.95, lz), aisle: toWorld(B, xa, lz), gate: toWorld(B, 0, H + LOT_SAT.lane / 2), entry: toWorld(B, xa, H + LOT_SAT.lane / 2), road, heading: yawOf(side, 0), car: null, sat: B.id });
       }
     }
   }
