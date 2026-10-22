@@ -28,6 +28,13 @@
         (d.errors || (d.errors = [])).push({ user_id: me, ...q.obj });
         put(d); return { data: null, error: null };
       }
+      // profiles: public ones (and your own) readable; written only through set_profile
+      if (table === 'profiles') {
+        if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table profiles' } };
+        let rows = Object.entries(d.profiles || {}).map(([id, p]) => ({ id, ...p })).filter((p) => p.public || p.id === me);
+        for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        return { data: q.single ? rows[0] || null : rows, error: null };
+      }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
       if (table === 'featured') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
@@ -70,5 +77,16 @@
       signInWithOAuth: async () => ({ error: { message: 'no' } }), updateUser: async () => ({ error: null }), signInWithOtp: async () => ({ error: null }),
     },
     from: (table) => query(table),
+    // set_profile: signed-in players only; the name goes on all their resorts (blank while private)
+    rpc: async (fn, args) => {
+      const d = db(), me = uid();
+      if (fn !== 'set_profile') return { data: null, error: { message: 'no function ' + fn } };
+      if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
+      const n = String(args.pname || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+      if (!n) return { data: null, error: { code: '22023', message: 'name_needed' } };
+      (d.profiles || (d.profiles = {}))[me] = { name: n, public: !!args.ppublic };
+      for (const r of d.rows) if (r.owner === me) r.summary = { ...r.summary, creator: args.ppublic ? n : '' };
+      put(d); return { data: { name: n, public: !!args.ppublic }, error: null };
+    },
   }) };
 })();

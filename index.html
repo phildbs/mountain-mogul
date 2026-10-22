@@ -273,6 +273,14 @@ body.visiting .badge { cursor: default; }
 .bcard .visitb { grid-area: btn; }
 .bcard .gtag { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(20, 36, 58, 0.07); color: var(--ink-2); font: 700 9.5px var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
 .bcard .visitb { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font: 600 12.5px var(--ui); color: var(--ink); cursor: pointer; }
+.who-link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; text-decoration-color: rgba(20, 36, 58, 0.3); cursor: pointer; }
+.creator { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.creator h3 { margin: 0; font-family: var(--display); font-size: 26px; line-height: 1.05; text-transform: uppercase; }
+.cr-av { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #fff; font: 800 22px var(--display); flex: none; }
+.cr-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0 0 12px; }
+.cr-stats div { background: rgba(20, 36, 58, 0.05); border-radius: 10px; padding: 8px; text-align: center; }
+.cr-stats dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); }
+.cr-stats dd { margin: 2px 0 0; font-weight: 800; font-size: 16px; font-variant-numeric: tabular-nums; }
 .cm-tabs { display: flex; gap: 2px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 11px; }
 .cm-tabs button { flex: 1; border: 0; background: none; border-radius: 9px; padding: 8px 10px; font: 700 13px var(--ui); color: var(--ink-2); cursor: pointer; }
 .cm-tabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.15); }
@@ -1144,12 +1152,15 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <div class="cm-tabs" role="tablist"><button type="button" role="tab" data-cmtab="board" aria-selected="true">Leaderboard</button><button type="button" role="tab" data-cmtab="browse" aria-selected="false">Browse</button><button type="button" role="tab" data-cmtab="profile" aria-selected="false">Profile</button></div>
       <div id="cmBoardTab"><div id="cmStanding"></div><div id="cmBoard"></div></div>
       <div id="cmBrowseTab" hidden></div>
+      <div id="cmCreatorTab" hidden></div>
       <div id="cmProfileTab" hidden>
+      <div class="field-label">You</div>
+      <div id="cmMe"></div>
       <form class="cm-profile" id="cmProfile">
+        <div class="field-label">This resort</div>
         <label>Resort name<span class="namerow"><input id="cmResort" maxlength="28" autocomplete="off"><button type="button" class="dice" id="cmRoll" title="Suggest a name" aria-label="Suggest a name">🎲</button></span></label>
-        <label>Creator name<input id="cmCreator" maxlength="24" autocomplete="off"></label>
         <label class="pubrow"><input type="checkbox" id="cmPublic"><span><b>Public resort</b><small>Show it on the leaderboards so others can visit. Guests show as “Guest” until they sign in. Turn off to keep it to yourself.</small></span></label>
-        <button class="btn" type="submit">Save profile</button>
+        <button class="btn" type="submit">Save resort</button>
       </form>
       <p class="help" id="cmStatus"></p>
       <button class="btn secondary" id="cmShare" hidden>Share my resort</button>
@@ -4268,6 +4279,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'visit') visitResort(b.dataset.v);
   else if (a === 'profile') openCommunity('profile');
   else if (a === 'browse') openCommunity('browse');
+  else if (a === 'creator') openCreator(b.dataset.v);
   else if (a === 'goPublic') { state.isPublic = true; saveNow(); CLOUD.lastUp = 0; cloudSave(false); toast('Your resort is now public.'); renderSheet(); refreshCommunity(); }
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
@@ -4511,6 +4523,7 @@ function updateLabels() {
   declutterLabels();
 }
 function placeLabel(el, x, y, z, visible) {
+  if (!el) return; // a label not made yet (it comes with the next labels sync)
   el._on = false;
   if (!visible) { if (!el.hidden) el.hidden = true; return; }
   const p = project(x, y, z);
@@ -9839,10 +9852,30 @@ const BOARDS = {
   rep: { label: 'Reputation', val: (m) => m.rep || 0, fmt: (v) => repWordOf(v) },
 };
 
+// Creator profiles: one per signed-in account (a name for all its resorts, public or not), kept in the
+// profiles table and set through set_profile, which also stamps the name on every resort of the account.
+const creatorShown = () => (CLOUD.guest ? '' : CLOUD.profile ? (CLOUD.profile.public ? CLOUD.profile.name : '') : state.creator || '');
+async function loadProfile() {
+  CLOUD.profile = null;
+  if (!CLOUD.ready || CLOUD.guest || !CLOUD.uid) return;
+  const { data, error } = await CLOUD.sb.from('profiles').select('name, public').eq('id', CLOUD.uid).maybeSingle();
+  if (error) return;
+  if (data) { CLOUD.profile = { name: data.name, public: data.public }; return; }
+  // first time on profiles: carry over a creator name typed on one of this account's resorts
+  const old = state.creator || (CLOUD.own || []).map((m) => m.creator).find(Boolean);
+  if (old) await saveProfile(old, true);
+}
+async function saveProfile(name, pub) {
+  const { data, error } = await CLOUD.sb.rpc('set_profile', { pname: name, ppublic: pub });
+  if (error) return error;
+  CLOUD.profile = { name: data.name, public: data.public };
+  CLOUD.boardAt = 0; loadBoard(true);
+  return null;
+}
 function summaryDoc() {
   const rc = state.records || newRecords();
   return {
-    v: 1, mt: MOUNTAIN.id, stars: starsOf(), name: state.resortName || 'Juniper Ridge', creator: state.creator || '', updatedAt: Date.now(),
+    v: 1, mt: MOUNTAIN.id, stars: starsOf(), name: state.resortName || 'Juniper Ridge', creator: creatorShown(), updatedAt: Date.now(),
     season: state.season || 1, when: state.bankrupt ? 'Foreclosed' : state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
     cash: Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100,
     trails: realTrails().length, lifts: world.lifts.length, buildings: world.buildings.length,
@@ -9859,7 +9892,10 @@ function ranked(key, mt) {
   const B = BOARDS[key] || BOARDS.guests;
   return boardEntries(mt).filter((m) => B.val(m) > -Infinity).sort((a, b) => B.val(b) - B.val(a));
 }
-const ownerOf = (m) => (m.me || (m.owner && m.owner === CLOUD.uid) ? 'You' : m.creator || (m.guest ? 'A guest' : 'Unnamed player'));
+const ownerOf = (m) => (m.me || (m.owner && m.owner === CLOUD.uid) ? 'You' : m.creator || (m.guest ? 'A guest' : 'A player'));
+// A creator's name, as a link to their page when they have a public profile.
+const creatorLink = (m) => (m.creator && !m.guest && m.owner && !m.me && m.owner !== CLOUD.uid
+  ? `<button class="who-link" data-action="creator" data-v="${esc(m.owner)}">${esc(m.creator)}</button>` : esc(ownerOf(m)));
 
 function scheduleCloud() {
   if (!CLOUD.ready || visiting || practice) return;
@@ -10061,7 +10097,8 @@ async function visitResort(id, opts = {}) {
   if (state.speed === 0) state.speed = 1;
   const owner = m ? ownerOf(m) : '';
   $('resortName').textContent = visiting.name;
-  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
+  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${m && m.creator && !m.guest ? `<button class="linkb" id="visitCreator">${esc(owner)}</button>` : esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
+  if ($('visitCreator')) $('visitCreator').onclick = () => openCreator(m.owner);
   $('visitBar').hidden = false;
   $('visitHome').textContent = visiting.link ? 'Build your own resort' : 'Back to title';
   if (!state.started) startGame(null);
@@ -10152,10 +10189,11 @@ async function initCloud() {
       if (!s) return;
       const switched = setSession(s);
       if (ev === 'SIGNED_IN' || ev === 'USER_UPDATED') CLOUD.authMsg = '';
-      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(settleAccount).then(() => { offerCloudSave(); refreshCommunity(); }); }
-      else { CLOUD.sentJson = ''; scheduleCloud(); refreshCommunity(); } // e.g. a guest just linked Google: list their resort
+      if (switched) { CLOUD.sentJson = ''; CLOUD.offered = false; loadMine().then(loadProfile).then(settleAccount).then(() => { offerCloudSave(); refreshCommunity(); }); }
+      else { CLOUD.sentJson = ''; loadProfile().then(() => { scheduleCloud(); refreshCommunity(); }); } // e.g. a guest just linked Google: list their resort
     });
     await loadMine();
+    await loadProfile();
     await settleAccount();
     offerCloudSave();
     if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
@@ -10306,9 +10344,9 @@ function boardHtml(limit) {
   const B = BOARDS[CLOUD.board] || BOARDS.guests;
   const list = ranked(CLOUD.board).slice(0, limit);
   const rows = list.map((m, i) => {
-    const sub = [ownerOf(m), m.hidden ? 'private' : m.when].filter(Boolean).join(' · ');
+    const sub = [creatorLink(m), esc(m.hidden ? 'private' : m.when || '')].filter(Boolean).join(' · ');
     const act = m.me || !CLOUD.ready ? '<span></span>' : `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>`;
-    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</b><span>${esc(sub)}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
+    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</b><span>${sub}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
   }).join('');
   const mt = CLOUD.boardMt || boardOf(MOUNTAIN.id);
   return `<div class="tabs mts">${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${M.id === mt}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
@@ -10319,13 +10357,37 @@ function boardHtml(limit) {
 const sizeOf = (m) => BOARDS.size.val(m);
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const agoShort = (t) => { const h = (Date.now() - t) / 3600e3; return h < 1 ? 'just now' : h < 24 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`; };
-function browseCard(m, extra) {
+function browseCard(m, extra, noVisit) {
   const M = MOUNTAINS[m.mt] || null;
-  const who = m.creator || (m.guest ? 'A guest' : 'Unnamed player');
+  const who = creatorLink(m);
   return `<li class="bcard"><div class="bc-top"><b>${esc(m.name)}</b>${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</div>
-    <div class="bc-sub">${M ? `<i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}` : 'Custom mountain'} · ${esc(who)}</div>
+    <div class="bc-sub">${M ? `<i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}` : 'Custom mountain'}${m.hideWho ? '' : ` · ${who}`}</div>
     <div class="bc-stats">${plural(m.lifts || 0, 'lift')} · ${plural(m.trails || 0, 'trail')} · best day ${(m.bestGuests || 0).toLocaleString('en-US')} guests${extra ? ` · ${extra}` : ''}</div>
-    ${CLOUD.ready ? `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>` : ''}</li>`;
+    ${CLOUD.ready && !noVisit ? `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>` : ''}</li>`;
+}
+// A creator's page: their name, totals and public resorts. Your own shows what others see.
+function creatorHtml(id) {
+  const mine = id === CLOUD.uid;
+  const list = mine ? (CLOUD.own || []).filter((m) => m.public).map((m) => ({ ...m, owner: id, me: true }))
+    : CLOUD.mountains.filter((m) => m.owner === id);
+  const name = mine ? (CLOUD.profile && CLOUD.profile.name) || 'You' : (list.find((m) => m.creator) || {}).creator;
+  const back = `<button class="link back" data-action="cmBack">‹ Back</button>`;
+  if (!name) return `${back}<p class="help">This creator keeps their profile private.</p>`;
+  const best = Math.max(0, ...list.map((m) => m.bestGuests || 0)), stars = list.reduce((a, m) => a + (m.stars || 0), 0);
+  const guests = list.reduce((a, m) => a + (m.totalVisitors || 0), 0);
+  const note = mine ? (CLOUD.profile && !CLOUD.profile.public ? '<p class="help">Your profile is private, so nobody else can open this page and your resorts show “A player”.</p>' : '<p class="help">This is your page as other players see it. Private resorts aren’t listed.</p>') : '';
+  return `${back}<div class="creator"><div class="cr-av">${esc(name.slice(0, 1).toUpperCase())}</div><div><div class="eyebrow">Creator</div><h3>${esc(name)}</h3></div></div>
+    <dl class="cr-stats"><div><dt>Resorts</dt><dd>${list.length}</dd></div><div><dt>Best day</dt><dd>${best.toLocaleString('en-US')}</dd></div><div><dt>Stars</dt><dd>★${stars}</dd></div><div><dt>Guests</dt><dd>${guests.toLocaleString('en-US')}</dd></div></dl>
+    ${note}${list.length ? `<ul class="bcards">${list.sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)).map((m) => browseCard({ ...m, hideWho: true }, null, mine)).join('')}</ul>` : '<p class="help">No public resorts yet.</p>'}`;
+}
+let cmPrev = 'board';
+function openCreator(id) {
+  if ($('community').hidden) openCommunity('board');
+  const cur = ['board', 'browse', 'profile'].find((t) => !$(t === 'board' ? 'cmBoardTab' : t === 'browse' ? 'cmBrowseTab' : 'cmProfileTab').hidden);
+  if (cur) cmPrev = cur;
+  CLOUD.viewCreator = id;
+  cmTab('creator');
+  refreshCommunity();
 }
 function browseHtml() {
   if (CLOUD.status === 'offline') return `<p class="help">${esc(cloudNote())}</p>`;
@@ -10361,7 +10423,7 @@ function cloudNote() {
   if (CLOUD.status === 'connecting') return 'Connecting…';
   if (CLOUD.status === 'offline') return `Online features aren’t working: ${CLOUD.error || 'can’t reach the server.'} Your resort still saves on this device.`;
   const pub = CLOUD.guest && isPublic() ? 'Your resort is on the leaderboards as a guest. Sign in on the title screen to keep it safe on any device and put your name on it.'
-    : isPublic() ? `Your resort is public, so others can see it on the leaderboards and visit.${state.creator ? '' : ' Add a creator name in Profile and settings so they know it’s yours.'}` : 'Your resort is private: only you see it, and it isn’t on the leaderboards.';
+    : isPublic() ? `Your resort is public, so others can see it on the leaderboards and visit.${creatorShown() ? '' : ' Add a creator name under You so they know it’s yours.'}` : 'Your resort is private: only you see it, and it isn’t on the leaderboards.';
   return `${pub} It saves online automatically between days.${CLOUD.error ? ' Problem: ' + CLOUD.error : CLOUD.verified ? ' Last save went through.' : ''}`;
 }
 // In-game: compare the resort you're on with everyone else.
@@ -10376,9 +10438,23 @@ function communitySheet() {
 // Title screen (and menu): the full community window with your profile.
 function fillProfile() {
   $('cmResort').value = state.resortName || 'Juniper Ridge';
-  $('cmCreator').value = state.creator || '';
-  $('cmCreator').placeholder = 'Your name on the leaderboards';
   $('cmPublic').checked = isPublic();
+  fillMe();
+}
+// Your creator profile: the same name on all your resorts, and whether your page is public.
+function meHtml() {
+  if (!CLOUD.ready) return '<p class="help">Connecting…</p>';
+  if (CLOUD.guest) return '<p class="help">Creator profiles need an account. Sign in on the title screen with Google or email to put one name on all your resorts and get your own creator page.</p>';
+  return `<form class="cm-profile" id="cmMeForm">
+      <label>Creator name<input id="cmCreator" maxlength="24" autocomplete="off" placeholder="Your name on the leaderboards"></label>
+      <label class="pubrow"><input type="checkbox" id="cmProfPublic"><span><b>Public profile</b><small>Your name shows on all your public resorts, and anyone can open your creator page. Turn off to show as “A player”.</small></span></label>
+      <div class="row"><button class="btn" type="submit">Save profile</button>${CLOUD.profile ? '<button class="btn secondary" type="button" data-action="creator" id="cmMyPage">See my page</button>' : ''}</div>
+    </form>`;
+}
+function fillMe() {
+  if (!$('cmCreator')) return;
+  $('cmCreator').value = (CLOUD.profile && CLOUD.profile.name) || '';
+  $('cmProfPublic').checked = !CLOUD.profile || CLOUD.profile.public;
 }
 let accountCache = '';
 const OWNER_EMAIL = 'phildbs@gmail.com'; // only shows the Stats link; the stats themselves are checked by the database
@@ -10407,6 +10483,10 @@ function refreshCommunity() {
   if ($('cmStanding').innerHTML !== st) $('cmStanding').innerHTML = st;
   const br = browseHtml();
   if ($('cmBrowseTab').innerHTML !== br) $('cmBrowseTab').innerHTML = br;
+  const cr = CLOUD.viewCreator ? creatorHtml(CLOUD.viewCreator) : '';
+  if ($('cmCreatorTab').innerHTML !== cr) $('cmCreatorTab').innerHTML = cr;
+  const me = meHtml();
+  if ($('cmMe').innerHTML !== me) { $('cmMe').innerHTML = me; fillMe(); }
 }
 function refreshCommBtn() {
   const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
@@ -10414,7 +10494,7 @@ function refreshCommBtn() {
 }
 function cmTab(t) {
   document.querySelectorAll('[data-cmtab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.cmtab === t)));
-  $('cmBoardTab').hidden = t !== 'board'; $('cmProfileTab').hidden = t !== 'profile'; $('cmBrowseTab').hidden = t !== 'browse';
+  $('cmBoardTab').hidden = t !== 'board'; $('cmProfileTab').hidden = t !== 'profile'; $('cmBrowseTab').hidden = t !== 'browse'; $('cmCreatorTab').hidden = t !== 'creator';
 }
 function openCommunity(tab) {
   closeMenu();
@@ -10431,9 +10511,12 @@ function onBoardClick(e) {
   if (b.dataset.action === 'board') { CLOUD.board = b.dataset.v; refreshCommunity(); }
   else if (b.dataset.action === 'boardMt') { CLOUD.boardMt = b.dataset.v; refreshCommunity(); }
   else if (b.dataset.action === 'visit') visitResort(b.dataset.v);
+  else if (b.dataset.action === 'creator') openCreator(b.dataset.v);
+  else if (b.dataset.action === 'cmBack') cmTab(cmPrev);
 }
 $('cmBoard').addEventListener('click', onBoardClick);
 $('cmBrowseTab').addEventListener('click', onBoardClick);
+$('cmCreatorTab').addEventListener('click', onBoardClick);
 $('cmStanding').addEventListener('click', (e) => { if (e.target.closest('[data-action=goPublic]')) { state.isPublic = true; fillProfile(); saveNow(); CLOUD.lastUp = 0; cloudSave(false); refreshCommunity(); } });
 document.querySelector('.cm-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-cmtab]'); if (b) cmTab(b.dataset.cmtab); });
 $('cmRoll').onclick = () => { $('cmResort').value = resortNameIdea($('cmResort').value); };
@@ -10456,6 +10539,16 @@ $('titleAcct').addEventListener('click', (e) => {
 });
 $('cmClose').onclick = () => { $('community').hidden = true; };
 $('community').addEventListener('click', (e) => { if (e.target.id === 'community') $('community').hidden = true; });
+$('cmMe').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('cmCreator').value.replace(/\s+/g, ' ').trim().slice(0, 24);
+  if (!name) { toast('Type a creator name first.', true); return; }
+  const err = await saveProfile(name, $('cmProfPublic').checked);
+  if (err) { toast(/sign_in/.test(err.message) ? 'Sign in to make a creator profile.' : `Couldn’t save your profile: ${err.message}`, true); return; }
+  toast(CLOUD.profile.public ? `Saved. ${CLOUD.profile.name} now shows on all your public resorts.` : 'Saved. Your profile is private.');
+  refreshCommunity();
+});
+$('cmMe').addEventListener('click', (e) => { if (e.target.id === 'cmMyPage') openCreator(CLOUD.uid); });
 $('cmProfile').onsubmit = (e) => {
   e.preventDefault();
   if (visiting) { toast('Return home to edit your profile.', true); return; }
@@ -10463,13 +10556,12 @@ $('cmProfile').onsubmit = (e) => {
   const wasPublic = isPublic();
   state.resortName = clean($('cmResort').value, 28) || state.resortName || 'Juniper Ridge';
   { const sl = activeSlot(); if (sl) { sl.name = state.resortName; writeSlots(); } }
-  state.creator = clean($('cmCreator').value, 24);
   state.isPublic = $('cmPublic').checked;
   $('resortName').textContent = state.resortName;
   saveNow();
   CLOUD.lastUp = 0;
   cloudSave(false);
-  toast(wasPublic && !isPublic() ? 'Your resort is now private.' : !wasPublic && isPublic() ? 'Your resort is now public.' : 'Profile saved');
+  toast(wasPublic && !isPublic() ? 'Your resort is now private.' : !wasPublic && isPublic() ? 'Your resort is now public.' : 'Resort saved');
   fillProfile();
   if (!state.started) refreshTitle();
   refreshCommunity();
@@ -10563,6 +10655,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.19', date: 'Oct 22, 2026', items: [
+    'Creator profiles: signed-in players set one creator name for all their resorts (Community › Profile › You), and get a creator page with their totals and public resorts. Tap any creator’s name on the leaderboard, in Browse or while visiting to see their page.',
+    'Your profile can be public or private: private takes your name off your resorts and closes your page. Names you typed before carry over.',
+  ] },
   { v: '2.18', date: 'Oct 22, 2026', items: [
     'Browse: a new Community tab for exploring other players’ resorts across every mountain, in shelves: Staff picks, Recently active, Rising stars and Biggest resorts. Tap Visit to look around any of them.',
   ] },
