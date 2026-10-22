@@ -274,7 +274,9 @@ body.visiting .badge { cursor: default; }
 .bcard .gtag { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(20, 36, 58, 0.07); color: var(--ink-2); font: 700 9.5px var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
 .bcard .visitb { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font: 600 12.5px var(--ui); color: var(--ink); cursor: pointer; }
 .ptag { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: linear-gradient(135deg, #f6c445, #e39b12); color: #fff; font: 800 9.5px var(--ui); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
-.board .who b .ptag { display: inline-block; width: auto; }
+.board .who b .ptag, .board .who b .hearts { display: inline-block; width: auto; }
+.board .who .mtag { display: inline; }
+.board .who .mtag .diff-dot { width: 7px; height: 7px; margin-right: 3px; }
 .board .hearts, .bcard .hearts { color: #d23c5a; font-size: 11.5px; font-weight: 700; margin-left: 2px; }
 .standing .soc { color: #b8344f; font-weight: 600; }
 #visitLike.liked { color: #d23c5a; }
@@ -4305,7 +4307,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
-  else if (a === 'boardMt') { CLOUD.boardMt = b.dataset.v; renderSheet(); }
+  else if (a === 'boardMt') { toggleBoardMt(b.dataset.v); renderSheet(); }
   else if (a === 'visit') visitResort(b.dataset.v);
   else if (a === 'profile') openCommunity('profile');
   else if (a === 'browse') openCommunity('browse');
@@ -9945,10 +9947,29 @@ function summaryDoc() {
     bestGuests: rc.bestGuests, bestDayProfit: rc.bestDayProfit, bestSeasonProfit: rc.bestSeasonProfit, totalVisitors: rc.totalVisitors,
   };
 }
+// The leaderboard lists every mountain together; chips filter mountains in or out (remembered on this device).
+const BOARD_MTS = () => [...Object.keys(MOUNTAINS), 'custom'];
+function boardMts() {
+  if (!CLOUD.boardMts) {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem('mm.boardMts') || 'null'); } catch (e) { /* storage blocked */ }
+    const ok = Array.isArray(saved) ? saved.filter((k) => BOARD_MTS().includes(k)) : [];
+    CLOUD.boardMts = new Set(ok.length ? ok : BOARD_MTS());
+  }
+  return CLOUD.boardMts;
+}
+// Flip one mountain in or out. The last one left stays on so the board is never empty.
+function toggleBoardMt(k) {
+  const set = boardMts();
+  if (set.has(k)) { if (set.size > 1) set.delete(k); } else set.add(k);
+  try { localStorage.setItem('mm.boardMts', JSON.stringify([...set])); } catch (e) { /* storage blocked */ }
+}
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
-function boardEntries(mt = CLOUD.boardMt || boardOf(MOUNTAIN.id)) {
-  const out = CLOUD.mountains.filter((m) => m.id !== slots.active && boardOf(m.mt) === mt);
-  if (!visiting && !practice && slots.active && mt === boardOf(MOUNTAIN.id) && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest, ...((CLOUD.social && CLOUD.social.get(slots.active)) || {}) });
+// Pass one mountain to rank just that mountain; otherwise the chips decide.
+function boardEntries(mt) {
+  const keep = mt ? (k) => k === mt : (k) => boardMts().has(k);
+  const out = CLOUD.mountains.filter((m) => m.id !== slots.active && keep(boardOf(m.mt)));
+  if (!visiting && !practice && slots.active && keep(boardOf(MOUNTAIN.id)) && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest, ...((CLOUD.social && CLOUD.social.get(slots.active)) || {}) });
   return out;
 }
 function ranked(key, mt) {
@@ -10434,14 +10455,16 @@ function boardHtml(limit) {
   const B = BOARDS[CLOUD.board] || BOARDS.guests;
   const list = ranked(CLOUD.board).slice(0, limit);
   const rows = list.map((m, i) => {
-    const sub = [creatorLink(m), esc(m.hidden ? 'private' : m.when || '')].filter(Boolean).join(' · ');
+    const M = MOUNTAINS[m.mt];
+    const where = `<span class="mtag"><i class="diff-dot" style="background:${M ? M.dot : '#8a5cc7'}"></i>${esc(M ? M.name : 'Custom')}</span>`;
+    const sub = [where, creatorLink(m), esc(m.hidden ? 'private' : m.when || '')].filter(Boolean).join(' · ');
     const act = m.me || !CLOUD.ready ? '<span></span>' : `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>`;
-    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.likes ? ` <span class="hearts">❤${m.likes}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}${pickTag(m.id)}</b><span>${sub}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
+    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.likes && CLOUD.board !== 'likes' ? ` <span class="hearts">❤${m.likes}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}${pickTag(m.id)}</b><span>${sub}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
   }).join('');
-  const mt = CLOUD.boardMt || boardOf(MOUNTAIN.id);
-  return `<div class="tabs mts">${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${M.id === mt}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
+  const on = boardMts();
+  return `<div class="tabs mts" aria-label="Show mountains">${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${on.has(M.id)}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
     <label class="boardpick">Ranked by <select class="boardsel" aria-label="Leaderboard">${Object.entries(BOARDS).map(([k, b]) => `<option value="${k}" ${k === CLOUD.board ? 'selected' : ''}>${b.label}</option>`).join('')}</select></label>
-    ${rows ? `<ol class="board">${rows}</ol>` : '<p class="help">No resorts on this mountain yet. Finish a day to put yours on the board.</p>'}`;
+    ${rows ? `<ol class="board">${rows}</ol>` : '<p class="help">No resorts on these mountains yet. Finish a day to put yours on the board.</p>'}`;
 }
 // Browse: other players' resorts in a few shelves, across all mountains.
 const sizeOf = (m) => BOARDS.size.val(m);
@@ -10500,9 +10523,9 @@ function browseHtml() {
 // Where your resort stands on the board you're looking at, and how far it is to the next one up.
 function standingHtml() {
   if (visiting || practice || !slots.active) return '';
-  const mt = CLOUD.boardMt || boardOf(MOUNTAIN.id);
-  if (mt !== boardOf(MOUNTAIN.id)) return '';
-  const B = BOARDS[CLOUD.board] || BOARDS.guests, r = ranked(CLOUD.board, mt), i = r.findIndex((m) => m.me);
+  const mine = boardOf(MOUNTAIN.id);
+  if (!boardMts().has(mine)) return `<div class="standing"><b>${esc(state.resortName)} is filtered out</b><span>Turn on ${esc(MOUNTAINS[mine] ? MOUNTAINS[mine].name : 'Custom')} above to see where you stand.</span></div>`;
+  const B = BOARDS[CLOUD.board] || BOARDS.guests, r = ranked(CLOUD.board), i = r.findIndex((m) => m.me);
   if (i < 0) return `<div class="standing"><b>Not ranked yet</b><span>Open for a day to put ${esc(state.resortName)} on the board.</span></div>`;
   const me = r[i], above = r[i - 1];
   const gap = above ? B.val(above) - B.val(me) : 0;
@@ -10609,7 +10632,7 @@ function onBoardClick(e) {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
   if (b.dataset.action === 'board') { CLOUD.board = b.dataset.v; refreshCommunity(); }
-  else if (b.dataset.action === 'boardMt') { CLOUD.boardMt = b.dataset.v; refreshCommunity(); }
+  else if (b.dataset.action === 'boardMt') { toggleBoardMt(b.dataset.v); refreshCommunity(); }
   else if (b.dataset.action === 'visit') visitResort(b.dataset.v);
   else if (b.dataset.action === 'creator') openCreator(b.dataset.v);
   else if (b.dataset.action === 'cmBack') cmTab(cmPrev);
@@ -10755,6 +10778,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.22', date: 'Oct 23, 2026', title: 'One leaderboard for every mountain', items: [
+    'The leaderboard now ranks resorts from every mountain together. Tap a mountain to filter it in or out.',
+    'Each resort shows which mountain it’s on, and likes no longer show twice on the Most liked board.',
+  ] },
   { v: '2.21', date: 'Oct 23, 2026', title: 'A cleaner title screen', items: [
     'Your resort card shows a map of your actual trails and lifts.',
     'A Community card shows your rank, likes and visits, one tap from the leaderboard and Browse.',
