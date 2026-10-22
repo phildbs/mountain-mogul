@@ -10913,6 +10913,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.24', date: 'Oct 23, 2026', title: 'Tidier resort maps', items: [
+    'The map on your resort card no longer smears at the sides when your resort is tall and narrow.',
+  ] },
   { v: '2.23', date: 'Oct 23, 2026', title: 'Room to park', items: [
     'The main lot keeps growing along the road for as long as the land allows.',
     'While you build, the ground it will grow onto is marked out, and you get a heads-up if you build there.',
@@ -11125,13 +11128,14 @@ function resortMap(W = 360, H = 154) {
     const gx = px / sc + ox + HALF, gz = py / sc + oz + HALF;
     const hx = sampleGrid(HT, gx + 1, gz) - sampleGrid(HT, gx - 1, gz), hz = sampleGrid(HT, gx, gz + 1) - sampleGrid(HT, gx, gz - 1);
     const shade = clamp(0.86 + (-hx * 0.6 - hz * 0.4) * 0.9, 0.55, 1.08), cr = sampleGrid(CREEKD, gx, gz) < 1.2;
-    const o = (py * W + px) * 4;
-    img.data[o] = cr ? 120 : 232 * shade; img.data[o + 1] = cr ? 160 : 238 * shade; img.data[o + 2] = cr ? 205 : 246 * shade; img.data[o + 3] = 255;
+    // past the edge of the land (a tall resort framed wide), fade into the sky like the 3D view does
+    const hz2 = gx < 0 || gz < 0 || gx > WN || gz > WN ? 1 : hazeAt(gx, gz), o = (py * W + px) * 4;
+    img.data[o] = lerp(cr ? 120 : 232 * shade, 223, hz2); img.data[o + 1] = lerp(cr ? 160 : 238 * shade, 231, hz2); img.data[o + 2] = lerp(cr ? 205 : 246 * shade, 240, hz2); img.data[o + 3] = 255;
   }
   g.putImageData(img, 0, 0);
   g.fillStyle = 'rgba(52, 92, 72, 0.55)';
   const tr = Math.max(1.2, sc * 0.9);
-  for (let k = 0; k < trees.n; k++) if (trees.alive[k]) { const x = X(trees.x[k]), y = Z(trees.z[k]); if (x >= -2 && y >= -2 && x < W + 2 && y < H + 2) { g.beginPath(); g.arc(x, y, tr, 0, 6.283); g.fill(); } }
+  for (let k = 0; k < trees.n; k++) if (trees.alive[k] && hazeAt(trees.x[k] + HALF, trees.z[k] + HALF) < 0.5) { const x = X(trees.x[k]), y = Z(trees.z[k]); if (x >= -2 && y >= -2 && x < W + 2 && y < H + 2) { g.beginPath(); g.arc(x, y, tr, 0, 6.283); g.fill(); } }
   g.strokeStyle = '#5b6370'; g.lineWidth = 1.6; g.beginPath(); ROAD_WORLD.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.stroke();
   g.fillStyle = '#5d6470';
   for (const b of lotBoxes()) g.fillRect(X(b.x0), Z(b.z0), (b.x1 - b.x0) * sc, (b.z1 - b.z0) * sc);
@@ -11219,7 +11223,7 @@ function slotCard(r, active) {
   const max = (GOALS[isCustomId(r.mt) ? 'custom' : r.mt] || []).length || 5;
   const has = live && !!loadSave();
   // the map of the resort: made fresh for the one loaded here, kept with its slot for the others
-  const slot = slotById(r.id), mapKey = `${state.day}:${world.trails.length}:${world.lifts.length}:${world.buildings.length}`;
+  const slot = slotById(r.id), mapKey = `2:${state.day}:${world.trails.length}:${world.lifts.length}:${world.buildings.length}`;
   if (live && has && slot && slot.thumbAt !== mapKey) {
     try { slot.thumb = resortMap(); slot.thumbAt = mapKey; writeSlots(); } catch (e) { /* the painted mountain will do */ }
   }
