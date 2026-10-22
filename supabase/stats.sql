@@ -38,7 +38,8 @@ begin
               select id, public, summary->>'name' as name, summary->>'mt' as mt, summary->>'when' as "when",
                      coalesce((summary->>'lifts')::int, 0) as lifts, coalesce((summary->>'trails')::int, 0) as trails,
                      coalesce((summary->>'bestGuests')::int, 0) as best_guests, coalesce((summary->>'cash')::bigint, 0) as cash,
-                     coalesce((summary->>'stars')::int, 0) as stars, updated_at
+                     coalesce((summary->>'stars')::int, 0) as stars, updated_at,
+                     exists (select 1 from featured f where f.mountain_id = mountains.id and f.picked) as featured
               from mountains order by updated_at desc limit 300) t), -- the most recently played; the page sorts them
     'feedback_count', (select count(*) from feedback),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
@@ -65,3 +66,31 @@ end;
 $$;
 revoke all on function public.admin_mountain(uuid) from public, anon;
 grant execute on function public.admin_mountain(uuid) to authenticated;
+
+-- Staff picks for the Browse tab: anyone can read them; only the owner's account picks, from the stats page.
+create table if not exists public.featured (
+  mountain_id uuid primary key references public.mountains (id) on delete cascade,
+  picked boolean not null default true,
+  picked_at timestamptz not null default now()
+);
+alter table public.featured enable row level security;
+drop policy if exists "anyone reads picks" on public.featured;
+create policy "anyone reads picks" on public.featured for select using (true);
+grant select on public.featured to anon, authenticated;
+
+create or replace function public.admin_feature(mid uuid, pick boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+begin
+  if lower(coalesce(auth.jwt() ->> 'email', '')) <> 'phildbs@gmail.com' or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  insert into featured (mountain_id, picked, picked_at) values (mid, pick, now())
+  on conflict (mountain_id) do update set picked = excluded.picked, picked_at = now();
+end;
+$$;
+revoke all on function public.admin_feature(uuid, boolean) from public, anon;
+grant execute on function public.admin_feature(uuid, boolean) to authenticated;

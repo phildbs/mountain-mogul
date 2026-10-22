@@ -263,6 +263,16 @@ body.visiting .badge { cursor: default; }
 .standing .of { color: var(--ink-2); font-size: 12px; }
 .standing > span { color: var(--ink-2); }
 .linkb { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.shelf h4 { margin: 4px 0 0; font-size: 15px; }
+.shelf .help { margin: 2px 0 8px; }
+.bcards { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.bcard { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "top btn" "sub btn" "stats btn"; align-items: center; column-gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.6); }
+.bc-top { grid-area: top; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-sub { grid-area: sub; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; min-width: 0; }
+.bc-stats { grid-area: stats; font-size: 12px; color: var(--ink-2); }
+.bcard .visitb { grid-area: btn; }
+.bcard .gtag { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(20, 36, 58, 0.07); color: var(--ink-2); font: 700 9.5px var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
+.bcard .visitb { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font: 600 12.5px var(--ui); color: var(--ink); cursor: pointer; }
 .cm-tabs { display: flex; gap: 2px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 11px; }
 .cm-tabs button { flex: 1; border: 0; background: none; border-radius: 9px; padding: 8px 10px; font: 700 13px var(--ui); color: var(--ink-2); cursor: pointer; }
 .cm-tabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.15); }
@@ -1131,8 +1141,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div class="modal-bg" id="community" hidden>
     <div class="panel modal cm" role="dialog" aria-modal="true" aria-labelledby="cmTitle">
       <div class="cm-head"><div><div class="eyebrow">Leaderboards and other resorts</div><h2 id="cmTitle">Community</h2></div><button class="x" id="cmClose" aria-label="Close">✕</button></div>
-      <div class="cm-tabs" role="tablist"><button type="button" role="tab" data-cmtab="board" aria-selected="true">Leaderboard</button><button type="button" role="tab" data-cmtab="profile" aria-selected="false">Profile</button></div>
+      <div class="cm-tabs" role="tablist"><button type="button" role="tab" data-cmtab="board" aria-selected="true">Leaderboard</button><button type="button" role="tab" data-cmtab="browse" aria-selected="false">Browse</button><button type="button" role="tab" data-cmtab="profile" aria-selected="false">Profile</button></div>
       <div id="cmBoardTab"><div id="cmStanding"></div><div id="cmBoard"></div></div>
+      <div id="cmBrowseTab" hidden></div>
       <div id="cmProfileTab" hidden>
       <form class="cm-profile" id="cmProfile">
         <label>Resort name<span class="namerow"><input id="cmResort" maxlength="28" autocomplete="off"><button type="button" class="dice" id="cmRoll" title="Suggest a name" aria-label="Suggest a name">🎲</button></span></label>
@@ -4256,6 +4267,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'boardMt') { CLOUD.boardMt = b.dataset.v; renderSheet(); }
   else if (a === 'visit') visitResort(b.dataset.v);
   else if (a === 'profile') openCommunity('profile');
+  else if (a === 'browse') openCommunity('browse');
   else if (a === 'goPublic') { state.isPublic = true; saveNow(); CLOUD.lastUp = 0; cloudSave(false); toast('Your resort is now public.'); renderSheet(); refreshCommunity(); }
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
@@ -9914,9 +9926,13 @@ async function fetchSave(id) {
 async function loadBoard(force) {
   if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 20000)) return;
   CLOUD.boardAt = Date.now();
-  const { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500);
+  const [{ data, error }, picks] = await Promise.all([
+    CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500),
+    CLOUD.sb.from('featured').select('mountain_id').eq('picked', true).then((r) => r, () => ({ data: null })),
+  ]);
   if (error) { CLOUD.boardAt = 0; return; }
-  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner })).filter((m) => m.name);
+  CLOUD.picks = new Set(((picks && picks.data) || []).map((r) => r.mountain_id));
+  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at) })).filter((m) => m.name);
   refreshCommunity();
 }
 // Plain-language reasons for the setup problems a new Supabase project can have.
@@ -10299,6 +10315,32 @@ function boardHtml(limit) {
     <label class="boardpick">Ranked by <select class="boardsel" aria-label="Leaderboard">${Object.entries(BOARDS).map(([k, b]) => `<option value="${k}" ${k === CLOUD.board ? 'selected' : ''}>${b.label}</option>`).join('')}</select></label>
     ${rows ? `<ol class="board">${rows}</ol>` : '<p class="help">No resorts on this mountain yet. Finish a day to put yours on the board.</p>'}`;
 }
+// Browse: other players' resorts in a few shelves, across all mountains.
+const sizeOf = (m) => BOARDS.size.val(m);
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const agoShort = (t) => { const h = (Date.now() - t) / 3600e3; return h < 1 ? 'just now' : h < 24 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`; };
+function browseCard(m, extra) {
+  const M = MOUNTAINS[m.mt] || null;
+  const who = m.creator || (m.guest ? 'A guest' : 'Unnamed player');
+  return `<li class="bcard"><div class="bc-top"><b>${esc(m.name)}</b>${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</div>
+    <div class="bc-sub">${M ? `<i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}` : 'Custom mountain'} · ${esc(who)}</div>
+    <div class="bc-stats">${plural(m.lifts || 0, 'lift')} · ${plural(m.trails || 0, 'trail')} · best day ${(m.bestGuests || 0).toLocaleString('en-US')} guests${extra ? ` · ${extra}` : ''}</div>
+    ${CLOUD.ready ? `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>` : ''}</li>`;
+}
+function browseHtml() {
+  if (CLOUD.status === 'offline') return `<p class="help">${esc(cloudNote())}</p>`;
+  const others = CLOUD.mountains.filter((m) => m.owner !== CLOUD.uid && m.id !== slots.active);
+  if (!others.length) return '<p class="help">No other resorts to browse yet. Check back soon.</p>';
+  const week = Date.now() - 7 * 864e5;
+  const shelves = [
+    ['Staff picks', 'Hand-picked resorts worth a visit.', others.filter((m) => CLOUD.picks && CLOUD.picks.has(m.id)), null],
+    ['Recently active', 'Played in the last few hours and days.', [...others].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), (m) => agoShort(m.updatedAt)],
+    ['Rising stars', 'New resorts in their first season, busiest first.', others.filter((m) => (m.season || 1) <= 1 && (m.updatedAt || 0) > week && (m.bestGuests || 0) > 0).sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)), null],
+    ['Biggest resorts', 'The most trails, lifts and buildings.', [...others].sort((a, b) => sizeOf(b) - sizeOf(a)), null],
+  ];
+  return shelves.filter(([, , list]) => list.length).map(([title, note, list, extra]) => `<section class="shelf"><h4>${title}</h4><p class="help">${note}</p>
+    <ul class="bcards">${list.slice(0, 6).map((m) => browseCard(m, extra && extra(m))).join('')}</ul></section>`).join('');
+}
 // Where your resort stands on the board you're looking at, and how far it is to the next one up.
 function standingHtml() {
   if (visiting || practice || !slots.active) return '';
@@ -10329,7 +10371,7 @@ function communitySheet() {
   const lead = visiting ? `<p class="help">You’re visiting ${esc(visiting.name)}. Return home to compare your own resort.</p>` : standingHtml();
   return `${head}${lead}${boardHtml(15)}
     <p class="help">${esc(cloudNote())}</p>
-    <div class="row"><button class="btn secondary" data-action="profile">Name and profile</button>${!visiting && !practice ? '<button class="btn secondary" data-action="share">Share my resort</button>' : ''}${CLOUD.ready ? `<button class="btn secondary" data-action="cloudNow" ${state.phase === 'open' || visiting ? 'disabled' : ''}>Save now</button>` : ''}</div>`;
+    <div class="row"><button class="btn secondary" data-action="browse">Browse resorts</button><button class="btn secondary" data-action="profile">Name and profile</button>${!visiting && !practice ? '<button class="btn secondary" data-action="share">Share my resort</button>' : ''}${CLOUD.ready ? `<button class="btn secondary" data-action="cloudNow" ${state.phase === 'open' || visiting ? 'disabled' : ''}>Save now</button>` : ''}</div>`;
 }
 // Title screen (and menu): the full community window with your profile.
 function fillProfile() {
@@ -10363,6 +10405,8 @@ function refreshCommunity() {
   if ($('cmBoard').innerHTML !== html) $('cmBoard').innerHTML = html;
   const st = state.started || loadSave() ? standingHtml() : '';
   if ($('cmStanding').innerHTML !== st) $('cmStanding').innerHTML = st;
+  const br = browseHtml();
+  if ($('cmBrowseTab').innerHTML !== br) $('cmBrowseTab').innerHTML = br;
 }
 function refreshCommBtn() {
   const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
@@ -10370,13 +10414,13 @@ function refreshCommBtn() {
 }
 function cmTab(t) {
   document.querySelectorAll('[data-cmtab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.cmtab === t)));
-  $('cmBoardTab').hidden = t !== 'board'; $('cmProfileTab').hidden = t !== 'profile';
+  $('cmBoardTab').hidden = t !== 'board'; $('cmProfileTab').hidden = t !== 'profile'; $('cmBrowseTab').hidden = t !== 'browse';
 }
 function openCommunity(tab) {
   closeMenu();
   if (state.started && !visiting && state.phase !== 'open') saveNow();
   fillProfile();
-  cmTab(tab === 'profile' ? 'profile' : 'board');
+  cmTab(['profile', 'browse'].includes(tab) ? tab : 'board');
   $('community').hidden = false;
   loadBoard(false);
   refreshCommunity();
@@ -10389,6 +10433,7 @@ function onBoardClick(e) {
   else if (b.dataset.action === 'visit') visitResort(b.dataset.v);
 }
 $('cmBoard').addEventListener('click', onBoardClick);
+$('cmBrowseTab').addEventListener('click', onBoardClick);
 $('cmStanding').addEventListener('click', (e) => { if (e.target.closest('[data-action=goPublic]')) { state.isPublic = true; fillProfile(); saveNow(); CLOUD.lastUp = 0; cloudSave(false); refreshCommunity(); } });
 document.querySelector('.cm-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-cmtab]'); if (b) cmTab(b.dataset.cmtab); });
 $('cmRoll').onclick = () => { $('cmResort').value = resortNameIdea($('cmResort').value); };
@@ -10518,6 +10563,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.18', date: 'Oct 22, 2026', items: [
+    'Browse: a new Community tab for exploring other players’ resorts across every mountain, in shelves: Staff picks, Recently active, Rising stars and Biggest resorts. Tap Visit to look around any of them.',
+  ] },
   { v: '2.17', date: 'Oct 22, 2026', items: [
     'Community: a cleaner window with Leaderboard and Profile tabs, a card showing where your resort stands (“#3 of 12 · 25 guests behind Elk Basin”), one ranking menu instead of six tabs, and a Visit button on every resort.',
     'Guests are on the leaderboards now, marked “Guest”. Sign in to put your name on your resort and keep it safe on any device.',

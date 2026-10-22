@@ -28,6 +28,13 @@
         (d.errors || (d.errors = [])).push({ user_id: me, ...q.obj });
         put(d); return { data: null, error: null };
       }
+      // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
+      if (table === 'featured') {
+        if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
+        let rows = d.featured || [];
+        for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        return { data: rows, error: null };
+      }
       if (q.op === 'upsert') {
         const o = { ...q.obj, summary: { ...(q.obj.summary || {}), guest: !!(d.users[me] || {}).anon } }, ex = d.rows.find((r) => r.id === o.id);
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }
