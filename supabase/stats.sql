@@ -39,7 +39,7 @@ begin
                      coalesce((summary->>'lifts')::int, 0) as lifts, coalesce((summary->>'trails')::int, 0) as trails,
                      coalesce((summary->>'bestGuests')::int, 0) as best_guests, coalesce((summary->>'cash')::bigint, 0) as cash,
                      coalesce((summary->>'stars')::int, 0) as stars, updated_at
-              from mountains order by coalesce((summary->>'bestGuests')::int, 0) desc, updated_at desc limit 100) t),
+              from mountains order by updated_at desc limit 300) t), -- the most recently played; the page sorts them
     'feedback_count', (select count(*) from feedback),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
                    select created_at, message from feedback order by created_at desc limit 10) f)

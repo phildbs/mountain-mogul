@@ -54,6 +54,13 @@ th { text-align: left; font-size: 11px; letter-spacing: 0.06em; text-transform: 
 td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
 td.num, th.num { text-align: right; }
 .scroll { overflow-x: auto; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.head h2 { margin: 0; }
+.range { display: inline-flex; gap: 2px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 10px; }
+.range button { border: 0; background: none; border-radius: 8px; padding: 6px 10px; font-family: inherit; font-weight: 600; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.range button b { font-weight: 700; margin-left: 3px; }
+.range button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.15); }
+.linkb { border: 0; background: none; padding: 0; font: inherit; color: var(--accent, #df562c); text-decoration: underline; cursor: pointer; }
 .sortb { border: 0; background: none; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .sortb span { font-size: 9px; color: var(--accent); }
 .sortb.on { color: var(--ink); }
@@ -133,6 +140,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       return `<div class="bar" title="${esc(label)}: ${num(n)}${sub ? '' : ` (${pct(n, total)})`}"><span class="lbl">${esc(label)}${sub ? ` <small>${esc(sub)}</small>` : ''}</span><span class="track"><span class="fill" style="width:${w}%"></span>${w > 60 ? `<span class="val in" style="right:calc(${100 - w}% + 8px)">` : `<span class="val" style="left:calc(${w}% + 6px)">`}${num(n)}${sub ? '' : ` · ${pct(n, total)}`}</span></span></div>`;
     }).join('')}</div>`;
     const mts = d.by_mountain.map((r) => [mtName(r.mt), r.n]).reduce((acc, [k, n]) => { const f = acc.find((a) => a[0] === k); if (f) f[1] += n; else acc.push([k, n]); return acc; }, []).sort((a, b) => b[1] - a[1]);
+    rows = d.top;
     $('out').innerHTML = `
       <dl class="grid">
         <div class="card tile"><dt>Players</dt><dd>${num(d.visitors)}</dd><small>opened the game, all time</small></div>
@@ -140,6 +148,12 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <div class="card tile"><dt>Playing</dt><dd>${num(d.played_24h)}</dd><small>saved a game in 24 h · ${num(d.played_7d)} this week</small></div>
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
+      <section class="card" style="margin-bottom:12px">
+        <div class="head"><h2>Resorts</h2><div class="range" role="group" aria-label="Which resorts">
+          <button data-range="recent" aria-pressed="${range === 'recent'}">Last 48 hours <b>${num(recentRows().length)}</b></button><button data-range="all" aria-pressed="${range === 'all'}">All <b>${num(d.mountains)}</b></button></div></div>
+        <p class="note">Tap a column heading to sort, or a name to visit it read-only. Nothing you do there changes it.</p>
+        <div class="scroll" id="resorts"></div>
+      </section>
       <section class="card" style="margin-bottom:12px" id="errs">${errorsHtml(errs)}</section>
       <section class="card" style="margin-bottom:12px">
         <h2>New players per day</h2><p class="note">The last 14 days, in your time zone.</p>
@@ -150,15 +164,11 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <section class="card"><h2>How far players get</h2><p class="note">Share of everyone who opened the game.</p>${bars(funnel, d.visitors)}</section>
         <section class="card"><h2>Mountains picked</h2><p class="note">${num(d.mountains)} mountains started.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
       </div>
-      <section class="card" style="margin-bottom:12px">
-        <h2>Resorts</h2><p class="note">Tap a column heading to sort. Tap a name to visit it read-only. Nothing you do there changes it.</p>
-        <div class="scroll" id="resorts"></div>
-      </section>
       <section class="card">
         <h2>Feedback</h2><p class="note">${num(d.feedback_count)} ${d.feedback_count === 1 ? 'message' : 'messages'} from the “Send feedback” button. Newest first.</p>
         ${d.feedback.length ? `<ul class="fb">${d.feedback.map((f) => `<li><time>${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(f.message)}</li>`).join('')}</ul>` : '<p class="note">None yet.</p>'}
       </section>`;
-    rows = d.top; renderResorts();
+    renderResorts();
   }
 
   const SEASON_MONTHS = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']; // in-game dates run through a winter
@@ -181,16 +191,27 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
     ['cash', 'Cash', 'num', (t) => t.cash],
     ['updated_at', 'Played', 'num', (t) => +new Date(t.updated_at)],
   ];
-  let rows = [], sort = { k: 'best_guests', dir: -1 };
+  let rows = [], sort = { k: 'best_guests', dir: -1 }, range = 'recent';
+  try { if (localStorage.getItem('mmStatsRange') === 'all') range = 'all'; } catch (e) { /* the default */ }
+  const recentRows = () => rows.filter((t) => Date.now() - new Date(t.updated_at) < 48 * 3600e3);
   try { const v = JSON.parse(localStorage.getItem('mmStatsSort')); if (v && COLS.some((c) => c[0] === v.k)) sort = v; } catch (e) { /* keep the default */ }
   function renderResorts() {
     const col = COLS.find((c) => c[0] === sort.k), key = col[3];
-    const list = [...rows].sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || (b.best_guests - a.best_guests); });
+    const shown = range === 'recent' ? recentRows() : rows;
+    if (!shown.length) { $('resorts').innerHTML = '<p class="note">Nobody has played in the last 48 hours. <button class="linkb" data-range="all">Show all resorts</button></p>'; return; }
+    const list = [...shown].sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || (b.best_guests - a.best_guests); });
     const th = ([k, label, kind]) => `<th class="${kind === 'num' && k !== 'updated_at' && k !== 'when' ? 'num' : ''}" aria-sort="${sort.k === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button class="sortb${sort.k === k ? ' on' : ''}" data-k="${k}">${label}<span aria-hidden="true">${sort.k === k ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
     $('resorts').innerHTML = `<table><thead><tr>${COLS.map(th).join('')}</tr></thead>
       <tbody>${list.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td></tr>`).join('')}</tbody></table>`;
   }
   document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-range]');
+    if (r) {
+      range = r.dataset.range;
+      try { localStorage.setItem('mmStatsRange', range); } catch (e2) { /* fine without it */ }
+      document.querySelectorAll('.range [data-range]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.range === range)));
+      return renderResorts();
+    }
     const b = e.target.closest('.sortb'); if (!b) return;
     const k = b.dataset.k, kind = COLS.find((c) => c[0] === k)[2];
     sort = sort.k === k ? { k, dir: -sort.dir } : { k, dir: kind === 'text' ? 1 : -1 };
