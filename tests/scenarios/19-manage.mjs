@@ -41,7 +41,7 @@ export default async function ({ browser, url }) {
   assert(/riding/.test(await g.ev(`$('sheet').innerText`)), 'lifts list shows riders');
   await g.click('#manage [data-m=blds]'); await g.wait(200);
   const bt = await g.ev(`$('sheet').innerText`);
-  assert(/seats taken/.test(bt) && /Parking/.test(bt), 'buildings list shows seats and parking');
+  assert(/seats taken/.test(bt) && /Main lot/.test(bt), 'buildings list shows seats and parking');
   await g.ev(SETUPS.finishDay);
   await g.click('#rpNext'); await g.wait(200);
 
