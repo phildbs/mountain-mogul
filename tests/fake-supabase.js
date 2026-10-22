@@ -28,6 +28,22 @@
         (d.errors || (d.errors = [])).push({ user_id: me, ...q.obj });
         put(d); return { data: null, error: null };
       }
+      // likes and visits: signed-in players like someone else's public resort once; anyone counts a daily visit
+      if (table === 'likes' || table === 'visits') {
+        const list = d[table] || (d[table] = []);
+        if (q.op === 'select') {
+          if (table === 'visits') return { data: null, error: { code: '42501', message: 'permission denied' } };
+          let rows = list.filter((r) => r.user_id === me);
+          for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+          return { data: q.single ? rows[0] || null : rows, error: null };
+        }
+        if (q.op !== 'insert') return { data: null, error: { code: '42501', message: 'permission denied' } };
+        const m = d.rows.find((r) => r.id === q.obj.mountain_id);
+        if (!me || !m || !m.public || m.owner === me || (table === 'likes' && (d.users[me] || {}).anon)) return { data: null, error: { code: '42501', message: 'row-level security' } };
+        const day = new Date().toISOString().slice(0, 10);
+        if (list.some((r) => r.mountain_id === m.id && r.user_id === me && (table === 'likes' || r.day === day))) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        list.push({ mountain_id: m.id, user_id: me, day }); put(d); return { data: null, error: null };
+      }
       // profiles: public ones (and your own) readable; written only through set_profile
       if (table === 'profiles') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table profiles' } };
@@ -80,6 +96,10 @@
     // set_profile: signed-in players only; the name goes on all their resorts (blank while private)
     rpc: async (fn, args) => {
       const d = db(), me = uid();
+      if (fn === 'social_counts') {
+        return { data: d.rows.filter((r) => r.public || r.owner === me).map((r) => ({ mountain_id: r.id,
+          likes: (d.likes || []).filter((l) => l.mountain_id === r.id).length, visits: (d.visits || []).filter((v) => v.mountain_id === r.id).length })), error: null };
+      }
       if (fn !== 'set_profile') return { data: null, error: { message: 'no function ' + fn } };
       if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
       const n = String(args.pname || '').replace(/\s+/g, ' ').trim().slice(0, 24);

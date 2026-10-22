@@ -273,6 +273,9 @@ body.visiting .badge { cursor: default; }
 .bcard .visitb { grid-area: btn; }
 .bcard .gtag { display: inline-block; vertical-align: 1px; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: rgba(20, 36, 58, 0.07); color: var(--ink-2); font: 700 9.5px var(--ui); letter-spacing: 0.04em; text-transform: uppercase; }
 .bcard .visitb { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font: 600 12.5px var(--ui); color: var(--ink); cursor: pointer; }
+.board .hearts, .bcard .hearts { color: #d23c5a; font-size: 11.5px; font-weight: 700; margin-left: 2px; }
+.standing .soc { color: #b8344f; font-weight: 600; }
+#visitLike.liked { color: #d23c5a; }
 .who-link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; text-decoration-color: rgba(20, 36, 58, 0.3); cursor: pointer; }
 .creator { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
 .creator h3 { margin: 0; font-family: var(--display); font-size: 26px; line-height: 1.05; text-transform: uppercase; }
@@ -968,6 +971,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     </nav>
     <div class="panel visitbar" id="visitBar" hidden>
       <span id="visitText"></span>
+      <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
 
@@ -2299,7 +2303,7 @@ function saveData(withSim) {
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
-        investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed,
+        investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
@@ -4666,7 +4670,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5898,8 +5902,40 @@ function waitDay() {
   endOfDaySnow();
   nextDay();
 }
+// Bonuses from the community, paid at the start of a day: $100k for each new like (up to 10 paid a
+// season) and $1M the first time the resort is a staff pick.
+const LIKE_BONUS = 100000, LIKES_PAID_MAX = 10, PICK_BONUS = 1000000;
+let socialAt = 0;
+async function socialBonus() {
+  if (!CLOUD.ready || visiting || practice || simulating || !slots.active || state.bankrupt || Date.now() - socialAt < 15000) return;
+  socialAt = Date.now();
+  const id = slots.active;
+  const [counts, pick] = await Promise.all([
+    CLOUD.sb.rpc('social_counts').then((r) => r, () => ({ data: null })),
+    CLOUD.sb.from('featured').select('mountain_id').eq('mountain_id', id).eq('picked', true).then((r) => r, () => ({ data: null })),
+  ]);
+  if (slots.active !== id || visiting || !counts || !counts.data) return;
+  const so = state.social || (state.social = { likesSeen: 0, season: state.season, paid: 0, pickPaid: false });
+  if (so.season !== state.season) { so.season = state.season; so.paid = 0; }
+  const row = counts.data.find((r) => r.mountain_id === id), likes = row ? row.likes : 0;
+  const fresh = Math.max(0, likes - so.likesSeen), pay = Math.min(fresh, Math.max(0, LIKES_PAID_MAX - so.paid));
+  so.likesSeen = Math.max(so.likesSeen, likes);
+  const msgs = [];
+  let total = 0;
+  if (fresh) {
+    so.paid += pay; total += pay * LIKE_BONUS;
+    msgs.push(pay ? `❤ ${fresh} new ${fresh === 1 ? 'like' : 'likes'}: +${money(pay * LIKE_BONUS)}` : `❤ ${fresh} new ${fresh === 1 ? 'like' : 'likes'} (this season’s like bonuses are all paid)`);
+  }
+  if (pick && pick.data && pick.data.length && !so.pickPaid) { so.pickPaid = true; total += PICK_BONUS; msgs.push(`★ Staff pick! +${money(PICK_BONUS)}`); }
+  if (!msgs.length) return;
+  state.cash += total;
+  if (state.seasonStats) state.seasonStats.bonus = (state.seasonStats.bonus || 0) + total;
+  updateCash(true); scheduleSave();
+  toast(msgs.join(' · '));
+}
 function nextDay() {
   if (state.phase === 'season') return enterSummer();
+  socialBonus();
   state.day++; state.phase = 'closed'; state.time = DAY_OPEN;
   if (state.event && state.day > Math.max(...state.event.days)) state.event = null;
   $('report').hidden = true;
@@ -9850,6 +9886,7 @@ const BOARDS = {
   visitors: { label: 'All-time guests', val: (m) => m.totalVisitors || 0, fmt: (v) => v.toLocaleString('en-US') },
   size: { label: 'Biggest resort', val: (m) => (m.trails || 0) * 10 + (m.lifts || 0) * 25 + (m.buildings || 0) * 5, fmt: (v, m) => `${m.trails || 0} trails · ${m.lifts || 0} lifts` },
   rep: { label: 'Reputation', val: (m) => m.rep || 0, fmt: (v) => repWordOf(v) },
+  likes: { label: 'Most liked', val: (m) => m.likes || 0, fmt: (v) => `❤ ${v.toLocaleString('en-US')}` },
 };
 
 // Creator profiles: one per signed-in account (a name for all its resorts, public or not), kept in the
@@ -9885,7 +9922,7 @@ function summaryDoc() {
 // Leaderboard rows: every public resort, with yours shown live (even while private) so you can compare.
 function boardEntries(mt = CLOUD.boardMt || boardOf(MOUNTAIN.id)) {
   const out = CLOUD.mountains.filter((m) => m.id !== slots.active && boardOf(m.mt) === mt);
-  if (!visiting && !practice && slots.active && mt === boardOf(MOUNTAIN.id) && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest });
+  if (!visiting && !practice && slots.active && mt === boardOf(MOUNTAIN.id) && onThisMountain() && (state.started || loadSave())) out.push({ ...summaryDoc(), id: slots.active, me: true, hidden: !listed(), guest: CLOUD.guest, ...((CLOUD.social && CLOUD.social.get(slots.active)) || {}) });
   return out;
 }
 function ranked(key, mt) {
@@ -9962,13 +9999,16 @@ async function fetchSave(id) {
 async function loadBoard(force) {
   if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 20000)) return;
   CLOUD.boardAt = Date.now();
-  const [{ data, error }, picks] = await Promise.all([
+  const [{ data, error }, picks, social] = await Promise.all([
     CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500),
     CLOUD.sb.from('featured').select('mountain_id').eq('picked', true).then((r) => r, () => ({ data: null })),
+    CLOUD.sb.rpc('social_counts').then((r) => r, () => ({ data: null })),
   ]);
   if (error) { CLOUD.boardAt = 0; return; }
   CLOUD.picks = new Set(((picks && picks.data) || []).map((r) => r.mountain_id));
-  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at) })).filter((m) => m.name);
+  CLOUD.social = new Map(((social && social.data) || []).map((r) => [r.mountain_id, { likes: r.likes, visits: r.visits }]));
+  const soc = (id) => CLOUD.social.get(id) || { likes: 0, visits: 0 };
+  CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at), ...soc(r.id) })).filter((m) => m.name);
   refreshCommunity();
 }
 // Plain-language reasons for the setup problems a new Supabase project can have.
@@ -10099,11 +10139,34 @@ async function visitResort(id, opts = {}) {
   $('resortName').textContent = visiting.name;
   $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${owner ? ` by ${m && m.creator && !m.guest ? `<button class="linkb" id="visitCreator">${esc(owner)}</button>` : esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
   if ($('visitCreator')) $('visitCreator').onclick = () => openCreator(m.owner);
+  visiting.liked = false; visiting.owner = m ? m.owner : null;
+  refreshLikeBtn();
+  if (CLOUD.ready && (!m || m.owner !== CLOUD.uid)) {
+    CLOUD.sb.from('visits').insert({ mountain_id: id }).then(() => {}, () => {}); // once a day per visitor; repeats are refused
+    if (!CLOUD.guest) CLOUD.sb.from('likes').select('mountain_id').eq('mountain_id', id).maybeSingle().then(({ data }) => { if (visiting && visiting.id === id) { visiting.liked = !!data; refreshLikeBtn(); } }, () => {});
+  }
   $('visitBar').hidden = false;
   $('visitHome').textContent = visiting.link ? 'Build your own resort' : 'Back to title';
   if (!state.started) startGame(null);
   afterLoad();
 }
+// Likes: signed-in players like someone else's resort once, from the visit bar.
+function refreshLikeBtn() {
+  const b = $('visitLike');
+  b.hidden = !visiting || !CLOUD.ready || visiting.owner === CLOUD.uid;
+  b.textContent = visiting && visiting.liked ? '❤ Liked' : '♡ Like';
+  b.classList.toggle('liked', !!(visiting && visiting.liked));
+}
+$('visitLike').onclick = async () => {
+  if (!visiting || visiting.liked) return;
+  if (CLOUD.guest) { toast('Sign in on the title screen to like resorts.', true); return; }
+  const id = visiting.id;
+  const { error } = await CLOUD.sb.from('likes').insert({ mountain_id: id });
+  if (error && error.code !== '23505') { toast('Couldn’t like it just now.', true); return; }
+  if (visiting && visiting.id === id) { visiting.liked = true; refreshLikeBtn(); }
+  toast(`You liked ${visiting ? visiting.name : 'it'} ❤`);
+  CLOUD.boardAt = 0; loadBoard(true);
+};
 function returnHome() {
   if (!visiting) return;
   const fromTitle = visiting.fromTitle;
@@ -10346,7 +10409,7 @@ function boardHtml(limit) {
   const rows = list.map((m, i) => {
     const sub = [creatorLink(m), esc(m.hidden ? 'private' : m.when || '')].filter(Boolean).join(' · ');
     const act = m.me || !CLOUD.ready ? '<span></span>' : `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>`;
-    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</b><span>${sub}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
+    return `<li class="${m.me ? 'me' : ''}${i < 3 ? ' top' + (i + 1) : ''}"><span class="rk">${i + 1}</span><span class="who"><b>${esc(m.name)}${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.likes ? ` <span class="hearts">❤${m.likes}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</b><span>${sub}</span></span><span class="val">${esc(B.fmt(B.val(m), m))}</span>${act}</li>`;
   }).join('');
   const mt = CLOUD.boardMt || boardOf(MOUNTAIN.id);
   return `<div class="tabs mts">${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="boardMt" data-v="${M.id}" aria-pressed="${M.id === mt}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>
@@ -10360,7 +10423,7 @@ const agoShort = (t) => { const h = (Date.now() - t) / 3600e3; return h < 1 ? 'j
 function browseCard(m, extra, noVisit) {
   const M = MOUNTAINS[m.mt] || null;
   const who = creatorLink(m);
-  return `<li class="bcard"><div class="bc-top"><b>${esc(m.name)}</b>${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</div>
+  return `<li class="bcard"><div class="bc-top"><b>${esc(m.name)}</b>${m.stars ? ` <span class="stars">★${m.stars}</span>` : ''}${m.likes ? ` <span class="hearts">❤${m.likes}</span>` : ''}${m.guest ? ' <span class="gtag">Guest</span>' : ''}</div>
     <div class="bc-sub">${M ? `<i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}` : 'Custom mountain'}${m.hideWho ? '' : ` · ${who}`}</div>
     <div class="bc-stats">${plural(m.lifts || 0, 'lift')} · ${plural(m.trails || 0, 'trail')} · best day ${(m.bestGuests || 0).toLocaleString('en-US')} guests${extra ? ` · ${extra}` : ''}</div>
     ${CLOUD.ready && !noVisit ? `<button class="visitb" data-action="visit" data-v="${esc(m.id)}">Visit</button>` : ''}</li>`;
@@ -10375,9 +10438,10 @@ function creatorHtml(id) {
   if (!name) return `${back}<p class="help">This creator keeps their profile private.</p>`;
   const best = Math.max(0, ...list.map((m) => m.bestGuests || 0)), stars = list.reduce((a, m) => a + (m.stars || 0), 0);
   const guests = list.reduce((a, m) => a + (m.totalVisitors || 0), 0);
+  const likes = list.reduce((a, m) => a + ((CLOUD.social && (CLOUD.social.get(m.id) || {}).likes) || m.likes || 0), 0);
   const note = mine ? (CLOUD.profile && !CLOUD.profile.public ? '<p class="help">Your profile is private, so nobody else can open this page and your resorts show “A player”.</p>' : '<p class="help">This is your page as other players see it. Private resorts aren’t listed.</p>') : '';
   return `${back}<div class="creator"><div class="cr-av">${esc(name.slice(0, 1).toUpperCase())}</div><div><div class="eyebrow">Creator</div><h3>${esc(name)}</h3></div></div>
-    <dl class="cr-stats"><div><dt>Resorts</dt><dd>${list.length}</dd></div><div><dt>Best day</dt><dd>${best.toLocaleString('en-US')}</dd></div><div><dt>Stars</dt><dd>★${stars}</dd></div><div><dt>Guests</dt><dd>${guests.toLocaleString('en-US')}</dd></div></dl>
+    <dl class="cr-stats"><div><dt>Resorts</dt><dd>${list.length}</dd></div><div><dt>Best day</dt><dd>${best.toLocaleString('en-US')}</dd></div><div><dt>Stars</dt><dd>★${stars}</dd></div><div><dt>Likes</dt><dd>❤${likes}</dd></div></dl>
     ${note}${list.length ? `<ul class="bcards">${list.sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)).map((m) => browseCard({ ...m, hideWho: true }, null, mine)).join('')}</ul>` : '<p class="help">No public resorts yet.</p>'}`;
 }
 let cmPrev = 'board';
@@ -10398,6 +10462,7 @@ function browseHtml() {
     ['Staff picks', 'Hand-picked resorts worth a visit.', others.filter((m) => CLOUD.picks && CLOUD.picks.has(m.id)), null],
     ['Recently active', 'Played in the last few hours and days.', [...others].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), (m) => agoShort(m.updatedAt)],
     ['Rising stars', 'New resorts in their first season, busiest first.', others.filter((m) => (m.season || 1) <= 1 && (m.updatedAt || 0) > week && (m.bestGuests || 0) > 0).sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)), null],
+    ['Most liked', 'The resorts players love most.', others.filter((m) => m.likes > 0).sort((a, b) => b.likes - a.likes), null],
     ['Biggest resorts', 'The most trails, lifts and buildings.', [...others].sort((a, b) => sizeOf(b) - sizeOf(a)), null],
   ];
   return shelves.filter(([, , list]) => list.length).map(([title, note, list, extra]) => `<section class="shelf"><h4>${title}</h4><p class="help">${note}</p>
@@ -10417,7 +10482,9 @@ function standingHtml() {
       : CLOUD.board === 'day' || CLOUD.board === 'season' ? `${money(gap)} behind ${above.name}` : `Next up: ${above.name}`;
   const priv = me.hidden ? `<span>Your resort is private, so only you see this. <button class="linkb" data-action="goPublic">Make it public</button></span>` : '';
   const guest = !me.hidden && CLOUD.guest ? '<span>You’re on the board as a guest. Sign in on the title screen to keep your resort safe and put your name on it.</span>' : '';
-  return `<div class="standing ${i === 0 ? 'first' : ''}"><div><span class="sr">#${i + 1}</span><span class="of">of ${r.length} · ${esc(B.label.toLowerCase())}</span></div><b>${esc(state.resortName)}</b><span>${esc(gapTxt)}</span>${priv}${guest}</div>`;
+  const so = (CLOUD.social && CLOUD.social.get(slots.active)) || null;
+  const social = so ? `<span class="soc">❤ ${so.likes} ${so.likes === 1 ? 'like' : 'likes'} · ${so.visits} ${so.visits === 1 ? 'visit' : 'visits'}</span>` : '';
+  return `<div class="standing ${i === 0 ? 'first' : ''}"><div><span class="sr">#${i + 1}</span><span class="of">of ${r.length} · ${esc(B.label.toLowerCase())}</span></div><b>${esc(state.resortName)}</b><span>${esc(gapTxt)}</span>${social}${priv}${guest}</div>`;
 }
 function cloudNote() {
   if (CLOUD.status === 'connecting') return 'Connecting…';
@@ -10655,6 +10722,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 
 // Major changes only, newest first. The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.20', date: 'Oct 22, 2026', items: [
+    'Likes: tap ♡ Like while visiting someone’s resort (signed-in players, once per resort). Likes show on the boards and in Browse, with a new Most liked ranking, and your standing card counts your likes and visits.',
+    'Bonuses: each new like on your resort pays $100,000 at the start of the next day (up to 10 likes a season), and becoming a staff pick pays $1,000,000.',
+  ] },
   { v: '2.19', date: 'Oct 22, 2026', items: [
     'Creator profiles: signed-in players set one creator name for all their resorts (Community › Profile › You), and get a creator page with their totals and public resorts. Tap any creator’s name on the leaderboard, in Browse or while visiting to see their page.',
     'Your profile can be public or private: private takes your name off your resorts and closes your page. Names you typed before carry over.',
