@@ -46,6 +46,17 @@ export default async function ({ browser, url }) {
   assert(/holiday weekend/.test(await g.ev(`$('toast').textContent`)), 'a holiday weekend suggests an event');
   await g.click('#toast button'); await g.wait(200);
   eq(await g.ev(`selected && selected.obj`), 'events', 'and opens Events');
+  // the help bulb can be turned off in the menu, and stays off
+  const shown = () => g.ev(`$('tipsBtn').offsetParent !== null`);
+  await g.ev(`select(null)`);
+  assert(await shown(), 'the help bulb shows by default');
+  await g.ev(`$('mTips').click()`); await g.wait(100);
+  eq(await g.ev(`[$('mTipsV').textContent, localStorage.getItem('mm.tips')]`), ['Off', 'off'], 'the menu turns it off');
+  eq(await shown(), false, 'and it’s hidden');
+  await g.page.reload(); await g.reloaded(); await g.click('#startBtn'); await g.wait(400);
+  eq(await shown(), false, 'still hidden after reloading');
+  await g.ev(`$('mTips').click()`); await g.wait(100);
+  assert(await shown(), 'and back on again');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

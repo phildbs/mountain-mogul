@@ -146,7 +146,7 @@ button { font: inherit; color: inherit; }
 .tips-btn.nudge { animation: nudge 1.8s ease-in-out infinite; }
 .tips-btn.nudge svg { color: var(--accent); }
 @keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(223, 86, 44, 0.55); } 60% { box-shadow: 0 0 0 9px rgba(223, 86, 44, 0); } }
-body.visiting .tips-btn, #menu:not([hidden]) ~ .tips-btn { display: none; }
+body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn { display: none; }
 .advice { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .advice li { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; background: rgba(255, 255, 255, 0.55); }
 .advice li.urgent { border-color: rgba(223, 86, 44, 0.45); background: var(--accent-soft); }
@@ -1018,6 +1018,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mFull">Full screen</button>
           <button id="mHint">Show controls</button>
           <button id="mEdges">Trail colour edges <span class="mval" id="mEdgesV"></span></button>
+          <button id="mTips">Help bulb <span class="mval" id="mTipsV"></span></button>
           <button id="mGfx">Graphics <span class="mval" id="mGfxV"></span></button>
           <button id="mFeedback">Send feedback</button>
           <button id="mSim" hidden>Simulate (dev)</button>
@@ -10456,6 +10457,18 @@ syncFullscreen();
 $('mFull').onclick = () => { closeMenu(); toggleFullscreen(); };
 $('mGfxV').textContent = GFX === 'low' ? 'Low' : 'Standard';
 $('mEdgesV').textContent = trailEdges ? 'On' : 'Off';
+// The help bulb (What next?) can be put away, remembered on this device; the welcome card goes with it.
+let tipsOn = true;
+try { tipsOn = localStorage.getItem('mm.tips') !== 'off'; } catch (e) { /* storage blocked */ }
+function setTips(on) {
+  tipsOn = on;
+  try { if (on) localStorage.removeItem('mm.tips'); else localStorage.setItem('mm.tips', 'off'); } catch (e) { /* storage blocked */ }
+  document.body.classList.toggle('no-tips', !on);
+  $('mTipsV').textContent = on ? 'On' : 'Off';
+  if (!on && selected && selected.kind === 'advice') select(null);
+}
+setTips(tipsOn);
+$('mTips').onclick = () => { closeMenu(); setTips(!tipsOn); toast(tipsOn ? 'The help bulb is back beside your resort’s name.' : 'Help bulb hidden. Turn it back on in the menu any time.'); };
 $('mEdges').onclick = () => { closeMenu(); setTrailEdges(!trailEdges); toast(trailEdges ? 'Trails show their green, blue and black edges' : 'Clean trails: rating edges hidden'); };
 $('mGfx').onclick = () => {
   closeMenu();
@@ -11394,6 +11407,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.32', date: 'Oct 24, 2026', title: 'Hide the help bulb', items: [
+    'Know your way around? Turn off the help bulb (What next?) in the menu. Turn it back on any time.',
+  ] },
   { v: '2.31.1', date: 'Oct 24, 2026', title: 'Business button fix', items: [
     'The Business button now works while another panel is open: it switches straight to Operations, Prices or Events.',
   ] },
@@ -12080,7 +12096,7 @@ function startGame(camFrom) {
   if (state.bankrupt && !visiting) showGameOver();
   if (!practice && !visiting && !state.welcomed && preOpening() && !world.lifts.length) {
     state.welcomed = true; scheduleSave();
-    setTimeout(() => { if (state.started && !selected && state.tool === 'explore') select({ kind: 'advice', obj: 'welcome' }); }, 1700);
+    setTimeout(() => { if (tipsOn && state.started && !selected && state.tool === 'explore') select({ kind: 'advice', obj: 'welcome' }); }, 1700);
   }
   refreshTips();
 }
