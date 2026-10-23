@@ -18,6 +18,10 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[selected, $('bizFly').hidden]`), [null, true], 'Business again puts it all away');
   await g.click('#manage [data-m=trails]'); await g.wait(100);
   eq(await g.ev(`$('bizFly').hidden`), true, 'another button leaves the bar closed');
+  await g.click('#manage [data-m=biz]'); await g.wait(100);
+  eq(await g.ev(`[selected && selected.obj, $('bizFly').hidden]`), ['events', false], 'with another panel open, Business switches straight to it');
+  await g.click('#manage [data-m=money]'); await g.wait(100);
+  eq(await g.ev(`[selected && selected.obj, $('bizFly').hidden]`), ['money', true], 'and away again');
   // learning areas live in the Trail tool now
   await g.ev(`(() => { select(null); setTool('trail'); })()`); await g.wait(100);
   assert(/Learning area/.test(await g.ev(`$('sheet').innerText`)), 'the Trail tool offers learning areas');
