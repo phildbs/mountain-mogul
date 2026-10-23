@@ -10,14 +10,22 @@ export default async function ({ browser, url }) {
   for (const k of ['parking', 'biz']) assert(await g.ev(`!!$('manage').querySelector('[data-m=${k}]')`), `the side bar has ${k}`);
   eq(await g.ev(`['ops', 'prices', 'events'].filter((k) => $('manage').querySelector('[data-m=' + k + ']'))`), [], 'Operations, Prices and Events share one Business button');
   await g.click('#manage [data-m=biz]'); await g.wait(100);
-  eq(await g.ev(`selected && selected.obj`), 'ops', 'Business opens Operations first');
-  await g.click('.biztabs [data-v=events]'); await g.wait(100);
-  eq(await g.ev(`$('manage').querySelector('[data-m=biz]').getAttribute('aria-current')`), 'true', 'the Business button stays lit on its tabs');
+  eq(await g.ev(`[$('bizFly').hidden, [...$('bizFly').querySelectorAll('[data-m]')].map((b) => b.dataset.m)]`), [false, ['ops', 'prices', 'events']], 'Business opens a bar of Operations, Prices and Events beside it');
+  await g.click('#bizFly [data-m=events]'); await g.wait(100);
+  eq(await g.ev(`[selected && selected.obj, $('bizFly').hidden, $('manage').querySelector('[data-m=biz]').getAttribute('aria-current')]`), ['events', false, 'true'], 'a button there opens its panel, with the bar and Business still lit');
   assert(/Torchlight|Book one/i.test(await g.ev(`$('sheet').innerText`)), 'Events lists what you can book');
   await g.click('#manage [data-m=biz]'); await g.wait(100);
-  eq(await g.ev(`selected`), null, 'the Business button closes its panel');
-  await g.click('#manage [data-m=biz]'); await g.wait(100);
-  eq(await g.ev(`selected && selected.obj`), 'events', 'and reopens the tab last used');
+  eq(await g.ev(`[selected, $('bizFly').hidden]`), [null, true], 'Business again puts it all away');
+  await g.click('#manage [data-m=trails]'); await g.wait(100);
+  eq(await g.ev(`$('bizFly').hidden`), true, 'another button leaves the bar closed');
+  // learning areas live in the Trail tool now
+  await g.ev(`(() => { select(null); setTool('trail'); })()`); await g.wait(100);
+  assert(/Learning area/.test(await g.ev(`$('sheet').innerText`)), 'the Trail tool offers learning areas');
+  await g.click('[data-action=trailMode][data-v=area]'); await g.wait(100);
+  eq(await g.ev(`[state.tool, state.landMode, $('tTrail').getAttribute('aria-pressed'), $('tClear').getAttribute('aria-pressed')]`), ['clear', 'area', 'true', 'false'], 'it paints with Trail lit');
+  await g.click('#tClear'); await g.wait(100);
+  eq(await g.ev(`[state.landMode, /Learning area/.test($('sheet').querySelector('.seg').innerText)]`), ['trees', false], 'Landscape is clearing and levelling only');
+  await g.ev(`setTool('explore')`);
   await g.ev(`openManage('prices')`); await g.wait(100);
   assert(!/Torchlight/.test(await g.ev(`$('sheet').innerText`)), 'and they’re no longer buried in Prices');
   // the main lot fills with no off-site parking: a nudge that opens Parking

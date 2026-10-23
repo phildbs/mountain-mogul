@@ -668,7 +668,6 @@ a.vtag { text-decoration: none; }
 .field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-bottom: -6px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 10px; }
 .seg.lifts { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
-.seg.land3 { grid-template-columns: 1fr 1fr 1fr; }
 .seg button {
   border: 0; background: none; padding: 7px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--ink-2);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 34px;
@@ -705,8 +704,8 @@ a.vtag { text-decoration: none; }
 .ops-row em { font-style: normal; color: var(--steep); font-size: 11px; }
 .seg.ops button { min-height: 28px; padding: 4px 2px; font-size: 12px; }
 .help.warn { color: #9a3326; }
-.biztabs { margin: 0 0 4px; }
-@media (max-width: 640px) { .biztabs { display: none; } }
+.manage.bizfly { flex-direction: row; transform: none; top: 0; }
+@media (max-width: 640px) { .manage.bizfly { display: none; } }
 .mhub { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .mtile { display: grid; grid-template-columns: 30px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, 0.7); font: inherit; color: var(--ink); cursor: pointer; min-height: 62px; }
 .mtile .ic { grid-row: 1 / 3; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-weight: 800; }
@@ -1060,6 +1059,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button data-m="plans" title="Blueprints: build order" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke-dasharray="3 2"/><path d="M7 15l3-6 3 4 2-2 2 4"/></svg>Plans<span class="cnt"></span></button>
       <button data-m="money" title="Money: results, history and the bank"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Money</button>
     </nav>
+    <div class="panel manage bizfly" id="bizFly" hidden role="menu" aria-label="Business"></div>
     <div class="panel visitbar" id="visitBar" hidden>
       <span id="visitText"></span>
       <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
@@ -2620,7 +2620,7 @@ function toast(msg, bad, act) {
 function setTool(tool) {
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
-    toast('Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
+    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
   if (tool !== state.tool) { resetDraft(); draft.btype = null; if (state.tool === 'clear') clearAreaDraft(); }
@@ -2629,9 +2629,10 @@ function setTool(tool) {
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
-  $('tTrail').setAttribute('aria-pressed', tool === 'trail');
+  const painting = tool === 'clear' && state.landMode === 'area';
+  $('tTrail').setAttribute('aria-pressed', tool === 'trail' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
-  $('tClear').setAttribute('aria-pressed', tool === 'clear');
+  $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
   $('sizes').hidden = tool !== 'clear';
   canvas.className = tool === 'clear' ? 'brush' : tool === 'explore' ? 'grab' : 'brush';
   if (tool !== 'clear') brushMesh.visible = false;
@@ -4400,7 +4401,8 @@ function renderSheet() {
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
-  document.querySelectorAll('#manage [data-m]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.m === m || (b.dataset.m === 'biz' && BIZ.some(([k]) => k === m)))));
+  syncBizFly();
+  document.querySelectorAll('#manage [data-m]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.m === m || (b.dataset.m === 'biz' && (bizOpen || BIZ.some(([k]) => k === m))))));
   const nervous = state.debt > creditLimit();
   if ($('manage').querySelector('[data-m=money]').dataset.warn !== (nervous ? '1' : '')) $('manage').querySelector('[data-m=money]').dataset.warn = nervous ? '1' : '';
   $('tManage').setAttribute('aria-pressed', String(!!(selected && selected.kind === 'manage' && state.tool === 'explore')));
@@ -4432,6 +4434,14 @@ function buildRow(info, ok) {
   <button class="btn wide" data-action="build" ${ok && !short ? '' : 'disabled'}>${label}</button>${blueprintBtn(info, ok)}`;
 }
 
+// The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
+const TRAIL_MODES = (cur) => `<div class="seg" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button></div>`;
+function openAreaTool() {
+  if (visiting) return;
+  if (state.phase !== 'closed') { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
+  state.landMode = 'area';
+  setTool('clear');
+}
 function trailDraftSheet() {
   const n = draft.pts.length, info = draft.info;
   const help = n === 0 ? 'Click in the clearing at the top of a lift, or on an existing trail to branch off it.'
@@ -4454,6 +4464,7 @@ function trailDraftSheet() {
       <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}${info.bridges ? `<span>${info.bridges > 1 ? `${info.bridges} creek bridges` : 'Creek bridge'} and approaches</span><span>${money(info.bridgeCost)}</span>` : ''}</div>`;
   }
   return `<div class="sheet-title"><h3>New trail</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    ${n ? '' : TRAIL_MODES('trail')}
     <p class="help">${help}</p>
     <div class="field-label">Width</div>
     <div class="seg" role="group" aria-label="Trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
@@ -4486,6 +4497,7 @@ function liftDraftSheet() {
     <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).map(([k, t]) =>
       `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : t.cabin ? `${t.seats}-person cabins` : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
     ${draft.liftType === 'gondola' ? '<p class="help">Enclosed, heated cabins. Skiers prefer it on cold days, and sightseers buy a scenic ride to the top and back when it starts at the base. It stops first in high wind.</p>' : ''}
+    ${draft.liftType === 'carpet' && !world.areas.length ? '<p class="help">A carpet works best inside a learning area. <button class="link" data-action="trailMode" data-v="area">Paint one first</button></p>' : ''}
     ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
     ${body}
     ${buildRow(info, info && !info.problems.length)}`;
@@ -4616,6 +4628,7 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
+  else if (a === 'trailMode') { if (b.dataset.v === 'area') openAreaTool(); else setTool('trail'); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; if (b.dataset.v !== 'area') clearAreaDraft(); renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
   else if (a === 'areaClear') { clearAreaDraft(); renderSheet(); }
@@ -9346,11 +9359,11 @@ function levelAt(p) {
 }
 function landSheet() {
   const lvl = state.landMode === 'level', area = state.landMode === 'area';
-  const head = `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-    <div class="seg land3" role="group" aria-label="Landscape mode">
-      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !area}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
-      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
-      <button data-action="landMode" data-v="area" aria-pressed="${area}">Learning area<small>paint, then build</small></button></div>`;
+  const head = area ? `<div class="sheet-title"><h3>New learning area</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES('area')}`
+    : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <div class="seg" role="group" aria-label="Landscape mode">
+      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button></div>`;
   if (area) {
     const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
     return `${head}
@@ -9366,7 +9379,7 @@ function landSheet() {
     <p class="help">${lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for glades, views and building sites.'}</p>
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Learning areas for first-timers are under <button class="link" data-action="trailMode" data-v="area">Trail</button>.</p>`;
 }
 /* ---------- Saving terrain edits ---------- */
 function encodeTerrain() {
@@ -9446,12 +9459,24 @@ $('tbSub').onclick = (e) => {
   opsEdit = null; resortTab = 'ops';
   openManage('ops');
 };
+$('bizFly').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-m]');
+  if (!b) return;
+  const open = selected && selected.kind === 'manage' ? selected.obj : null;
+  if (open === b.dataset.m) select(null); else openManage(b.dataset.m);
+});
 $('manage').addEventListener('click', (e) => {
   const b = e.target.closest('[data-m]');
   if (!b) return;
-  const key = b.dataset.m === 'biz' ? lastBiz : b.dataset.m;
   const open = selected && selected.kind === 'manage' ? selected.obj : null;
-  if (open === key || (b.dataset.m === 'biz' && BIZ.some(([k]) => k === open))) select(null); else openManage(key);
+  if (b.dataset.m === 'biz') {
+    // Business: a bar of Operations, Prices and Events beside it. Clicking it again puts it all away.
+    bizOpen = !bizOpen;
+    if (!bizOpen && BIZ.some(([k]) => k === open)) select(null); else renderSheet();
+    return;
+  }
+  bizOpen = false;
+  if (open === b.dataset.m) select(null); else openManage(b.dataset.m);
 });
 // Phones: list buttons open (or close) their list; More opens a grid of everything else;
 // Build swaps the bar for the build tools until Done.
@@ -9479,6 +9504,11 @@ $('pBuild').onclick = () => {
 $('tManage').onclick = () => { if (selected && selected.kind === 'manage' && state.tool === 'explore') select(null); else openManage(lastManage); };
 $('tbGo').onclick = () => { if (state.phase === 'open') closeEarly(); else { autoDays = 0; openDay(); } };
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
+$('rpBody').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-rp=area]') || state.phase !== 'report') return;
+  autoDays = 0; cancelAuto();
+  nextDay(); openAreaTool();
+});
 $('rpNext').onclick = () => {
   if (rpPast) { rpPast = false; $('report').hidden = true; return; } // an old report, opened from Money
   if (state.phase !== 'report' && state.phase !== 'season') return;
@@ -9645,7 +9675,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.complaints.shuttle && !(r.offsite && r.offsite.wait > SHUTTLE_PATIENCE)) note(2, `${r.complaints.shuttle} guests waited a long time for a parking shuttle.`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
-  if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.`);
+  if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.${past || world.areas.length ? '' : ' <button class="link" data-rp="area">Paint a learning area tonight</button>'}`);
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
   if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
@@ -9746,7 +9776,20 @@ let resortTab = 'prices';
    tapping a row flies there and opens its full panel. Operations, Prices, Snow and Money hold the rest. */
 const MANAGE = [['trails', 'Trails'], ['lifts', 'Lifts'], ['blds', 'Buildings'], ['parking', 'Parking'], ['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['snow', 'Snow'], ['money', 'Money'], ['plans', 'Plans']];
 const BIZ = [['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events']];
-let lastBiz = 'ops';
+let lastBiz = 'ops', bizOpen = false;
+// The Business flyout: shown while it's open or one of its panels is, beside the Business button.
+function syncBizFly() {
+  const f = $('bizFly'), btn = $('manage').querySelector('[data-m=biz]');
+  const cur = selected && selected.kind === 'manage' && state.tool === 'explore' ? selected.obj : null;
+  if (cur && !BIZ.some(([k]) => k === cur)) bizOpen = false;
+  if (BIZ.some(([k]) => k === cur)) bizOpen = true;
+  f.hidden = !bizOpen || !btn || visiting;
+  if (f.hidden) return;
+  if (!f.children.length) f.innerHTML = BIZ.map(([k, l]) => `<button data-m="${k}" role="menuitem">${{ ops: btn.querySelector('svg').outerHTML, prices: PRICES_ICON, events: EVENTS_ICON }[k]}${l}</button>`).join('');
+  for (const b of f.children) b.setAttribute('aria-current', String(b.dataset.m === cur));
+  const r = btn.getBoundingClientRect(), rail = $('manage').getBoundingClientRect();
+  f.style.left = `${rail.right + 8}px`; f.style.top = `${r.top + r.height / 2 - f.offsetHeight / 2}px`;
+}
 const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', more: 'More' };
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
@@ -9764,8 +9807,7 @@ function managePanel(key) {
   // On phones the bar has Trails, Lifts and Buildings; everything else is under More, which leads back to its grid.
   const back = MORE_LISTS.includes(key) && key !== 'more' ? '<button class="link back" data-action="manage" data-v="more">‹ More</button>' : '';
   if (BIZ.some(([k]) => k === key)) lastBiz = key;
-  const bizTabs = BIZ.some(([k]) => k === key) ? `<div class="tabs biztabs">${BIZ.map(([k, l]) => `<button data-action="manage" data-v="${k}" aria-pressed="${k === key}">${l}</button>`).join('')}</div>` : '';
-  const head = `<div class="mtabs">${back}</div>${bizTabs}
+  const head = `<div class="mtabs">${back}</div>
     <div class="sheet-title"><h3>${MANAGE_TITLE[key]}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   const body = key === 'trails' ? trailsList() : key === 'lifts' ? liftsList() : key === 'blds' ? bldsList() : key === 'parking' ? parkingPanel()
     : key === 'ops' ? opsSection() : key === 'prices' ? pricesPanel() : key === 'events' ? eventsPanel() : key === 'snow' ? weatherSheet(true)
@@ -10301,7 +10343,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '1') setTool('explore');
   else if (k === '2') setTool('trail');
   else if (k === '3') setTool('lift');
-  else if (k === '4') setTool('clear');
+  else if (k === '4') openLandscape();
   else if (k === '5') setTool('bld');
   else if (k === 'r' && draft.kind === 'bld' && draft.btype && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
@@ -10332,7 +10374,12 @@ function zoomCenter(f) { cam.viewGoal = clamp((cam.viewGoal || cam.viewH) * f, V
 
 $('tExplore').onclick = () => setTool('explore');
 $('tUndo').onclick = undoLast;
-$('tClear').onclick = () => setTool('clear');
+// Landscape: clearing and levelling. Coming from a learning area, it starts on clearing trees.
+function openLandscape() {
+  if (state.landMode === 'area') { state.landMode = 'trees'; clearAreaDraft(); }
+  setTool('clear');
+}
+$('tClear').onclick = openLandscape;
 $('tTrail').onclick = () => setTool('trail');
 $('tLift').onclick = () => setTool('lift');
 $('tBld').onclick = () => setTool('bld');
@@ -11346,8 +11393,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.31', date: 'Oct 24, 2026', title: 'A shorter side bar', items: [
-    'On a computer or tablet, Operations, Prices and Events share one Business button, with tabs to switch between them.',
+  { v: '2.31', date: 'Oct 24, 2026', title: 'Tidier tools', items: [
+    'On a computer or tablet, Operations, Prices and Events share one Business button: click it and the three appear beside it.',
+    'Learning areas moved to the Trail tool: pick Trail or Learning area at the top. Landscape is for clearing trees and levelling ground.',
+    'When first-timers had nowhere to learn, the day report has a button to paint a learning area that night.',
   ] },
   { v: '2.30', date: 'Oct 24, 2026', title: 'Easier to find your way', items: [
     'On phones, More opens a grid of everything else: Parking, Operations, Prices, Events, Snow, Money, Goals and the leaderboard, each with how it’s doing. Every section has a way back.',
