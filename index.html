@@ -313,6 +313,7 @@ body.visiting .badge { cursor: default; }
 .cm-tabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.15); }
 .namerow { display: flex; gap: 6px; }
 .namerow input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; }
+.sheet-title .namedice { width: 34px; height: 34px; font-size: 16px; padding: 0; }
 .dice { flex: none; width: 40px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 18px; cursor: pointer; }
 .namefield { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
 .flabel.lot { cursor: pointer; }
@@ -2672,12 +2673,6 @@ const LIFT_TYPES = {
 };
 const liftCapacity = (t) => Math.round(t.seats * t.speed * 3600 / (t.spacing * 10) / 10) * 10;
 const LIFT_COLORS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0x1aa3b8, 0xc23f6e, 0x4f5d73];
-const TRAIL_NAMES = ['Bunny Hop', 'Juniper Way', 'Lower Meadow', 'Fox Run', 'Timberline', 'Snowdrift', 'Cedar Glade', 'Ridge Runner',
-  'Lookout', 'Hemlock', 'Bear Track', 'Whiskey Jack', 'Elk Ridge', 'Moonshine', 'Skyline', "Eagle's Nest", 'Big Dipper', 'Corduroy',
-  'Gold Rush', 'Ptarmigan', 'Powder Keg', 'Lynx', 'Upper Meadow', 'Sundance', 'Bluebird', 'Kingfisher', 'Sidewinder', 'Tamarack',
-  'Sasquatch', 'Wapiti', 'Marmot', 'Outlaw', 'Last Chance', 'Highline', 'Drifter', 'Silver Fir', 'Coyote', 'Chickadee', 'Rambler', 'Jackrabbit'];
-const LIFT_WORDS = ['Juniper', 'Meadow', 'Summit', 'Ridge', 'Creekside', 'Lookout', 'Timber', 'Eagle', 'Sunrise', 'Shoulder', 'Basin', 'Highland'];
-
 const world = { trails: [], lifts: [], nextId: 1 };
 const trailGroup = new THREE.Group(), liftGroup = new THREE.Group(), draftGroup = new THREE.Group();
 scene.add(trailGroup, liftGroup, draftGroup);
@@ -2685,14 +2680,70 @@ const distXZ = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const trueY = (x, z) => heightAt(x, z) / VEX;
 function isBase(p) { return inProperty(p.x, p.z) && trueY(p.x, p.z) < MOUNTAIN.baseH + 3.5; }
 
-function nextTrailName() {
-  const used = new Set(realTrails().map((t) => t.name));
-  for (const n of TRAIL_NAMES) if (!used.has(n)) return n;
-  return 'Trail ' + (realTrails().length + 1);
+/* ---------- Names: picked to fit what's built and where, at random so no two resorts read alike ---------- */
+// Trails by rating (green, blue, black, double black): mostly the kind real ski areas use, some fun.
+const TRAIL_NAMES = [
+  ['Bunny Hop', 'Lazy Daisy', 'Cub Run', 'Sleepy Hollow', 'Easy Street', 'Marshmallow', 'Lollygag', 'Sunshine', 'Lower Meadow', 'Snowflake',
+    'Buttercup', 'Pussywillow', 'Chipmunk', 'Butterfly', 'Wagon Wheel', 'Sweet Pea', 'Little Dipper', 'Dreamweaver', 'Duck Pond', 'Gentle Ben',
+    'Teddy Bear', 'Lambs Ear', 'Primrose', 'Huckleberry', 'Cottontail', 'Daydream', 'Sugar Plum', 'Rabbit Run', 'Pinecone', 'First Tracks',
+    'Breezeway', 'Honeysuckle', 'Wildflower', 'Kindergarten', 'Lollipop', 'Doe Run', 'Bambi', 'Smooth Sailing', 'Sunday Drive', 'Mellow Yellow'],
+  ['Bluebird', 'Fox Run', 'Sundance', 'Cruiser', 'Roundabout', 'Meadowlark', 'Wanderer', 'Timberline', 'Snowdrift', 'Ridge Runner',
+    'Corduroy', 'Big Dipper', 'Kingfisher', 'Tamarack', 'Rambler', 'Jackrabbit', 'Ptarmigan', 'Upper Meadow', 'Silver Fir', 'Whiskey Jack',
+    'Elk Ridge', 'Lookout', 'Bear Track', 'Gold Rush', 'Marmot', 'Hemlock', 'Lynx', 'Wapiti', 'Drifter', 'Showboat',
+    'Ramble On', 'Boomerang', 'Hot Shot', 'Northern Lights', 'Sidewinder', 'Cloud Nine', 'Cascade', 'Sunset Strip', 'Paradise', 'Dipsy Doodle',
+    'Powder Keg', 'High Noon', 'Last Chance', 'Bobcat', 'Wolverine', 'Ladyslipper', 'Switchback', 'Roller Coaster', 'Moonshine', 'Tumbleweed'],
+  ['Widowmaker', 'Outlaw', 'The Plunge', 'Rattlesnake', 'Thunderbolt', "Hangman's", 'Grizzly', 'Sasquatch', 'Avalanche', 'Free Fall',
+    'Gunbarrel', 'Hellfire', 'Twister', 'Bushwhacker', 'Rampage', 'Wildcat', 'Goat Path', 'Mineshaft', 'Pipeline', 'Cannonball',
+    'Ricochet', 'Daredevil', 'Black Diamond', 'Highline', 'Powder Monkey', 'Mogul Alley', 'Bump City', 'Steeplechase', 'Ripsaw', 'Tombstone',
+    'Lightning', 'Shotgun', 'Iron Mike', 'Haymaker', 'Big Bang', 'Bear Trap', 'Cougar', 'Hurricane', 'Stampede', 'Jackhammer'],
+  ["Devil's Fall", 'Kamikaze', 'No Mercy', 'Cliffhanger', 'The Abyss', 'Body Slam', 'Vertigo', 'Freefall Face', 'Spine Line', 'Rock Garden',
+    'Corkscrew Face', 'Mach One', 'Dragon’s Tooth', 'The Wall', 'Point of No Return', 'Terminator', 'Hell’s Gate', 'Big Nasty', 'Mach Schnell', 'Holy Toledo',
+    'Lift Line Jump', 'Gnarly Charlie', 'Fear Factor', 'Headwall', 'The Notch', 'Nose Dive', 'Bonecrusher', 'Thunderstruck', 'The Edge', 'Organ Grinder'],
+];
+// Trails that fit where they go: from the summit, along the creek, narrow and steep, or long and easy.
+const TRAIL_PLACE = {
+  summit: [['Skyline Way', 'Top of the World', 'Panorama', 'High Road', 'Summit Stroll'], ['Summit Run', 'Skyline', 'Ridgeline', 'Panorama', 'Cloud Walk'], ['Summit Plunge', 'Top Drop', 'Eagle’s Edge', 'Skyfall', 'High Wire'], ['Summit Chute', 'Skydive', 'Top Gun', 'Off the Top', 'Eagle’s Nest']],
+  creek: [['Creekside', 'Babbling Brook', 'Riverbend', 'Willow Way', 'Bridgewater'], ['Creekside', 'Riverbend', 'Trout Run', 'Covered Bridge', 'Brookside'], ['Rapids', 'Whitewater', 'Waterfall', 'Creek Plunge'], ['Waterfall', 'Whitewater', 'Cascade Chute']],
+  chute: [[], [], ['The Chute', 'The Gully', 'Corkscrew', 'Slot Canyon', 'Keyhole'], ['The Couloir', 'Needle’s Eye', 'Mail Slot', 'Elevator Shaft', 'Hourglass']],
+  long: [['Long Haul', 'The Long Way Home', 'Lazy River', 'Country Road', 'Meander'], ['Long Haul', 'Grand Tour', 'Odyssey', 'Interstate'], [], []],
+};
+// Each mountain's own flavour, by rating.
+const TRAIL_LOCAL = {
+  juniper: [['Chickadee', 'Sagebrush', 'Wren', 'Juniper Way', 'Meadow Mouse'], ['Blue Jay', 'Juniper Berry', 'Piñon', 'Mesa', 'Cedar Glade'], ['Coyote', 'Hawk’s Claw', 'Juniper Ridge', 'Dust Devil'], ['Thunderhead', 'Rattlesnake Ridge', 'Badlands']],
+  maple: [['Sugarbush', 'Sap Run', 'Cider Mill', 'Maple Leaf', 'Pancake'], ['Sugarhouse', 'Foliage', 'Stonewall', 'Village Green', 'Harvest Moon'], ['Nor’easter', 'Granite', 'Hardscrabble', 'Iron Horse'], ['Ice Storm', 'Rime', 'Notch Chute', 'Black Ice']],
+  raven: [['Feather', 'Nestling', 'Moonbeam', 'Twilight', 'Pine Hollow'], ['Corvid', 'Black Feather', 'Moonrise', 'Nightjar', 'Shadow Run'], ['Nevermore', 'Murder of Crows', 'Raven’s Claw', 'Gloom', 'Darkside'], ['Raven’s Plunge', 'Midnight', 'Black Hole', 'Witching Hour', 'Dead Man’s Drop']],
+};
+const LIFT_PLACE = {
+  base: ['Village', 'Base Camp', 'Plaza', 'Lodge', 'Gateway', 'Meadow', 'Sunrise', 'Trailhead', 'Main Street', 'Front Side'],
+  mid: ['Ridge', 'Shoulder', 'Basin', 'Bowl', 'Saddle', 'Lookout', 'Timber', 'Outback', 'Backside', 'Hidden Valley', 'Cirque', 'Glacier'],
+  top: ['Summit', 'Skyline', 'Peak', 'Pinnacle', 'Highland', 'Eagle', 'Cloud Nine', 'Top Notch', 'Sky', 'Alpine'],
+};
+const LIFT_LOCAL = { juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
+const CARPET_NAMES = ['Magic Carpet', 'Bunny Belt', 'Learning Lane', 'Snowflake Carpet', 'Little Lift', 'Cub Conveyor', 'Easy Rider', 'Wonder Carpet'];
+const pickFree = (list, used) => { const free = list.filter((n) => !used.has(n)); return free.length ? free[Math.floor(Math.random() * free.length)] : null; };
+const heightFrac = (p) => clamp((trueY(p.x, p.z) - MOUNTAIN.baseH) / Math.max(1, MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
+// A trail's name: sometimes from where it runs, sometimes the mountain's own flavour, otherwise its rating.
+function trailNameFor(samples, rating, width, skip) {
+  const used = new Set(realTrails().map((t) => t.name)); if (skip) used.add(skip);
+  const len = (samples.length - 1) * 0.5, creek = samples.filter((s) => s.bridge || sampleGrid(CREEKD, s.x + HALF, s.z + HALF) < 4).length / samples.length;
+  const place = [];
+  if (heightFrac(samples[0]) > 0.8) place.push(...TRAIL_PLACE.summit[rating]);
+  if (creek > 0.25) place.push(...TRAIL_PLACE.creek[rating]);
+  if (width === 'narrow') place.push(...TRAIL_PLACE.chute[rating]);
+  if (len > 90) place.push(...TRAIL_PLACE.long[rating]);
+  const local = (TRAIL_LOCAL[MOUNTAIN.id] || [])[rating] || [], r = Math.random();
+  return (r < 0.3 && pickFree(place, used)) || (r < 0.55 && pickFree(local, used)) || pickFree(TRAIL_NAMES[rating], used)
+    || pickFree([...place, ...local, ...TRAIL_NAMES.flat()], used) || `Trail ${realTrails().length + 1}`;
 }
-function nextLiftName(type) {
-  const used = new Set(world.lifts.map((l) => l.name.split(' ')[0]));
-  const word = LIFT_WORDS.find((w) => !used.has(w)) || ('Lift ' + (world.lifts.length + 1));
+// A lift's name: where it starts and ends (the village, mid-mountain, the summit) or the mountain's own words.
+function liftNameFor(type, a, b, skip) {
+  const used = new Set(world.lifts.map((L) => L.name)); if (skip) used.add(skip);
+  if (type === 'carpet') return pickFree(CARPET_NAMES, used) || `Carpet ${world.lifts.length + 1}`;
+  const words = new Set(world.lifts.map((L) => L.name.replace(` ${LIFT_TYPES[L.type].name}`, '')));
+  if (skip) words.add(skip.replace(` ${LIFT_TYPES[type].name}`, ''));
+  const where = heightFrac(b) > 0.82 ? LIFT_PLACE.top : isBase(a) ? LIFT_PLACE.base : LIFT_PLACE.mid;
+  const word = (Math.random() < 0.3 && pickFree(LIFT_LOCAL[MOUNTAIN.id] || [], words)) || pickFree(where, words)
+    || pickFree([...LIFT_PLACE.base, ...LIFT_PLACE.mid, ...LIFT_PLACE.top], words) || `Lift ${world.lifts.length + 1}`;
   return `${word} ${LIFT_TYPES[type].name}`;
 }
 
@@ -3386,13 +3437,13 @@ world.areas = [];
 const areaGroup = new THREE.Group();
 scene.add(areaGroup);
 const AREA_CELL_COST = 450, AREA_MAX_GRADE = 0.24, AREA_MIN_CELLS = 25, AREA_GROOM_CELL = 2, AREA_LINES = 4;
-const AREA_NAMES = ['Bunny Hill', 'Little Bear Slope', 'Learning Area', 'Snowflake Hill', 'First Tracks', 'Cub Run'];
+const AREA_NAMES = ['Bunny Hill', 'Little Bear Slope', 'Learning Area', 'Snowflake Hill', 'First Tracks', 'Cub Run', 'Discovery Zone', 'Tenderfoot', 'Easy Acres', 'Pizza Slice Park', 'Snow Play', 'Beginner Basin'];
 const cellKey = (x, z) => x * 4096 + z, keyX = (k) => Math.round(k / 4096), keyZ = (k) => k - Math.round(k / 4096) * 4096;
 const acresOf = (n) => n * 100 / 4046.86;
 const areaAt = (x, z) => world.areas.find((a) => a.set.has(cellKey(Math.round(x), Math.round(z))));
-function nextAreaName() {
-  const used = new Set(world.areas.map((a) => a.name));
-  return AREA_NAMES.find((n) => !used.has(n)) || `Learning Area ${world.areas.length + 1}`;
+function nextAreaName(skip) {
+  const used = new Set(world.areas.map((a) => a.name)); if (skip) used.add(skip);
+  return pickFree(AREA_NAMES, used) || `Learning Area ${world.areas.length + 1}`;
 }
 // Cells already taken by trails, buildings, the parking lot and other areas, and what's there.
 function areaBlocks(skip) {
@@ -3858,7 +3909,7 @@ function commitTrail(info, pts, width) {
   if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
   if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
   const ordered = info.reversed ? [...pts].reverse() : pts.slice();
-  const made = { id: world.nextId++, name: nextTrailName(), pts: ordered.map((p) => ({ x: p.x, z: p.z })), width, open: true, sign: null };
+  const made = { id: world.nextId++, name: trailNameFor(info.samples, info.an.rating, width), pts: ordered.map((p) => ({ x: p.x, z: p.z })), width, open: true, sign: null };
   addTrail(made);
   return made;
 }
@@ -3894,7 +3945,7 @@ function commitLift(info, type) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const made = {
-    id: world.nextId++, name: nextLiftName(type), type,
+    id: world.nextId++, name: liftNameFor(type, info.a, info.b), type,
     a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z },
     color: LIFT_COLORS[world.lifts.length % LIFT_COLORS.length], open: true, cost: info.cost,
   };
@@ -4343,7 +4394,7 @@ function areaSheet(A) {
   const skiing = open ? lines.reduce((n, t) => n + (t.count || 0), 0) * AGENT : 0;
   const runs = open ? lines.reduce((n, t) => n + ((today.trailRuns || {})[t.id] || 0), 0) * AGENT : 0;
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(0x2f9e6a)}"></span>
-      <input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name">
+      <input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">Learning area · ${acresOf(A.cells.length).toFixed(1)} acres of gentle, groomed snow where first-timers find their feet.</p>
     ${lifts.length ? `<p class="conn">Served by ${lifts.map((L) => esc(L.name)).join(', ')}.</p>`
@@ -4363,7 +4414,7 @@ function trailSheet(t) {
   if (sign < an.rating) notes.push(`Signed easier than its terrain. The steepest pitch is ${Math.round(an.maxGrade * 100)}%.`);
   return `<div class="sheet-title">
       <span class="rsym big">${ratingSymbol(sign, 18)}</span>
-      <input class="name" id="nameInput" value="${esc(t.name)}" maxlength="28" aria-label="Trail name">
+      <input class="name" id="nameInput" value="${esc(t.name)}" maxlength="28" aria-label="Trail name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button>
     </div>
     <div class="status"><span class="pill ${t.open ? 'on' : 'off'}">${t.open ? 'Open' : 'Closed'}</span>
@@ -4397,7 +4448,7 @@ function liftSheet(L) {
   const hex = '#' + L.color.toString(16).padStart(6, '0');
   return `<div class="sheet-title">
       <span class="swatch" style="background:${hex}"></span>
-      <input class="name" id="nameInput" value="${esc(L.name)}" maxlength="28" aria-label="Lift name">
+      <input class="name" id="nameInput" value="${esc(L.name)}" maxlength="28" aria-label="Lift name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button>
     </div>
     <div class="status"><span class="pill ${L.planOff ? 'off' : !L.open ? 'off' : liftMode(L) === 'slow' ? 'slow' : 'on'}">${L.planOff ? 'Off today' : !L.open ? 'Stopped' : liftMode(L) === 'slow' ? 'Running slow' : 'Running'}</span>
@@ -4493,6 +4544,7 @@ sheet.addEventListener('click', (e) => {
     const p = world.plans.find((o) => o.id === +b.dataset.id);
     if (p) { const c = p.kind === 'trail' ? p.samples[Math.floor(p.samples.length / 2)] : p.kind === 'lift' ? { x: (p.a.x + p.b.x) / 2, z: (p.a.z + p.b.z) / 2 } : p; flyTo(c.x, c.z); select({ kind: 'plan', obj: p }); listBack = 'plans'; renderSheet(); }
   }
+  else if (a === 'rerollName' && obj && ['trail', 'lift', 'bld', 'area'].includes(selected.kind)) { obj.name = suggestName(selected.kind, obj); labelsDirty = true; renderSheet(); scheduleSave(); }
   else if (a === 'saveBlueprint') { planMode = true; try { buildDraft(); } finally { planMode = false; } }
   else if (a === 'setPrice') {
     const key = b.dataset.k, info = PRICE_INFO[key];
@@ -4558,6 +4610,14 @@ sheet.addEventListener('click', (e) => {
     computeNetwork(); syncLabels(); scheduleSave();
   }
 });
+// The dice beside a name: a fresh name that fits it.
+const NAME_DICE = '<button type="button" class="dice namedice" data-action="rerollName" title="Suggest another name" aria-label="Suggest another name">🎲</button>';
+function suggestName(kind, o) {
+  if (kind === 'trail') return trailNameFor(o.samples, trailSign(o), o.width, o.name);
+  if (kind === 'lift') return liftNameFor(o.type, o.a, o.b, o.name);
+  if (kind === 'area') return nextAreaName(o.name);
+  return nextBuildingName(o.type, o.x, o.z, o.name);
+}
 sheet.addEventListener('change', (e) => {
   if (e.target.id !== 'nameInput' || !selected) return;
   const v = e.target.value.trim().slice(0, 28);
@@ -7137,16 +7197,44 @@ function buildingInTheWay(samples, pad) {
 }
 
 /* ---------- Building instances ---------- */
-const LODGE_NAMES = { base: 'Base Lodge', mid: 'Mid-Mountain Lodge', top: 'Summit Lodge' };
-const OTHER_NAMES = { tuning: ['Tune & Demo Center', 'Edge Works'], store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear'], gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut'], truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart'], cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings'], fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room'], restaurant: ['The Juniper Grill', 'Fireside Restaurant', 'Slopeside Grill'], rental: ['Rental Shop'], school: ['Ski School'], patrol: ['Ski Patrol'], restroom: ['Restrooms'], shuttle: ['Shuttle Station'], parking: ['Lot B', 'Lot C', 'Lot D', 'Lot E', 'Lot F', 'Lot G'], clinic: ['First Aid', 'Mountain Clinic'], kids: ['Kids’ Camp', 'Little Rippers', 'Snow Cubs Camp'], hrest: ['Heated Restrooms', 'Warm Stalls'], transit: ['Transit Center', 'Bus Terminal'] };
-function nextBuildingName(type, x, z) {
-  const used = new Set(world.buildings.map((b) => b.name));
+// Lodges by where they stand; everything else from a pool for its kind, picked at random.
+const LODGE_NAMES = {
+  base: ['Base Lodge', 'Village Lodge', 'Base Camp Lodge', 'Timber Lodge', 'Main Lodge', 'The Commons', 'Day Lodge', 'Fireside Lodge'],
+  mid: ['Mid-Mountain Lodge', 'Halfway House', 'The Lookout', 'Ridge Hut', 'Midway Chalet', 'Treeline Lodge', 'The Warming Hut'],
+  top: ['Summit Lodge', 'Summit House', 'Skyline Lodge', 'Eagle’s Nest', 'Top of the World Lodge', 'Peak Chalet', 'Cloud Nine Lodge'],
+};
+const OTHER_NAMES = {
+  tuning: ['Tune & Demo Center', 'Edge Works', 'Wax On', 'Edge & Base', 'The Tuning Fork', 'Sharp Edges', 'Base Grind'],
+  store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear', 'Powder Room Outfitters', 'The Gear Garage', 'Alpine Supply', 'Peak Performance', 'Slope Shop'],
+  gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut', 'The Mitten Shop', 'Postcards & Pins', 'Snow Globe Gifts', 'The Logo Shop'],
+  truck: ['Snack Shack', 'Chili Wagon', 'Taco Truck', 'Waffle Wagon', 'Pretzel Cart', 'Mogul Munchies', 'The Rolling Fondue', 'Taco Avalanche', 'Chairlift Churros', 'Slopeside Dogs', 'Grilled Cheese Gondola', 'Hot Toddy’s Snacks', 'Burrito Bowl'],
+  cafe: ['Summit Café', 'Cocoa Corner', 'The Warming Hut', 'Bean & Bindings', 'Après Espresso', 'First Chair Coffee', 'The Toasty Toque', 'Bean Bunny', 'Powder & Pastry', 'The Hot Chocolate Hut', 'Mug Run', 'Fresh Tracks Café'],
+  fine: ['The Antler Room', 'Alpenglow', 'The Pinnacle', 'Timberline Room', 'Edelweiss', 'The Summit Table', 'Larkspur', 'The Silver Birch', 'Chez Mogul'],
+  restaurant: ['Fireside Restaurant', 'Slopeside Grill', 'The Lift Line Grill', 'Black Diamond Bistro', 'The Sitzmark', 'Trailside Tavern', 'The Last Run Grill', 'Corduroy Kitchen', 'Bluebird Diner'],
+  rental: ['Rental Shop', 'Ski & Board Rentals', 'Gear Up Rentals', 'The Boot Room'],
+  school: ['Ski School', 'Snowsports School', 'Ski & Ride School', 'First Turns School'],
+  patrol: ['Ski Patrol', 'Patrol HQ', 'Patrol Shack'],
+  restroom: ['Restrooms', 'Comfort Station'],
+  shuttle: ['Shuttle Station', 'Shuttle Stop'],
+  parking: ['Lot B', 'Lot C', 'Lot D', 'Lot E', 'Lot F', 'Lot G'],
+  clinic: ['First Aid', 'Mountain Clinic', 'Medical Center'],
+  kids: ['Kids’ Camp', 'Little Rippers', 'Snow Cubs Camp', 'Mini Moguls', 'Powder Pups', 'Snow Sprouts'],
+  hrest: ['Heated Restrooms', 'Warm Stalls', 'The Cozy Stalls'],
+  transit: ['Transit Center', 'Bus Terminal'],
+};
+// Practical buildings keep their plain names in order; the rest are picked at random.
+const PLAIN_NAMES = ['parking', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+function nextBuildingName(type, x, z, skip) {
+  const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
   if (type === 'lodge') {
-    const h = trueY(x, z), frac = (h - MOUNTAIN.baseH) / (MOUNTAIN.summitH - MOUNTAIN.baseH);
-    bases = [isBase({ x, z }) ? LODGE_NAMES.base : frac > 0.7 ? LODGE_NAMES.top : LODGE_NAMES.mid];
+    const frac = heightFrac({ x, z });
+    bases = isBase({ x, z }) ? LODGE_NAMES.base : frac > 0.7 ? LODGE_NAMES.top : LODGE_NAMES.mid;
   } else bases = OTHER_NAMES[type];
-  for (const n of bases) if (!used.has(n)) return n;
+  // a casual restaurant sometimes carries the resort's own name
+  const own = type === 'restaurant' && state.resortName && state.resortName.length <= 20 ? [`${state.resortName} Grill`] : [];
+  if (PLAIN_NAMES.includes(type) && !skip) { for (const n of bases) if (!used.has(n)) return n; }
+  else { const n = (own.length && Math.random() < 0.3 && pickFree(own, used)) || pickFree(bases, used); if (n) return n; }
   for (let i = 2; ; i++) { const n = `${bases[0]} ${i}`; if (!used.has(n)) return n; }
 }
 function buildingVisual(b, ghost) {
@@ -7869,7 +7957,7 @@ function bldSheet(B) {
       : `<p class="help">${next.seats ? `Upgrade to a ${next.label.toLowerCase()} lodge (${next.seats} seats)` : `Upgrade to ${next.label}`} overnight.</p>`;
   }
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
-      <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">
+      <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${t.tiers ? s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
     ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}</p>` : ''}
@@ -11049,6 +11137,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.26', date: 'Oct 23, 2026', title: 'Names that fit', items: [
+    'Trails are named to match their rating, like Bunny Hop for a green and Devil’s Fall for a double black, and sometimes after where they run or the mountain they’re on.',
+    'Lifts are named for where they go, and cafés, food trucks, restaurants and shops draw from much bigger lists. No two resorts read the same.',
+    'Tap 🎲 beside any name to get another that fits.',
+  ] },
   { v: '2.25', date: 'Oct 23, 2026', title: 'Blueprints and clean trails', items: [
     'Save anything as a blueprint to build later, even overnight. Plans lists them in build order: move them up or down, pause them, or build one now.',
     'Overnight, blueprints are built from the top of the list. If the next one costs more than you have, the rest wait so the cash is saved for it.',

@@ -23,7 +23,8 @@ export default async function ({ browser, url }) {
   const n = await g.ev(`state.lotSections`);
   assert(n <= room, `the main lot stops before the café (${n})`);
   const why = await g.ev(`mainLotBlock() || ''`);
-  if (n === room) assert(/Café is where the main lot grows next/.test(why), `and says what's in the way: ${why}`);
+  const cafeName = await g.ev(`world.buildings.find((b) => b.type === 'cafe').name`);
+  if (n === room) assert(why.startsWith(`${cafeName} is where the main lot grows next`), `and says what's in the way: ${why}`);
   else assert(why, 'and says why it can’t grow');
   // a satellite lot beside the road
   const spot = await g.ev(`(() => { for (const p of ROAD_WORLD) for (const off of [-6, 6]) for (let t = 0; t < 1; t += 0.25) {

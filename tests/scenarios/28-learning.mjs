@@ -19,7 +19,7 @@ export default async function ({ browser, url }) {
   const net = await g.ev(`(() => { const i = evalLift({ x: -6, z: 54 }, { x: -7, z: 44 }, 'carpet'); if (i.problems.length) return i.problems.join('|');
     commitLift(i, 'carpet'); computeNetwork(); syncLabels(); setTool('explore');
     const v = world.trails.filter((t) => t.virtual);
-    return { lines: v.length, ok: v.every((t) => t.reachable && t.returns && trailSign(t) === 0), real: realTrails().length, labels: v.some((t) => t.labelEl), list: /Bunny Hill/.test(trailsList()) }; })()`);
+    return { lines: v.length, ok: v.every((t) => t.reachable && t.returns && trailSign(t) === 0), real: realTrails().length, labels: v.some((t) => t.labelEl), list: trailsList().includes(esc(world.areas[0].name)) }; })()`);
   eq([net.lines, net.ok, net.real, net.labels, net.list], [4, true, 2, false, false], 'the carpet gives the area four green ski lines, hidden from the trail list and labels');
   // a day: first-timers lap the learning area instead of struggling on the trails
   await g.ev(`state.day = 40; openDay()`); await g.ev(SETUPS.finishDay);
@@ -29,9 +29,10 @@ export default async function ({ browser, url }) {
   assert(/first-timers came today/.test(r.text), 'the report mentions first-timers');
   await g.click('#rpNext'); await g.wait(200);
   // reload: the area and its lines come back
+  const areaName = await g.ev(`world.areas[0].name`);
   await g.ev(`saveNow()`); await g.page.reload(); await g.reloaded();
   await g.ev(`$('startBtn').click()`); await g.wait(400);
-  eq(await g.ev(`[world.areas.length, world.areas[0].name, world.trails.filter((t) => t.virtual).length]`), [1, 'Bunny Hill', 4], 'the area and its lines survive a reload');
+  eq(await g.ev(`[world.areas.length, world.areas[0].name, world.trails.filter((t) => t.virtual).length]`), [1, areaName, 4], 'the area and its lines survive a reload');
   // a T-bar keeps running in wind that holds exposed chairs
   const tb = await g.ev(`(() => { state.cash = 5e6; const i = evalLift({ x: -24, z: 56 }, { x: -26, z: 26 }, 'tbar'); if (i.problems.length) return i.problems.join('|');
     commitLift(i, 'tbar'); const L = world.lifts.find((l) => l.type === 'tbar'); return [windHoldAt(L, 60), windHoldAt(L, 80), liftCapacity(LIFT_TYPES.tbar), liftCapacity(LIFT_TYPES.carpet)]; })()`);
