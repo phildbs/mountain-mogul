@@ -6293,7 +6293,7 @@ function endDay() {
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    busGuests: today.busGuests, lunchPeak: today.lunchPeak, showGuests: today.showGuests || 0,
+    busGuests: today.busGuests, lunchPeak: today.lunchPeak, showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6563,6 +6563,106 @@ function showOver(g) {
   if (!maybeApres(g)) goCar(g);
 }
 
+// Race weekend: gates down the hardest open run, racers one after another, a crowd at the finish.
+const RACE = { start: 600, end: 900, gap: 6, gate: 7 };
+const raceToday = () => { const e = showToday(); return !!e && e.type === 'race'; };
+let raceCache = null;
+function raceTrail() {
+  if (raceCache && raceCache.day === state.day && world.trails.includes(raceCache.t)) return raceCache.t;
+  const ok = realTrails().filter((t) => t.open && t.reachable && t.returns && trailSign(t) >= 2);
+  ok.sort((a, b) => trailSign(b) - trailSign(a) || b.an.len - a.an.len);
+  raceCache = { day: state.day, t: ok[0] || null };
+  return raceCache.t;
+}
+const hashR = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+const RACER_SPEED = SKI_SPEED[3] * 60 * 2; // units per game minute, twice an expert
+const RACER_JACKETS = [0x1f5fbf, 0xd23b2e, 0xf2c230, 0x111418, 0x2fa36b, 0xe85d9c];
+const CROWD_JACKETS = [0x3b6fb6, 0xc0442e, 0x2f8f5e, 0xe0a030, 0x7a4cc4, 0x2b2f36, 0xd9d4c7];
+// Each racer's run: a little faster or slower than the field, the same every time it's drawn.
+function racerRun(T, k) {
+  const r = hashR(state.day * 131 + k * 17 + 3);
+  return { start: RACE.start + k * RACE.gap, dur: T.len / RACER_SPEED * (0.93 + r * 0.14), r };
+}
+const racerCount = () => Math.floor((Math.min(RACE.end, closeTime() - 10) - RACE.start) / RACE.gap) + 1;
+// The racing line: across the trail and back, through a gate at each turn.
+function raceLine(T, s) {
+  const k = Math.min(T.samples.length - 2, Math.max(0, Math.floor(s / 0.5))), a = T.samples[k], b = T.samples[k + 1];
+  const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1;
+  const amp = s < RACE.gate * 0.5 || s > T.len - RACE.gate ? 0 : TRAIL_WIDTHS[T.width].hw * 0.45;
+  const side = Math.sin((s - RACE.gate * 0.5) / RACE.gate * Math.PI + Math.PI / 2) * amp;
+  return { x: a.x - dz / L * side, z: a.z + dx / L * side, cx: a.x, cz: a.z, nx: -dz / L, nz: dx / L, yaw: Math.atan2(dx, dz) };
+}
+let raceCourse = null, raceKey = '';
+function syncRaceCourse() {
+  const T = raceToday() ? raceTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === raceKey) return;
+  raceKey = key;
+  if (raceCourse) { scene.remove(raceCourse); raceCourse.traverse((o) => o.isMesh && o.geometry.dispose()); raceCourse = null; }
+  if (!T) return;
+  const g = new THREE.Group(), pole = new THREE.CylinderGeometry(0.035, 0.035, 1.1, 5);
+  const red = new THREE.MeshLambertMaterial({ color: 0xd8342a }), blue = new THREE.MeshLambertMaterial({ color: 0x2559c4 }), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  const add = (geo, mat, x, y, z, yaw) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = yaw || 0; m.castShadow = true; g.add(m); return m; };
+  // gates: two poles and a panel, alternating red and blue
+  let n = 0;
+  for (let s = RACE.gate; s < T.len - RACE.gate; s += RACE.gate, n++) {
+    const p = raceLine(T, s), mat = n % 2 ? blue : red;
+    for (const o of [-0.65, 0.65]) { const x = p.x + p.nx * o, z = p.z + p.nz * o; add(pole, mat, x, heightAt(x, z) + 0.55, z); }
+    add(new THREE.BoxGeometry(1.3, 0.42, 0.03), mat, p.x, heightAt(p.x, p.z) + 0.82, p.z, p.yaw);
+  }
+  // the finish: an arch across the trail and fencing down the last stretch
+  const hw = TRAIL_WIDTHS[T.width].hw, f = raceLine(T, T.len - 2.5), tall = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
+  for (const o of [-hw - 0.3, hw + 0.3]) { const x = f.cx + f.nx * o, z = f.cz + f.nz * o; add(tall, white, x, heightAt(x, z) + 1.3, z); }
+  add(new THREE.BoxGeometry(hw * 2 + 0.8, 0.45, 0.08), red, f.cx, heightAt(f.cx, f.cz) + 2.45, f.cz, f.yaw);
+  const rail = new THREE.BoxGeometry(0.05, 0.35, 1);
+  for (let s = T.len - 16; s < T.len - 1.5; s += 1.5) {
+    const p = raceLine(T, s), q = raceLine(T, s + 1.5);
+    for (const o of [-hw * 0.68, hw * 0.68]) {
+      const x0 = p.cx + p.nx * o, z0 = p.cz + p.nz * o, x1 = q.cx + q.nx * o, z1 = q.cz + q.nz * o, x = (x0 + x1) / 2, z = (z0 + z1) / 2;
+      add(rail, FENCE_MAT, x, heightAt(x, z) + 0.2, z, Math.atan2(x1 - x0, z1 - z0)).scale.z = Math.hypot(x1 - x0, z1 - z0);
+    }
+  }
+  mergeStatic(g);
+  raceCourse = g; scene.add(g);
+}
+// Racers on the course, and the crowd along the finish fences.
+function drawRace(n) {
+  const T = raceToday() ? raceTrail() : null;
+  if (!T) return n;
+  const t = state.time;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - RACE.start) / RACE.gap) - 3); k < racerCount() && n < MAX_G; k++) {
+    const run = racerRun(T, k);
+    if (run.start > t) break;
+    const e = (t - run.start) / run.dur;
+    if (e >= 1) continue;
+    const s = T.len * e, p = raceLine(T, s), q = raceLine(T, Math.min(T.len, s + 0.6));
+    if (s > T.len - 20) near = true;
+    writeFig(n++, p.x, heightAt(p.x, p.z) + 0.12, p.z, Math.atan2(q.x - p.x, q.z - p.z), 0.82, { jc: RACER_JACKETS[k % RACER_JACKETS.length], pc: 0x15171c, hc: 0xf2f2f2 }, 0.35);
+  }
+  if (t < RACE.start - 30 || t > RACE.end + 20) return n;
+  const hw = TRAIL_WIDTHS[T.width].hw, now = performance.now() / 1000;
+  for (let i = 0; i < 26 && n < MAX_G; i++) {
+    const s = T.len - 3 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
+    const o = side * (hw * 0.68 + 0.35 + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+    const hop = near ? Math.max(0, Math.sin(now * 9 + i * 1.7)) * 0.12 : 0;
+    writeFig(n++, x, heightAt(x, z) + 0.12 + hop, z, p.yaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2), 1, { jc: CROWD_JACKETS[i % CROWD_JACKETS.length], pc: 0x2b2f36, hc: hashR(i * 3) < 0.5 ? 0xe8c39e : 0x8d5a3c }, 0);
+  }
+  return n;
+}
+// The day's results, for the report: how many ran and the fastest time.
+function raceResults() {
+  const T = raceTrail();
+  if (!T) return null;
+  let best = null;
+  const runs = racerCount();
+  for (let k = 0; k < runs; k++) {
+    const run = racerRun(T, k), secs = T.len * FT_PER_UNIT / 70 * (0.93 + run.r * 0.14);
+    if (!best || secs < best.secs) best = { secs, bib: k + 1 };
+  }
+  return { runs, trail: T.name, best };
+}
+const raceTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+
 /* ---------- Drawing guests and cars ---------- */
 const _c = new THREE.Color();
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _e = new THREE.Euler();
@@ -6649,7 +6749,8 @@ function drawPeople() {
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
   }
   if (showFigs && state.phase === 'open') n = drawStaff(n);
-  if (state.phase === 'open') n = drawTorches(showFigs ? n : MAX_G); else torchGlow.geometry.setDrawRange(0, 0);
+  // event figures; with figures hidden, only the torch glows still show
+  if (state.phase === 'open') { const m = drawRace(drawTorches(showFigs ? n : MAX_G)); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
   drawBuses();
   for (const k of ['jacket', 'pants', 'head']) {
     figMeshes[k].count = n;
@@ -9833,6 +9934,7 @@ function showReport(r = state.lastReport, past = false) {
   note(4, ...opsNotes(r));
   if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
+  if (r.race && r.race.best) note(5, `${r.race.runs} racers ran the gates on <b>${esc(r.race.trail)}</b>. Fastest run: bib ${r.race.best.bib} in ${raceTime(r.race.best.secs)}.`);
   if (r.event === 'torch' && r.showGuests) note(5, `${r.showGuests.toLocaleString()} guests stayed after the lifts closed to watch the torches come down and the fireworks.`);
   if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
   if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
@@ -12437,6 +12539,7 @@ function frame(now) {
     updatePuffs(dt);
     updateFireworks(dt);
     updateDusk();
+    syncRaceCourse();
     updateChairs();
     updatePlumes(clock);
     drawPeople();
