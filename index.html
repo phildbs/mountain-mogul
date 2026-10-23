@@ -6293,7 +6293,7 @@ function endDay() {
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    busGuests: today.busGuests, lunchPeak: today.lunchPeak, showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null,
+    busGuests: today.busGuests, lunchPeak: today.lunchPeak, showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6640,10 +6640,14 @@ function drawRace(n) {
     writeFig(n++, p.x, heightAt(p.x, p.z) + 0.12, p.z, Math.atan2(q.x - p.x, q.z - p.z), 0.82, { jc: RACER_JACKETS[k % RACER_JACKETS.length], pc: 0x15171c, hc: 0xf2f2f2 }, 0.35);
   }
   if (t < RACE.start - 30 || t > RACE.end + 20) return n;
+  return drawCrowd(T, n, T.len - 3, TRAIL_WIDTHS[T.width].hw * 0.68 + 0.35, near);
+}
+// Spectators down both sides of the last stretch of a trail, facing in; they jump when something's happening.
+function drawCrowd(T, n, s0, inner, near) {
   const hw = TRAIL_WIDTHS[T.width].hw, now = performance.now() / 1000;
   for (let i = 0; i < 26 && n < MAX_G; i++) {
-    const s = T.len - 3 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
-    const o = side * (hw * 0.68 + 0.35 + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+    const s = s0 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
+    const o = side * (inner + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
     const hop = near ? Math.max(0, Math.sin(now * 9 + i * 1.7)) * 0.12 : 0;
     writeFig(n++, x, heightAt(x, z) + 0.12 + hop, z, p.yaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2), 1, { jc: CROWD_JACKETS[i % CROWD_JACKETS.length], pc: 0x2b2f36, hc: hashR(i * 3) < 0.5 ? 0xe8c39e : 0x8d5a3c }, 0);
   }
@@ -6662,6 +6666,112 @@ function raceResults() {
   return { runs, trail: T.name, best };
 }
 const raceTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+
+// Pond skim: a meltwater pond at the bottom of the gentlest run, and skiers in costume trying to cross it.
+const POND = { start: 660, end: 900, gap: 4, run: 32, at: 9, len: 6 };
+const pondToday = () => { const e = showToday(); return !!e && e.type === 'pond'; };
+const COSTUMES = [
+  { jc: 0xff4fa3, pc: 0xffd23a, hc: 0x7cf0ff }, { jc: 0x48d16a, pc: 0x7a3dc8, hc: 0xffa12b }, { jc: 0xffe14a, pc: 0x1f5fbf, hc: 0xff4f4f },
+  { jc: 0xf4f4f4, pc: 0xd8342a, hc: 0xd8342a }, { jc: 0xff8a1f, pc: 0x24272e, hc: 0x48d16a }, { jc: 0x2bc4d8, pc: 0xff4fa3, hc: 0xffe14a },
+];
+const pondCount = () => Math.floor((Math.min(POND.end, closeTime() - 10) - POND.start) / POND.gap) + 1;
+// Each skimmer's attempt: how fast, and whether they make it across. The same every time it's drawn.
+function skimRun(k) {
+  const r = hashR(state.day * 71 + k * 29 + 11), f = hashR(state.day * 13 + k * 7 + 5);
+  return { start: POND.start + k * POND.gap, speed: RACER_SPEED * (0.5 + r * 0.25), dry: f < 0.45, sink: 0.25 + f * 0.6 };
+}
+let pondMesh = null, pondKey = '';
+function syncPond() {
+  const T = pondToday() ? torchTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === pondKey) return;
+  pondKey = key;
+  if (pondMesh) { scene.remove(pondMesh); pondMesh.traverse((o) => o.isMesh && o.geometry.dispose()); pondMesh = null; }
+  if (!T || T.len < POND.run + 4) return;
+  // a disc draped over the snow, so it sits flat on a slope
+  const hw = TRAIL_WIDTHS[T.width].hw, mid = T.len - POND.at + POND.len / 2, R = 24, rings = 6;
+  const g = new THREE.Group(), pos = [], idx = [];
+  const at = (u, v) => { const p = raceLine(T, mid + u * POND.len / 2); const x = p.cx + p.nx * v * hw * 0.85, z = p.cz + p.nz * v * hw * 0.85; return [x, heightAt(x, z) + 0.05, z]; };
+  pos.push(...at(0, 0));
+  for (let r = 1; r <= rings; r++) for (let a = 0; a < R; a++) { const t = a / R * Math.PI * 2, k = r / rings; pos.push(...at(Math.cos(t) * k, Math.sin(t) * k)); }
+  for (let a = 0; a < R; a++) idx.push(0, 1 + a, 1 + (a + 1) % R);
+  for (let r = 1; r < rings; r++) for (let a = 0; a < R; a++) {
+    const i0 = 1 + (r - 1) * R + a, i1 = 1 + (r - 1) * R + (a + 1) % R, j0 = i0 + R, j1 = i1 + R;
+    idx.push(i0, j0, j1, i0, j1, i1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const water = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3f93d6, transparent: true, opacity: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  water.receiveShadow = true; water.renderOrder = 2;
+  g.add(water);
+  // bunting poles at the corners
+  const pole = new THREE.CylinderGeometry(0.06, 0.06, 2.2, 6), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  for (const [u, v] of [[-1.1, -1.15], [-1.1, 1.15], [1.1, -1.15], [1.1, 1.15]]) {
+    const [x, y, z] = at(u, v), m = new THREE.Mesh(pole, white); m.position.set(x, y + 1.05, z); m.castShadow = true; g.add(m);
+  }
+  pondMesh = g; scene.add(g);
+}
+const splash = glowPoints(400, 6, 0xffffff);
+const splashSt = { vel: new Float32Array(400 * 3), life: new Float32Array(400), next: 0, done: new Set() };
+function splashAt(x, y, z) {
+  const pos = splash.geometry.attributes.position.array;
+  for (let k = 0; k < 40; k++) {
+    const i = splashSt.next, a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 1.6;
+    splashSt.next = (splashSt.next + 1) % 400;
+    pos.set([x, y + 0.2, z], i * 3);
+    splashSt.vel.set([Math.cos(a) * r, 2 + Math.random() * 2.5, Math.sin(a) * r], i * 3);
+    splashSt.life[i] = 0.8 + Math.random() * 0.5;
+  }
+}
+function updateSplash(dt) {
+  const pos = splash.geometry.attributes.position.array, cl = splash.geometry.attributes.color.array;
+  let any = false;
+  for (let i = 0; i < 400; i++) {
+    if (splashSt.life[i] <= 0) continue;
+    any = true; splashSt.life[i] -= dt; splashSt.vel[i * 3 + 1] -= 7 * dt;
+    for (let a = 0; a < 3; a++) pos[i * 3 + a] += splashSt.vel[i * 3 + a] * dt;
+    const f = Math.max(0, Math.min(1, splashSt.life[i] / 0.6)); cl[i * 3] = 0.75 * f; cl[i * 3 + 1] = 0.9 * f; cl[i * 3 + 2] = f;
+  }
+  splash.geometry.setDrawRange(0, any ? 400 : 0);
+  splash.geometry.attributes.position.needsUpdate = true; splash.geometry.attributes.color.needsUpdate = true;
+}
+// Skimmers come down the last stretch, hit the water, and either skim across or go in and wade out.
+function drawPond(n) {
+  const T = pondToday() ? torchTrail() : null;
+  if (!T || !pondMesh) return n;
+  const t = state.time, p0 = T.len - POND.run, w0 = T.len - POND.at, w1 = w0 + POND.len;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - POND.start) / POND.gap) - 3); k < pondCount() && n < MAX_G; k++) {
+    const run = skimRun(k);
+    if (run.start > t) break;
+    const el = t - run.start, look = COSTUMES[k % COSTUMES.length];
+    let s = p0 + el * run.speed;
+    const stopAt = run.dry ? T.len - 0.5 : w0 + POND.len * run.sink;
+    if (s >= stopAt) {
+      // landed: dry skimmers stand at the end for a moment; the rest splash and wade out
+      const tStop = run.start + (stopAt - p0) / run.speed, after = t - tStop;
+      if (after > 2.5) continue;
+      if (!run.dry && !splashSt.done.has(`${state.day}|${k}`)) { const p = raceLine(T, stopAt); splashSt.done.add(`${state.day}|${k}`); splashAt(p.cx, heightAt(p.cx, p.cz), p.cz); }
+      const p = raceLine(T, stopAt), o = run.dry ? 0 : Math.min(1, after / 2.5) * TRAIL_WIDTHS[T.width].hw * 0.95 * (k % 2 ? 1 : -1);
+      const x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+      writeFig(n++, x, heightAt(x, z) + (run.dry ? 0.12 : -0.15 + Math.min(1, after / 2.5) * 0.25), z, p.yaw + (run.dry ? 0 : Math.sign(o || 1) * Math.PI / 2), 1, look, 0);
+      near = true;
+      continue;
+    }
+    if (s > w0 - 6) near = true;
+    const p = raceLine(T, s), onWater = s >= w0 && s <= w1;
+    writeFig(n++, p.cx, heightAt(p.cx, p.cz) + (onWater ? 0.06 : 0.12), p.cz, p.yaw, 0.85, look, onWater ? -0.15 : 0.25);
+  }
+  if (t < POND.start - 30 || t > POND.end + 20) return n;
+  return drawCrowd(T, n, T.len - 1, TRAIL_WIDTHS[T.width].hw * 0.9 + 0.4, near);
+}
+function pondResults() {
+  const T = torchTrail();
+  if (!T || T.len < POND.run + 4) return null;
+  let dry = 0;
+  const runs = pondCount();
+  for (let k = 0; k < runs; k++) if (skimRun(k).dry) dry++;
+  return { runs, dry, trail: T.name };
+}
 
 /* ---------- Drawing guests and cars ---------- */
 const _c = new THREE.Color();
@@ -6750,7 +6860,7 @@ function drawPeople() {
   }
   if (showFigs && state.phase === 'open') n = drawStaff(n);
   // event figures; with figures hidden, only the torch glows still show
-  if (state.phase === 'open') { const m = drawRace(drawTorches(showFigs ? n : MAX_G)); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
+  if (state.phase === 'open') { const m = drawPond(drawRace(drawTorches(showFigs ? n : MAX_G))); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
   drawBuses();
   for (const k of ['jacket', 'pants', 'head']) {
     figMeshes[k].count = n;
@@ -9935,6 +10045,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
   if (r.race && r.race.best) note(5, `${r.race.runs} racers ran the gates on <b>${esc(r.race.trail)}</b>. Fastest run: bib ${r.race.best.bib} in ${raceTime(r.race.best.secs)}.`);
+  if (r.pond && r.pond.runs) note(5, `${r.pond.runs} skiers in costume tried to skim the pond at the bottom of <b>${esc(r.pond.trail)}</b>. ${r.pond.dry ? `${r.pond.dry} made it across dry.` : 'Every one of them went in.'}`);
   if (r.event === 'torch' && r.showGuests) note(5, `${r.showGuests.toLocaleString()} guests stayed after the lifts closed to watch the torches come down and the fireworks.`);
   if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
   if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
@@ -12540,6 +12651,8 @@ function frame(now) {
     updateFireworks(dt);
     updateDusk();
     syncRaceCourse();
+    syncPond();
+    updateSplash(dt);
     updateChairs();
     updatePlumes(clock);
     drawPeople();
