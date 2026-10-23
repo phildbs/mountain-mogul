@@ -1,4 +1,5 @@
-// Finding things: Parking and Events have their own sections (and buttons on the side bar), the
+// Finding things: Parking and Events have their own sections (on a computer, Operations, Prices and Events share
+// one Business button with tabs), the
 // Buildings list links to Parking, and the game points the way when it matters: a full main lot
 // leads to Parking, and a holiday weekend with nothing booked leads to Events.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
@@ -6,9 +7,17 @@ export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(2200);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter); await g.ev(`select(null)`);
-  for (const k of ['parking', 'events']) assert(await g.ev(`!!$('manage').querySelector('[data-m=${k}]')`), `the side bar has ${k}`);
-  await g.click('#manage [data-m=events]'); await g.wait(100);
+  for (const k of ['parking', 'biz']) assert(await g.ev(`!!$('manage').querySelector('[data-m=${k}]')`), `the side bar has ${k}`);
+  eq(await g.ev(`['ops', 'prices', 'events'].filter((k) => $('manage').querySelector('[data-m=' + k + ']'))`), [], 'Operations, Prices and Events share one Business button');
+  await g.click('#manage [data-m=biz]'); await g.wait(100);
+  eq(await g.ev(`selected && selected.obj`), 'ops', 'Business opens Operations first');
+  await g.click('.biztabs [data-v=events]'); await g.wait(100);
+  eq(await g.ev(`$('manage').querySelector('[data-m=biz]').getAttribute('aria-current')`), 'true', 'the Business button stays lit on its tabs');
   assert(/Torchlight|Book one/i.test(await g.ev(`$('sheet').innerText`)), 'Events lists what you can book');
+  await g.click('#manage [data-m=biz]'); await g.wait(100);
+  eq(await g.ev(`selected`), null, 'the Business button closes its panel');
+  await g.click('#manage [data-m=biz]'); await g.wait(100);
+  eq(await g.ev(`selected && selected.obj`), 'events', 'and reopens the tab last used');
   await g.ev(`openManage('prices')`); await g.wait(100);
   assert(!/Torchlight/.test(await g.ev(`$('sheet').innerText`)), 'and they’re no longer buried in Prices');
   // the main lot fills with no off-site parking: a nudge that opens Parking
