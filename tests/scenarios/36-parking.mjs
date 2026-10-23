@@ -19,7 +19,7 @@ export default async function ({ browser, url }) {
   await g.ev(`buildBuildingDraft(); setTool('explore')`); await g.wait(100);
   eq(await g.ev(`reserveGroup.children.length`), 0, 'the marks go away with the build tools');
   // grow the main lot until the café is in the way: no fixed limit
-  await g.ev(`openManage('blds')`); await g.wait(100);
+  await g.ev(`openManage('parking')`); await g.wait(100);
   for (let i = 0; i < room + 2; i++) { await g.ev(`(() => { const b = $('sheet').querySelector('[data-action=expandLot]'); if (b) b.click(); })()`); await g.wait(100); }
   const n = await g.ev(`state.lotSections`);
   assert(n <= room, `the main lot stops before the café (${n})`);
@@ -27,9 +27,11 @@ export default async function ({ browser, url }) {
   const cafeName = await g.ev(`world.buildings.find((b) => b.type === 'cafe').name`);
   if (n === room) assert(why.startsWith(`${cafeName} is where the main lot grows next`), `and says what's in the way: ${why}`);
   else assert(why, 'and says why it can’t grow');
-  // off-site parking: set up from the Buildings list, it needs a shuttle station to work
+  // off-site parking: set up under Parking (the Buildings list links there); it needs a shuttle station to work
   await g.ev(`(() => { select(null); openManage('blds'); })()`); await g.wait(100);
-  assert(/Off-site parking/.test(await g.ev(`$('sheet').innerText`)) && /Not set up/i.test(await g.ev(`$('sheet').innerText`)), 'the Buildings list offers off-site parking');
+  assert(/Parking and buses/.test(await g.ev(`$('sheet').innerText`)), 'the Buildings list links to Parking');
+  await g.click('[data-action=manage][data-v=parking]'); await g.wait(100);
+  assert(/Off-site parking/.test(await g.ev(`$('sheet').innerText`)) && /Not set up/i.test(await g.ev(`$('sheet').innerText`)), 'Parking offers off-site parking');
   await g.click('[data-action=offsiteBuy]'); await g.wait(100);
   eq(await g.ev(`state.offsite`), 0, 'a gravel field is set up');
   assert(/needs a station/i.test(await g.ev(`$('sheet').innerText`)), 'and it says it needs a shuttle station');
