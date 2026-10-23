@@ -3557,6 +3557,13 @@ function trailNear(p, exclude) {
   }
   return best;
 }
+// Where a trail end leads when no other trail can take the skier on: a lift close by, else the base.
+function dryEnd(p) {
+  let best = null, bd = TRANSFER_R;
+  for (const L of world.lifts) { const d = distXZ(p, L.a); if (d < bd) { bd = d; best = L; } }
+  if (best) return { kind: 'lift', obj: best };
+  return isBase(p) ? { kind: 'base' } : null;
+}
 function connAt(p, self, which) {
   for (const L of world.lifts) {
     if (which === 'start' && distXZ(p, L.b) < STATION_R) return { kind: 'lift', obj: L };
@@ -3777,6 +3784,20 @@ function computeNetwork() {
     t.joinIdx = t.to && t.to.kind === 'trail' ? nearestIdx(t.to.obj, t.samples[t.samples.length - 1]) : 0;
   }
   for (const t of world.trails) t.branches.sort((p, q) => p.at - q.at);
+  // A trail that runs into the bottom end of another carries on wherever that one goes. Two trails
+  // that only end into each other would pass skiers back and forth for ever, so they go on to the
+  // nearest lift within reach, or the base.
+  const ends = new Map();
+  for (const t of world.trails) {
+    let to = t.to, at = t.joinIdx;
+    const seen = new Set([t]);
+    while (to && to.kind === 'trail' && at >= to.obj.samples.length - 3) {
+      if (seen.has(to.obj)) { to = dryEnd(t.samples[t.samples.length - 1]); at = 0; break; }
+      seen.add(to.obj); at = to.obj.joinIdx; to = to.obj.to;
+    }
+    if (to !== t.to) ends.set(t, { to, at });
+  }
+  for (const [t, e] of ends) { t.to = e.to; t.joinIdx = e.at; }
   // Buildings beside a trail where skiers can stop on the way down.
   for (const t of world.trails) {
     t.stops = [];
@@ -11476,6 +11497,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.33.1', date: 'Oct 24, 2026', title: 'Fix for skiers stuck at the bottom of a trail', small: true, items: [
+    'Two trails that ended into each other could trap skiers at the bottom, flickering in place. They now ski on to the nearest lift or the base.',
+  ] },
   { v: '2.33', date: 'Oct 24, 2026', title: 'Map label switches', small: true, spots: ['labels'], items: [
     'Choose which map labels show with the new tag button by the map controls: trails, lifts, or buildings and parking. Press L to hide or show them all. Whatever you select still shows its label.',
   ] },
