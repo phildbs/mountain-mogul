@@ -1980,8 +1980,36 @@ function buildTreeGeometry() {
   return geo;
 }
 
+const _tc = new THREE.Color();
+function packTrees() {
+  let n = 0;
+  for (let k = 0; k < trees.n; k++) {
+    if (!trees.alive[k]) { treeSlot[k] = -1; continue; }
+    treeSlot[k] = n; slotTree[n] = k;
+    treeMesh.setMatrixAt(n, treeMatrix(k));
+    const t = trees.tint[k];
+    treeMesh.setColorAt(n, _tc.setRGB(0.84 + 0.3 * t, 0.86 + 0.24 * t, 0.84 + 0.22 * (1 - t)));
+    treeHaze.array[n] = trees.haze[k];
+    n++;
+  }
+  treeMesh.count = n;
+  treeMesh.instanceMatrix.needsUpdate = true; treeMesh.instanceColor.needsUpdate = true; treeHaze.needsUpdate = true;
+}
+// Takes a cleared tree out of the drawn set: the last living tree moves into its slot.
+function dropTree(k) {
+  const s = treeSlot[k];
+  if (s < 0) return;
+  const last = treeMesh.count - 1, m = slotTree[last];
+  if (s !== last) {
+    treeMesh.instanceMatrix.array.copyWithin(s * 16, last * 16, last * 16 + 16);
+    treeMesh.instanceColor.array.copyWithin(s * 3, last * 3, last * 3 + 3);
+    treeHaze.array[s] = treeHaze.array[last];
+    treeSlot[m] = s; slotTree[s] = m;
+  }
+  treeSlot[k] = -1; treeMesh.count = last;
+  treeMesh.instanceColor.needsUpdate = true; treeHaze.needsUpdate = true;
+}
 const dummy = new THREE.Object3D();
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 function treeMatrix(k) {
   dummy.position.set(trees.x[k], trees.y[k], trees.z[k]);
   dummy.rotation.set(0, trees.rot[k], 0);
@@ -1989,18 +2017,17 @@ function treeMatrix(k) {
   dummy.updateMatrix();
   return dummy.matrix;
 }
+// Only living trees are drawn: they're packed at the front of the instance buffer and each tree knows
+// its slot, so a cleared tree costs nothing to draw (a big resort clears thousands).
+let treeSlot = null, slotTree = null, treeHaze = null;
 function buildTrees() {
   const geo = buildTreeGeometry();
-  geo.setAttribute('ihaze', new THREE.InstancedBufferAttribute(trees.haze, 1));
+  treeHaze = new THREE.InstancedBufferAttribute(new Float32Array(trees.n), 1);
+  geo.setAttribute('ihaze', treeHaze);
   treeMesh = new THREE.InstancedMesh(geo, treeMaterial(), trees.n);
-  const c = new THREE.Color();
-  for (let k = 0; k < trees.n; k++) {
-    treeMesh.setMatrixAt(k, trees.alive[k] ? treeMatrix(k) : ZERO);
-    const t = trees.tint[k];
-    c.setRGB(0.84 + 0.3 * t, 0.86 + 0.24 * t, 0.84 + 0.22 * (1 - t));
-    treeMesh.setColorAt(k, c);
-  }
-  treeMesh.instanceMatrix.needsUpdate = true;
+  treeMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  treeSlot = new Int32Array(trees.n); slotTree = new Int32Array(trees.n);
+  packTrees();
   treeMesh.castShadow = true;
   treeMesh.frustumCulled = false;
   scene.add(treeMesh);
@@ -2393,8 +2420,7 @@ function applySave(sv) {
     try { decodeCleared(sv.trees); } catch (e) { trees.alive.fill(1); }
     for (let k = 0; k < trees.n; k++) if (!trees.alive[k]) cellTrees[trees.cell[k]]--;
   }
-  for (let k = 0; k < trees.n; k++) treeMesh.setMatrixAt(k, trees.alive[k] ? treeMatrix(k) : ZERO);
-  treeMesh.instanceMatrix.needsUpdate = true;
+  packTrees();
   refreshTreeShade(0, 0, WN, WN);
   recolorTerrain(0, 0, WN, WN);
   renderer.shadowMap.needsUpdate = true;
@@ -2457,7 +2483,7 @@ function clearAt(p) {
     if (state.cash < TREE_COST) { stroke.broke = true; return; }
     trees.alive[k] = 0;
     cellTrees[trees.cell[k]]--;
-    treeMesh.setMatrixAt(k, ZERO);
+    dropTree(k);
     state.cash -= TREE_COST;
     state.cleared++;
     stroke.trees++; stroke.cost += TREE_COST;
@@ -2999,7 +3025,7 @@ function refreshTrailMesh(t, idx) {
   t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(idx || surfaceIndex(), t.id));
 }
 function removeTrail(t) {
-  if (t.bridgeGroup) trailGroup.remove(t.bridgeGroup);
+  if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
   trailGroup.remove(t.mesh);
   t.mesh.geometry.dispose(); t.mesh.material.dispose();
   world.trails = world.trails.filter((o) => o !== t);
@@ -3055,6 +3081,7 @@ function rebuildPads() {
       padGroup.add(makePad(s.x, s.z, r));
     }
   }
+  mergeStatic(padGroup); // one draw for all of them
 }
 
 /* ---------- Lift geometry ---------- */
@@ -3278,6 +3305,42 @@ function buildLiftVisual(L, lay, withChairs) {
     g.add(L.chairs);
     placeChairs(L);
   }
+  return mergeStatic(g);
+}
+// A lift's towers and stations drawn as one mesh per material: separately they were dozens of draw
+// calls a lift, which adds up on phones. Chairs (instanced) and cables (lines) stay as they are.
+const _nm = new THREE.Matrix3();
+function mergeStatic(g, keepGeos) {
+  g.updateMatrixWorld(true);
+  const byMat = new Map();
+  g.traverse((o) => { if (o.isMesh && !o.isInstancedMesh) { if (!byMat.has(o.material)) byMat.set(o.material, []); byMat.get(o.material).push(o); } });
+  const shared = SHARED_GEOS();
+  for (const [mat, list] of byMat) {
+    if (list.length < 2) continue;
+    const geos = list.map((o) => (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()));
+    const total = geos.reduce((a, q) => a + q.attributes.position.count, 0), uv = geos.every((q) => q.attributes.uv);
+    const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uvs = uv ? new Float32Array(total * 2) : null;
+    let o = 0;
+    list.forEach((m, i) => {
+      const q = geos[i];
+      q.applyMatrix4(m.matrixWorld);
+      if (!q.attributes.normal) q.computeVertexNormals();
+      pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3);
+      if (uv) uvs.set(q.attributes.uv.array, o * 2);
+      o += q.attributes.position.count;
+      q.dispose();
+      m.parent.remove(m);
+      if (!keepGeos && !shared.includes(m.geometry)) m.geometry.dispose();
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    if (uv) geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const merged = new THREE.Mesh(geo, mat);
+    merged.castShadow = list.some((m) => m.castShadow); merged.receiveShadow = list.some((m) => m.receiveShadow);
+    merged.renderOrder = list[0].renderOrder; merged.userData.merged = true;
+    g.add(merged);
+  }
   return g;
 }
 
@@ -3333,7 +3396,7 @@ function addLift(L) {
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const BRIDGE_DARK = new THREE.MeshLambertMaterial({ color: 0x5e3d28 });
 function buildBridges(t) {
-  if (t.bridgeGroup) trailGroup.remove(t.bridgeGroup); // shared geometry and materials: nothing to dispose
+  if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); } // the pieces share geometry; only the merged meshes are its own
   t.bridgeGroup = null;
   const S = t.samples, spans = t.virtual ? [] : bridgeSpans(S);
   if (!spans.length) return;
@@ -3366,7 +3429,7 @@ function buildBridges(t) {
       }
     }
   }
-  t.bridgeGroup = g;
+  t.bridgeGroup = mergeStatic(g, true);
   trailGroup.add(g);
 }
 function disposeGroup(g) {
@@ -3389,7 +3452,7 @@ function clearTreeSet(set) {
     if (!trees.alive[k]) continue;
     trees.alive[k] = 0;
     cellTrees[trees.cell[k]]--;
-    treeMesh.setMatrixAt(k, ZERO);
+    dropTree(k);
     if (n++ % 3 === 0 && n < 240) spawnPuff(trees.x[k], trees.y[k] + trees.s[k], trees.z[k]);
     const gx = trees.x[k] + HALF, gz = trees.z[k] + HALF;
     i0 = Math.min(i0, gx); i1 = Math.max(i1, gx); j0 = Math.min(j0, gz); j1 = Math.max(j1, gz);
@@ -4687,7 +4750,7 @@ function updateLabels() {
     labelsDirty = false;
     for (const t of realTrails()) {
       const n = open ? (t.count || 0) * AGENT : 0;
-      t.labelEl.innerHTML = `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`;
+      setLabel(t.labelEl, `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`);
       t.labelEl.classList.toggle('sel', !!(selected && selected.obj === t));
       t.labelEl.classList.toggle('off', !t.open || t.snowOk === false);
       t.labelEl._prio = 1;
@@ -4697,7 +4760,7 @@ function updateLabels() {
       const q = open && L.queue ? L.queue.length * AGENT : 0;
       const up = open ? L.riders.reduce((a, r) => a + r.length, 0) * AGENT : 0;
       const slow = open && L.open && liftMode(L) === 'slow';
-      L.labelEl.innerHTML = `<i class="ldot" style="background:${hex}"></i><span>${esc(L.name)}</span>${L.planOff ? '<em>Off today</em>' : !L.open ? '<em>Stopped</em>' : L.windHold && !state.summer ? '<em>Wind hold</em>' : open ? `${slow ? '<em class="slow">Slow</em>' : ''}<span class="cnt"><b>${up}</b> riding · <b>${q}</b> in line</span>` : ''}`;
+      setLabel(L.labelEl, `<i class="ldot" style="background:${hex}"></i><span>${esc(L.name)}</span>${L.planOff ? '<em>Off today</em>' : !L.open ? '<em>Stopped</em>' : L.windHold && !state.summer ? '<em>Wind hold</em>' : open ? `${slow ? '<em class="slow">Slow</em>' : ''}<span class="cnt"><b>${up}</b> riding · <b>${q}</b> in line</span>` : ''}`);
       L.labelEl.classList.toggle('sel', !!(selected && selected.obj === L));
       L.labelEl.classList.toggle('off', !L.open);
       L.labelEl._prio = 3;
@@ -4712,7 +4775,7 @@ function updateLabels() {
         else if (B.type === 'patrol') { const out = B.crew.filter((c) => c.st !== 'idle').length; cnt = out ? `<b>${out}</b> on calls` : ''; }
       }
       const shut = open && !bldOpenNow(B);
-      B.labelEl.innerHTML = `<i class="bdot" style="background:${hexOf(BTYPES[B.type].accent)}"></i><span>${esc(B.name)}</span>${shut ? `<em>${bldMode(B) === 'lunch' ? 'Lunch only' : 'Closed'}</em>` : cnt ? `<span class="cnt">${cnt}</span>` : ''}`;
+      setLabel(B.labelEl, `<i class="bdot" style="background:${hexOf(BTYPES[B.type].accent)}"></i><span>${esc(B.name)}</span>${shut ? `<em>${bldMode(B) === 'lunch' ? 'Lunch only' : 'Closed'}</em>` : cnt ? `<span class="cnt">${cnt}</span>` : ''}`);
       B.labelEl.classList.toggle('sel', !!(selected && selected.obj === B));
       B.labelEl.classList.toggle('off', shut);
       B.labelEl._prio = 2;
@@ -4720,13 +4783,13 @@ function updateLabels() {
     for (const A of world.areas) {
       if (!A.labelEl) continue;
       const n = open ? world.trails.reduce((m, t) => m + (t.virtual && t.area === A.id ? t.count || 0 : 0), 0) * AGENT : 0;
-      A.labelEl.innerHTML = `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`;
+      setLabel(A.labelEl, `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`);
       A.labelEl.classList.toggle('sel', !!(selected && selected.obj === A));
       A.labelEl._prio = 1;
     }
     if (lotLabel) {
       const cap = stalls.length, used = open ? stalls.filter((st) => st.car).length : 0;
-      lotLabel.innerHTML = `<i class="pk">P</i><span>Parking</span><span class="cnt">${open ? `<b>${used}</b>/${cap} full` : `${cap} spaces`}</span>`;
+      setLabel(lotLabel, `<i class="pk">P</i><span>Parking</span><span class="cnt">${open ? `<b>${used}</b>/${cap} full` : `${cap} spaces`}</span>`);
       lotLabel.classList.toggle('sel', !!(selected && selected.kind === 'manage' && selected.obj === 'blds'));
       lotLabel._prio = 2;
     }
@@ -4752,6 +4815,11 @@ function updateLabels() {
   }
   declutterLabels();
 }
+// Rewrites a label only when its text changes; it's measured again before it's next placed.
+function setLabel(el, html) {
+  if (el._src === html) return;
+  el._src = html; el.innerHTML = html; el._w = 0;
+}
 function placeLabel(el, x, y, z, visible) {
   if (!el) return; // a label not made yet (it comes with the next labels sync)
   el._on = false;
@@ -4766,9 +4834,11 @@ function placeLabel(el, x, y, z, visible) {
 function declutterLabels() {
   const els = [...labelLayer.children].filter((el) => el._on);
   els.sort((a, b) => (b.classList.contains('sel') - a.classList.contains('sel')) || ((b._prio || 0) - (a._prio || 0)));
+  // Measure every label that changed first, then move them: reading sizes between moves would make
+  // the browser lay the page out again for each label.
+  for (const el of els) if (!el._w) { el.hidden = false; el._w = el.offsetWidth; el._h = el.offsetHeight; }
   const placed = [];
   for (const el of els) {
-    if (!el._w || el._html !== el.innerHTML) { el._w = el.offsetWidth; el._h = el.offsetHeight; el._html = el.innerHTML; }
     const w = el._w, h = el._h;
     let y = el._y, ok = false;
     for (let k = 0; k < 4 && !ok; k++) {
@@ -9140,7 +9210,7 @@ function applyTerrainChange(i0, j0, i1, j1) {
     const c = cj * WN + ci, s0 = trees.cellStart[c], e = s0 + trees.cellCount[c];
     for (let k = s0; k < e; k++) {
       trees.y[k] = heightAt(trees.x[k], trees.z[k]) - 0.06;
-      if (trees.alive[k]) treeMesh.setMatrixAt(k, treeMatrix(k));
+      if (trees.alive[k]) treeMesh.setMatrixAt(treeSlot[k], treeMatrix(k));
     }
   }
   treeMesh.instanceMatrix.needsUpdate = true;
@@ -11137,6 +11207,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.27', date: 'Oct 23, 2026', title: 'Smoother on big resorts', items: [
+    'Big resorts draw faster: cleared trees no longer cost anything to draw, and lifts, bridges and snow pads take far fewer draw calls.',
+    'The labels on the map update without the small stutter they caused twice a second while the resort was open.',
+  ] },
   { v: '2.26', date: 'Oct 23, 2026', title: 'Names that fit', items: [
     'Trails are named to match their rating, like Bunny Hop for a green and Devil’s Fall for a double black, and sometimes after where they run or the mountain they’re on.',
     'Lifts are named for where they go, and cafés, food trucks, restaurants and shops draw from much bigger lists. No two resorts read the same.',

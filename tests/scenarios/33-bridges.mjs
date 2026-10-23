@@ -28,7 +28,7 @@ export default async function ({ browser, url }) {
       const t = commitTrail(info, pts, 'medium'); computeNetwork(); syncLabels();
       return { bridges: info.bridges, bridgeCost: info.bridgeCost, cost: info.cost, paid: cash - state.cash,
         deckLens: info.samples.filter((s) => s.bridge).length, aboveBed: Math.max(...deck.map((s) => trueY(s.x, s.z) - s.y)), deckLen: deck.length,
-        bedSame: bed.every((k, n) => HT[k] === before[n]), mesh: !!t.bridgeGroup && t.bridgeGroup.children.length,
+        bedSame: bed.every((k, n) => HT[k] === before[n]), mesh: !!t.bridgeGroup && t.bridgeGroup.children.reduce((a, m) => a + (m.geometry ? m.geometry.attributes.position.count / 36 : 0), 0),
         problems: t.an.problems.filter((p) => /uphill|creek|steep/.test(p)) };
     })()`);
     eq(r.bridges, 1, `${mt}: one bridge`);
