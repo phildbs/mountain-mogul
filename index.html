@@ -583,6 +583,15 @@ body.visiting .badge { cursor: default; }
 .vtag:hover { color: var(--ink); }
 a.vtag { text-decoration: none; }
 .vtag b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.updcard { position: fixed; z-index: 60; top: 84px; left: 50%; transform: translateX(-50%); width: min(380px, calc(100vw - 24px)); padding: 16px 16px 12px; display: grid; gap: 10px; max-height: calc(100vh - 180px); overflow: auto; }
+.updcard .eyebrow { font-size: 11.5px; }
+.updcard .help { margin: 0; }
+.updcard h3 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 24px; text-transform: uppercase; line-height: 1; }
+.upd-react { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; font-weight: 600; }
+.upd-react span { flex: 1; }
+.upd-react button { width: 44px; height: 38px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 19px; cursor: pointer; }
+.upd-react button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.upd-foot { display: flex; align-items: center; justify-content: space-between; }
 .wn-list { display: grid; gap: 14px; margin: 0; }
 .wn-list section { display: grid; gap: 4px; }
 .wn-list h3 { margin: 0; font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
@@ -1216,6 +1225,14 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <div class="cm-head"><div><div class="eyebrow">Mountain Mogul</div><h2 id="wnTitle">What’s new</h2></div><button class="x" id="wnClose" aria-label="Close">✕</button></div>
       <div class="wn-list" id="wnList"></div>
     </div>
+  </div>
+
+  <div class="panel updcard" id="updCard" role="dialog" aria-labelledby="updTitle" hidden>
+    <div class="eyebrow" id="updVer"></div>
+    <h3 id="updTitle"></h3>
+    <div class="wn-list" id="updList"></div>
+    <div class="upd-react"><span id="updAsk">How do you like this update?</span><button type="button" data-r="1" aria-label="Thumbs up" aria-pressed="false">👍</button><button type="button" data-r="-1" aria-label="Thumbs down" aria-pressed="false">👎</button></div>
+    <div class="upd-foot"><button class="link" type="button" id="updAll">All updates</button><button class="btn" type="button" id="updOk">Got it</button></div>
   </div>
 
   <div class="modal-bg" id="community" hidden>
@@ -11237,6 +11254,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.29', date: 'Oct 24, 2026', title: 'What’s new, as it lands', items: [
+    'When the game updates while you’re playing, a card shows what changed since you last played.',
+    'Give each update a thumbs up or down. It helps decide what comes next.',
+  ] },
   { v: '2.28', date: 'Oct 24, 2026', title: 'Off-site parking and shuttles', items: [
     'Satellite lots are gone. When the main lot fills, cars park off-site and parking shuttles (blue stripe) bring guests to your shuttle stations. Set it up and upgrade it from the Buildings list: a gravel field, a paved lot, then a park & ride garage.',
     'Build as many shuttle stations as you like: arrivals spread across them and guests head home from the nearest. Each has one bus bay; upgrade one to a transit center for two.',
@@ -11349,10 +11370,10 @@ async function checkForUpdate(force) {
   try {
     const r = await fetch(`${location.pathname}?check=${Date.now()}`, { cache: 'no-store' });
     if (!r.ok) return;
-    const m = (await r.text()).match(/\{ v: '(\d+(?:\.\d+)*)'/);
-    if (m && newerVer(m[1], VERSION) && updateOffered !== m[1]) {
+    const m = (await r.text()).match(/\{ v: '(\d+(?:\.\d+)*)', date: '[^']*', title: '((?:[^'\\]|\\.)*)'/) || [];
+    if (m[1] && newerVer(m[1], VERSION) && updateOffered !== m[1]) {
       updateOffered = m[1];
-      $('updateBar').querySelector('span').textContent = `Version ${m[1]} is ready.`;
+      $('updateBar').querySelector('span').textContent = `Version ${m[1]} is ready${m[2] ? `: ${m[2].replace(/\\(.)/g, '$1')}` : ''}.`;
       $('updateBar').hidden = false;
     }
   } catch (e) { /* offline: try again later */ }
@@ -11424,6 +11445,42 @@ function refreshNewBar() {
   $('newBar').hidden = !returning || seen === VERSION;
   $('newBar').innerHTML = `<b>New</b><span>${esc(CHANGES[0].title)}</span><i>See what’s new ›</i>`;
 }
+// Just updated: a player already in a resort sees what changed since the version they last played, once,
+// and can give it a thumbs up or down (one per player per version, read on the stats page).
+// `built` says whether the resort had anything in it when it opened (a player from before this card existed).
+const resortBuilt = () => !!(state.season > 1 || world.lifts.length || world.trails.length);
+function maybeUpdateCard(built = resortBuilt()) {
+  if (visiting || practice || !state.started || !$('updCard').hidden) return;
+  let seen = null; try { seen = localStorage.getItem('mm.seenVersion'); } catch (e) { /* ignore */ }
+  if (seen === VERSION) return;
+  const played = seen || built;
+  if (!played) { try { localStorage.setItem('mm.seenVersion', VERSION); } catch (e) { /* ignore */ } return; } // a brand-new player: nothing has changed for them
+  if (document.querySelector('.modal-bg:not([hidden])')) { setTimeout(() => maybeUpdateCard(built), 2500); return; } // after the day report and the like
+  const news = CHANGES.filter((c) => !seen || newerVer(c.v, seen)).slice(0, 3);
+  $('updVer').textContent = `Just updated · version ${VERSION}`;
+  $('updTitle').textContent = news[0].title;
+  $('updList').innerHTML = `<ul>${news[0].items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
+    + (news.length > 1 ? `<p class="help">Also new since you last played: ${news.slice(1).map((c) => `<b>${esc(c.title)}</b>`).join(', ')}.</p>` : '');
+  let had = null; try { had = localStorage.getItem('mm.react.' + VERSION); } catch (e) { /* ignore */ }
+  for (const b of $('updCard').querySelectorAll('[data-r]')) b.setAttribute('aria-pressed', String(b.dataset.r === had));
+  $('updAsk').textContent = had ? 'Thanks for letting us know!' : 'How do you like this update?';
+  $('updCard').hidden = false;
+}
+function closeUpdateCard() {
+  $('updCard').hidden = true;
+  try { localStorage.setItem('mm.seenVersion', VERSION); } catch (e) { /* ignore */ }
+  refreshNewBar();
+}
+async function reactToUpdate(r) {
+  for (const b of $('updCard').querySelectorAll('[data-r]')) b.setAttribute('aria-pressed', String(+b.dataset.r === r));
+  $('updAsk').textContent = r > 0 ? 'Thanks! Glad you like it.' : 'Thanks for telling us. Send feedback from the menu to say more.';
+  try { localStorage.setItem('mm.react.' + VERSION, String(r)); } catch (e) { /* ignore */ }
+  if (!CLOUD.ready || !CLOUD.uid) return;
+  try { await CLOUD.sb.from('update_reactions').upsert({ version: VERSION, user_id: CLOUD.uid, reaction: r, created_at: new Date().toISOString() }, { onConflict: 'version,user_id' }); } catch (e) { /* not essential */ }
+}
+for (const b of $('updCard').querySelectorAll('[data-r]')) b.onclick = () => reactToUpdate(+b.dataset.r);
+$('updOk').onclick = closeUpdateCard;
+$('updAll').onclick = () => { closeUpdateCard(); openWhatsNew(); };
 $('versionTag').onclick = openWhatsNew;
 $('newBar').onclick = openWhatsNew;
 $('wnClose').onclick = () => { $('whatsNew').hidden = true; };
@@ -11851,6 +11908,7 @@ function startGame(camFrom) {
   winterView = false;
   styleSnowVisuals();
   refreshTimebar(true);
+  { const built = resortBuilt(); setTimeout(() => maybeUpdateCard(built), 1800); }
   if (state.phase === 'report') showReport();
   if (state.phase === 'season') showSeasonReport();
   const goal = sv && sv.cam
@@ -12025,6 +12083,7 @@ function start(hot) {
     winterView = false;
     styleSnowVisuals();
     refreshTimebar(true);
+    { const built = resortBuilt(); setTimeout(() => maybeUpdateCard(built), 1800); }
     if (state.phase === 'report') showReport();
     if (state.phase === 'season') showSeasonReport();
     if (hot.cam) { cam.target.x = hot.cam.x; cam.target.z = hot.cam.z; cam.az = cam.azGoal = hot.cam.az; cam.viewH = hot.cam.viewH; }

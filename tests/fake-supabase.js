@@ -52,6 +52,11 @@
         return { data: q.single ? rows[0] || null : rows, error: null };
       }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
+      if (table === 'update_reactions') {
+        if (q.op !== 'upsert') return { data: null, error: null };
+        d.reactions = (d.reactions || []).filter((r) => !(r.version === q.obj.version && r.user_id === me));
+        d.reactions.push({ ...q.obj, user_id: me }); put(d); return { data: null, error: null };
+      }
       if (table === 'featured') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
         let rows = d.featured || [];
