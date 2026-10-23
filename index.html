@@ -2401,7 +2401,7 @@ function saveData(withSim) {
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, offsite: state.offsite },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -2429,8 +2429,15 @@ function applySave(sv) {
   const ok = sv && sv.n === trees.n && (sv.mt || 'juniper') === MOUNTAIN.id;
   if (!state.wx) state.wx = initWeather(ok && sv.clock && sv.clock.day != null ? sv.clock.day : PRESEASON_DAY);
   restoreTerrain(ok ? sv.terrain : '');
+  satSpaces = 0;
   rebuildWorld(ok ? sv.world : null);
   Object.assign(state, SIM_DEFAULTS, ok && sv.clock ? sv.clock : {});
+  if (satSpaces) {
+    // A resort saved with satellite lots gets off-site parking at least as big, free.
+    const tier = OFFSITE.findIndex((o) => o.spaces >= satSpaces);
+    state.offsite = Math.max(state.offsite, tier < 0 ? OFFSITE.length - 1 : tier);
+    if (!visiting) setTimeout(() => toast(`Satellite lots are now off-site parking: your ${satSpaces} spaces became a ${OFFSITE[state.offsite].label.toLowerCase()} with ${OFFSITE[state.offsite].spaces}. Parking shuttles bring guests to your shuttle stations${hasStation() ? '' : '. Build one so they can'}.`), 2500);
+  }
   if (ok && sv.snow) decodeSnow(sv.snow);
   else if (ok) for (let k = 0; k < NV * NV; k++) NS[k] = 26 + 34 * elevFrac(HT[k]); // older saves: a midwinter snowpack
   else seedPreseasonSnow();
@@ -4017,8 +4024,8 @@ function commitLift(info, type) {
 }
 function evalBuilding(type, x, z, rot, allowPlans, selfPlan) {
   const v = validateBuilding(type, 0, x, z, rot);
-  v.padY = type === 'parking' ? lotPad({ type, tier: 0, x, z, rot }) : padHeight(v.bb);
-  v.grading = levelRect(v.bb, v.padY, 2.5, true).cost + (type === 'parking' ? lotRamp({ type, tier: 0, x, z, rot }, v.padY, true).cost : 0);
+  v.padY = padHeight(v.bb);
+  v.grading = levelRect(v.bb, v.padY, 2.5, true).cost;
   if (allowPlans) {
     const bb = bAABB(type, 0, x, z, rot);
     const clash = world.plans.find((p) => p !== selfPlan && p.kind === 'bld' && boxOverlap(bAABB(p.type, 0, p.x, p.z, p.rot, 0.4), bb));
@@ -4030,7 +4037,7 @@ function commitBuilding(info, type, x, z, rot) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const b = { id: world.nextId++, type, tier: 0, x, z, rot, spent: info.cost, yday: null, padY: info.padY };
-  const res = type === 'parking' ? settleLot(b, info.padY) : levelRect(info.bb, info.padY, 2.5, false);
+  const res = levelRect(info.bb, info.padY, 2.5, false);
   applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   b.name = nextBuildingName(type, x, z);
   addBuilding(b);
@@ -4560,6 +4567,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
   else if (a === 'upgrade' && obj) upgradeTier(obj);
+  else if (a === 'upgradeStation' && obj) upgradeStation(obj);
+  else if (a === 'offsiteBuy') buyOffsite();
   else if (a === 'levelB' && obj) {
     const pad = (obj.baseY - 0.03) / VEX, est = levelRect(boxOf(obj), pad, 2.5, true);
     if (state.phase !== 'closed' || est.cost > state.cash) return;
@@ -4665,7 +4674,6 @@ sheet.addEventListener('click', (e) => {
     pushUndo(`removing ${obj.name}`);
     if (selected.kind === 'trail') removeTrail(obj);
     else if (selected.kind === 'area') { state.cash += Math.round((obj.cost || 0) * 0.25); removeArea(obj); updateCash(true); }
-    else if (selected.kind === 'bld' && obj.type === 'parking' && state.phase !== 'closed') { toast('Cars are parked there. Remove the lot overnight.', true); return; }
     else if (selected.kind === 'bld') { state.cash += Math.round((obj.spent || 0) * 0.25); removeBuilding(obj); updateCash(true); }
     else { state.cash += Math.round((obj.cost || 0) * 0.25); removeLift(obj); updateCash(true); }
     toast(`Removed ${obj.name}`);
@@ -4900,11 +4908,12 @@ function serializeWorld() {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, ramp: B.ramp })),
+    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
 }
+let satSpaces = 0;
 function rebuildWorld(data) {
   for (const t of [...world.trails]) removeTrail(t);
   for (const L of [...world.lifts]) removeLift(L);
@@ -4916,15 +4925,11 @@ function rebuildWorld(data) {
   if (data) {
     for (const L of data.lifts || []) addLift({ ...L });
     for (const B of data.buildings || []) {
-      // Satellite lots from before banks were graded: level the pad and grade the bank to the road now, free.
-      if (B.type === 'parking' && !B.ramp) {
-        B.padY = lotPad(B);
-        const r = settleLot(B, B.padY);
-        applyTerrainChange(r.i0, r.j0, r.i1, r.j1);
-      }
+      // Satellite lots became off-site parking: their spaces carry over (see applySave).
+      if (B.type === 'parking') { satSpaces += B.tier ? 192 : 96; continue; }
       addBuilding({ ...B });
     }
-    for (const p of data.plans || []) addPlan({ ...p });
+    for (const p of data.plans || []) if (BTYPES[p.type] || p.kind !== 'bld') addPlan({ ...p }); // satellite lot blueprints are gone
     for (const t of data.trails || []) addTrail({ ...t, pts: t.pts.map((p) => ({ x: p.x, z: p.z })) });
     for (const a of data.areas || []) addArea({ ...a });
   }
@@ -4974,7 +4979,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1 };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5020,9 +5025,9 @@ function inLotWay(bb) {
 }
 function mainLotBlock() {
   const land = lotLandBlock(nextLotBox());
-  if (land) return `The main lot can’t grow any further: ${land}. Add a satellite lot beside the road instead (Buildings › Parking lot).`;
+  if (land) return `The main lot can’t grow any further: ${land}. Set up off-site parking with a shuttle instead (Buildings list › Off-site parking).`;
   const what = inLotWay(nextLotBox());
-  if (what) return `${what} is where the main lot grows next. Remove it to grow the main lot, or add a satellite lot beside the road (Buildings › Parking lot).`;
+  if (what) return `${what} is where the main lot grows next. Remove it to grow the main lot, or set up off-site parking with a shuttle (Buildings list › Off-site parking).`;
   return null;
 }
 // Building where the main lot will grow is allowed, with a heads-up.
@@ -5221,10 +5226,8 @@ function buildLot() {
       }
     }
   }
-  for (const B of world.buildings) if (B.type === 'parking') stalls.push(...satStalls(B));
 }
-const satLots = () => world.buildings.filter((B) => B.type === 'parking');
-const lotCapacity = () => state.lotSections * SPACES_PER_SECTION + satLots().reduce((a, B) => a + bspec(B).spaces, 0);
+const lotCapacity = () => state.lotSections * SPACES_PER_SECTION;
 
 /* =====================================================================
    PEOPLE & CARS: meshes
@@ -5310,9 +5313,9 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -5431,10 +5434,12 @@ function goQueue(g, L, mode) {
 }
 function goCar(g) {
   if (!g.leaving) { g.leaving = true; thought(g, 'Time to head home.'); }
-  const car = cars.find((c) => c.id === g.car);
-  if (g.bus) {
-    const st = shuttleStation();
-    if (st) return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'bus' });
+  const car = cars.find((c) => c.id === g.car) || offCars.find((c) => c.id === g.car);
+  if (g.bus || (car && car.offsite)) {
+    // Town bus riders and guests parked off-site walk to the nearest station.
+    const st = nearestStation(g);
+    if (st) { g.stn = st.id; return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' }); }
+    if (car && car.offsite) { g.gone = true; gById.delete(g.id); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
   }
   const s = car ? stalls[car.stall] : roadEnd();
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
@@ -5663,31 +5668,20 @@ function makeSchedule(n) {
   return out.sort((a, b) => b.t - a.t); // popped from the end
 }
 function carPath(stall) {
-  if (!stall.road) return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
-  // a satellite lot: along the road to the point beside it, then in over its driveway
-  let bi = 0, bd = Infinity, bq = ROAD_WORLD[0];
-  for (let i = 0; i + 1 < ROAD_WORLD.length; i++) {
-    const a = ROAD_WORLD[i], b = ROAD_WORLD[i + 1], dx = b.x - a.x, dz = b.z - a.z;
-    const t = clamp(((stall.road.x - a.x) * dx + (stall.road.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
-    const q = { x: a.x + dx * t, z: a.z + dz * t }, d = Math.hypot(q.x - stall.road.x, q.z - stall.road.z);
-    if (d < bd) { bd = d; bi = i; bq = q; }
-  }
-  return [...ROAD_WORLD.slice(0, bi + 1), bq, stall.road, stall.gate, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
+  return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
 function spawnCar(size) {
-  // The main lot's open sections fill first, then the satellite lots that are open; a car's spaces stay in one lot.
-  const mainOpen = lotsOpen() * SPACES_PER_SECTION, byLot = new Map();
-  let free = [];
-  for (let i = 0; i < stalls.length; i++) {
-    const st = stalls[i];
-    if (st.car || (st.sat ? !bldOpenNow(bldById(st.sat)) : i >= mainOpen)) continue;
-    const key = st.sat || 0;
-    if (!byLot.has(key)) byLot.set(key, []);
-    const l = byLot.get(key); l.push(i);
-    if (l.length >= AGENT) { free = l; break; }
+  // The main lot's open sections fill first; then cars go to off-site parking.
+  const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
+  for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
+  if (free.length < AGENT) {
+    if (parkOffsite(size)) return;
+    today.turnedAway += size * AGENT;
+    if (lotsOpen() < state.lotSections) today.lotAway = (today.lotAway || 0) + size * AGENT;
+    if (offsiteSpec() && runOps && runOps.shuttles !== 'off') today.offFull = (today.offFull || 0) + size * AGENT;
+    return;
   }
-  if (free.length < AGENT) { today.turnedAway += size * AGENT; if (lotsOpen() < state.lotSections || satLots().some((B) => !bldOpenNow(B))) today.lotAway = (today.lotAway || 0) + size * AGENT; return; }
   const si = free[0];
   const path = carPath(stalls[si]);
   const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0,
@@ -5743,24 +5737,10 @@ function carArrived(car) {
     payTicket(g); today.guests += AGENT;
     thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
-    if (s.sat) farLotWalk(g, s);
     arrivalFlow(g);
   }
   if (state.prices.parking) { state.cash += state.prices.parking * AGENT; today.rev.parking += state.prices.parking * AGENT; }
   updateCash(false);
-}
-
-// Guests parked in a satellite lot walk to the nearest lift. A long walk wears on them, unless a shuttle
-// station by the lot runs them over.
-const FAR_WALK = 28;
-function farLotWalk(g, s) {
-  const B = bldById(s.sat);
-  const near = Math.min(...world.lifts.filter((L) => L.fromBase).map((L) => Math.hypot(L.a.x - s.x, L.a.z - s.z)));
-  if (!(near > FAR_WALK)) return;
-  const bus = world.buildings.some((o) => (o.type === 'shuttle' || o.type === 'transit') && B && Math.hypot(o.x - B.x, o.z - B.z) < 16);
-  if (bus) { if (Math.random() < 0.5) thought(g, `Caught the shuttle from ${B.name}.`); return; }
-  g.sat -= 4; today.complaints.farLot = (today.complaints.farLot || 0) + 1;
-  if (Math.random() < 0.5) thought(g, `Long walk from ${B ? B.name : 'the far lot'}. A shuttle would be nice.`);
 }
 
 /* ---------- Lifts ---------- */
@@ -5870,6 +5850,8 @@ function arrive(g) {
     joinBuildingQueue(g, B);
   } else if (t.k === 'bus') {
     g.st = 'busq';
+  } else if (t.k === 'pq') {
+    g.st = 'pq'; g.qSince = state.time;
   }
 }
 function carLeave(car) {
@@ -5937,7 +5919,7 @@ function updateGuest(g, dt) {
     case 'inside': case 'lesson': if (state.time >= g.until) finishVisit(g); break;
     default: break;
   }
-  if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'hurt' && g.st !== 'tow') updateNeeds(g, dt);
+  if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow') updateNeeds(g, dt);
 }
 function updateCar(c, dt) {
   if (c.st === 'parked') return;
@@ -5970,7 +5952,7 @@ const STAFF_LEVELS = {
   extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
 };
 const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
-const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full' });
+const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on' });
 function opsState() {
   if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
   for (const [k] of OPS_KINDS) state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) };
@@ -6008,7 +5990,8 @@ function bldOpenNow(B) {
 // A snapshot of today's plan, so changes you make during the day apply from tomorrow.
 function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
-  const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [] };
+  const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [],
+    shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on' };
   for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
   for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
   return ops;
@@ -6043,6 +6026,7 @@ function cutbackScore(ops) {
   if (ops.hours === 'short') s += 0.4;
   if (ops.staff === 'lean') s += 0.4; else if (ops.staff === 'extra') s -= 0.3;
   if (ops.patrol === 'skeleton') s += 0.15;
+  if (ops.shuttles === 'off' && state.offsite >= 0 && hasStation()) s += 0.2;
   return s;
 }
 // Satisfaction points each guest loses at the door when today's cutbacks show.
@@ -6066,7 +6050,15 @@ function planRunCost(P) {
     staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1);
     upkeep += bldUpkeep(B, m, B.type === 'patrol' && P.patrol === 'skeleton');
   }
-  return Math.round(staff * c * lv.cost * (short ? 0.94 : 1) + lifts + upkeep + lotsIn(P) * LOT_RUN_DAY * c);
+  return Math.round(staff * c * lv.cost * (short ? 0.94 : 1) + lifts + upkeep + lotsIn(P) * LOT_RUN_DAY * c + busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)));
+}
+// Off-site parking's lease, the parking shuttles and the town buses, for a day.
+function busCost(shuttles, townBus, modeOf) {
+  const open = world.buildings.filter((B) => isStation(B) && modeOf(B) !== 'closed');
+  let c = offsiteSpec() ? offsiteSpec().lease : 0;
+  if (offsiteSpec() && open.length) c += SHUTTLES[shuttles].cost;
+  if (townBus !== 'off') c += open.reduce((a, B) => a + TOWN_BUS_DAY[B.type], 0);
+  return Math.round(c * MOUNTAIN.costs);
 }
 function bldUpkeep(B, mode, skeleton) {
   const u = bspec(B).upkeep;
@@ -6087,7 +6079,7 @@ function simStep(dt) {
   state.time += dt / 60;
   while (schedule.length && schedule[schedule.length - 1].t <= state.time && state.time < closeTime()) {
     const e = schedule.pop();
-    if (e.bus && shuttleStation()) busPending += e.size; else spawnCar(e.size);
+    if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size);
   }
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
   for (const L of world.lifts) stepLift(L, dt);
@@ -6155,9 +6147,10 @@ function openDay() {
   schedule = makeSchedule(Math.ceil(n / AGENT));
   if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
   schedule.sort((a, b) => b.t - a.t);
-  const bus = shuttleStation();
-  if (bus && bldMode(bus) !== 'closed') for (const e of schedule) e.bus = Math.random() < BUS_RUN[bus.type].share;
-  guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN;
+  // Town buses bring a share of the day's guests: half if any station is a transit center.
+  const S = stations(), share = ops.townBus === 'off' || !S.length ? 0 : Math.max(...S.map((B) => BUS_RUN[B.type].share));
+  for (const e of schedule) e.bus = Math.random() < share;
+  guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN; nextParkAt = DAY_OPEN; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
   for (const s of stalls) s.car = null;
@@ -6175,6 +6168,7 @@ function endDay() {
   const upk = (B) => bldUpkeep(B, ops.bld[B.id] || 'open', B.type === 'patrol' && ops.patrol === 'skeleton');
   today.exp.upkeep = Math.round(world.buildings.reduce((a, B) => a + upk(B), 0));
   today.exp.parking = Math.round(ops.lots * LOT_RUN_DAY * MOUNTAIN.costs);
+  today.exp.shuttles = busCost(ops.shuttles || 'off', ops.townBus || 'on', (B) => ops.bld[B.id] || 'open');
   today.exp.cogs = Math.round(today.exp.cogs);
   // Short-handed patrol: an injury can turn into a claim against the resort.
   let claims = 0;
@@ -6184,7 +6178,7 @@ function endDay() {
     for (let k = 0; k < today.injuries + today.unhelped; k++) if (Math.random() < odds) claims++;
   }
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
-  state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.claims;
+  state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims;
   for (const B of world.buildings) {
     const cost = upk(B) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
@@ -6192,7 +6186,7 @@ function endDay() {
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
   // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
@@ -6220,11 +6214,12 @@ function endDay() {
   state.lastReport = {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak,
+    offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])),
@@ -6465,20 +6460,25 @@ function pickGuest(x, y) {
 function serializeSim() {
   if (state.phase !== 'open') return null;
   return {
-    today, schedule, nextGid, nextCid, buses, busPending, nextBusAt,
+    today, schedule, nextGid, nextCid, buses, busPending, nextBusAt, nextParkAt, offCars,
+    offQueue: offQueue.map((q) => ({ car: q.car.id, since: q.since })),
     guests: guests.map((g) => ({ ...g, T: g.T ? g.T.id : null, L: g.L ? g.L.id : null })),
     cars: cars.map((c) => ({ ...c })),
     lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), incoming: L.incoming, riders: L.riders })),
   };
 }
 function restoreSim(sim) {
-  guests = []; cars = []; schedule = []; gById.clear(); today = null; buses = []; busPending = 0; runOps = null;
+  guests = []; cars = []; schedule = []; gById.clear(); today = null; buses = []; busPending = 0; runOps = null; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
   if (state.phase !== 'open' || !sim) { if (state.phase === 'open') state.phase = 'closed'; return; }
   today = sim.today; schedule = sim.schedule || [];
   resumeOps(today.ops); nextGid = sim.nextGid || 1; nextCid = sim.nextCid || 1;
-  buses = sim.buses || []; busPending = sim.busPending || 0; nextBusAt = sim.nextBusAt || 0;
+  buses = (sim.buses || []).filter((b) => b.kind !== 'park' || !b.load || Array.isArray(b.load)); busPending = sim.busPending || 0; nextBusAt = sim.nextBusAt || 0;
+  for (const b of buses) { if (!b.kind) b.kind = 'town'; if (b.stn == null) b.stn = (world.buildings.find(isStation) || {}).id; }
+  nextParkAt = sim.nextParkAt || 0; offCars = sim.offCars || [];
+  offQueue = (sim.offQueue || []).map((q) => ({ car: offCars.find((c) => c.id === q.car), since: q.since })).filter((q) => q.car);
+  for (const b of buses) if (b.kind === 'park' && b.load) b.load = b.load.map((q) => ({ car: offCars.find((c) => c.id === (q.car.id ?? q.car)), since: q.since })).filter((q) => q.car);
   for (const B of world.buildings) initBldSim(B);
   for (const r of sim.guests) {
     const g = { ...r, T: r.T != null ? trailById(r.T) : null, L: r.L != null ? liftById(r.L) : null };
@@ -6491,7 +6491,7 @@ function restoreSim(sim) {
     guests.push(g); gById.set(g.id, g);
   }
   for (const g of guests.filter((x) => x.st === 'bq').sort((p, q) => p.qT - q.qT)) { const B = bldById(g.bid); B.q[POOL[g.svc]].push(g); g.qv = -1; }
-  cars = sim.cars || [];
+  cars = (sim.cars || []).filter((c) => stalls[c.stall]); // cars in lots that are gone (satellite lots before off-site parking)
   for (const c of cars) {
     if (stalls[c.stall]) stalls[c.stall].car = c.id;
     for (const e of c.extra || []) if (stalls[e.i]) stalls[e.i].car = c.id;
@@ -6540,31 +6540,24 @@ const BTYPES = {
     desc: 'Two patrollers who ski out to injured guests. Faster when the hut is close.' },
   restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
     desc: 'A small block of restrooms for busy areas.' },
-  shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 800,
-    desc: 'Buses bring guests in without using parking spaces. Builds beside the access road.' },
+  shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 500,
+    desc: 'Where buses stop: town buses bring guests with no car at all, and parking shuttles carry guests from off-site parking. Build more than one at a big resort: guests head home from the nearest. Builds beside the access road.' },
   clinic: { name: 'First-aid clinic', where: 'base', cost: 110000, sign: 'FIRST AID', accent: 0xd23c3c, beds: 6, w: 2.8, d: 2.2, upkeep: 850,
     desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
   kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
     desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer.' },
   hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'HEATED RESTROOMS', accent: 0xc0552d, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
     desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
-  parking: { name: 'Parking lot', where: 'any', cost: 75000, sign: 'P', accent: 0x2565d4,
-    desc: 'A satellite lot beside the access road for when the main lot is full. Guests walk from it to the nearest lift; a shuttle station beside it saves them the walk. Upgrades to 192 spaces.',
-    tiers: [
-      { label: '96 spaces', spaces: 96, sections: 1, w: 8.5, d: 8.8, upkeep: 350 },
-      { label: '192 spaces', spaces: 192, sections: 2, w: 16.9, d: 8.8, upkeep: 700, cost: 75000 },
-    ],
-  },
-  transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1700,
-    desc: 'A heated bus terminal beside the access road. Bigger buses every 12 minutes bring about half your guests.' },
+  transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
+    desc: 'An upgraded shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests.' },
 };
 const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
 const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
-  ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['parking', 'shuttle', 'transit']]];
+  ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
-const BY_ROAD = ['shuttle', 'transit', 'parking']; // bus stops and satellite lots sit beside the access road
-const BAY_FRONT = { shuttle: 0.05, transit: 0.22, parking: 4.4 }; // the platform's curb; the bus bay is the paved apron from here to the road
+const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
+const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
 // Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
 function snapToRoad(type, p) {
   const r = nearestRoad(p), t = BTYPES[type];
@@ -6578,16 +6571,8 @@ function snapToRoad(type, p) {
 }
 // The paved apron from a bus bay's front edge to the edge of the road: four corners, or null when the road is far away.
 function drivewayQuad(b) {
-  const t = BTYPES[b.type], hw = b.type === 'parking' ? LOT_SAT.drive : (t.tiers ? t.tiers[b.tier || 0] : t).w / 2 - 0.05, fz = BAY_FRONT[b.type];
+  const t = BTYPES[b.type], hw = t.w / 2 - 0.05, fz = BAY_FRONT[b.type];
   const cs = [toWorld(b, -hw, fz), toWorld(b, hw, fz)];
-  if (b.type === 'parking') {
-    // A lot's driveway meets the road square on, its end flared a little for turning, wherever the road bends.
-    const r = nearestRoad(toWorld(b, 0, fz));
-    if (r.d > 7) return null;
-    const m = { x: r.q.x + r.nx * (ROAD_HW - 0.2), z: r.q.z + r.nz * (ROAD_HW - 0.2) }, tx = -r.nz, tz = r.nx;
-    const side = (cs[1].x - cs[0].x) * tx + (cs[1].z - cs[0].z) * tz > 0 ? 1 : -1, f = (hw + 0.5) * side;
-    return { cs, es: [{ x: m.x - tx * f, z: m.z - tz * f }, { x: m.x + tx * f, z: m.z + tz * f }] };
-  }
   const es = cs.map((c) => { const r = nearestRoad(c); return r.d > 7 ? null : { x: r.q.x + r.nx * (ROAD_HW - 0.2), z: r.q.z + r.nz * (ROAD_HW - 0.2) }; });
   return es[0] && es[1] ? { cs, es } : null;
 }
@@ -6623,19 +6608,6 @@ const APRON_TEX = (() => {
 // Drawn over the road where they meet, so the road's edge line breaks at the entrance.
 const DRIVE_MAT = new THREE.MeshLambertMaterial({ map: APRON_TEX, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 const LOT_DRIVE_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); // a lot's plain asphalt lane
-// A lot's driveway: asphalt with painted edge lines. Across: side to side; down: lot to road.
-const LOT_DRIVEWAY_MAT = new THREE.MeshLambertMaterial({ polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, map: (() => {
-  const W = 128, H = 128, c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const g = c.getContext('2d');
-  g.fillStyle = '#4c515b'; g.fillRect(0, 0, W, H);
-  for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`; g.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
-  g.fillStyle = 'rgba(240,244,250,0.9)'; g.fillRect(9, 0, 4, H); g.fillRect(W - 13, 0, 4, H);
-  g.fillStyle = 'rgba(232,184,46,0.85)'; for (let y = 6; y < H; y += 32) g.fillRect(W / 2 - 2, y, 4, 16);
-  const t = new THREE.CanvasTexture(c);
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return t;
-})() });
 // The apron's surface in world space, draped on the ground.
 function drivewayGeo(Q) {
   const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], uv = [], idx = [];
@@ -6654,7 +6626,7 @@ function addDriveway(b) {
   const geo = drivewayGeo(Q);
   b.group.updateMatrixWorld(true);
   geo.applyMatrix4(b.group.matrixWorld.clone().invert());
-  const m = new THREE.Mesh(geo, b.type === 'parking' ? LOT_DRIVEWAY_MAT : DRIVE_MAT);
+  const m = new THREE.Mesh(geo, DRIVE_MAT);
   m.receiveShadow = true; m.renderOrder = 1;
   b.group.add(m);
   // Buses turn in off the road at one end of the bay and pull up along the curb.
@@ -7145,51 +7117,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-// A satellite lot: sections side by side, aisles running back from a paved lane along the front (+z),
-// which a single driveway joins to the road.
-const LOT_SAT = { w: 8.4, d: 8.0, lane: 0.8, drive: 1.2 };
-const LOT_FRONT = LOT_SAT.d / 2 - LOT_SAT.lane / 2; // front edge of the stalls; the lane runs from here to the curb
-function satSectionX(tier, k) { const n = BTYPES.parking.tiers[tier].sections; return -n * LOT_SAT.w / 2 + k * LOT_SAT.w; }
-function modelParking(tier) {
-  const k = new Kit(), n = BTYPES.parking.tiers[tier].sections, H = LOT_FRONT, B = LOT_FRONT - LOT_SAT.d;
-  for (let s = 0; s < n; s++) {
-    const x0 = satSectionX(tier, s), x1 = x0 + LOT_SAT.w, geo = new THREE.BufferGeometry();
-    // the texture across the stalls (canvas x) runs from the front back; across the bays (canvas y) runs along x
-    geo.setAttribute('position', new THREE.Float32BufferAttribute([x0, 0.03, H, x1, 0.03, H, x0, 0.03, B, x1, 0.03, H, x1, 0.03, B, x0, 0.03, B], 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1], 2));
-    k.add(geo, LOT_MAT);
-  }
-  k.add(bx(n * LOT_SAT.w, 0.02, LOT_SAT.lane), LOT_DRIVE_MAT, 0, 0.03, H + LOT_SAT.lane / 2); // the front lane
-  // plowed snow along the front, either side of the driveway
-  const half = n * LOT_SAT.w / 2, gap = LOT_SAT.drive + 0.15, len = half - gap, fz = H + LOT_SAT.lane + 0.14;
-  for (const sx of [-1, 1]) {
-    k.add(bx(len, 0.1, 0.3), BM.snow, sx * (gap + len / 2), 0.05, fz);
-    k.add(bx(len - 0.3, 0.07, 0.18), BM.snow, sx * (gap + len / 2), 0.13, fz);
-  }
-  const x = satSectionX(tier, 0) - 0.15;
-  k.add(bx(0.06, 1.1, 0.06), BM.dark, x, 0.55, H - 0.2);
-  k.add(bx(0.05, 0.42, 0.42), accentMat(BTYPES.parking.accent), x, 1.15, H - 0.2);
-  return k;
-}
-// The spaces in a satellite lot, in world coordinates, with the way in from the road.
-function satStalls(B) {
-  const out = [], n = bspec(B).sections, H = LOT_FRONT;
-  const Q = drivewayQuad(B), road = Q ? { x: (Q.es[0].x + Q.es[1].x) / 2, z: (Q.es[0].z + Q.es[1].z) / 2 } : toWorld(B, 0, H + 1.5);
-  const yawOf = (lx, lz) => { const d = toWorld(B, lx, lz), o = toWorld(B, 0, 0); return Math.atan2(d.x - o.x, d.z - o.z); };
-  for (let sec = 0; sec < n; sec++) {
-    const sx = satSectionX(B.tier, sec);
-    for (let b = 0; b < LOT.bays; b++) {
-      const xa = sx + 1.4 + b * 2.8;
-      for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
-        const lz = H - 0.25 - c * 0.5;
-        out.push({ ...toWorld(B, xa + side * 0.95, lz), aisle: toWorld(B, xa, lz), gate: toWorld(B, 0, H + LOT_SAT.lane / 2), entry: toWorld(B, xa, H + LOT_SAT.lane / 2), road, heading: yawOf(side, 0), car: null, sat: B.id });
-      }
-    }
-  }
-  return out;
-}
-const MODELS = { parking: modelParking, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -7246,7 +7174,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (fs.road) problems.push('That would block the access road.');
   else if (BY_ROAD.includes(type)) {
     const a = rot * Math.PI / 2, f = { x: x + Math.sin(a) * BAY_FRONT[type], z: z + Math.cos(a) * BAY_FRONT[type] }, r = nearestRoad(f);
-    if (r.d > ROAD_HW + (type === 'parking' ? 6 : 3.5) || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, facing it, so ${type === 'parking' ? 'cars can drive in' : 'buses can pull in'}.`);
+    if (r.d > ROAD_HW + 3.5 || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, facing it, so buses can pull in.`);
   }
   if (lotBoxes().some((lb) => boxOverlap(bb, lb))) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
@@ -7286,14 +7214,13 @@ const OTHER_NAMES = {
   patrol: ['Ski Patrol', 'Patrol HQ', 'Patrol Shack'],
   restroom: ['Restrooms', 'Comfort Station'],
   shuttle: ['Shuttle Station', 'Shuttle Stop'],
-  parking: ['Lot B', 'Lot C', 'Lot D', 'Lot E', 'Lot F', 'Lot G'],
   clinic: ['First Aid', 'Mountain Clinic', 'Medical Center'],
   kids: ['Kids’ Camp', 'Little Rippers', 'Snow Cubs Camp', 'Mini Moguls', 'Powder Pups', 'Snow Sprouts'],
   hrest: ['Heated Restrooms', 'Warm Stalls', 'The Cozy Stalls'],
   transit: ['Transit Center', 'Bus Terminal'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['parking', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -7336,14 +7263,12 @@ function addBuilding(b) {
   bldGroup.add(b.group);
   world.buildings.push(b);
   initBldSim(b);
-  if (b.type === 'parking' && !cars.length) buildLot();
   renderer.shadowMap.needsUpdate = true;
 }
 function removeBuilding(b) {
   bldGroup.remove(b.group);
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== b);
-  if (b.type === 'parking') buildLot();
   renderer.shadowMap.needsUpdate = true;
 }
 function upgradeBuilding(b) {
@@ -7802,11 +7727,37 @@ function patrolStep(dt) {
   }
 }
 
-/* ---------- Shuttle buses ---------- */
-let buses = [], busPending = 0, nextBusAt = 0;
-// A transit center takes over from a shuttle station when there are both.
-const shuttleStation = () => world.buildings.find((B) => B.type === 'transit') || world.buildings.find((B) => B.type === 'shuttle');
+/* ---------- Shuttle stations: town buses and parking shuttles ----------
+   Every bus stops at a shuttle station by the road. Town buses bring a share of the day's guests with no
+   car at all; parking shuttles run between the stations and off-site parking, which takes the cars the
+   main lot can't. A station has one bus bay (a transit center, two), so buses take turns, and guests head
+   home from the station nearest them. */
+let buses = [], busPending = 0, nextBusAt = 0, nextParkAt = 0, offQueue = [], offCars = [], stnTurn = 0;
+const STATION_TYPES = ['shuttle', 'transit'];
+const isStation = (B) => STATION_TYPES.includes(B.type);
+const stations = () => world.buildings.filter((B) => isStation(B) && bldOpenNow(B));
+const hasStation = () => world.buildings.some(isStation);
 const BUS_RUN = { shuttle: { every: 20, seats: 40, share: 0.3 }, transit: { every: 12, seats: 60, share: 0.5 } };
+const BAYS = { shuttle: 1, transit: 2 };
+const TOWN_BUS_DAY = { shuttle: 300, transit: 600 }; // running the town bus service to each station
+// Off-site parking: bought and upgraded from the Buildings list; it needs a station for the shuttles.
+const OFFSITE = [
+  { label: 'Gravel field', spaces: 150, cost: 120000, lease: 300 },
+  { label: 'Paved lot', spaces: 300, cost: 180000, lease: 600 },
+  { label: 'Park & ride garage', spaces: 600, cost: 420000, lease: 1200 },
+];
+const SHUTTLES = { off: { label: 'Off', every: 0, cost: 0 }, normal: { label: 'Every 15 min', every: 15, cost: 1200 }, frequent: { label: 'Every 8 min', every: 8, cost: 2200 } };
+const PARK_SEATS = 40, SHUTTLE_PATIENCE = 15;
+const offsiteSpec = () => (state.offsite >= 0 ? OFFSITE[state.offsite] : null);
+const offsiteRunning = () => !!(runOps && runOps.shuttles !== 'off' && offsiteSpec() && stations().length);
+// The station nearest a spot, among those open today.
+function nearestStation(p) {
+  let best = null, bd = Infinity;
+  for (const B of stations()) { const d = distXZ(p, B.door); if (d < bd) { bd = d; best = B; } }
+  return best;
+}
+// Arrivals spread across the stations in turn.
+function nextStation() { const S = stations(); return S.length ? S[stnTurn++ % S.length] : null; }
 // Buses follow the road to the point nearest the stop, then pull in.
 function busPath(st) {
   let k = 0, bd = Infinity;
@@ -7819,31 +7770,62 @@ const BUS_GEO = mergeColored([
   [new THREE.BoxGeometry(0.47, 0.11, 1.3).translate(0, 0.33, -0.05), [0.18, 0.22, 0.29]],
   [new THREE.BoxGeometry(0.42, 0.12, 0.03).translate(0, 0.33, 0.755), [0.18, 0.22, 0.29]],
 ]);
+// Parking shuttles: the same bus with a blue stripe, so they're easy to tell from town buses.
+const PARK_BUS_GEO = mergeColored([
+  [new THREE.BoxGeometry(0.46, 0.34, 1.5).translate(0, 0.24, 0), [0.95, 0.96, 0.98]],
+  [new THREE.BoxGeometry(0.47, 0.07, 1.51).translate(0, 0.16, 0), [0.15, 0.4, 0.83]],
+  [new THREE.BoxGeometry(0.47, 0.11, 1.3).translate(0, 0.33, -0.05), [0.18, 0.22, 0.29]],
+  [new THREE.BoxGeometry(0.42, 0.12, 0.03).translate(0, 0.33, 0.755), [0.18, 0.22, 0.29]],
+]);
 const BUS_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+const waitingAt = (st, kind) => guests.filter((g) => g.st === kind && g.stn === st.id).length;
+function sendBus(kind, st, load) {
+  const path = busPath(st);
+  buses.push({ id: nextCid++, kind, stn: st.id, st: 'in', path, len: pathLen(path), pd: 0, load, dwell: 0 });
+}
 function busStep(dt) {
-  const st = shuttleStation();
-  if (!st) return;
-  const waiting = guests.some((g) => g.st === 'busq');
-  if (state.time >= nextBusAt && (busPending > 0 || waiting) && !buses.some((b) => b.st !== 'out')) {
-    const run = BUS_RUN[st.type];
-    nextBusAt = state.time + run.every;
-    const load = Math.min(Math.ceil(run.seats / AGENT), busPending);
-    busPending -= load;
-    const path = busPath(st);
-    buses.push({ id: nextCid++, st: 'in', path, len: pathLen(path), pd: 0, load, dwell: 0 });
+  if (!hasStation()) return;
+  // Town buses, one at a time: in with the day's riders, out with whoever is waiting.
+  const townOut = guests.some((g) => g.st === 'busq');
+  if (state.time >= nextBusAt && (busPending > 0 || townOut) && !buses.some((b) => b.kind === 'town' && b.st !== 'out')) {
+    const st = busPending > 0 ? nextStation() : stations().sort((p, q) => waitingAt(q, 'busq') - waitingAt(p, 'busq'))[0];
+    if (st) {
+      const run = BUS_RUN[st.type];
+      nextBusAt = state.time + run.every;
+      const load = Math.min(Math.ceil(run.seats / AGENT), busPending);
+      busPending -= load;
+      sendBus('town', st, load);
+    }
+  }
+  // Parking shuttles leave off-site parking on a timetable while anyone needs one either way.
+  const every = runOps && SHUTTLES[runOps.shuttles] ? SHUTTLES[runOps.shuttles].every : 0;
+  if (every && state.time >= nextParkAt && (offQueue.length || guests.some((g) => g.st === 'pq'))) {
+    const st = offQueue.length ? nextStation() : stations().sort((p, q) => waitingAt(q, 'pq') - waitingAt(p, 'pq'))[0];
+    if (st) {
+      nextParkAt = state.time + every;
+      const load = [];
+      let seats = PARK_SEATS / AGENT;
+      while (offQueue.length && offQueue[0].car.size <= seats) { const q = offQueue.shift(); seats -= q.car.size; load.push(q); }
+      sendBus('park', st, load);
+    }
   }
   for (const b of buses) {
-    if (b.st === 'in') {
+    const st = bldById(b.stn);
+    if (b.st === 'in' || b.st === 'out') {
       b.pd += CAR_SPEED * 0.8 * dt;
-      if (b.pd >= b.len) { b.st = 'stop'; b.dwell = state.time + 3; busUnload(b, st); }
-    } else if (b.st === 'stop') {
-      if (state.time >= b.dwell) {
-        busBoard();
-        b.st = 'out'; b.path = [...b.path].reverse(); b.len = pathLen(b.path); b.pd = 0;
-      }
-    } else if (b.st === 'out') {
-      b.pd += CAR_SPEED * 0.8 * dt;
-      if (b.pd >= b.len) b.st = 'gone';
+      if (b.pd < b.len) continue;
+      if (b.st === 'out') { b.st = 'gone'; continue; }
+      b.st = 'hold';
+    }
+    if (b.st === 'hold') {
+      // Pull into a free bay, or wait on the road for one.
+      if (!st) { b.st = 'out'; b.path = [...b.path].reverse(); b.pd = 0; continue; }
+      if (buses.filter((o) => o.stn === b.stn && o.st === 'stop').length >= BAYS[st.type]) continue;
+      b.st = 'stop'; b.dwell = state.time + 3;
+      if (b.kind === 'town') busUnload(b, st); else parkUnload(b, st);
+    } else if (b.st === 'stop' && state.time >= b.dwell) {
+      if (st) { if (b.kind === 'town') busBoard(st); else parkBoard(st); }
+      b.st = 'out'; b.path = [...b.path].reverse(); b.len = pathLen(b.path); b.pd = 0;
     }
   }
   buses = buses.filter((b) => b.st !== 'gone');
@@ -7854,18 +7836,59 @@ function busUnload(b, st) {
     g.bus = true; g.car = null;
     guests.push(g); gById.set(g.id, g);
     payTicket(g); today.guests += AGENT; today.busGuests += AGENT;
-    thought(g, 'Easy ride up on the shuttle.');
+    thought(g, 'Easy ride up on the town bus.');
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
     arrivalFlow(g);
   }
   updateCash(false);
 }
-function busBoard() {
+function busBoard(st) {
   for (const g of guests) {
-    if (g.st !== 'busq') continue;
-    if (shuttleStation().type === 'transit') g.sat = Math.min(100, g.sat + 2); // a warm terminal to wait in
+    if (g.st !== 'busq' || g.stn !== st.id) continue;
+    if (st.type === 'transit') g.sat = Math.min(100, g.sat + 2); // a warm terminal to wait in
     g.gone = true; gById.delete(g.id);
     today.satSum += g.sat; today.satN++;
+  }
+}
+// A car the main lot couldn't take: it parks off-site and its guests wait there for a shuttle.
+function parkOffsite(size) {
+  const spec = offsiteSpec();
+  if (!offsiteRunning() || today.offUsed + 1 > spec.spaces) return false;
+  const car = { id: nextCid++, offsite: true, size, members: [], back: 0 };
+  offCars.push(car); offQueue.push({ car, since: state.time });
+  today.offUsed++; today.offCars++; today.offPeak = Math.max(today.offPeak, today.offUsed);
+  if (state.prices.parking) { state.cash += state.prices.parking * AGENT; today.rev.parking += state.prices.parking * AGENT; }
+  return true;
+}
+function parkUnload(b, st) {
+  for (const { car, since } of b.load) {
+    const wait = state.time - since;
+    for (let k = 0; k < car.size; k++) {
+      const g = makeGuest(car, st.door.x + (Math.random() - 0.5) * 1.6, st.door.z + (Math.random() - 0.5) * 0.3);
+      guests.push(g); gById.set(g.id, g); car.members.push(g.id);
+      payTicket(g); today.guests += AGENT; today.parkRiders += AGENT; today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
+      if (wait > SHUTTLE_PATIENCE) { g.sat -= Math.min(15, (wait - SHUTTLE_PATIENCE) * 0.5); today.complaints.shuttle = (today.complaints.shuttle || 0) + 1; thought(g, `Waited ${Math.round(wait)} minutes for the parking shuttle.`); }
+      else thought(g, 'Parked off-site and rode the shuttle up. Easy.');
+      if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
+      arrivalFlow(g);
+    }
+  }
+  updateCash(false);
+}
+// Guests heading back to off-site parking board at the station they walked to, up to the seats.
+function parkBoard(st) {
+  let seats = PARK_SEATS / AGENT;
+  for (const g of guests) {
+    if (!seats) break;
+    if (g.st !== 'pq' || g.stn !== st.id) continue;
+    seats--;
+    const wait = state.time - g.qSince;
+    if (wait > SHUTTLE_PATIENCE) { g.sat = Math.max(0, g.sat - Math.min(15, (wait - SHUTTLE_PATIENCE) * 0.5)); today.complaints.shuttle = (today.complaints.shuttle || 0) + 1; }
+    today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
+    g.gone = true; gById.delete(g.id);
+    today.satSum += g.sat; today.satN++;
+    const car = offCars.find((c) => c.id === g.car);
+    if (car && ++car.back >= car.members.length) { offCars = offCars.filter((c) => c !== car); today.offUsed--; }
   }
 }
 /* =====================================================================
@@ -7887,9 +7910,8 @@ function capOf(type, s) {
     case 'clinic': return `${s.beds} treatment beds`;
     case 'kids': return `${s.campers} children a day`;
     case 'hrest': return `${s.stalls} heated stalls`;
-    case 'transit': return 'A 60-seat bus every 12 minutes · half your guests can ride';
-    case 'parking': return `${s.spaces} spaces · fills once the main lot is full`;
-    default: return 'A 40-seat bus every 20 minutes';
+    case 'transit': return 'Two bus bays · 60-seat town buses every 12 minutes · half your guests can ride';
+    default: return 'One bus bay · 40-seat town buses every 20 minutes';
   }
 }
 function recomputeBldDraft() {
@@ -7908,11 +7930,11 @@ function hoverGhost(p) {
 function bldDraftSheet() {
   if (!draft.btype) {
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-      <p class="help">Choose what to build. Most buildings can go anywhere flat enough; some belong in the base area, and bus stops go beside the access road.</p>
+      <p class="help">Choose what to build. Most buildings can go anywhere flat enough; some belong in the base area, and shuttle stations go beside the access road.</p>
       ${BGROUPS.map(([label, keys]) => `<div class="field-label">${label}</div><div class="bpick">${keys.map((k) => {
         const t = BTYPES[k];
         return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${BY_ROAD.includes(k) ? ' · by the road' : t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
-      }).join('')}${keys.includes('transit') && !mainLotBlock() ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
+      }).join('')}${keys.includes('shuttle') ? `<button data-action="manage" data-v="blds"><i style="background:#2565d4"></i><span><b>Off-site parking</b><small>${offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Buildings › Parking'}</small></span></button>` : ''}${keys.includes('shuttle') && !mainLotBlock() ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
   }
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
   const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
@@ -7957,8 +7979,8 @@ function upgradeTier(B) {
   if (!next || state.phase !== 'closed') return;
   const v = validateBuilding(B.type, B.tier + 1, B.x, B.z, B.rot, B.id);
   if (v.problems.length) { toast(`Can’t upgrade here: ${v.problems[0]}`, true); return; }
-  const pad = B.padY != null ? B.padY : (B.baseY - 0.03) / VEX, wider = { ...B, tier: B.tier + 1 };
-  const grade = levelRect(v.bb, pad, 2.5, true).cost + (B.type === 'parking' ? lotRamp(wider, pad, true).cost : 0);
+  const pad = B.padY != null ? B.padY : (B.baseY - 0.03) / VEX;
+  const grade = levelRect(v.bb, pad, 2.5, true).cost;
   const cost = next.cost + v.treeSet.size * TREE_COST + grade;
   if (cost > state.cash) { toast(`Upgrading needs ${money(cost)}`, true); return; }
   pushUndo(`the ${B.name} upgrade`);
@@ -7966,12 +7988,39 @@ function upgradeTier(B) {
   state.cash -= cost; B.spent += cost;
   B.padY = pad;
   const gres = levelRect(v.bb, pad, 2.5, false);
-  if (B.type === 'parking') { const r = lotRamp(wider, pad, false); gres.i0 = Math.min(gres.i0, r.i0); gres.i1 = Math.max(gres.i1, r.i1); gres.j0 = Math.min(gres.j0, r.j0); gres.j1 = Math.max(gres.j1, r.j1); }
   applyTerrainChange(gres.i0, gres.j0, gres.i1, gres.j1);
   upgradeBuilding(B);
-  if (B.type === 'parking') buildLot();
   computeNetwork(); syncLabels(); updateCash(true);
   toast(B.type === 'lodge' ? `${B.name} is now a ${next.label.toLowerCase()} lodge · −${money(cost)}` : `${B.name} now has ${next.label} · −${money(cost)}`);
+  renderSheet(); scheduleSave();
+}
+// A shuttle station becomes a transit center where it stands: two bays and bigger town buses.
+function upgradeStation(B) {
+  if (B.type !== 'shuttle' || state.phase !== 'closed') return;
+  const v = validateBuilding('transit', 0, B.x, B.z, B.rot, B.id);
+  if (v.problems.length) { toast(`Can’t upgrade here: ${v.problems[0]}`, true); return; }
+  const cost = BTYPES.transit.cost - BTYPES.shuttle.cost + v.treeSet.size * TREE_COST;
+  if (cost > state.cash) { toast(`Upgrading needs ${money(cost)}`, true); return; }
+  pushUndo(`the ${B.name} upgrade`);
+  clearTreeSet(v.treeSet);
+  state.cash -= cost; B.spent = (B.spent || 0) + cost;
+  bldGroup.remove(B.group);
+  B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  world.buildings = world.buildings.filter((o) => o !== B);
+  if (OTHER_NAMES.shuttle.includes(B.name)) { B.type = 'transit'; B.name = nextBuildingName('transit', B.x, B.z); } else B.type = 'transit';
+  addBuilding(B);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`${B.name} is now a transit center · −${money(cost)}`);
+  renderSheet(); scheduleSave();
+}
+// Off-site parking: set it up, or move up to the next size, overnight.
+function buyOffsite() {
+  const next = OFFSITE[state.offsite + 1];
+  if (!next || state.phase !== 'closed' || state.cash < next.cost) return;
+  pushUndo('the off-site parking');
+  state.cash -= next.cost; state.offsite++;
+  updateCash(true);
+  toast(`${next.label}: ${next.spaces} off-site spaces · −${money(next.cost)}${hasStation() ? '' : '. Build a shuttle station so guests can ride from it.'}`, !hasStation());
   renderSheet(); scheduleSave();
 }
 function bldLive(B) {
@@ -7994,8 +8043,7 @@ function bldLive(B) {
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st !== 'idle').length}</b> of ${s.crew} patrollers out on calls`;
-    case 'parking': return `<b>${stalls.filter((st) => st.sat === B.id && st.car).length}</b> of ${s.spaces} spaces in use`;
-    default: return `<b>${today ? today.busGuests : 0}</b> arrived by bus today · <b>${guests.filter((g) => g.st === 'busq').length * AGENT}</b> waiting to leave`;
+    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle`;
   }
 }
 // Prices in sections, each with what guests consider normal.
@@ -8017,10 +8065,14 @@ function levelOffer(B) {
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
   const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : 'Served today';
-  const visits = B.type === 'patrol' ? B.today.calls : B.type === 'shuttle' || B.type === 'transit' ? (today ? today.busGuests : 0) : B.today.visits;
+  const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
   const next = t.tiers && t.tiers[B.tier + 1];
   let upgrade = '';
+  if (B.type === 'shuttle') {
+    const cost = BTYPES.transit.cost - BTYPES.shuttle.cost;
+    upgrade = state.phase === 'closed' ? `<button class="btn secondary" data-action="upgradeStation">Upgrade to a transit center (2 bus bays) · ${money(cost)}</button>` : '<p class="help">Upgrade to a transit center overnight.</p>';
+  }
   if (next) {
     upgrade = state.phase === 'closed'
       ? `<button class="btn secondary" data-action="upgrade">${next.seats ? `Upgrade to ${next.label.toLowerCase()} (${next.seats} seats)` : `Upgrade to ${next.label}`} · ${money(next.cost)}</button>`
@@ -8072,7 +8124,8 @@ function drawBuses() {
     const b = buses[i];
     m.visible = !!b && state.phase === 'open';
     if (!m.visible) return;
-    let d = Math.min(b.pd, b.len - 0.001), k = 0;
+    m.geometry = b.kind === 'park' ? PARK_BUS_GEO : BUS_GEO;
+    let d = Math.min(b.st === 'hold' ? b.len - 2.2 : b.pd, b.len - 0.001), k = 0; // waiting for a bay: just behind the bus in it
     while (k < b.path.length - 2) { const sl = Math.hypot(b.path[k + 1].x - b.path[k].x, b.path[k + 1].z - b.path[k].z); if (d <= sl) break; d -= sl; k++; }
     const a = b.path[k], c = b.path[k + 1], sl = Math.hypot(c.x - a.x, c.z - a.z) || 1, t = Math.min(1, d / sl);
     const x = lerp(a.x, c.x, t), z = lerp(a.z, c.z, t);
@@ -9153,45 +9206,6 @@ function levelRect(bb, target, margin, dry) {
   }
   return { cost: Math.round(cost / 100) * 100, i0, i1, j0, j1 };
 }
-// A satellite lot's front bank: the ground from the lot's front edge to the road, the lot's full width,
-// is graded into an even slope, so the lot meets the road instead of standing on a ledge above it.
-function lotRamp(b, pad, dry) {
-  const hw = bspec(b).w / 2, front = BAY_FRONT.parking, M = 2, reach = 9;
-  const a = b.rot * Math.PI / 2, c = Math.cos(a), sn = Math.sin(a);
-  const cs = [[-hw - M, front - 0.5], [hw + M, front - 0.5], [-hw - M, front + reach], [hw + M, front + reach]].map(([lx, lz]) => toWorld(b, lx, lz));
-  const i0 = Math.max(PLAY0, Math.floor(Math.min(...cs.map((p) => p.x)) + HALF)), i1 = Math.min(PLAY1, Math.ceil(Math.max(...cs.map((p) => p.x)) + HALF));
-  const j0 = Math.max(PLAY0, Math.floor(Math.min(...cs.map((p) => p.z)) + HALF)), j1 = Math.min(PLAY1, Math.ceil(Math.max(...cs.map((p) => p.z)) + HALF));
-  const next = [];
-  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const x = i - HALF, z = j - HALF, dx = x - b.x, dz = z - b.z;
-    const lx = dx * c - dz * sn, lz = dx * sn + dz * c;
-    if (lz < front - 0.3 || Math.abs(lx) > hw + M) continue;
-    const r = nearestRoad({ x, z });
-    if (r.d > reach || r.d < ROAD_HW + 0.2) continue;
-    const toRoad = r.d - ROAD_HW, fromLot = Math.max(0, lz - front);
-    const edge = { x: r.q.x + (x - r.q.x) * ROAD_HW / r.d, z: r.q.z + (z - r.q.z) * ROAD_HW / r.d };
-    const target = lerp(pad, sampleGrid(HT, edge.x + HALF, edge.z + HALF), fromLot / Math.max(0.01, fromLot + toRoad));
-    const idx = j * NV + i, w = (1 - sstep(0, M, Math.abs(lx) - hw)) * sstep(ROAD_HW + 0.2, ROAD_HW + 0.9, r.d) * creekKeep(idx);
-    if (w > 0) next.push([idx, lerp(HT[idx], target, w)]);
-  }
-  let cost = 0;
-  for (const [idx, nh] of next) { cost += Math.abs(nh - HT[idx]) * GRADE_COST; if (!dry) HT[idx] = nh; }
-  return { cost: Math.round(cost / 100) * 100, i0, i1, j0, j1 };
-}
-// A satellite lot is levelled to the height of the road where its driveway meets it (as far as its own
-// ground allows), cutting into the hillside behind rather than standing on a ledge above the road.
-function lotPad(b) {
-  const bb = boxOf(b), fs = footprintStats(bb), Q = drivewayQuad(b);
-  if (!Q) return padHeight(bb);
-  const road = (sampleGrid(HT, Q.es[0].x + HALF, Q.es[0].z + HALF) + sampleGrid(HT, Q.es[1].x + HALF, Q.es[1].z + HALF)) / 2;
-  return clamp(road, fs.hmin, fs.hmax);
-}
-// Levels a satellite lot's pad and grades its bank to the road. Returns the changed grid box.
-function settleLot(b, pad) {
-  const r1 = levelRect(boxOf(b), pad, 2.5, false), r2 = lotRamp(b, pad, false);
-  b.ramp = 1;
-  return { i0: Math.min(r1.i0, r2.i0), i1: Math.max(r1.i1, r2.i1), j0: Math.min(r1.j0, r2.j0), j1: Math.max(r1.j1, r2.j1) };
-}
 function padHeight(bb) {
   let s = 0, n = 0;
   for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) { s += sampleGrid(HT, x + HALF, z + HALF); n++; }
@@ -9511,7 +9525,7 @@ function adviceFor(r) {
   const c = r.complaints || {}, has = (t) => world.buildings.some((B) => B.type === t), P = state.prices;
   const greens = realTrails().some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
   const tips = [
-    [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. Add parking in Manage › Buildings, or build a shuttle station.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
+    [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. ${!offsiteSpec() ? 'Set up off-site parking (Buildings list) with a shuttle station' : OFFSITE[state.offsite + 1] ? 'Upgrade off-site parking (Buildings list)' : 'Grow the main lot or add a second shuttle station'}, or let town buses bring more guests with a transit center.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
     [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
     [(c.noLearn || 0) * 10, `${c.noLearn} first-timers had nowhere gentle to learn. Paint a learning area at the base (Landscape › Learning area) and add a magic carpet.`],
@@ -9539,8 +9553,8 @@ let rpPast = false;
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
-  const ex = { upkeep: 0, parking: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
+  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
@@ -9560,7 +9574,7 @@ function showReport(r = state.lastReport, past = false) {
   }
   if (r.leftLines) note(4, `${r.leftLines} guests left early, fed up with lift lines.${r.lostSpend >= 100 ? ` They’d likely have spent about ${money(r.lostSpend)} more on food and shopping.` : ''}`);
   if (r.refunded) note(4, `${r.refunded} guests never got on a lift and were refunded ${money(rv.refunds)}.`);
-  if (r.turnedAway) note(4, `The parking lot filled up and ${r.turnedAway} guests were turned away. More parking would let them in.`);
+  if (r.turnedAway && !(r.offsite && r.offsite.full)) note(4, `The parking lot filled up and ${r.turnedAway} guests were turned away. ${offsiteSpec() ? 'More' : 'Off-site parking with a shuttle'} would let them in.`);
   if (r.busiest) note(0, `${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
   if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
   if (r.lunchPeak && r.lunchPeak.n) note(0, `The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
@@ -9568,7 +9582,10 @@ function showReport(r = state.lastReport, past = false) {
   if (r.sightseers) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
-  if (r.busGuests) note(1, `${r.busGuests} guests arrived by bus without needing a parking space.`);
+  if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
+  if (r.offsite && r.offsite.cars) note(r.offsite.wait > SHUTTLE_PATIENCE ? 3 : 1, `${r.offsite.cars} cars parked off-site and rode the parking shuttle${r.offsite.wait ? `, waiting ${Math.round(r.offsite.wait)} minutes on average` : ''}.${r.offsite.wait > SHUTTLE_PATIENCE ? ' Run shuttles more often, or add a station, to cut the wait.' : ''}`);
+  if (r.offsite && r.offsite.full) note(3, `Off-site parking filled up too: ${r.offsite.full} guests were turned away. Upgrade it under Buildings.`);
+  if (r.complaints.shuttle && !(r.offsite && r.offsite.wait > SHUTTLE_PATIENCE)) note(2, `${r.complaints.shuttle} guests waited a long time for a parking shuttle.`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
   if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.`);
@@ -9602,7 +9619,7 @@ function showReport(r = state.lastReport, past = false) {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${opsReportHtml(r)}
@@ -9829,8 +9846,14 @@ function bldsList() {
       <div class="l2"><span>${live ? `<b>${used}</b> of ` : ''}${lotsOpen() * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
       ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3"><button class="chip" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Add a section overnight' : `Add ${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}`}</button></div>`}
     </li>`;
+  const spec = offsiteSpec(), nx = OFFSITE[state.offsite + 1], offUsed = live && today ? today.offUsed : 0;
+  const off = `<li class="lrow static">
+      <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Off-site parking</b><span class="pill ${!spec ? 'off' : hasStation() ? 'on' : 'warn'}">${!spec ? 'Not set up' : hasStation() ? spec.label : 'Needs a station'}</span></div>
+      <div class="l2">${spec ? `<span>${live ? `<b>${offUsed}</b> of ` : ''}${spec.spaces} spaces${live ? ' in use' : ''}</span><span>Lease ${money(Math.round(spec.lease * MOUNTAIN.costs))} a day</span>` : '<span>When the main lot is full, cars park off the mountain and parking shuttles bring guests to your shuttle stations.</span>'}${state.lastReport && state.lastReport.offsite ? `<span>${state.lastReport.offsite.cars} cars last day${state.lastReport.offsite.wait ? ` · ${Math.round(state.lastReport.offsite.wait)} min average shuttle wait` : ''}</span>` : ''}</div>
+      ${visiting ? '' : `<div class="l3">${!hasStation() ? '<span class="note">Build a shuttle station (Buildings › Getting here) for the parking shuttles to stop at.</span>' : ''}${nx ? `<button class="chip" data-action="offsiteBuy" ${state.phase === 'closed' && state.cash >= nx.cost ? '' : 'disabled'}>${state.phase !== 'closed' ? (spec ? 'Upgrade overnight' : 'Set up overnight') : `${spec ? 'Upgrade to' : 'Set up'} ${nx.label.toLowerCase()} · ${nx.spaces} spaces · ${money(nx.cost)}`}</button>` : ''}</div>`}
+    </li>`;
   return `<p class="lsum"><b>${Bs.length}</b> ${Bs.length === 1 ? 'building' : 'buildings'} · upkeep <b>${money(Bs.reduce((a, B) => a + bspec(B).upkeep, 0))}</b> a day before plan savings</p>
-    <ul class="llist">${rows}${lot}</ul>
+    <ul class="llist">${rows}${lot}${off}</ul>
     ${Bs.length ? '' : '<p class="help">No buildings yet. A lodge is the place to start: guests need food, warmth and restrooms.</p>'}`;
 }
 function pricesPanel() {
@@ -9905,6 +9928,9 @@ function opsSection() {
     ${world.buildings.length ? `<div class="field-label">Buildings</div><div class="ops-list">${blds}</div>` : ''}
     <div class="field-label">Parking sections open</div>
     <div class="stepper"><button data-action="opsLots" data-d="-1" aria-label="Close a parking section" ${lots <= 1 ? 'disabled' : ''}>−</button><output>${lots} of ${state.lotSections} · ${lots * SPACES_PER_SECTION} spaces</output><button data-action="opsLots" data-d="1" aria-label="Open a parking section" ${lots >= state.lotSections ? 'disabled' : ''}>+</button></div>
+    ${offsiteSpec() && hasStation() ? `<div class="field-label">Parking shuttles</div>${opsSeg('opsShuttles', 0, P.shuttles || 'normal', Object.entries(SHUTTLES).map(([k, v]) => [k, v.label]), 'Parking shuttles')}
+      <p class="help">${money(Math.round(SHUTTLES.normal.cost * MOUNTAIN.costs))} a day every 15 minutes, ${money(Math.round(SHUTTLES.frequent.cost * MOUNTAIN.costs))} every 8. Off: no off-site parking that day.</p>` : ''}
+    ${hasStation() ? `<div class="field-label">Town buses</div>${opsSeg('opsTownBus', 0, P.townBus || 'on', [['on', 'Running'], ['off', 'Off']], 'Town buses')}` : ''}
     <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
     <div class="field-label">Staffing</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}
     ${hasBld('patrol') ? `<div class="field-label">Ski patrol</div>${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}` : ''}
@@ -9922,6 +9948,8 @@ function opsAction(a, b) {
   else if (a === 'opsBld') { if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
   else if (a === 'opsHours') P.hours = v;
+  else if (a === 'opsShuttles') P.shuttles = v;
+  else if (a === 'opsTownBus') P.townBus = v;
   else if (a === 'opsStaff') P.staff = v;
   else if (a === 'opsPatrol') P.patrol = v;
   else if (a === 'opsReset') Object.assign(P, blankPlan());
@@ -10018,7 +10046,9 @@ function guestActivity(g) {
   if (g.st === 'bq' && B) return `In line at ${B.name}`;
   if (g.st === 'hurt') return 'Injured, waiting for ski patrol';
   if (g.st === 'tow') return 'Being brought down by ski patrol';
-  if (g.st === 'busq') return 'Waiting for the shuttle';
+  if (g.st === 'busq') return 'Waiting for the town bus';
+  if (g.st === 'pq') return 'Waiting for the parking shuttle';
+  if (t && t.k === 'pq') return 'Walking to the parking shuttle';
   if (t && t.k === 'bld' && B) return `Heading to ${B.name}`;
   if (t && t.k === 'bus') return 'Walking to the shuttle';
   if (g.st === 'ski') return `Skiing ${g.T.name}`;
@@ -11207,6 +11237,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.28', date: 'Oct 24, 2026', title: 'Off-site parking and shuttles', items: [
+    'Satellite lots are gone. When the main lot fills, cars park off-site and parking shuttles (blue stripe) bring guests to your shuttle stations. Set it up and upgrade it from the Buildings list: a gravel field, a paved lot, then a park & ride garage.',
+    'Build as many shuttle stations as you like: arrivals spread across them and guests head home from the nearest. Each has one bus bay; upgrade one to a transit center for two.',
+    'Operations lets you run the parking shuttles every 15 or 8 minutes (or not at all) and switch the town buses off on quiet days.',
+    'Resorts with satellite lots get off-site parking at least as big, free.',
+  ] },
   { v: '2.27', date: 'Oct 23, 2026', title: 'Smoother on big resorts', items: [
     'Big resorts draw faster: cleared trees no longer cost anything to draw, and lifts, bridges and snow pads take far fewer draw calls.',
     'The labels on the map update without the small stutter they caused twice a second while the resort was open.',
@@ -11455,7 +11491,7 @@ function resortMap(W = 360, H = 154) {
   }
   g.lineCap = 'butt';
   for (const L of world.lifts) { g.strokeStyle = '#1b2533'; g.lineWidth = 1.3; g.beginPath(); g.moveTo(X(L.a.x), Z(L.a.z)); g.lineTo(X(L.b.x), Z(L.b.z)); g.stroke(); g.fillStyle = '#1b2533'; for (const p of [L.a, L.b]) g.fillRect(X(p.x) - 1.5, Z(p.z) - 1.5, 3, 3); }
-  for (const B of world.buildings) { const bb = boxOf(B); g.fillStyle = B.type === 'parking' ? '#5d6470' : '#8a5a3b'; g.fillRect(X(bb.x0), Z(bb.z0), Math.max(2, (bb.x1 - bb.x0) * sc), Math.max(2, (bb.z1 - bb.z0) * sc)); }
+  for (const B of world.buildings) { const bb = boxOf(B); g.fillStyle = '#8a5a3b'; g.fillRect(X(bb.x0), Z(bb.z0), Math.max(2, (bb.x1 - bb.x0) * sc), Math.max(2, (bb.z1 - bb.z0) * sc)); }
   return cv.toDataURL('image/jpeg', 0.78);
 }
 function paintThumbs() {

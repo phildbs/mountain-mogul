@@ -1,5 +1,6 @@
-// The main lot grows section by section as far as the land allows, warning anyone who builds in its way;
-// satellite lots go beside the road, levelled to it, and upgrade to two sections. Cars fill the main lot first, then drive along the road to a satellite; bigger old lots are kept.
+// The main lot grows section by section as far as the land allows, warning anyone who builds in its way.
+// When it's full, cars go to off-site parking and parking shuttles carry guests between it and the
+// stations; old satellite lots become off-site parking, and bigger old main lots are kept.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -26,53 +27,58 @@ export default async function ({ browser, url }) {
   const cafeName = await g.ev(`world.buildings.find((b) => b.type === 'cafe').name`);
   if (n === room) assert(why.startsWith(`${cafeName} is where the main lot grows next`), `and says what's in the way: ${why}`);
   else assert(why, 'and says why it can’t grow');
-  // a satellite lot beside the road
-  const spot = await g.ev(`(() => { for (const p of ROAD_WORLD) for (const off of [-6, 6]) for (let t = 0; t < 1; t += 0.25) {
-      const q = { x: p.x, z: p.z + off * 1.5 }; const sn = snapToRoad('parking', q); const v = evalBuilding('parking', sn.x, sn.z, sn.rot, false);
-      if (!v.problems.length && !validateBuilding('parking', 1, sn.x, sn.z, sn.rot).problems.length) return sn; } return null; })()`);
-  assert(spot, 'found a spot beside the road');
-  const before = await g.ev(`stalls.length`);
-  await g.ev(`(() => { const s = ${JSON.stringify(spot)}; const v = evalBuilding('parking', s.x, s.z, s.rot, false); commitBuilding(v, 'parking', s.x, s.z, s.rot); computeNetwork(); syncLabels(); })()`);
-  eq(await g.ev(`stalls.length`) - before, 96, 'the satellite adds 96 spaces');
-  eq(await g.ev(`lotCapacity()`), n * 96 + 96, 'capacity counts it');
-  // levelled to the road where the driveway meets it, with the bank in front graded
-  const lvl = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'parking'), Q = drivewayQuad(B), at = (p) => sampleGrid(HT, p.x + HALF, p.z + HALF);
-    const mid = toWorld(B, 0, BAY_FRONT.parking + 0.6); return { ramp: B.ramp, pad: B.padY, road: (at(Q.es[0]) + at(Q.es[1])) / 2, front: at(mid) }; })()`);
-  eq(lvl.ramp, 1, 'the satellite is levelled and banked');
-  assert(Math.abs(lvl.front - lvl.pad) < 0.4 && Math.abs(lvl.road - lvl.pad) < 1.2, `its front meets the road smoothly (${JSON.stringify(lvl)})`);
-  // with the main lot full, the next car goes to the satellite, by road
+  // off-site parking: set up from the Buildings list, it needs a shuttle station to work
+  await g.ev(`(() => { select(null); openManage('blds'); })()`); await g.wait(100);
+  assert(/Off-site parking/.test(await g.ev(`$('sheet').innerText`)) && /Not set up/i.test(await g.ev(`$('sheet').innerText`)), 'the Buildings list offers off-site parking');
+  await g.click('[data-action=offsiteBuy]'); await g.wait(100);
+  eq(await g.ev(`state.offsite`), 0, 'a gravel field is set up');
+  assert(/needs a station/i.test(await g.ev(`$('sheet').innerText`)), 'and it says it needs a shuttle station');
+  // two stations by the road, one each side of the base
+  const spots = await g.ev(`(() => { const out = []; for (const p of ROAD_WORLD) for (const off of [-3, 3]) {
+      const sn = snapToRoad('shuttle', { x: p.x, z: p.z + off }); const v = evalBuilding('shuttle', sn.x, sn.z, sn.rot, false);
+      if (!v.problems.length && isBase({ x: sn.x, z: sn.z }) && !out.some((o) => Math.hypot(o.x - sn.x, o.z - sn.z) < 14)) out.push(sn); } return out.slice(0, 2); })()`);
+  eq(spots.length, 2, 'found two station spots');
+  for (const sp of spots) await g.ev(`(() => { const s = ${JSON.stringify(sp)}; const v = evalBuilding('shuttle', s.x, s.z, s.rot, false); commitBuilding(v, 'shuttle', s.x, s.z, s.rot); computeNetwork(); syncLabels(); })()`);
+  // Operations offers the shuttle frequency and the town bus switch
+  await g.ev(`openManage('ops')`); await g.wait(100);
+  const ops = await g.ev(`$('sheet').innerText`);
+  assert(/Parking shuttles/i.test(ops) && /Town buses/i.test(ops), 'Operations has parking shuttles and town buses');
+  // a busy day with the main lot full: cars go off-site and their guests arrive by shuttle
   await g.ev(SETUPS.midwinter);
-  await g.ev(`(() => { openDay(); state.speed = 0; for (const s of stalls) if (!s.sat) s.car = -1; spawnCar(2); })()`);
-  const car = await g.ev(`(() => { const c = cars[cars.length - 1], s = stalls[c.stall]; return { sat: s.sat, end: c.path[c.path.length - 1], s: { x: s.x, z: s.z }, len: c.len, first: c.path[0], road0: ROAD_WORLD[0] }; })()`);
-  assert(car.sat, 'the car parks in the satellite');
-  eq(car.first, car.road0, 'it comes in along the road');
-  assert(Math.hypot(car.end.x - car.s.x, car.end.z - car.s.z) < 0.01, 'and ends in its space');
-  await g.ev(`(() => { for (const s of stalls) if (s.car === -1) s.car = null; })()`);
-  // a whole day runs with guests using both lots
-  await g.ev(`(() => { let k = 0; while (state.phase === 'open' && k < 90000) { simStep(1.5); k++; } })()`);
-  assert(await g.ev(`!!state.lastReport`), 'the day finished');
-  // the panel describes it
-  await g.ev(`select({ kind: 'bld', obj: world.buildings.find((b) => b.type === 'parking') })`); await g.wait(100);
-  assert(/96 spaces/.test(await g.ev(`$('sheet').innerText`)), 'the lot panel shows its spaces');
-  // it upgrades to two sections overnight
-  await g.ev(`(() => { if (state.phase === 'report') nextDay(); })()`);
-  await g.ev(`select({ kind: 'bld', obj: world.buildings.find((b) => b.type === 'parking') })`); await g.wait(100);
-  assert(/Upgrade to 192 spaces/.test(await g.ev(`$('sheet').innerText`)), 'the panel offers 192 spaces');
-  const cap0 = await g.ev(`lotCapacity()`);
-  await g.click('[data-action=upgrade]'); await g.wait(100);
-  eq(await g.ev(`lotCapacity()`) - cap0, 96, 'the upgrade adds 96 spaces: ' + await g.ev(`$('toast').textContent`));
-  eq(await g.ev(`stalls.filter((s) => s.sat).length`), 192, 'with stalls for them');
+  await g.ev(`(() => { opsState().plans.weekday.townBus = 'off'; opsState().plans.weekend.townBus = 'off'; opsState().plans.quiet.townBus = 'off'; openDay(); state.speed = 0; for (const s of stalls) s.car = -1; for (let i = 0; i < 20; i++) spawnCar(2); })()`);
+  eq(await g.ev(`[offCars.length, offQueue.length, today.offUsed]`), [20, 20, 20], 'twenty cars park off-site and wait for a shuttle');
+  await g.ev(`(() => { let k = 0; while (!guests.some((g) => offCars.some((c) => c.id === g.car)) && k < 2000) { simStep(1.5); k++; } })()`);
+  const rode = await g.ev(`(() => { const g = guests.find((x) => offCars.some((c) => c.id === x.car)); const near = world.buildings.filter(isStation).map((B) => distXZ(g, B.door)); return { near: Math.min(...near), bus: buses.some((b) => b.kind === 'park') }; })()`);
+  assert(rode.near < 3, `the shuttle drops them at a station (${rode.near.toFixed(1)} away)`);
+  // heading home they walk to the nearest station and ride back, freeing the spaces
+  await g.ev(`(() => { for (const s of stalls) if (s.car === -1) s.car = null; let k = 0; while (state.phase === 'open' && k < 90000) { simStep(1.5); k++; } })()`);
+  const r = await g.ev(`state.lastReport`);
+  assert(r && r.offsite && r.offsite.cars >= 20, `the report counts off-site cars (${JSON.stringify(r && r.offsite)})`);
+  assert(r.exp.shuttles > 0, `shuttles and the lease cost money (${r.exp.shuttles})`);
+  eq(await g.ev(`offCars.length`), 0, 'every off-site car went home');
+  // shuttles off in the plan: no off-site parking that day
+  await g.ev(`(() => { if (state.phase === 'report') nextDay(); for (const k of ['weekday', 'weekend', 'quiet']) opsState().plans[k].shuttles = 'off'; openDay(); state.speed = 0; for (const s of stalls) s.car = -1; spawnCar(2); })()`);
+  eq(await g.ev(`offCars.length`), 0, 'with shuttles off, cars aren’t sent off-site');
+  await g.ev(`(() => { for (const s of stalls) if (s.car === -1) s.car = null; let k = 0; while (state.phase === 'open' && k < 90000) { simStep(1.5); k++; } if (state.phase === 'report') nextDay(); })()`);
+  // a shuttle station upgrades to a transit center with two bays
+  const st = await g.ev(`world.buildings.find(isStation).id`);
+  await g.ev(`select({ kind: 'bld', obj: bldById(${st}) })`); await g.wait(100);
+  assert(/transit center/i.test(await g.ev(`$('sheet').innerText`)), 'the station offers the transit center upgrade');
+  await g.ev(`state.cash = 5e6`); await g.click('[data-action=upgradeStation]'); await g.wait(100);
+  const up = await g.ev(`bldById(${st}).type + ' ' + $('toast').textContent`);
+  assert(/^transit/.test(up) || /Can’t upgrade/.test(up), `the upgrade runs or explains itself (${up})`);
   // older resorts keep a bigger main lot
   await g.ev(`(() => { select(null); state.lotSections = 6; buildLot(); saveNow(); })()`);
   await g.page.reload(); await g.reloaded();
   eq(await g.ev(`state.lotSections`), 6, 'a six-section lot is kept');
-  eq(await g.ev(`stalls.filter((s) => !s.sat).length`), 576, 'with all its spaces');
-  eq(await g.ev(`world.buildings.filter((b) => b.type === 'parking').length`), 1, 'the satellite is saved');
-  // a lot saved before banks were graded gets levelled to the road when it loads
-  await g.ev(`(() => { const k = Object.keys(localStorage).find((k) => { try { return JSON.parse(localStorage.getItem(k)).world.buildings.some((b) => b.type === 'parking'); } catch (e) { return false; } });
-    const sv = JSON.parse(localStorage.getItem(k)); for (const b of sv.world.buildings) { delete b.ramp; delete b.padY; } localStorage.setItem(k, JSON.stringify(sv)); })()`);
+  eq(await g.ev(`stalls.length`), 576, 'with all its spaces');
+  eq(await g.ev(`state.offsite`), 0, 'off-site parking is saved');
+  // a resort saved with satellite lots gets off-site parking instead
+  await g.ev(`(() => { window.removeEventListener('pagehide', saveNow); const k = saveKey(); // no save on the way out: it would overwrite the old one
+    const sv = JSON.parse(localStorage.getItem(k)); sv.clock.offsite = -1; sv.world.buildings.push({ id: 9001, type: 'parking', tier: 1, x: 0, z: 70, rot: 0, name: 'Lot B', spent: 150000 });
+    sv.world.plans = [...(sv.world.plans || []), { kind: 'bld', type: 'parking', x: 5, z: 70, rot: 0, cost: 75000 }]; localStorage.setItem(k, JSON.stringify(sv)); })()`);
   await g.page.reload(); await g.reloaded();
-  eq(await g.ev(`world.buildings.find((b) => b.type === 'parking').ramp`), 1, 'an older lot is levelled on load');
+  eq(await g.ev(`[state.offsite, world.buildings.some((b) => b.type === 'parking'), world.plans.length]`), [1, false, 0], 'a 192-space satellite lot became a paved off-site lot');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

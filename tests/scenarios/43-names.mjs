@@ -20,7 +20,7 @@ export default async function ({ browser, url }) {
   assert(/ Quad$/.test(lifts.quad), `a quad is named as one (${lifts.quad})`);
   const cafe = await g.ev(`nextBuildingName('cafe', 0, 0)`);
   assert(await g.ev(`OTHER_NAMES.cafe.includes(${JSON.stringify(cafe)})`), `cafés come from the café pool (${cafe})`);
-  eq(await g.ev(`nextBuildingName('parking', 0, 0)`), 'Lot B', 'satellite lots stay lettered');
+  eq(await g.ev(`nextBuildingName('restroom', 0, 0)`), 'Restrooms', 'practical buildings keep plain names');
   // the dice on a trail's panel
   await g.ev(`(() => { const t = realTrails()[0]; select({ kind: 'trail', obj: t }); })()`); await g.wait(100);
   const before = await g.ev(`realTrails()[0].name`);
