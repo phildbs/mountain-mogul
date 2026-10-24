@@ -7747,29 +7747,39 @@ function resumeGuest(g) {
   }
   return baseDecision(g);
 }
+// The open building of one of these types that's quickest to reach on foot from p, counting its line.
+function nearestOpen(types, p, svc) {
+  let best = null, bt = Infinity;
+  for (const B of world.buildings) {
+    if (!types.includes(B.type) || !bldOpenNow(B)) continue;
+    const t = distXZ(B.door, p) / (WALK * 60) + (svc ? estWait(B, svc) : 0);
+    if (t < bt) { bt = t; best = B; }
+  }
+  return best;
+}
 function arrivalFlow(g) {
   if (g.sight) {
-    const gon = scenicGondola();
+    const gon = scenicGondola(g);
     if (gon && canLoad(gon)) { thought(g, `Here for the scenic ride up ${gon.name}.`); return goQueue(g, gon, 'walk'); }
     g.sight = false; g.leaving = true; return baseDecision(g);
   }
   if (g.needsRental) {
-    // Either rental building will do: whichever has the shorter line.
-    const shop = world.buildings.filter((B) => RENTS.includes(B.type) && bldOpenNow(B)).sort((a, b) => estWait(a, 'rent') - estWait(b, 'rent'))[0];
+    // Either rental building will do: whichever is quicker to get through, counting the walk.
+    const shop = nearestOpen(RENTS, g, 'rent');
     if (shop) return startVisit(g, shop, 'rent', { k: 'arrive' });
     g.needsRental = false; g.sat -= 6; today.complaints.noRental++;
     thought(g, 'No rental shop here, so I rented gear in town.');
   }
   if (g.wantsTune) {
     g.wantsTune = false;
-    const tc = world.buildings.find((B) => B.type === 'tuning' && bldOpenNow(B));
+    const tc = nearestOpen(['tuning'], g, 'tune');
     if (tc) return startVisit(g, tc, 'tune', { k: 'arrive' });
   }
   if (g.family) { g.family = false; campDropOff(g); }
   g.onSkis = true;
   if (g.wantsLesson) {
     g.wantsLesson = false;
-    const school = world.buildings.find((B) => B.type === 'school' && bldOpenNow(B));
+    const school = nearestOpen(['school'], g, 'lesson');
     if (school && today.baseBare) { g.sat -= 3; today.complaints.noLessons++; thought(g, 'No snow on the learning area, so no lessons today.'); }
     else if (school) return startVisit(g, school, 'lesson', { k: 'base' });
     else { g.sat -= 4; today.complaints.noSchool++; thought(g, 'I wish there was a ski school.'); }
@@ -7778,7 +7788,7 @@ function arrivalFlow(g) {
 }
 // Parents drop the kids at camp on the way in, if there is one with room, and then ski longer.
 function campDropOff(g) {
-  const camp = world.buildings.find((B) => B.type === 'kids' && bldOpenNow(B));
+  const camp = nearestOpen(['kids'], g);
   if (!camp) { if (!hasBld('kids')) today.complaints.noCamp++; return; }
   if (camp.today.visits + AGENT > bspec(camp).campers) { g.sat -= 3; today.complaints.campFull++; thought(g, `${camp.name} was full, so the kids are tagging along.`); return; }
   if (Math.random() > willing(g, 'camp')) { g.sat -= 3; today.complaints.price++; thought(g, `${camp.name} costs too much. The kids are tagging along.`); return; }
@@ -7818,11 +7828,18 @@ function moveXZ(o, tx, tz, step) {
   o.x += dx / d * step; o.z += dz / d * step;
   return false;
 }
-const openClinic = () => world.buildings.find((B) => B.type === 'clinic' && bldMode(B) !== 'closed');
-function firstAidPoint() {
-  const clinic = openClinic();
+// The nearest open clinic to p, and where patrol brings an injured guest: that clinic, else the
+// nearest patrol hut at the base.
+function nearestBld(p, ok) {
+  let best = null, bd = Infinity;
+  for (const B of world.buildings) { if (!ok(B)) continue; const d = distXZ(B.door, p); if (d < bd) { bd = d; best = B; } }
+  return best;
+}
+const openClinic = (p) => nearestBld(p, (B) => B.type === 'clinic' && bldMode(B) !== 'closed');
+function firstAidPoint(p) {
+  const clinic = openClinic(p);
   if (clinic) return clinic.door;
-  const hut = world.buildings.find((B) => B.type === 'patrol' && B.isBase);
+  const hut = nearestBld(p, (B) => B.type === 'patrol' && B.isBase);
   return hut ? hut.door : roadEnd();
 }
 function patrolStep(dt) {
@@ -7838,7 +7855,7 @@ function patrolStep(dt) {
     }
     if (best) { best.st = 'go'; best.target = g.id; g.rescuer = true; home.today.calls++; }
     else if (state.time - g.hurtAt > 70) {
-      const clinic = openClinic();
+      const clinic = openClinic(g);
       g.sat = clamp(g.sat - (clinic ? 18 : 25), 0, 100); today.unhelped++;
       if (clinic) clinic.today.visits += AGENT;
       thought(g, clinic ? `Nobody came to help, so I limped down. At least ${clinic.name} looked after me.` : 'Nobody came to help. I had to limp down on my own.');
@@ -7851,7 +7868,7 @@ function patrolStep(dt) {
     const g = gById.get(c.target);
     if (c.st === 'go') {
       if (!g || g.st !== 'hurt') { c.st = 'back'; continue; }
-      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt)) { const cl = openClinic(); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt; }
+      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt)) { const cl = openClinic(g); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(g); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt; }
     } else if (c.st === 'tow') {
       const done = moveXZ(c, c.dest.x, c.dest.z, PATROL_TOW * dt);
       if (g) { g.x = c.x - Math.sin(c.yaw) * 0.55; g.z = c.z - Math.cos(c.yaw) * 0.55; g.yaw = c.yaw; }
@@ -9057,7 +9074,16 @@ function passShareToday(n) {
   const holders = state.passSale.sold * PASS_VISITS / PASS_SEASON_DAYS * (dayPull / PASS_AVG_PULL);
   return clamp(holders / n, 0, PASS_MAX_SHARE);
 }
-const scenicGondola = () => world.lifts.find((L) => L.type === 'gondola' && L.fromBase && L.open && !L.windHold);
+// A gondola from the base for sightseers; with several, the one quickest to reach from p, counting its line.
+function scenicGondola(p) {
+  let best = null, bt = Infinity;
+  for (const L of world.lifts) {
+    if (L.type !== 'gondola' || !L.fromBase || !L.open || L.windHold) continue;
+    const t = p ? distXZ(L.a, p) / (WALK * 60) + liftWait(L) : 0;
+    if (t < bt) { bt = t; best = L; }
+  }
+  return best;
+}
 function payTicket(g) {
   if (g.sight) { g.paid = svcPrice('scenic'); state.cash += g.paid * AGENT; today.rev.tickets += g.paid * AGENT; return; }
   if (Math.random() < (today.passShare || 0)) { g.pass = true; g.paid = 0; today.passGuests += AGENT; return; }
@@ -11503,6 +11529,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.33.3', date: 'Oct 24, 2026', title: 'Guests use the nearest shop', small: true, items: [
+    'With more than one rental shop, tuning center, ski school, kids’ camp or scenic gondola, arriving guests now go to the one nearest to where they parked or were dropped off, counting the line, instead of the first one built.',
+    'Ski patrol takes injured guests to the nearest clinic or base patrol hut.',
+  ] },
   { v: '2.33.2', date: 'Oct 24, 2026', title: 'Grooming charged once, snowmaking fully reported', small: true, items: [
     'Grooming was being paid twice each day. It’s now paid once, so your cash matches the day report, and resorts that were overcharged get a one-time refund.',
     'Snowmaking on closed nights now shows in the next day report, with how many nights it ran.',
