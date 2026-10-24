@@ -2460,7 +2460,7 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, smAcc: state.smAcc, smNights: state.smNights,
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, offsite: state.offsite, nudges: state.nudges },
       snow: encodeSnow(),
@@ -5114,7 +5114,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, rebated: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -11504,7 +11504,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen.
 const CHANGES = [
   { v: '2.33.2', date: 'Oct 24, 2026', title: 'Grooming charged once, snowmaking fully reported', small: true, items: [
-    'Grooming was being paid twice each day. It’s now paid once, so your cash matches the day report.',
+    'Grooming was being paid twice each day. It’s now paid once, so your cash matches the day report, and resorts that were overcharged get a one-time refund.',
     'Snowmaking on closed nights now shows in the next day report, with how many nights it ran.',
     'On wider screens, the tutorial card sits below the help bulb, and the Undo button moves beside it.',
   ] },
@@ -11770,6 +11770,33 @@ document.addEventListener('click', (e) => {
   try { const seen = JSON.parse(localStorage.getItem('mm.spotsSeen') || '[]'); seen.push(el.dataset.spot); localStorage.setItem('mm.spotsSeen', JSON.stringify(seen)); } catch (err) { /* ignore */ }
   markNew();
 }, true);
+// A one-off refund (2.33.2): until then grooming was taken out of cash twice a day, though the
+// day reports showed it once. Only the last two weeks of reports are kept, so the refund is an
+// estimate: the average nightly grooming bill times this season's open days, plus half of it for
+// open days in earlier seasons (worked out from all-time guests; the resort was smaller then), rounded up.
+function groomRebate() {
+  const h = (state.history || []).filter((r) => r.guests && r.exp);
+  if (!h.length) return { amount: 0, days: 0 };
+  const avgGroom = h.reduce((a, r) => a + (r.exp.grooming || 0), 0) / h.length;
+  const avgGuests = h.reduce((a, r) => a + r.guests, 0) / h.length;
+  const st = state.seasonStats, rc = state.records;
+  const pastGuests = Math.max(0, ((rc && rc.totalVisitors) || 0) - ((st && st.visitors) || 0));
+  const now = Math.max(h.length, (st && st.days) || 0), past = Math.round(avgGuests > 0 ? pastGuests / avgGuests : 0);
+  return { amount: Math.ceil(avgGroom * (now + past * 0.5) / 100) * 100, days: now + past };
+}
+function maybeRebate() {
+  if (visiting || !state.started || state.rebated) return;
+  state.rebated = 1;
+  const { amount, days } = practice ? { amount: 0 } : groomRebate();
+  if (amount < 100) { scheduleSave(); return; }
+  state.cash += amount;
+  updateCash(true); saveNow();
+  showCrisis(`<div><div class="eyebrow">A refund from the front office</div><h2 id="crTitle">We owe you ${money(amount)}</h2></div>
+    <p class="help">A bug was charging ${esc(state.resortName)} for grooming <b>twice</b> every day it was open. Your day reports showed the right costs, but your cash went down by the grooming bill a second time.</p>
+    <p class="help">It’s fixed now. We’ve added back <b>${money(amount)}</b>, our estimate of the extra grooming charges over about ${days} open day${days === 1 ? '' : 's'}. Sorry about that!</p>`,
+  `<button class="btn" id="rebateOk">Thanks!</button>`);
+  $('rebateOk').onclick = () => { $('crisis').hidden = true; };
+}
 function maybeUpdateCard(built = resortBuilt()) {
   markNew();
   if (visiting || practice || !state.started || !$('updCard').hidden) return;
@@ -12239,7 +12266,7 @@ function startGame(camFrom) {
   winterView = false;
   styleSnowVisuals();
   refreshTimebar(true);
-  { const built = resortBuilt(); setTimeout(() => maybeUpdateCard(built), 1800); }
+  { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(() => maybeUpdateCard(built), 1800); }
   if (state.phase === 'report') showReport();
   if (state.phase === 'season') showSeasonReport();
   const goal = sv && sv.cam
@@ -12414,7 +12441,7 @@ function start(hot) {
     winterView = false;
     styleSnowVisuals();
     refreshTimebar(true);
-    { const built = resortBuilt(); setTimeout(() => maybeUpdateCard(built), 1800); }
+    { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(() => maybeUpdateCard(built), 1800); }
     if (state.phase === 'report') showReport();
     if (state.phase === 'season') showSeasonReport();
     if (hot.cam) { cam.target.x = hot.cam.x; cam.target.z = hot.cam.z; cam.az = cam.azGoal = hot.cam.az; cam.viewH = hot.cam.viewH; }
