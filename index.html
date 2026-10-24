@@ -246,6 +246,8 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 }
 .undofab svg { width: 26px; height: 26px; }
 .undofab:active { transform: translateY(-50%) scale(0.96); }
+/* beside the tutorial card on wider screens, so it doesn't cover the step list */
+@media (min-width: 641px) { #tutCard { top: calc(128px + env(safe-area-inset-top, 0px)); } #tutCard:not([hidden]) ~ #undoFab { left: calc(96px + 290px + 12px + env(safe-area-inset-left, 0px)) !important; } }
 .visitbar {
   position: absolute; left: 50%; transform: translateX(-50%);
   top: calc(84px + env(safe-area-inset-top, 0px));
@@ -2458,7 +2460,7 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc,
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, smAcc: state.smAcc, smNights: state.smNights,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, offsite: state.offsite, nudges: state.nudges },
       snow: encodeSnow(),
@@ -5112,7 +5114,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -6271,7 +6273,7 @@ function openDay() {
   today.passShare = passShareToday(n);
   finishNight();
   today.exp.grooming = state.nightCost.grooming || 0;
-  today.exp.snowmaking = state.nightCost.snowmaking || 0;
+  today.exp.snowmaking = state.smAcc || 0; today.smNights = state.smNights || 0; state.smAcc = 0; state.smNights = 0;
   today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
   today.exp.overhead = state.ohAcc || 0; state.ohAcc = 0;
   today.wx = { ...todayWx() };
@@ -6315,7 +6317,8 @@ function endDay() {
     for (let k = 0; k < today.injuries + today.unhelped; k++) if (Math.random() < odds) claims++;
   }
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
-  state.cash -= today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims;
+  // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
+  state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims;
   for (const B of world.buildings) {
     const cost = upk(B) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
@@ -6355,7 +6358,7 @@ function endDay() {
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    busGuests: today.busGuests, lunchPeak: today.lunchPeak,
+    busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6443,6 +6446,9 @@ function nextDay() {
   startOfDaySnow();
   const smr = runSnowmaking(todayWx().lo), bsm = runBaseSnowmaking(todayWx().lo);
   state.cash -= smr.cost + bsm.cost;
+  // Snowmaking is paid each night and reported with the next open day, closed nights included.
+  state.smAcc = (state.smAcc || 0) + smr.cost + bsm.cost;
+  if (smr.cost + bsm.cost > 0) state.smNights = (state.smNights || 0) + 1;
   state.nightCost = { snowmaking: smr.cost + bsm.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, base: bsm.ran, grooming: 0 };
   chargeInterest(1);
   const oh = dailyOverhead() * (preOpening() ? OFFSEASON_RATE : 1); // until opening day, a skeleton crew
@@ -9787,7 +9793,7 @@ function showReport(r = state.lastReport, past = false) {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line('Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${opsReportHtml(r)}
@@ -11497,6 +11503,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.33.2', date: 'Oct 24, 2026', title: 'Grooming charged once, snowmaking fully reported', small: true, items: [
+    'Grooming was being paid twice each day. It’s now paid once, so your cash matches the day report.',
+    'Snowmaking on closed nights now shows in the next day report, with how many nights it ran.',
+    'On wider screens, the tutorial card sits below the help bulb, and the Undo button moves beside it.',
+  ] },
   { v: '2.33.1', date: 'Oct 24, 2026', title: 'Fix for skiers stuck at the bottom of a trail', small: true, items: [
     'Two trails that ended into each other could trap skiers at the bottom, flickering in place. They now ski on to the nearest lift or the base.',
   ] },
