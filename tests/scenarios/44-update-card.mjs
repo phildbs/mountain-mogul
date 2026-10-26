@@ -29,7 +29,7 @@ export default async function ({ browser, url }) {
   // Show me: straight to the feature
   if (big.show) {
     await g.click('#updCard [data-show]'); await g.wait(200);
-    eq(await g.ev(`[$('updCard').hidden, selected && selected.kind]`), [true, 'manage'], 'Show me goes straight to it');
+    eq(await g.ev(`[$('updCard').hidden, selected && selected.kind === 'manage' || state.tool !== 'explore']`), [true, true], 'Show me goes straight to it (its panel or its tool)');
     await g.ev(`(() => { select(null); localStorage.setItem('mm.seenVersion', '2.20'); maybeUpdateCard(); })()`);
   }
   // Got it: closed for good

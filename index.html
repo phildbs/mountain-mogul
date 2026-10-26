@@ -2722,7 +2722,7 @@ function toast(msg, bad, act) {
 function setTool(tool) {
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
-    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
+    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
   if (tool !== state.tool) { resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
@@ -2735,11 +2735,51 @@ function setTool(tool) {
   $('tTrail').setAttribute('aria-pressed', tool === 'trail' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
   $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
-  $('sizes').hidden = tool !== 'clear';
+  $('sizes').hidden = tool !== 'clear' || state.landMode === 'doze';
   canvas.className = tool === 'clear' ? 'brush' : tool === 'explore' ? 'grab' : 'brush';
   if (tool !== 'clear') brushMesh.visible = false;
   if (tool !== 'explore' && selected) select(null);
   renderSheet();
+  hover.dirty = true;
+}
+// Bulldoze: the tree, light or fire pit nearest the pointer on screen.
+const DOZE_TYPES = ['tlight', 'lamp', 'firepit'];
+function dozeTarget(sx, sy) {
+  const p = pickTerrain(sx, sy);
+  let best = null, bd = hover.touch ? 30 : 20;
+  const consider = (o, y, bias) => { const q = project(o.x, y, o.z); if (!q.ok) return; const d = Math.hypot(q.x - sx, q.y - sy) * bias; if (d < bd) { bd = d; best = o; } };
+  for (const B of world.buildings) {
+    if (!DOZE_TYPES.includes(B.type)) continue;
+    const back = Math.round((B.spent || 0) * 0.25);
+    consider({ kind: 'bld', B, x: B.x, z: B.z, r: B.type === 'firepit' ? 1.5 : 0.7, label: `${esc(B.name)} · ${money(back)} back` }, B.baseY + (B.type === 'firepit' ? 0.4 : 1.2), 1);
+  }
+  for (const q of autoPoles) consider({ kind: 'pole', x: q.x, z: q.z, r: 0.7, label: 'Trail light (automatic) · free' }, heightAt(q.x, q.z) + 1.2, 1);
+  // trees count as a little farther away, so a light standing among them is easy to pick
+  if (p) treesInBrush(p, 6, (k) => consider({ kind: 'tree', k, x: trees.x[k], z: trees.z[k], r: 0.8, label: `Tree · ${money(TREE_COST)}` }, trees.y[k] + trees.s[k] * 0.6, 1.25));
+  return best;
+}
+function dozeAt(sx, sy) {
+  if (state.phase !== 'closed') return;
+  const o = dozeTarget(sx, sy);
+  if (!o) { toast('Nothing to bulldoze there. Tap a tree, a light or a fire pit.'); return; }
+  if (o.kind === 'tree') {
+    if (state.cash < TREE_COST) { toast('Not enough cash to clear this tree.', true); return; }
+    pushUndo('bulldozing a tree');
+    clearTreeSet(new Set([o.k]));
+    state.cash -= TREE_COST;
+  } else if (o.kind === 'pole') {
+    pushUndo('removing a trail light');
+    (world.noPoles || (world.noPoles = [])).push([Math.round(o.x * 10) / 10, Math.round(o.z * 10) / 10]);
+    rebuildLights();
+    spawnPuff(o.x, heightAt(o.x, o.z) + 1, o.z);
+  } else {
+    pushUndo(`removing ${o.B.name}`);
+    state.cash += Math.round((o.B.spent || 0) * 0.25);
+    removeBuilding(o.B);
+    computeNetwork(); syncLabels();
+    spawnPuff(o.x, heightAt(o.x, o.z) + 0.8, o.z);
+  }
+  updateCash(true); scheduleSave();
   hover.dirty = true;
 }
 function setSlope(on) {
@@ -2764,6 +2804,11 @@ function showReadout(p, px, py, pinned) {
   else if (state.tool === 'clear' && state.landMode === 'level') {
     html += stroke.active ? `<br>Leveling to ${ft(stroke.target).toLocaleString('en-US')} ft · −${money(stroke.cost)}` : `<br><span class="muted">Press here to level to ${ftVis(p.y).toLocaleString('en-US')} ft</span>`;
   }
+  else if (state.tool === 'clear' && state.landMode === 'doze') {
+    const o = hover.doze;
+    html += o ? `<br>${o.label}` : '<br><span class="muted">Tap a tree, a light or a fire pit</span>';
+    if (o && o.kind === 'tree' && TREE_COST > state.cash) html += ` <span class="warn">Not enough cash</span>`;
+  }
   else if (state.tool === 'clear') {
     if (stroke.active && stroke.trees) html += `<br>Cleared ${stroke.trees} · −${money(stroke.cost)}`;
     else {
@@ -2787,7 +2832,9 @@ function processHover() {
   hover.dirty = false;
   if (!state.started || !hover.active) { readout.hidden = true; if (brushMesh) brushMesh.visible = false; band.visible = false; return; }
   const p = pickTerrain(hover.x, hover.y);
-  if (state.tool === 'clear' && p) placeBrush(p, state.brushR, inProperty(p.x, p.z));
+  hover.doze = state.tool === 'clear' && state.landMode === 'doze' ? dozeTarget(hover.x, hover.y) : null;
+  if (hover.doze) placeBrush(hover.doze, hover.doze.r, true);
+  else if (state.tool === 'clear' && state.landMode !== 'doze' && p) placeBrush(p, state.brushR, inProperty(p.x, p.z));
   else brushMesh.visible = false;
   if (draft.kind === 'bld') hoverGhost(p);
   else if (draft.kind) updateBand(p && !dragHandle ? p : null);
@@ -4760,7 +4807,7 @@ sheet.addEventListener('click', (e) => {
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
   else if (a === 'trailMode') { if (b.dataset.v === 'area') openAreaTool(); else setTool('trail'); }
-  else if (a === 'landMode') { state.landMode = b.dataset.v; if (b.dataset.v !== 'area') clearAreaDraft(); renderSheet(); hover.dirty = true; }
+  else if (a === 'landMode') { state.landMode = b.dataset.v; if (b.dataset.v !== 'area') clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
   else if (a === 'areaClear') { clearAreaDraft(); renderSheet(); }
   else if (a === 'areaBuild') commitArea();
@@ -5159,6 +5206,7 @@ function serializeWorld() {
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
+    noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
 }
@@ -5171,6 +5219,7 @@ function rebuildWorld(data) {
   for (const a of [...world.areas]) removeArea(a);
   selected = null;
   world.nextId = (data && data.nextId) || 1;
+  world.noPoles = ((data && data.noPoles) || []).slice();
   if (data) {
     for (const L of data.lifts || []) addLift({ ...L });
     for (const B of data.buildings || []) {
@@ -7094,9 +7143,10 @@ const lampGlow = glowPoints(MAX_LIGHTS, 6, 0xfff0c8);
 const litPools = new THREE.Group();
 scene.add(litPools);
 const POOL_MAT = new THREE.MeshBasicMaterial({ color: 0xfff1cf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-let lampSpots = [];
+let lampSpots = [], autoPoles = [];
 function rebuildLights() {
-  lampSpots = [];
+  lampSpots = []; autoPoles = [];
+  const gone = world.noPoles || [];
   for (const m of litPools.children.slice()) { litPools.remove(m); m.geometry.dispose(); }
   const _o = new THREE.Object3D();
   if (!realTrails().some((t) => t.lit)) { lightMesh.count = 0; return; }
@@ -7124,13 +7174,14 @@ function rebuildLights() {
         const off = side * (hw + 0.55); x = a.x - dz * off; z = a.z + dx * off;
         ok = !blocked(x, z, t);
       }
-      if (!ok) continue;
+      if (!ok || gone.some(([gx, gz]) => Math.hypot(gx - x, gz - z) < 1.2)) continue; // bulldozed: stays gone
       side = -side; // undo the loop's last flip
       // the arm reaches in over this trail: the pole's arm points along -x, turned to face the trail's centre
       const yaw = Math.atan2(-dx * side, -dz * side);
       _o.position.set(x, heightAt(x, z), z); _o.rotation.set(0, yaw, 0); _o.updateMatrix();
       lightMesh.setMatrixAt(lampSpots.length, _o.matrix);
       lampSpots.push({ x: x + dz * side * 0.45, y: heightAt(x, z) + 2.3, z: z - dx * side * 0.45, t });
+      autoPoles.push({ x, z });
     }
     const pool = new THREE.Mesh(ribbonGeometry(t.samples, hw * 0.95, edgeTint(trailSign(t))), POOL_MAT);
     pool.renderOrder = 3; pool.userData.t = t;
@@ -10643,12 +10694,13 @@ function levelAt(p) {
   updateCash(true);
 }
 function landSheet() {
-  const lvl = state.landMode === 'level', area = state.landMode === 'area';
+  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze';
   const head = area ? `<div class="sheet-title"><h3>New learning area</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES('area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="seg" role="group" aria-label="Landscape mode">
-      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
-      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button></div>`;
+      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
+      <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button></div>`;
   if (area) {
     const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
     return `${head}
@@ -10660,6 +10712,9 @@ function landSheet() {
     <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button></div>` : ''}
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
   }
+  if (doze) return `${head}
+    <p class="help">Tap a single tree, trail light, lamp post or fire pit to remove it. Trees cost ${money(TREE_COST)} to clear; lights and fire pits you placed return a quarter of their price. Automatic trail lights along a lit trail are free to remove and stay gone; the trail stays lit.</p>
+    <p class="help">Ctrl+Z puts back the last one. Bigger things (lifts, trails, buildings) are removed from their own panel.</p>`;
   return `${head}
     <p class="help">${lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
@@ -11698,7 +11753,7 @@ canvas.addEventListener('pointerdown', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   hover.x = e.clientX; hover.y = e.clientY; hover.active = true; hover.touch = e.pointerType !== 'mouse'; hover.dirty = true;
   if (pointers.size === 1) {
-    const paint = state.tool === 'clear' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
+    const paint = state.tool === 'clear' && state.landMode !== 'doze' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
     if (paint) {
       gesture = { type: 'paint' };
       pushUndo(state.landMode === 'level' ? 'leveling the ground' : 'clearing trees');
@@ -11760,6 +11815,7 @@ function pointerEnd(e) {
 function onTap(x, y, ptype) {
   const p = pickTerrain(x, y);
   if (draft.kind) draftTap(p);
+  else if (state.tool === 'clear' && state.landMode === 'doze') dozeAt(x, y);
   else if (state.tool === 'explore') {
     const g = state.phase === 'open' ? pickGuest(x, y) : null;
     select(g ? { kind: 'guest', obj: g } : pickFeature(p));
@@ -11801,6 +11857,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '3') setTool('lift');
   else if (k === '4') openLandscape();
   else if (k === '5') setTool('bld');
+  else if (k === 'b') { state.landMode = 'doze'; openLandscape(); }
   else if (k === 'r' && draft.kind === 'bld' && draft.btype && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
   else if (k === 'enter' && draft.kind) buildDraft();
@@ -11819,7 +11876,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
-    if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind) setTool('explore'); else select(null);
+    if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
   }
   else return;
   hover.dirty = true;
@@ -12872,6 +12929,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.38', date: 'Oct 27, 2026', title: 'Bulldoze, one at a time', show: ['doze', 'Try Bulldoze'], spots: ['doze'], items: [
+    'A new Bulldoze mode under Landscape (or press B): tap a single tree, trail light, lamp post or fire pit to remove it.',
+    'Automatic trail lights that land somewhere odd, like where trails merge, can be bulldozed for free and stay gone. The trail stays lit, so you can place your own exactly where you want.',
+    'Trees cost the usual clearing price; lights and fire pits you placed return a quarter of their price. Ctrl+Z puts back the last one.',
+  ] },
   { v: '2.37.4', date: 'Oct 27, 2026', title: 'Tidier reports', small: true, items: [
     'Fire pits are one line in the day report and the Après report, with their visits added up.',
     'Browse shows the newest staff picks first.',
@@ -13165,6 +13227,7 @@ function showFeature(k) {
   closeUpdateCard(); $('whatsNew').hidden = true;
   if (k === 'more') return isPhone() ? openManage('more') : openManage('parking');
   if (k === 'trail') return setTool('trail');
+  if (k === 'doze') { state.landMode = 'doze'; return openLandscape(); }
   openManage(k);
 }
 /* ---------- NEW dots: on the buttons where a big new feature lives, for players who had an earlier
@@ -13178,6 +13241,7 @@ const SPOTS = {
   edges: '#mEdges',
   bulb: '#mTips',
   labels: '#tLabels',
+  doze: '#tClear, [data-action=landMode][data-v=doze]',
   ops: '#bizFly [data-m=ops], .mtile[data-v=ops]',
   evenings: '#bizFly [data-m=evenings], .mtile[data-v=evenings]',
 };
