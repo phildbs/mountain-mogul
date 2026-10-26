@@ -7134,7 +7134,7 @@ function drawLightMap() {
     else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
     else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
   }
-  if (open) for (const p of lotPoleList) if (p.sec < lotsOpen()) spot(p.x, p.z, 6.5, LAMP, 0.7);
+  if (open) for (const p of lotPoleList) if (p.L ? liftLightOn(p.L) : p.sec < lotsOpen()) spot(p.x, p.z, p.L ? 5.5 : 6.5, LAMP, 0.7);
   if (nightNow() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
   lightTex.needsUpdate = true;
 }
@@ -7158,6 +7158,14 @@ let lightSig = '', litSig = '', lmSig = '', lmSweep = 0, glowSpots = [], poolSpo
 // Light poles in each parking section: two in each strip between the rows of stalls.
 function lotPoles() {
   const out = [];
+  // one pole beside each lift station, clear of the terminal and the cable
+  for (const L of world.lifts) {
+    const dx = L.b.x - L.a.x, dz = L.b.z - L.a.z, len = Math.hypot(dx, dz) || 1, nx = -dz / len, nz = dx / len;
+    for (const [p, back] of [[L.a, -1], [L.b, 1]]) {
+      const x = p.x + nx * 2.2 + dx / len * back * 0.6, z = p.z + nz * 2.2 + dz / len * back * 0.6;
+      out.push({ x, z, y: heightAt(x, z), L });
+    }
+  }
   for (let k = 0; k < state.lotSections; k++) {
     const o = sectionOrigin(k);
     for (const dz of [2.8, 5.6]) for (const dx of [2, 6]) { const x = o.x + dx, z = o.z + dz; out.push({ x, z, y: heightAt(x, z), sec: k }); }
@@ -7165,7 +7173,7 @@ function lotPoles() {
   return out;
 }
 const LOT_POLE_GEO = (() => {
-  const parts = [new THREE.CylinderGeometry(0.05, 0.07, 3.1, 6).translate(0, 1.55, 0), new THREE.BoxGeometry(1.1, 0.07, 0.08).translate(0, 3.05, 0)].map((q) => q.toNonIndexed());
+  const parts = [new THREE.CylinderGeometry(0.05, 0.07, 2.2, 6).translate(0, 1.1, 0), new THREE.BoxGeometry(1.0, 0.07, 0.08).translate(0, 2.15, 0)].map((q) => q.toNonIndexed());
   const n = parts.reduce((a, q) => a + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
   let o = 0;
   for (const q of parts) { pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3); o += q.attributes.position.count; }
@@ -7173,7 +7181,9 @@ const LOT_POLE_GEO = (() => {
   return g;
 })();
 const LOT_HEAD_GEO = (() => { const a = new THREE.BoxGeometry(0.3, 0.1, 0.22); return a; })();
-const MAX_LOT_POLES = 4 * 40;
+const MAX_LOT_POLES = 4 * 40 + 2 * 40;
+// A lift station's light is on after dark while the lift runs: all day, then for night skiing.
+const liftLightOn = (L) => state.phase === 'open' && L.open && (state.time < closeTime() + 20 || (nightNow() && liftLit(L)));
 const lotPoleMesh = new THREE.InstancedMesh(LOT_POLE_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LOT_POLES);
 const lotHeadMesh = new THREE.InstancedMesh(LOT_HEAD_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_LOT_POLES * 2);
 lotHeadMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_LOT_POLES * 2 * 3), 3);
@@ -7185,7 +7195,7 @@ function rebuildLotPoles() {
   const _o = new THREE.Object3D();
   lotPoleList.forEach((p, i) => {
     _o.position.set(p.x, p.y, p.z); _o.rotation.set(0, 0, 0); _o.updateMatrix(); lotPoleMesh.setMatrixAt(i, _o.matrix);
-    for (const s of [0, 1]) { _o.position.set(p.x + (s ? 0.5 : -0.5), p.y + 2.97, p.z); _o.updateMatrix(); lotHeadMesh.setMatrixAt(i * 2 + s, _o.matrix); }
+    for (const s of [0, 1]) { _o.position.set(p.x + (s ? 0.45 : -0.45), p.y + 2.07, p.z); _o.updateMatrix(); lotHeadMesh.setMatrixAt(i * 2 + s, _o.matrix); }
   });
   lotPoleMesh.count = lotPoleList.length; lotHeadMesh.count = lotPoleList.length * 2;
   lotPoleMesh.instanceMatrix.needsUpdate = true; lotHeadMesh.instanceMatrix.needsUpdate = true;
@@ -7194,7 +7204,7 @@ function rebuildLotPoles() {
 // The lamps on the lot poles: lit after dark on open sections, dark grey otherwise.
 function styleLotHeads(dark, open) {
   const c = lotHeadMesh.instanceColor.array, on = [1, 0.88, 0.66], off = [0.36, 0.38, 0.42];
-  lotPoleList.forEach((p, i) => { const col = dark > 0.05 && open && p.sec < lotsOpen() ? on : off; c.set(col, i * 6); c.set(col, i * 6 + 3); });
+  lotPoleList.forEach((p, i) => { const col = dark > 0.05 && (p.L ? liftLightOn(p.L) : open && p.sec < lotsOpen()) ? on : off; c.set(col, i * 6); c.set(col, i * 6 + 3); });
   lotHeadMesh.instanceColor.needsUpdate = true;
 }
 // Where the light comes from: lamp heads, fire pit flames, lot poles, and the doors of buildings.
@@ -7227,11 +7237,11 @@ function rebuildGlows() {
   litSig = '';
 }
 function updateEveningGlow() {
-  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}|${stalls.length && stalls[0].x}`;
+  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}|${stalls.length && stalls[0].x}|${world.lifts.map((L) => `${L.id}:${L.a.x},${L.b.x}`).join(',')}`;
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
-  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
+  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
   if (lit !== litSig) {
     litSig = lit;
     for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
@@ -7896,11 +7906,9 @@ function modelLamp() {
   return k;
 }
 function modelFirepit(tier, b) {
-  const k = new Kit(), bare = b && b.bare, y = bare ? -0.12 : 0; // without the stone base, the fire sits right on the snow
-  if (!bare) {
-    k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
-    k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
-  }
+  const k = new Kit(), y = 0; // without the stone base, the ring of stones sits right on the snow
+  k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
+  k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
   for (let i = 0; i < 3; i++) k.add(bx(0.06, 0.06, 0.42), BM.wood, 0, 0.21 + y, 0, 0, i * Math.PI / 3, 0); // logs
   k.add(new THREE.ConeGeometry(0.16, 0.34, 7), BM.glow, 0, 0.36 + y, 0); // the flames
   // log benches in a ring, with seats facing the fire
@@ -9225,7 +9233,7 @@ function bldSheet(B) {
     </dl>
     ${planLine((P) => MODE_WORD[bldModeIn(P, B)])}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
-    ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire and log benches, on the snow' : 'A stone pad and ring around the fire'}</span></div>
+    ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${upgrade}
     ${levelOffer(B)}
@@ -12671,6 +12679,7 @@ const CHANGES = [
     'The parking lot has real light poles now, lit after dark on open sections.',
     'Fire pits have a Stone base switch in their panel: turn it off for just the fire and log benches on the snow.',
     'New trail light: place one anywhere to fill a dark stretch of a lit trail. Its arm turns to face the trail, and it lights up for night skiing.',
+    'Lift stations have lights, on after dark while the lift runs. Parking lot poles are shorter, and a fire pit without its stone base keeps its ring of stones.',
   ] },
   { v: '2.35', date: 'Oct 27, 2026', title: 'Evenings: lights, fire pits and their own panel', show: ['evenings', 'Open Evenings'], spots: ['biz', 'evenings'], items: [
     'Evenings is now its own button under Business: après-ski, night hours, the night ticket and your lit trails, for each plan. Operations is tidier, with lifts and buildings folded into one-line summaries.',
