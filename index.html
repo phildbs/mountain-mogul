@@ -871,6 +871,11 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .rp-hero .away { display: block; font: 600 11.5px var(--ui); color: var(--steep); }
 .rp-hero dd small:not(.away) { display: block; font: 600 11.5px var(--ui); color: var(--ink-2); }
 .rp-tabs { margin: 2px 0 0; }
+.fold-head { display: flex; align-items: baseline; gap: 8px; width: 100%; border: 0; background: none; padding: 6px 0 2px; cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
+.fold-head .field-label { margin: 0; }
+.fold-head .fold-sum { flex: 1; font-size: 12.5px; color: var(--ink-2); }
+.fold-head .chev { font-size: 16px; color: var(--ink-2); transition: transform 0.15s; }
+.fold-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
 .rp-page > .rp-notes { margin-top: 12px; }
 .rp-hero .pos { color: #1f7a42; } .rp-hero .neg { color: #9a3326; }
 .rp-lines { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
@@ -1380,7 +1385,7 @@ let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
-const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'snow', 'money', 'plans'];
+const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'snow', 'money', 'plans'];
 const isPhone = () => matchMedia('(max-width: 640px)').matches;
 const pickTool = (name) => (isPhone() ? `Tap <b>Build</b>, then <b>${name}</b>.` : `Pick <b>${name}</b>.`);
 /* ---------- Crash reports ----------
@@ -4728,7 +4733,7 @@ sheet.addEventListener('click', (e) => {
     pushUndo(`lights on ${obj.name}`);
     state.cash -= cost; obj.lit = true; obj.litCost = cost;
     rebuildLights(); updateCash(true); renderSheet(); scheduleSave();
-    toast(`${obj.name} is lit for night skiing · −${money(cost)}${OPS_KINDS.some(([k]) => opsState().plans[k].night) ? '' : '. Turn night skiing on in Operations.'}`, false, OPS_KINDS.some(([k]) => opsState().plans[k].night) ? null : { label: 'Operations', fn: () => openManage('ops') });
+    toast(`${obj.name} is lit for night skiing · −${money(cost)}${OPS_KINDS.some(([k]) => opsState().plans[k].night) ? '' : '. Turn night skiing on under Evenings.'}`, false, OPS_KINDS.some(([k]) => opsState().plans[k].night) ? null : { label: 'Evenings', fn: () => openManage('evenings') });
   }
   else if (a === 'lightsRemove' && obj) {
     if (state.phase !== 'closed' || !obj.lit) return;
@@ -4805,6 +4810,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'manage') openManage(b.dataset.v);
   else if (a === 'goTo') goToFeature(b.dataset.k, +b.dataset.id);
+  else if (a === 'buildDecor') pickBuilding('lamp');
   else if (a === 'listFilter') { listView[b.dataset.k].filter = b.dataset.v; renderSheet(); }
   else if (a === 'listSort') { const o = ['status', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'qOpen') { const t = trailById(+b.dataset.id); if (t) setOpen('trail', t, !t.open); }
@@ -4873,6 +4879,7 @@ function syncLabels() {
     L.labelEl = el; labelLayer.appendChild(el);
   }
   for (const B of world.buildings) {
+    if (isDecor(B)) { B.labelEl = null; continue; } // lamp posts and fire pits go unlabelled
     const el = document.createElement('button');
     el.className = 'flabel bld';
     el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'bld', obj: B }); };
@@ -4952,6 +4959,7 @@ function updateLabels() {
       L.labelEl._prio = 3;
     }
     for (const B of world.buildings) {
+      if (!B.labelEl) continue;
       const s = bspec(B);
       let cnt = '';
       if (open) {
@@ -6177,9 +6185,13 @@ const bldMode = (B) => (runOps && runOps.bld[B.id]) || 'open';
 const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
 const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
 const skeletonPatrol = () => !!runOps && runOps.patrol === 'skeleton';
+// Open at night for night skiers: food and warm-ups, restrooms, rentals and the patrol.
+const NIGHT_OPEN = ['lodge', 'cafe', 'truck', 'restroom', 'hrest', 'rental', 'tuning', 'patrol', 'clinic', 'firepit'];
 function bldOpenNow(B) {
   const m = bldMode(B);
   if (m === 'closed') return false;
+  if (state.phase === 'open' && state.time >= closeTime() + 15)
+    return (apresOn() && apresOpen(B) && state.time < apresEnd()) || (!!nightEnd() && state.time < nightEnd() + 15 && NIGHT_OPEN.includes(B.type));
   return m !== 'lunch' || (state.time >= LUNCH_OPEN && state.time < LUNCH_CLOSE);
 }
 // A snapshot of today's plan, so changes you make during the day apply from tomorrow.
@@ -6377,7 +6389,7 @@ function endDay() {
   today.exp.cogs = Math.round(today.exp.cogs);
   // Après: bartenders and servers for each venue kept open after the lifts close.
   today.nightCost = nightCost(lv); today.exp.night = today.nightCost.lights + today.nightCost.staff;
-  today.exp.apres = apresOn() ? Math.round(world.buildings.filter(apresOpen).length * APRES_STAFF_HR * (apresEnd() - closeTime()) / 60 * MOUNTAIN.costs * lv.cost) : 0;
+  today.exp.apres = apresOn() ? Math.round(world.buildings.filter((B) => apresOpen(B) && !isDecor(B)).length * APRES_STAFF_HR * (apresEnd() - closeTime()) / 60 * MOUNTAIN.costs * lv.cost) : 0;
   // Short-handed patrol: an injury can turn into a claim against the resort.
   let claims = 0;
   const patrolCut = hasBld('patrol') && (ops.patrol === 'skeleton' || world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] === 'closed'));
@@ -7010,15 +7022,35 @@ function rebuildLights() {
   lampSpots = [];
   for (const m of litPools.children.slice()) { litPools.remove(m); m.geometry.dispose(); }
   const _o = new THREE.Object3D();
+  if (!realTrails().some((t) => t.lit)) { lightMesh.count = 0; return; }
+  // Where a pole can't stand: on any trail's snow, under a lift line, or in a building.
+  const onSnow = new Map();
+  for (const t of realTrails()) {
+    const r = TRAIL_WIDTHS[t.width].hw + 0.35, c = Math.ceil(r);
+    for (let i = 0; i < t.samples.length; i += 2) {
+      const sm = t.samples[i];
+      for (let ix = Math.floor(sm.x) - c; ix <= Math.floor(sm.x) + c; ix++) for (let iz = Math.floor(sm.z) - c; iz <= Math.floor(sm.z) + c; iz++)
+        if (Math.hypot(ix + 0.5 - sm.x, iz + 0.5 - sm.z) <= r) { const k = cellKey(ix, iz); if (!onSnow.has(k)) onSnow.set(k, new Set()); onSnow.get(k).add(t); }
+    }
+  }
+  const blocked = (x, z, self) => [...(onSnow.get(cellKey(Math.floor(x), Math.floor(z))) || [])].some((o) => o !== self) || world.lifts.some((L) => distToSeg({ x, z }, L.a, L.b) < 1.4)
+    || world.buildings.some((B) => boxDist({ x, z }, boxOf(B, 0.3)) === 0);
   for (const t of realTrails()) {
     if (!t.lit) continue;
     const hw = TRAIL_WIDTHS[t.width].hw, n = Math.max(2, Math.round(t.len / LIGHT_GAP));
     for (let k = 0; k <= n && lampSpots.length < MAX_LIGHTS; k++) {
       const i = Math.min(t.samples.length - 2, Math.round(k / n * (t.samples.length - 2))), a = t.samples[i], b = t.samples[i + 1];
       let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-      const side = k % 2 ? 1 : -1, off = side * (hw + 0.45), x = a.x - dz * off, z = a.z + dx * off;
-      // the arm leans out over the trail
-      const yaw = Math.atan2(-dz * side, dx * side) + Math.PI / 2;
+      // alternate sides; if that side is on another trail, under a lift or in a building, try the other, else skip
+      let side = k % 2 ? 1 : -1, x = 0, z = 0, ok = false;
+      for (let tries = 0; tries < 2 && !ok; tries++, side = -side) {
+        const off = side * (hw + 0.55); x = a.x - dz * off; z = a.z + dx * off;
+        ok = !blocked(x, z, t);
+      }
+      if (!ok) continue;
+      side = -side; // undo the loop's last flip
+      // the arm reaches in over this trail: the pole's arm points along -x, turned to face the trail's centre
+      const yaw = Math.atan2(-dx * side, -dz * side);
       _o.position.set(x, heightAt(x, z), z); _o.rotation.set(0, yaw, 0); _o.updateMatrix();
       lightMesh.setMatrixAt(lampSpots.length, _o.matrix);
       lampSpots.push({ x: x + dz * side * 0.45, y: heightAt(x, z) + 2.3, z: z - dx * side * 0.45, t });
@@ -7042,6 +7074,100 @@ function updateNightLights() {
   litPools.visible = k > 0;
   lampGlow.geometry.setDrawRange(0, k > 0 ? lampSpots.length : 0);
   lampGlow.material.opacity = k;
+}
+
+// Evening lights around the resort: windows glow only in buildings that are open right now, lamp posts
+// and the parking lot light up after dark, fire pits flicker, and each throws a pool of light on the snow.
+const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38;
+function bldLitNow(B) {
+  if (B.type === 'firepit') return true;
+  if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
+  if (state.phase !== 'open') return true;
+  return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
+}
+const decorGlow = glowPoints(800, 16, 0xffffff);
+const POOL_GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+const groundPools = new THREE.Mesh(new THREE.BufferGeometry(), POOL_GLOW);
+groundPools.renderOrder = 3; groundPools.frustumCulled = false;
+scene.add(groundPools);
+let lightSig = '', litSig = '', glowSpots = [], poolSpots = [];
+// Poles at the ends of each parking section.
+function lotPoles() {
+  const out = [];
+  lotGroup.children.forEach((m, k) => {
+    if (!m.geometry) return;
+    const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3());
+    const long = b.max.x - b.min.x > b.max.z - b.min.z;
+    for (const s of [-1, 1]) {
+      const x = long ? c.x + s * (b.max.x - b.min.x) * 0.35 : c.x, z = long ? c.z : c.z + s * (b.max.z - b.min.z) * 0.35;
+      out.push({ x, z, sec: k });
+    }
+  });
+  return out;
+}
+// Where the light comes from: lamp heads, fire pit flames, lot poles, and the doors of buildings.
+function rebuildGlows() {
+  glowSpots = []; poolSpots = [];
+  for (const B of world.buildings) {
+    if (B.type === 'lamp') { glowSpots.push({ x: B.x, y: B.baseY + 1.4, z: B.z, kind: 'lamp', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.6, B, w: 1 }); }
+    else if (B.type === 'firepit') { glowSpots.push({ x: B.x, y: B.baseY + 0.4, z: B.z, kind: 'fire', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.4, B, w: 1.1, fire: true }); }
+    else poolSpots.push({ x: B.door.x, z: B.door.z, r: 1.8, B, w: 0.8 });
+  }
+  for (const p of lotPoles()) { glowSpots.push({ x: p.x, y: heightAt(p.x, p.z) + 2.6, z: p.z, kind: 'lot', sec: p.sec }); poolSpots.push({ x: p.x, z: p.z, r: 4.2, sec: p.sec, w: 0.8 }); }
+  // the lot's light poles share the trail-light mesh
+  const pos = decorGlow.geometry.attributes.position.array;
+  glowSpots.slice(0, 800).forEach((g, i) => pos.set([g.x, g.y, g.z], i * 3));
+  decorGlow.geometry.attributes.position.needsUpdate = true;
+  // pools: a disc draped on the snow for each light, bright in the middle and fading out
+  const R = 14, verts = [], idx = [];
+  for (const p of poolSpots) {
+    const o = verts.length / 3;
+    verts.push(p.x, heightAt(p.x, p.z) + 0.06, p.z);
+    for (let a = 0; a < R; a++) { const t = a / R * Math.PI * 2, x = p.x + Math.cos(t) * p.r, z = p.z + Math.sin(t) * p.r; verts.push(x, heightAt(x, z) + 0.06, z); }
+    for (let a = 0; a < R; a++) idx.push(o, o + 1 + a, o + 1 + (a + 1) % R);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(verts.length), 3));
+  geo.setIndex(idx);
+  groundPools.geometry.dispose(); groundPools.geometry = geo;
+  litSig = '';
+}
+function updateEveningGlow() {
+  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}`;
+  if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
+  const dark = duskK, open = state.phase === 'open';
+  // windows and which pools are on, when something changes
+  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '');
+  if (lit !== litSig) {
+    litSig = lit;
+    for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
+    const col = groundPools.geometry.attributes.color;
+    if (col) {
+      const R = 14;
+      poolSpots.forEach((p, i) => {
+        const on = p.B ? bldLitNow(p.B) : open && p.sec < lotsOpen();
+        const w = on ? p.w : 0, base = i * (R + 1) * 3, c = p.fire ? [1, 0.55, 0.25] : [1, 0.82, 0.55];
+        col.array.set([c[0] * w, c[1] * w, c[2] * w], base);
+        for (let a = 0; a < R; a++) col.array.set([0, 0, 0], base + (a + 1) * 3);
+      });
+      col.needsUpdate = true;
+    }
+  }
+  POOL_GLOW.opacity = 0.75 * dark;
+  groundPools.visible = dark > 0.02;
+  // glow points: lamps and lot poles after dark; fires always, flickering
+  const cl = decorGlow.geometry.attributes.color.array, t = performance.now() / 1000;
+  let n = 0;
+  for (const g of glowSpots) {
+    if (n >= 800) break;
+    let c = [0, 0, 0];
+    if (g.kind === 'fire') { const f = 0.75 + 0.25 * Math.sin(t * 13 + g.x) * Math.sin(t * 7.3 + g.z); c = [1 * f, 0.55 * f, 0.2 * f]; }
+    else if (dark > 0.05 && (g.kind === 'lamp' || (open && g.sec < lotsOpen()))) c = [dark, dark * 0.9, dark * 0.7];
+    cl.set(c, n * 3); n++;
+  }
+  decorGlow.geometry.setDrawRange(0, n);
+  decorGlow.geometry.attributes.color.needsUpdate = true;
 }
 
 /* ---------- Drawing guests and cars ---------- */
@@ -7252,7 +7378,11 @@ const BTYPES = {
   fine: { name: 'Fine dining', where: 'any', cost: 260000, sign: 'FINE DINING', accent: 0x6b2b47, seats: 60, stalls: 6, w: 4.4, d: 3.2, upkeep: 1900,
     desc: 'Long, pricey meals and après. Guests who love dining out seek it out; it pays on busy days.' },
   bar: { name: 'Bar and pub', where: 'base', cost: 120000, sign: 'BAR', accent: 0xb8452a, seats: 90, counter: 6, stalls: 4, w: 3.6, d: 2.6, upkeep: 900,
-    desc: 'The heart of après-ski: drinks and a loud deck after the lifts close. A snack bar at lunch. Turn on après in Operations to keep it open until 7.' },
+    desc: 'The heart of après-ski: drinks and a loud deck after the lifts close. A snack bar at lunch. Turn on après under Evenings to keep it open until 7.' },
+  lamp: { name: 'Lamp post', where: 'any', cost: 3000, accent: 0xe8b04a, w: 0.5, d: 0.5, upkeep: 15, decor: true,
+    desc: 'A warm pool of light on the snow after dark. Line a path, light up the base, mark a lift.' },
+  firepit: { name: 'Fire pit', where: 'any', cost: 12000, accent: 0xe0702a, seats: 14, w: 2.4, d: 2.4, upkeep: 110, decor: true,
+    desc: 'Benches around a fire. Free warm-ups by day; after the lifts close it draws an après crowd, most of all beside a bar or lodge.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
     desc: 'Fits guests with skis and boots when they arrive.' },
   tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
@@ -7278,9 +7408,9 @@ const BTYPES = {
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
     desc: 'An upgraded shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
-const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
+const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Lights and fire pits', ['lamp', 'firepit']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
@@ -7365,6 +7495,8 @@ function addDriveway(b) {
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar'];
 const isEatery = (B) => EATS.includes(B.type);
+const isDecor = (B) => !!BTYPES[B.type].decor;
+const realBlds = () => world.buildings.filter((B) => !isDecor(B));
 const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
 const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0 };
 const PRICE_INFO = {
@@ -7648,6 +7780,30 @@ function modelRestaurant() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
   return k;
 }
+function modelLamp() {
+  const k = new Kit();
+  k.add(new THREE.CylinderGeometry(0.035, 0.05, 1.3, 6), BM.dark, 0, 0.65, 0);
+  k.add(bx(0.16, 0.04, 0.16), BM.dark, 0, 1.3, 0);
+  k.add(bx(0.12, 0.16, 0.12), BM.glow, 0, 1.4, 0);
+  k.add(new THREE.ConeGeometry(0.13, 0.1, 4), BM.dark, 0, 1.53, 0, 0, Math.PI / 4, 0);
+  return k;
+}
+function modelFirepit() {
+  const k = new Kit();
+  k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
+  k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
+  for (let i = 0; i < 3; i++) k.add(bx(0.06, 0.06, 0.42), BM.wood, 0, 0.21, 0, 0, i * Math.PI / 3, 0); // logs
+  k.add(new THREE.ConeGeometry(0.16, 0.34, 7), BM.glow, 0, 0.36, 0); // the flames
+  // log benches in a ring, with seats facing the fire
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2, r = 0.95;
+    k.push(Math.sin(a) * r, 0, Math.cos(a) * r, a);
+    k.add(bx(0.5, 0.12, 0.16), BM.wood, 0, 0.1, 0);
+    k.seat(-0.12, 0.12, 0, Math.PI); k.seat(0.12, 0.12, 0, Math.PI);
+    k.pop();
+  }
+  return k;
+}
 function modelBar() {
   const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
   hall(k, { w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
@@ -7863,7 +8019,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { lamp: modelLamp, firepit: modelFirepit, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -7948,6 +8104,8 @@ const LODGE_NAMES = {
   top: ['Summit Lodge', 'Summit House', 'Skyline Lodge', 'Eagle’s Nest', 'Top of the World Lodge', 'Peak Chalet', 'Cloud Nine Lodge'],
 };
 const OTHER_NAMES = {
+  lamp: ['Lamp post'],
+  firepit: ['Fire pit'],
   bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
   tuning: ['Tune & Demo Center', 'Edge Works', 'Wax On', 'Edge & Base', 'The Tuning Fork', 'Sharp Edges', 'Base Grind'],
   store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear', 'Powder Room Outfitters', 'The Gear Garage', 'Alpine Supply', 'Peak Performance', 'Slope Shop'],
@@ -7967,7 +8125,7 @@ const OTHER_NAMES = {
   transit: ['Transit Center', 'Bus Terminal'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['lamp', 'firepit', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -8007,12 +8165,15 @@ function addBuilding(b) {
   if (b.type === 'transit') { b.stop = toWorld(b, 0.4, 0.75); b.approach = toWorld(b, -5, 0.75); b.door = toWorld(b, 0, -0.05); }
   if (BY_ROAD.includes(b.type)) addDriveway(b);
   if (b.type === 'school') b.door = toWorld(b, 0, s.d / 2 + 0.2);
+  // each building gets its own window glow, so a closed one can go dark
+  b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
   bldGroup.add(b.group);
   world.buildings.push(b);
   initBldSim(b);
   renderer.shadowMap.needsUpdate = true;
 }
 function removeBuilding(b) {
+  if (b.glowMat) b.glowMat.dispose();
   bldGroup.remove(b.group);
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== b);
@@ -8071,13 +8232,13 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
 /* =====================================================================
    BUILDINGS: how guests use them
    ===================================================================== */
-const POOL = { drinks: 'seat', shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
-const SVC_TIME = { drinks: [30, 70], shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
-const COGS = { drinks: 0.25, shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
-const REV_CAT = { drinks: 'apres', camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
-const OFFERS = { bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
+const POOL = { fire: 'seat', drinks: 'seat', shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
+const SVC_TIME = { fire: [20, 40], drinks: [30, 70], shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
+const COGS = { fire: 0, drinks: 0.25, shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
+const REV_CAT = { fire: 'apres', drinks: 'apres', camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
+const OFFERS = { firepit: ['warm'], bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
 const PRICE_KEY = { bar: 'drinks', tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp' };
-const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
+const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', fire: 'A seat by the fire', rent: 'Renting skis', lesson: 'A lesson' };
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
@@ -8184,8 +8345,8 @@ function maybeVisit(g, here, radius, baseToo, resume) {
    meal, more so when they've had a good day, on weekends and sunny afternoons, and when there's a bar.
    It's reported on its own page of the day report. */
 const APRES_END = 1140, APRES_STAFF_HR = 95;
-const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine'];
-const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : 'drinks');
+const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
+const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
 function nightOk(P) { return P.night && realTrails().some((t) => t.lit) ? P.night : 0; }
@@ -8198,12 +8359,17 @@ function dayHardEnd() {
 }
 const apresEnd = () => Math.max(APRES_END, nightEnd() ? nightEnd() + 45 : 0);
 const apresOpen = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
+// Fire pits within a short walk of an après bar, lodge or restaurant.
+function firesNearVenues() {
+  const venues = world.buildings.filter((B) => B.type !== 'firepit' && apresOpen(B));
+  return world.buildings.filter((F) => F.type === 'firepit' && venues.some((B) => distXZ(B.door, F.door) < 14)).length;
+}
 // The après page of the day report: who came, where, and what it made after its own staff and supplies.
 function apresReport() {
   if (!apresOn()) return null;
   const a = today.apres, venues = Object.entries(a.byB).map(([id, v]) => ({ name: (bldById(+id) || {}).name || 'A venue', type: (bldById(+id) || {}).type, ...v })).sort((x, y) => y.rev - x.rev);
   const cogs = Math.round(a.cogs), staff = today.exp.apres || 0;
-  return { guests: a.guests, rev: Math.round(a.rev), cogs, staff, profit: Math.round(a.rev - cogs - staff), venues, open: world.buildings.filter(apresOpen).length,
+  return { guests: a.guests, rev: Math.round(a.rev), cogs, staff, profit: Math.round(a.rev - cogs - staff), venues, open: world.buildings.filter((B) => apresOpen(B) && !isDecor(B)).length, fires: a.byB && Object.entries(a.byB).filter(([id]) => (bldById(+id) || {}).type === 'firepit').reduce((n, [, v]) => n + v.guests, 0),
     bar: world.buildings.some((B) => B.type === 'bar'), until: apresEnd(), left: today.guests };
 }
 function apresChance(g) {
@@ -8212,6 +8378,7 @@ function apresChance(g) {
   if (w.type === 'sunny' && w.hi > 22) p += 0.08;
   if (w.type === 'rain' || w.type === 'heavy') p -= 0.05;
   if (world.buildings.some((B) => B.type === 'bar' && apresOpen(B))) p += 0.1;
+  p += Math.min(0.12, firesNearVenues() * 0.04); // fire pits by the bar or lodge make the base a place to hang out
   if (runOps.dayKind === 'weekend') p *= 1.3;
   return clamp(p, 0.03, 0.7);
 }
@@ -8225,8 +8392,8 @@ function maybeApres(g) {
     for (const B of world.buildings) {
       if (!apresOpen(B)) continue;
       const svc = apresSvc(B);
-      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'lodge' ? 0 : g.fancy ? 3 : -1)
-        - Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4 + Math.random() * 2;
+      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : g.fancy ? 3 : -1)
+        - (B.type === 'firepit' ? 0 : Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4) + Math.random() * 2;
       if (v > bv) { bv = v; best = B; }
     }
     if (!best) return false;
@@ -8297,7 +8464,7 @@ function bldStep(B) {
   if (B.used.seat > B.today.peak) B.today.peak = B.used.seat;
 }
 function serve(g, B) {
-  const svc = g.svc, pool = POOL[svc], price = svcPrice(svc);
+  const svc = g.svc, pool = POOL[svc], price = B.type === 'firepit' ? 0 : svcPrice(svc);
   if (svc === 'rent' && B.rented * AGENT >= bspec(B).inventory) {
     g.sat -= 8; today.complaints.rentOut++; g.needsRental = false;
     thought(g, `${B.name} ran out of skis, so I rented in town.`);
@@ -8313,14 +8480,14 @@ function serve(g, B) {
     return leaveBuilding(g, B);
   }
   if (svc === 'rent') B.rented++;
+  if (g.apresGuest) (today.apres.byB[B.id] || (today.apres.byB[B.id] = { guests: 0, rev: 0 })).guests += AGENT;
   if (price > 0) {
     const amt = price * AGENT;
     state.cash += amt; B.today.revenue += amt;
     const c = amt * COGS[svc]; B.today.cogs += c; today.exp.cogs += c;
     if (g.apresGuest) {
       today.rev.apres = (today.rev.apres || 0) + amt; today.apres.rev += amt; today.apres.cogs += c;
-      const v = today.apres.byB[B.id] || (today.apres.byB[B.id] = { guests: 0, rev: 0 });
-      v.guests += AGENT; v.rev += amt;
+      today.apres.byB[B.id].rev += amt;
     } else today.rev[REV_CAT[svc]] += amt;
   }
   B.used[pool]++; B.today.visits += AGENT;
@@ -8348,6 +8515,7 @@ function finishVisit(g) {
   g.deck = -1;
   const name = B ? B.name : 'the lodge';
   if (svc === 'food') { g.ate = true; g.sat += 4; thought(g, `Lunch at ${name} hit the spot.`); }
+  else if (svc === 'warm' && B && B.type === 'firepit') { g.warmed = true; g.fat = Math.max(0, g.fat - g.stam * 0.2); g.sat += 4; thought(g, `Warmed up by the fire. Back out there!`); }
   else if (svc === 'warm') {
     const cafe = B && B.type === 'cafe';
     g.warmed = true; g.fat = Math.max(0, g.fat - g.stam * (cafe ? 0.3 : 0.25)); g.sat += cafe ? 5 : 3;
@@ -8360,6 +8528,7 @@ function finishVisit(g) {
   else if (svc === 'snack') { g.ate = true; g.sat += 2; thought(g, `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
+  else if (svc === 'fire') { g.sat += 7; g.fat = Math.max(0, g.fat - g.stam * 0.1); thought(g, Math.random() < 0.5 ? 'Warming up by the fire pit. Best seat at the resort.' : 'S’mores by the fire after a long day on the hill.'); }
   else if (svc === 'drinks') { g.sat += 6; thought(g, Math.random() < 0.5 ? `Après at ${name}: cold drinks and good company.` : `Swapping stories about today's runs at ${name}.`); }
   else if (svc === 'rr' && B && B.type === 'hrest') {
     const cold = todayWx().hi < 20;
@@ -8726,6 +8895,8 @@ const hexOf = (c) => '#' + c.toString(16).padStart(6, '0');
 function capOf(type, s) {
   switch (type) {
     case 'lodge': case 'restaurant': case 'fine': return `${s.seats} seats · restrooms (${s.stalls} stalls)`;
+    case 'lamp': return 'Lights up after dark';
+    case 'firepit': return `${s.seats} seats around the fire · free`;
     case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
     case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
@@ -8799,7 +8970,7 @@ function buildBuildingDraft() {
   pushUndo(`the new ${BTYPES[draft.btype].name.toLowerCase()}`);
   const b = commitBuilding(info, draft.btype, draft.bpos.x, draft.bpos.z, draft.rot);
   computeNetwork(); syncLabels(); updateCash(true);
-  if (b.type === 'bar' && !OPS_KINDS.some(([k]) => opsState().plans[k].apres === 'on')) toast(`Built ${b.name} · −${money(info.cost)}. Turn on après in Operations to keep it open after the lifts close.`, false, { label: 'Operations', fn: () => openManage('ops') });
+  if (b.type === 'bar' && !OPS_KINDS.some(([k]) => opsState().plans[k].apres === 'on')) toast(`Built ${b.name} · −${money(info.cost)}. Turn on après under Evenings to keep it open after the lifts close.`, false, { label: 'Evenings', fn: () => openManage('evenings') });
   else toast(`Built ${b.name} · −${money(info.cost)}`);
   draft.bpos = null; draft.info = null; clearGhost();
   renderSheet(); scheduleSave();
@@ -9589,7 +9760,7 @@ function trailNightSection(t) {
   const on = OPS_KINDS.filter(([k]) => opsState().plans[k].night).map(([, l]) => l.toLowerCase());
   return `<div class="field-label">Night skiing</div>
     <div class="status"><span class="pill on">Lit</span><span class="muted">about ${money(hrs)} an hour in power when lit</span></div>
-    <p class="help">${on.length ? `Open at night on ${on.join(', ')}.` : 'Night skiing is off in every plan.'} <button class="link" data-action="opsOpen">Night hours in Operations</button></p>
+    <p class="help">${on.length ? `Open at night on ${on.join(', ')}.` : 'Night skiing is off in every plan.'} <button class="link" data-action="manage" data-v="evenings">Night hours under Evenings</button></p>
     <button class="link" data-action="lightsRemove" ${closed ? '' : 'disabled'}>Remove the lights</button>`;
 }
 function trailSnowSection(t) {
@@ -10574,14 +10745,14 @@ function apresPageHtml(r) {
     </dl>
     <div class="rp-lines">
       <span class="h">Revenue</span>
-      ${a.venues.length ? a.venues.map((v) => line(`${esc(v.name)} · ${v.guests} guests`, v.rev)).join('') : '<span>No sales</span><span>$0</span>'}
+      ${a.venues.length ? a.venues.map((v) => (v.type === 'firepit' ? `<span>${esc(v.name)} · ${v.guests} guests</span><span>free</span>` : line(`${esc(v.name)} · ${v.guests} guests`, v.rev))).join('') : '<span>No sales</span><span>$0</span>'}
       <span class="tot">Après revenue</span><span class="tot">${money(a.rev)}</span>
       <span class="h">Expenses</span>
       ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff)}${line('Drinks and food', a.cogs)}
       <span class="tot">Après profit</span><span class="tot ${a.profit >= 0 ? '' : 'neg'}">${signedMoney(a.profit)}</span>
     </div>
     ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
-    <p class="help">Après is already counted in the day's profit. Turn it on or off for each plan in Operations.</p>`;
+    <p class="help">Après is already counted in the day's profit. Turn it on or off for each plan under Evenings.</p>`;
 }
 // The night skiing page of the day report.
 function nightPageHtml(r) {
@@ -10604,7 +10775,7 @@ function nightPageHtml(r) {
       <span class="tot">Night profit</span><span class="tot ${n.profit >= 0 ? '' : 'neg'}">${signedMoney(n.profit)}</span>
     </div>
     ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
-    <p class="help">Night skiing is already counted in the day's profit. Set the night hours for each plan in Operations, and the night ticket price in Prices.</p>`;
+    <p class="help">Night skiing is already counted in the day's profit. Set the night hours and the night ticket price under Evenings.</p>`;
 }
 // Someone else's resort: its finances, to look at only.
 function visitResortSheet() {
@@ -10658,8 +10829,8 @@ let resortTab = 'prices';
 /* ---------- Manage: one panel for each part of the resort ----------
    Trails, Lifts and Buildings list everything with its status at a glance and quick controls;
    tapping a row flies there and opens its full panel. Operations, Prices, Snow and Money hold the rest. */
-const MANAGE = [['trails', 'Trails'], ['lifts', 'Lifts'], ['blds', 'Buildings'], ['parking', 'Parking'], ['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['snow', 'Snow'], ['money', 'Money'], ['plans', 'Plans']];
-const BIZ = [['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events']];
+const MANAGE = [['trails', 'Trails'], ['lifts', 'Lifts'], ['blds', 'Buildings'], ['parking', 'Parking'], ['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['evenings', 'Evenings'], ['snow', 'Snow'], ['money', 'Money'], ['plans', 'Plans']];
+const BIZ = [['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['evenings', 'Evenings']];
 let lastBiz = 'ops', bizOpen = false;
 // The Business flyout: shown while it's open or one of its panels is, beside the Business button.
 function syncBizFly() {
@@ -10669,12 +10840,12 @@ function syncBizFly() {
   if (BIZ.some(([k]) => k === cur)) bizOpen = true;
   f.hidden = !bizOpen || !btn || visiting;
   if (f.hidden) return;
-  if (!f.children.length) f.innerHTML = BIZ.map(([k, l]) => `<button data-m="${k}" role="menuitem">${{ ops: btn.querySelector('svg').outerHTML, prices: PRICES_ICON, events: EVENTS_ICON }[k]}${l}</button>`).join('');
+  if (!f.children.length) f.innerHTML = BIZ.map(([k, l]) => `<button data-m="${k}" role="menuitem">${{ ops: btn.querySelector('svg').outerHTML, prices: PRICES_ICON, events: EVENTS_ICON, evenings: EVENINGS_ICON }[k]}${l}</button>`).join('');
   for (const b of f.children) b.setAttribute('aria-current', String(b.dataset.m === cur));
   const r = btn.getBoundingClientRect(), rail = $('manage').getBoundingClientRect();
   f.style.left = `${rail.right + 8}px`; f.style.top = `${r.top + r.height / 2 - f.offsetHeight / 2}px`;
 }
-const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', more: 'More' };
+const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', evenings: 'Evenings', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', more: 'More' };
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
@@ -10694,22 +10865,24 @@ function managePanel(key) {
   const head = `<div class="mtabs">${back}</div>
     <div class="sheet-title"><h3>${MANAGE_TITLE[key]}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   const body = key === 'trails' ? trailsList() : key === 'lifts' ? liftsList() : key === 'blds' ? bldsList() : key === 'parking' ? parkingPanel()
-    : key === 'ops' ? opsSection() : key === 'prices' ? pricesPanel() : key === 'events' ? eventsPanel() : key === 'snow' ? weatherSheet(true)
+    : key === 'ops' ? opsSection() : key === 'prices' ? pricesPanel() : key === 'events' ? eventsPanel() : key === 'evenings' ? eveningsPanel() : key === 'snow' ? weatherSheet(true)
       : key === 'plans' ? plansList() : key === 'more' ? moreHub() : moneyPanel();
   return head + body;
 }
 const PRICES_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/></svg>';
+const EVENINGS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>';
 const EVENTS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4.5c4-2 7 2 11 0l3-1v9l-3 1c-4 2-7-2-11 0"/></svg>';
 // Phones: everything that isn't Trails, Lifts or Buildings, as tiles that say how each part is doing.
 function moreHub() {
   const nextDay = state.phase === 'open' ? state.day + 1 : state.day;
   const ev = state.event && EVENTS[state.event.type];
-  const icon = (k) => { const b = $('manage').querySelector(`[data-m=${k}] svg`) || $('manage').querySelector(`[data-m=biz] svg`); return k === 'events' ? EVENTS_ICON : k === 'prices' ? PRICES_ICON : b ? b.outerHTML : ''; };
+  const icon = (k) => { const b = $('manage').querySelector(`[data-m=${k}] svg`) || $('manage').querySelector(`[data-m=biz] svg`); return k === 'events' ? EVENTS_ICON : k === 'evenings' ? EVENINGS_ICON : k === 'prices' ? PRICES_ICON : b ? b.outerHTML : ''; };
   const tiles = [
     ['parking', 'Parking', `Main lot ${lotCapacity()}${offsiteSpec() ? ` · off-site ${offsiteSpec().spaces}` : ''}`],
     ['ops', 'Operations', `${OPS_NAME[planFor(nextDay)]} plan ${state.phase === 'open' ? 'tomorrow' : 'next'}`],
     ['prices', 'Prices', state.ticketPeak != null && state.ticketPeak !== state.ticket ? `${money(state.ticket)} · ${money(state.ticketPeak)} weekends` : `${money(state.ticket)} lift tickets`],
     ['events', 'Events', state.summer ? 'Back next winter' : ev ? `${ev.name} · ${dateLabel(state.event.days[0]).replace(/^\w+, /, '')}` : 'None planned'],
+    ['evenings', 'Evenings', eveningsStatus()],
     ['snow', 'Snow', `${inch(baseDepth())} base${todayWx().snow >= 1 ? ` · ${inch(todayWx().snow)} new` : ''}`],
     ['money', 'Money', `${money(state.cash)}${state.debt ? ` · loan ${money(state.debt)}` : ''}`],
     ...(world.plans.length ? [['plans', 'Blueprints', `${world.plans.length} waiting`]] : []),
@@ -10873,7 +11046,8 @@ function eventsPanel() {
   return `<p class="help">A special weekend draws a bigger crowd. Book one for the coming Saturday; guests who love it lift your reputation.</p>${eventSection().replace('<div class="field-label">Events</div>', '')}`;
 }
 function bldsList() {
-  const Bs = world.buildings, live = state.phase === 'open';
+  const Bs = realBlds(), live = state.phase === 'open';
+  const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit').length;
   const rows = Bs.map((B) => {
     const t = BTYPES[B.type], s = bspec(B), mode = bldPlanMode(B), y = B.yday;
     const pill = mode === 'closed' ? ['Closed', 'off'] : mode === 'lunch' ? ['Lunch only', 'warn'] : ['Open', 'on'];
@@ -10886,7 +11060,7 @@ function bldsList() {
     </li>`;
   }).join('');
   return `<p class="lsum"><b>${Bs.length}</b> ${Bs.length === 1 ? 'building' : 'buildings'} · upkeep <b>${money(Bs.reduce((a, B) => a + bspec(B).upkeep, 0))}</b> a day before plan savings</p>
-    <ul class="llist">${rows}${visiting ? '' : `<li class="lrow" data-action="manage" data-v="parking"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Parking and buses</b><span class="pill on">›</span></div><div class="l2"><span>Main lot, off-site parking, shuttle stations and buses</span></div></li>`}</ul>
+    <ul class="llist">${rows}${lamps || fires ? `<li class="lrow" data-action="manage" data-v="evenings"><div class="l1"><span class="swatch" style="background:#e0702a"></span><b>Lights and fire pits</b><span class="pill on">›</span></div><div class="l2"><span>${[lamps ? `${lamps} lamp post${lamps === 1 ? '' : 's'}` : '', fires ? `${fires} fire pit${fires === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span></div></li>` : ''}${visiting ? '' : `<li class="lrow" data-action="manage" data-v="parking"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Parking and buses</b><span class="pill on">›</span></div><div class="l2"><span>Main lot, off-site parking, shuttle stations and buses</span></div></li>`}</ul>
     ${Bs.length ? '' : '<p class="help">No buildings yet. A lodge is the place to start: guests need food, warmth and restrooms.</p>'}`;
 }
 function pricesPanel() {
@@ -10930,9 +11104,45 @@ function opsSeg(action, id, cur, modes, label) {
   return `<div class="seg ops" role="group" aria-label="${esc(label)}">${modes.map(([k, l]) =>
     `<button data-action="${action}" data-id="${id}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
 }
+// Operations folds its long lists away behind a one-line summary.
+const opsFold = { lifts: false, blds: false };
+function opsFoldHtml(k, label, sum, body) {
+  return `<button class="fold-head" data-action="opsFold" data-v="${k}" aria-expanded="${opsFold[k]}"><span class="field-label">${label}</span><span class="fold-sum">${sum}</span><span class="chev" aria-hidden="true">›</span></button>
+    ${opsFold[k] ? `<div class="ops-list">${body}</div>` : ''}`;
+}
+function liftsSum(P) {
+  const m = world.lifts.map((L) => liftModeIn(P, L)), slow = m.filter((x) => x === 'slow').length, off = m.filter((x) => x === 'off').length;
+  return !slow && !off ? `All ${m.length} at full speed` : [m.length - slow - off ? `${m.length - slow - off} full` : '', slow ? `${slow} slow` : '', off ? `${off} off` : ''].filter(Boolean).join(' · ');
+}
+function bldsSum(P) {
+  const m = realBlds().map((B) => bldModeIn(P, B)), lunch = m.filter((x) => x === 'lunch').length, shut = m.filter((x) => x === 'closed').length;
+  return !lunch && !shut ? `All ${m.length} open` : [m.length - lunch - shut ? `${m.length - lunch - shut} open` : '', lunch ? `${lunch} lunch only` : '', shut ? `${shut} closed` : ''].filter(Boolean).join(' · ');
+}
+// The Evenings panel: après-ski and night skiing for each plan, the night ticket, lit trails, lamp posts and fire pits.
+function eveningsStatus() {
+  const P = opsState().plans[planFor(state.phase === 'open' ? state.day + 1 : state.day)];
+  return [P.apres === 'on' ? 'Après on' : 'Après off', P.night ? `night skiing ${NIGHT_HOURS.find(([k]) => k === P.night)[1].toLowerCase()}` : realTrails().some((t) => t.lit) ? 'no night skiing' : ''].filter(Boolean).join(' · ');
+}
+function eveningsPanel() {
+  const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day, kind = opsEdit || planFor(day), P = o.plans[kind];
+  const lit = realTrails().filter((t) => t.lit);
+  const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit');
+  const near = firesNearVenues(), r = state.lastReport;
+  const last = r && (r.apres || r.night) ? `<div class="field-label">Last open day</div><p class="help">${[r.apres ? `Après ${signedMoney(r.apres.profit)} from ${r.apres.guests} guests` : '', r.night ? `night skiing ${signedMoney(r.night.profit)} from ${r.night.guests + r.night.stayed} skiers` : ''].filter(Boolean).join('; ')}. <button class="link" data-action="pastReport" data-i="${(state.history || []).length - 1}">See the report</button></p>` : '';
+  return `<p class="help">What happens after the lifts close at 4. Each plan has its own settings, like in Operations.</p>
+    <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]}</button>`).join('')}</div>
+    ${apresOpsHtml(P)}
+    ${nightOpsHtml(P)}
+    ${lit.length ? `${priceStepper('night')}
+      <ul class="llist">${lit.map((t) => `<li class="lrow" data-action="goTo" data-k="trail" data-id="${t.id}"><div class="l1"><b>${esc(t.name)}</b><span class="pill on">Lit</span></div><div class="l2"><span>About ${money(Math.round(t.len * LIGHT_HOUR_UNIT * MOUNTAIN.costs))} an hour in power</span></div></li>`).join('')}</ul>` : ''}
+    <div class="field-label">Lights and fire pits</div>
+    <p class="help">${lamps || fires.length ? `${lamps ? `${lamps} lamp post${lamps === 1 ? '' : 's'}` : ''}${lamps && fires.length ? ' and ' : ''}${fires.length ? `${fires.length} fire pit${fires.length === 1 ? '' : 's'}` : ''}. ` : ''}Lamp posts light up the base and paths after dark. Fire pits give free warm-ups by day and draw an après crowd${near ? `; ${near} sit${near === 1 ? 's' : ''} by a bar, lodge or restaurant, which helps most` : ', most of all beside a bar, lodge or restaurant'}.</p>
+    ${visiting ? '' : `<button class="btn secondary" data-action="buildDecor">Place lamp posts and fire pits</button>`}
+    ${last}`;
+}
 // Après and night skiing in a plan, with what they cost to staff.
 function apresOpsHtml(P) {
-  const venues = world.buildings.filter((B) => APRES_VENUES.includes(B.type) && bldModeIn(P, B) === 'open');
+  const venues = world.buildings.filter((B) => APRES_VENUES.includes(B.type) && !isDecor(B) && bldModeIn(P, B) === 'open');
   const bar = world.buildings.some((B) => B.type === 'bar');
   const cost = Math.round(venues.length * APRES_STAFF_HR * (APRES_END - DAY_CLOSE) / 60 * MOUNTAIN.costs);
   return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On · until 7']], 'Après-ski')}
@@ -10965,7 +11175,7 @@ function opsSection() {
     : `<div class="field-label">${esc(dateLabel(day))} runs</div><div class="tabs">${pick}</div>
        <p class="help">${ev ? 'Event days always run the weekend plan.' : planFor(day) !== dayKind(day) ? `Just for this day; it would normally run the ${OPS_NAME[dayKind(day)].toLowerCase()} plan.` : 'Picked by the calendar. Choose another plan for just this day if you like.'}</p>`;
   const lifts = world.lifts.map((L) => `<div class="ops-row"><span>${esc(L.name)}${!L.open && !L.planOff ? ' <em>stopped</em>' : ''}</span>${opsSeg('opsLift', L.id, liftModeIn(P, L), LIFT_MODES, L.name)}</div>`).join('');
-  const blds = world.buildings.map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
+  const blds = realBlds().map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
     lunchOnlyOk(B) ? [['open', 'Open'], ['lunch', 'Lunch'], ['closed', 'Closed']] : [['open', 'Open'], ['closed', 'Closed']], B.name)}</div>`).join('');
   const lots = lotsIn(P);
   const sample = resolvePlan(kind), cost = planRunCost(P), full = planRunCost(blankPlan()), let0 = letdownFor(sample);
@@ -10975,16 +11185,15 @@ function opsSection() {
     <div class="field-label">Edit plan</div>
     <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]} plan</button>`).join('')}</div>
     <p class="help">${OPS_KINDS.find(([k]) => k === kind)[2]}.</p>
-    ${world.lifts.length ? `<div class="field-label">Lifts</div><div class="ops-list">${lifts}</div>` : ''}
-    ${world.buildings.length ? `<div class="field-label">Buildings</div><div class="ops-list">${blds}</div>` : ''}
+    ${world.lifts.length ? opsFoldHtml('lifts', 'Lifts', liftsSum(P), lifts) : ''}
+    ${realBlds().length ? opsFoldHtml('blds', 'Buildings', bldsSum(P), blds) : ''}
     <div class="field-label">Parking sections open</div>
     <div class="stepper"><button data-action="opsLots" data-d="-1" aria-label="Close a parking section" ${lots <= 1 ? 'disabled' : ''}>−</button><output>${lots} of ${state.lotSections} · ${lots * SPACES_PER_SECTION} spaces</output><button data-action="opsLots" data-d="1" aria-label="Open a parking section" ${lots >= state.lotSections ? 'disabled' : ''}>+</button></div>
     ${offsiteSpec() && hasStation() ? `<div class="field-label">Parking shuttles</div>${opsSeg('opsShuttles', 0, P.shuttles || 'normal', Object.entries(SHUTTLES).map(([k, v]) => [k, v.label]), 'Parking shuttles')}
       <p class="help">${money(Math.round(SHUTTLES.normal.cost * MOUNTAIN.costs))} a day every 15 minutes, ${money(Math.round(SHUTTLES.frequent.cost * MOUNTAIN.costs))} every 8. Off: no off-site parking that day.</p>` : ''}
     ${hasStation() ? `<div class="field-label">Town buses</div>${opsSeg('opsTownBus', 0, P.townBus || 'on', [['on', 'Running'], ['off', 'Off']], 'Town buses')}` : ''}
     <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
-    ${apresOpsHtml(P)}
-    ${nightOpsHtml(P)}
+    <p class="help">Après-ski and night skiing are under <button class="link" data-action="manage" data-v="evenings">Evenings</button>.</p>
     <div class="field-label">Staffing</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}
     ${hasBld('patrol') ? `<div class="field-label">Ski patrol</div>${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}` : ''}
     <div class="costs"><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
@@ -11001,6 +11210,7 @@ function opsAction(a, b) {
   else if (a === 'opsBld') { if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
   else if (a === 'opsHours') P.hours = v;
+  else if (a === 'opsFold') opsFold[v] = !opsFold[v];
   else if (a === 'opsApres') P.apres = v;
   else if (a === 'opsNight') P.night = +v;
   else if (a === 'opsShuttles') P.shuttles = v;
@@ -11488,7 +11698,7 @@ function summaryDoc() {
     v: 1, mt: MOUNTAIN.id, stars: starsOf(), name: state.resortName || 'Juniper Ridge', creator: creatorShown(), updatedAt: Date.now(),
     season: state.season || 1, when: state.bankrupt ? 'Foreclosed' : state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
     cash: Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100,
-    trails: realTrails().length, lifts: world.lifts.length, buildings: world.buildings.length,
+    trails: realTrails().length, lifts: world.lifts.length, buildings: realBlds().length,
     bestGuests: rc.bestGuests, bestDayProfit: rc.bestDayProfit, bestSeasonProfit: rc.bestSeasonProfit, totalVisitors: rc.totalVisitors,
   };
 }
@@ -12323,6 +12533,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.35', date: 'Oct 27, 2026', title: 'Evenings: lights, fire pits and their own panel', show: ['evenings', 'Open Evenings'], spots: ['biz', 'evenings'], items: [
+    'Evenings is now its own button under Business: après-ski, night hours, the night ticket and your lit trails, for each plan. Operations is tidier, with lifts and buildings folded into one-line summaries.',
+    'Lamp posts and fire pits: place them anywhere. Fire pits give free warm-ups by day and draw an après crowd at night, most of all beside a bar, lodge or restaurant.',
+    'Buildings only light their windows while they’re open, so a closed ski school or kids’ camp goes dark in the evening.',
+    'The parking lot, lamp posts, fire pits and open doors throw pools of light on the snow after dark.',
+    'Trail light poles now lean out over the trail they light, and never stand on another trail, under a lift or in a building.',
+  ] },
   { v: '2.34.1', date: 'Oct 26, 2026', title: 'Tablet top bar and stuck event bookings', small: true, items: [
     'On narrower tablets the time bar no longer runs off the screen: it sits on its own row under your resort name and cash.',
     'An event booked for a weekend the season never reached was blocking new bookings. It’s now cancelled and refunded, and new events can be booked again.',
@@ -12517,7 +12734,7 @@ function feedbackContext() {
   return {
     v: VERSION, mt: MOUNTAIN.id, resort: state.resortName, started: !!state.started, season: state.season, date: dateLabel(state.day),
     phase: state.phase, cash: Math.round(state.cash), debt: Math.round(state.debt || 0), lifts: world.lifts.length, trails: realTrails().length,
-    buildings: world.buildings.length, lastGuests: state.lastReport ? state.lastReport.guests : null, stars: starsOf(), rep: Math.round(state.reputation * 100) / 100,
+    buildings: realBlds().length, lastGuests: state.lastReport ? state.lastReport.guests : null, stars: starsOf(), rep: Math.round(state.reputation * 100) / 100,
     tutorial: practice, visiting: !!visiting, guest: CLOUD.guest, screen: `${innerWidth}x${innerHeight}`, touch: isCoarse, ua: navigator.userAgent.slice(0, 160),
   };
 }
@@ -12587,6 +12804,7 @@ const SPOTS = {
   bulb: '#mTips',
   labels: '#tLabels',
   ops: '#bizFly [data-m=ops], .mtile[data-v=ops]',
+  evenings: '#bizFly [data-m=evenings], .mtile[data-v=evenings]',
 };
 function newSpots() {
   let since = null, seen = [];
@@ -13228,7 +13446,7 @@ function frame(now) {
     updateSnow(dt, clock);
     updatePuffs(dt);
     updateFireworks(dt);
-    updateDusk(); updateNightLights();
+    updateDusk(); updateNightLights(); updateEveningGlow();
     syncRaceCourse();
     syncPond();
     updateSplash(dt);
