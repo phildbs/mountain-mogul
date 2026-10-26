@@ -87,6 +87,19 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
   .rx .ver { font-weight: 700; }
   .rxbar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: rgba(210, 60, 90, 0.25); vertical-align: middle; overflow: hidden; }
   .rxbar i { display: block; height: 100%; background: #2c9a55; }
+  .players { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .players th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2, #5b6472); padding: 6px 8px; border-bottom: 1px solid rgba(20,36,58,.12); }
+  .players td { vertical-align: top; padding: 8px; border-bottom: 1px solid rgba(20,36,58,.08); }
+  .players .pres { margin-bottom: 6px; } .players .pres .note { display: block; font-size: 12px; }
+  @media (max-width: 600px) {
+    .players thead { display: none; }
+    .players tr { display: block; padding: 8px 0; border-bottom: 1px solid rgba(20,36,58,.1); }
+    .players td { display: inline-block; border: 0; padding: 2px 8px 2px 0; }
+    .players td:nth-child(2)::before { content: 'Signed up '; color: var(--ink-2, #5b6472); }
+    .players td:nth-child(3)::before { content: '· seen '; color: var(--ink-2, #5b6472); }
+    .players td:first-child, .players td:last-child { display: block; }
+    .players td:last-child { padding-top: 6px; }
+  }
 </style>
 </head>
 <body>
@@ -126,12 +139,13 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       if (/admin_stats/.test(error.message)) return gate('<span class="err">The stats function isn’t set up yet.</span> Run <b>supabase/stats.sql</b> in the Supabase SQL Editor.');
       return gate(`<span class="err">${esc(error.message)}</span>`);
     }
-    const [er, rx] = await Promise.all([sb.rpc('admin_errors'), sb.rpc('admin_reactions')]);
+    const [er, rx, pl] = await Promise.all([sb.rpc('admin_errors'), sb.rpc('admin_reactions'), sb.rpc('admin_players')]);
     render(data, er.error ? { missing: /admin_errors/.test(er.error.message), message: er.error.message } : er.data,
-      rx.error ? { missing: /admin_reactions/.test(rx.error.message), message: rx.error.message } : rx.data);
+      rx.error ? { missing: /admin_reactions/.test(rx.error.message), message: rx.error.message } : rx.data,
+      pl.error ? { missing: /admin_players/.test(pl.error.message), message: pl.error.message } : pl.data);
   }
 
-  function render(d, errs, reacts) {
+  function render(d, errs, reacts, players) {
     $('when').textContent = `Updated ${new Date(d.generated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
     $('refresh').hidden = false;
     // last 14 days, filling in days with no visitors
@@ -162,6 +176,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <p class="note">Tap a column heading to sort, or a name to visit it read-only. Nothing you do there changes it. Tap ☆ to make a public resort a staff pick in the game’s Browse tab.</p>
         <div class="scroll" id="resorts"></div>
       </section>
+      <section class="card" style="margin-bottom:12px" id="players">${playersHtml(players)}</section>
       <section class="card" style="margin-bottom:12px" id="reacts">${reactionsHtml(reacts)}</section>
       <section class="card" style="margin-bottom:12px" id="errs">${errorsHtml(errs)}</section>
       <section class="card" style="margin-bottom:12px">
@@ -182,6 +197,21 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
 
   const SEASON_MONTHS = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']; // in-game dates run through a winter
   // Thumbs up and down on each update, from players in a resort when it arrived.
+  // Everyone who signed in with Google or email, newest activity first, with their resorts.
+  function playersHtml(p) {
+    if (!p || p.missing) return '<h2>Signed-in players</h2><p class="note">Not set up yet. Run <b>supabase/players.sql</b> in the Supabase SQL Editor.</p>';
+    if (p.message) return `<h2>Signed-in players</h2><p class="note err">${esc(p.message)}</p>`;
+    const nameOf = (u) => u.name || (u.mountains.find((m) => m.creator) || {}).creator || '';
+    const day = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `<h2>Signed-in players</h2><p class="note">${num(p.length)} ${p.length === 1 ? 'player has' : 'players have'} signed in with Google or email. Guests who never signed in aren’t listed. Most recently active first; tap a resort to visit it read-only.</p>
+      <div class="scroll"><table class="players"><thead><tr><th>Player</th><th>Signed up</th><th>Last seen</th><th>Resorts</th></tr></thead><tbody>${p.map((u) => {
+        const n = nameOf(u);
+        return `<tr><td>${n ? `<b>${esc(n)}</b>` : '<span class="note">No name set</span>'}${u.name ? '' : n ? ' <span class="priv">from resort</span>' : ''}${u.public ? '' : ' <span class="priv">private profile</span>'}<div class="note">${u.via === 'google' ? 'Google' : 'Email'}</div></td>
+          <td>${day(u.joined)}</td><td>${u.last_seen ? ago(u.last_seen) : '–'}</td>
+          <td>${u.mountains.length ? u.mountains.map((m) => `<div class="pres"><a class="visit" href="./?visit=${encodeURIComponent(m.id)}">${esc(m.name || 'Unnamed')}</a>${m.public ? '' : ' <span class="priv">private</span>'}
+            <span class="note">${esc(mtName(m.mt ?? ''))} · season ${m.season || 1} · ${num(m.guests || 0)} guests all time · ${m.lifts || 0} lifts, ${m.trails || 0} trails${m.stars != null ? ` · ★ ${m.stars}` : ''} · ${ago(m.updated)}</span></div>`).join('') : '<span class="note">No resort saved</span>'}</td></tr>`;
+      }).join('')}</tbody></table></div>`;
+  }
   function reactionsHtml(r) {
     if (!r || r.missing) return '<h2>Update reactions</h2><p class="note">Not set up yet. Run <b>supabase/reactions.sql</b> in the Supabase SQL Editor.</p>';
     if (r.message) return `<h2>Update reactions</h2><p class="note err">${esc(r.message)}</p>`;
