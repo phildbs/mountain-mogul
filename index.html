@@ -2685,7 +2685,7 @@ function setTool(tool) {
     toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { resetDraft(); draft.btype = null; if (state.tool === 'clear') clearAreaDraft(); }
+  if (tool !== state.tool) { resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
@@ -4145,8 +4145,10 @@ function commitLift(info, type) {
   addLift(made);
   return made;
 }
-function evalBuilding(type, x, z, rot, allowPlans, selfPlan) {
-  const v = validateBuilding(type, 0, x, z, rot);
+// Moving a building costs a fifth of what it took to build (at least $500), plus any clearing and leveling.
+const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost) * 0.2 / 100) * 100);
+function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover) {
+  const v = validateBuilding(type, mover ? mover.tier : 0, x, z, rot, mover ? mover.id : undefined);
   v.padY = padHeight(v.bb);
   v.grading = levelRect(v.bb, v.padY, 2.5, true).cost;
   if (allowPlans) {
@@ -4154,7 +4156,8 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan) {
     const clash = world.plans.find((p) => p !== selfPlan && p.kind === 'bld' && boxOverlap(bAABB(p.type, 0, p.x, p.z, p.rot, 0.4), bb));
     if (clash) v.problems.push('That overlaps another planned building.');
   }
-  return { ...v, build: BTYPES[type].cost, cost: BTYPES[type].cost + v.treeSet.size * TREE_COST + v.grading };
+  const build = mover ? moveFee(mover) : BTYPES[type].cost;
+  return { ...v, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot) {
   clearTreeSet(info.treeSet);
@@ -4700,7 +4703,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'share') shareResort();
   else if (a === 'exitTool') setTool('explore');
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
-  else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
+  else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.moving = null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
+  else if (a === 'moveBld' && obj) startMove(obj);
   else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
   else if (a === 'upgrade' && obj) upgradeTier(obj);
   else if (a === 'firepitBase' && obj && obj.type === 'firepit') { obj.bare = !obj.bare; restyleBuilding(obj); renderSheet(); scheduleSave(); }
@@ -4808,6 +4812,21 @@ sheet.addEventListener('click', (e) => {
     gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
     buildLot(); updateCash(true);
     toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
+  }
+  else if (a === 'shrinkLot') {
+    if (state.phase !== 'closed' || state.lotSections <= 1) return;
+    pushUndo('removing a parking section');
+    const back = Math.round(LOT_EXPAND_COST * 0.25);
+    state.lotSections--; state.cash += back;
+    buildLot(); styleLot(); updateCash(true);
+    toast(`Removed a parking section (${SPACES_PER_SECTION} spaces) · +${money(back)} salvage`); renderSheet(); scheduleSave();
+  }
+  else if (a === 'offsiteClose') {
+    if (state.phase !== 'closed' || state.offsite < 0) return;
+    pushUndo('closing off-site parking');
+    const back = Math.round(OFFSITE.slice(0, state.offsite + 1).reduce((t, o) => t + o.cost, 0) * 0.25);
+    state.offsite = -1; state.cash += back; updateCash(true);
+    toast(`Closed off-site parking · +${money(back)} back`); renderSheet(); scheduleSave();
   }
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'manage') openManage(b.dataset.v);
@@ -6193,7 +6212,7 @@ function bldOpenNow(B) {
   const m = bldMode(B);
   if (m === 'closed') return false;
   if (state.phase === 'open' && state.time >= closeTime() + 15)
-    return (apresOn() && apresOpen(B) && state.time < apresEnd()) || (!!nightEnd() && state.time < nightEnd() + 15 && NIGHT_OPEN.includes(B.type));
+    return isStation(B) /* buses run until everyone has gone home */ || (apresOn() && apresOpen(B) && state.time < apresEnd()) || (!!nightEnd() && state.time < nightEnd() + 15 && NIGHT_OPEN.includes(B.type));
   return m !== 'lunch' || (state.time >= LUNCH_OPEN && state.time < LUNCH_CLOSE);
 }
 // A snapshot of today's plan, so changes you make during the day apply from tomorrow.
@@ -9049,16 +9068,16 @@ function capOf(type, s) {
 }
 function recomputeBldDraft() {
   if (!draft.btype || !draft.bpos) { draft.info = null; clearGhost(); return; }
-  const v = evalBuilding(draft.btype, draft.bpos.x, draft.bpos.z, draft.rot, planning(), null);
+  const v = evalBuilding(draft.btype, draft.bpos.x, draft.bpos.z, draft.rot, planning() && !draft.moving, null, draft.moving);
   draft.info = v;
-  showGhost(draft.btype, 0, draft.bpos.x, draft.bpos.z, draft.rot, !v.problems.length, v.padY);
+  showGhost(draft.btype, draft.moving ? draft.moving.tier : 0, draft.bpos.x, draft.bpos.z, draft.rot, !v.problems.length, v.padY);
 }
 function hoverGhost(p) {
   if (!p || !draft.btype || draft.bpos) return;
   let x = Math.round(p.x * 2) / 2, z = Math.round(p.z * 2) / 2;
   if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); x = sn.x; z = sn.z; draft.rot = sn.rot; }
-  const v = evalBuilding(draft.btype, x, z, draft.rot, planning(), null);
-  showGhost(draft.btype, 0, x, z, draft.rot, !v.problems.length, v.padY);
+  const v = evalBuilding(draft.btype, x, z, draft.rot, planning() && !draft.moving, null, draft.moving);
+  showGhost(draft.btype, draft.moving ? draft.moving.tier : 0, x, z, draft.rot, !v.problems.length, v.padY);
 }
 function bldDraftSheet() {
   if (!draft.btype) {
@@ -9069,6 +9088,7 @@ function bldDraftSheet() {
         return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${BY_ROAD.includes(k) ? ' · by the road' : t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
       }).join('')}${keys.includes('shuttle') ? `<button data-action="manage" data-v="parking"><i style="background:#2565d4"></i><span><b>Off-site parking</b><small>${offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking'}</small></span></button>` : ''}${keys.includes('shuttle') && !mainLotBlock() ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
   }
+  if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
   const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
   let body = '';
@@ -9089,7 +9109,48 @@ function bldDraftSheet() {
     <button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}
     <button class="link" data-action="pickB" data-v="">Choose a different building</button>`;
 }
+// Moving a building: pick a new spot like placing a new one; it keeps its name, size and history.
+function moveDraftSheet() {
+  const B = draft.moving, t = BTYPES[B.type], info = draft.info;
+  const help = !draft.bpos ? `Click where ${esc(B.name)} should go.${BY_ROAD.includes(B.type) ? ' It snaps to the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to try another spot, or rotate it.';
+  const short = info && info.cost > state.cash;
+  return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>Move ${esc(B.name)}</h3><button class="x" data-action="exitTool" aria-label="Cancel the move" title="Cancel (Esc)">✕</button></div>
+    <p class="help">It keeps its name, size and history. Moving costs ${money(moveFee(B))}, plus clearing trees and leveling the new site.</p>
+    <p class="help"><b>${help}</b></p>
+    ${BY_ROAD.includes(B.type) ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
+    ${info ? `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}<div class="costs"><span>Moving</span><span>${money(info.build)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span><span>Leveling the site</span><span>${money(info.grading || 0)}</span></div>` : ''}
+    <button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Pick a spot on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `Move here · ${money(info.cost)}`}</button>
+    <button class="link" data-action="exitTool">Keep it where it is</button>`;
+}
+function startMove(B) {
+  if (state.phase !== 'closed' || visiting) return;
+  setTool('bld');
+  draft.btype = B.type; draft.moving = B; draft.rot = B.rot; draft.bpos = null; draft.info = null; clearGhost();
+  renderSheet();
+}
+function moveBuildingDraft() {
+  const info = draft.info, B = draft.moving;
+  if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  pushUndo(`moving ${B.name}`);
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  bldGroup.remove(B.group);
+  B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  world.buildings = world.buildings.filter((o) => o !== B);
+  Object.assign(B, { x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, padY: info.padY });
+  const res = levelRect(info.bb, info.padY, 2.5, false);
+  applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
+  const y = B.yday;
+  addBuilding(B); B.yday = y;
+  refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, B);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Moved ${B.name} · −${money(info.cost)}`);
+  draft.moving = null; draft.bpos = null; draft.info = null; clearGhost();
+  setTool('explore'); select({ kind: 'bld', obj: B });
+  scheduleSave();
+}
 function buildBuildingDraft() {
+  if (draft.moving) return moveBuildingDraft();
   const info = draft.info;
   if (!info || info.problems.length) return;
   if (planning()) {
@@ -9231,6 +9292,7 @@ function bldSheet(B) {
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${upgrade}
     ${levelOffer(B)}
+    ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
 }
 
@@ -11149,13 +11211,13 @@ function parkingPanel() {
   const lot = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Main lot</b><span class="pill ${lotsOpen() < state.lotSections ? 'warn' : 'on'}">${lotsOpen()} of ${state.lotSections} open</span></div>
       <div class="l2"><span>${live ? `<b>${used}</b> of ` : ''}${lotsOpen() * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
-      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3"><button class="chip" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Add a section overnight' : `Add ${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}`}</button></div>`}
+      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3"><button class="chip" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Add a section overnight' : `Add ${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}`}</button>${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
     </li>`;
   const spec = offsiteSpec(), nx = OFFSITE[state.offsite + 1], offUsed = live && today ? today.offUsed : 0;
   const off = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Off-site parking</b><span class="pill ${!spec ? 'off' : hasStation() ? 'on' : 'warn'}">${!spec ? 'Not set up' : hasStation() ? spec.label : 'Needs a station'}</span></div>
       <div class="l2">${spec ? `<span>${live ? `<b>${offUsed}</b> of ` : ''}${spec.spaces} spaces${live ? ' in use' : ''}</span><span>Lease ${money(Math.round(spec.lease * MOUNTAIN.costs))} a day</span>` : '<span>When the main lot is full, cars park off the mountain and parking shuttles bring guests to your shuttle stations.</span>'}${state.lastReport && state.lastReport.offsite ? `<span>${state.lastReport.offsite.cars} cars last day${state.lastReport.offsite.wait ? ` · ${Math.round(state.lastReport.offsite.wait)} min average shuttle wait` : ''}</span>` : ''}</div>
-      ${visiting ? '' : `<div class="l3">${!hasStation() ? '<span class="note">Build a shuttle station (Build › Buildings › Getting here) for the parking shuttles to stop at.</span>' : ''}${nx ? `<button class="chip" data-action="offsiteBuy" ${state.phase === 'closed' && state.cash >= nx.cost ? '' : 'disabled'}>${state.phase !== 'closed' ? (spec ? 'Upgrade overnight' : 'Set up overnight') : `${spec ? 'Upgrade to' : 'Set up'} ${nx.label.toLowerCase()} · ${nx.spaces} spaces · ${money(nx.cost)}`}</button>` : ''}</div>`}
+      ${visiting ? '' : `<div class="l3">${!hasStation() ? '<span class="note">Build a shuttle station (Build › Buildings › Getting here) for the parking shuttles to stop at.</span>' : ''}${nx ? `<button class="chip" data-action="offsiteBuy" ${state.phase === 'closed' && state.cash >= nx.cost ? '' : 'disabled'}>${state.phase !== 'closed' ? (spec ? 'Upgrade overnight' : 'Set up overnight') : `${spec ? 'Upgrade to' : 'Set up'} ${nx.label.toLowerCase()} · ${nx.spaces} spaces · ${money(nx.cost)}`}</button>` : ''}${spec ? `<button class="chip" data-action="offsiteClose" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? 'Close it' : 'Close overnight'}</button>` : ''}</div>`}
     </li>`;
   const sts = world.buildings.filter(isStation);
   const stRows = sts.map((B) => `<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
@@ -12668,6 +12730,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.36', date: 'Oct 27, 2026', title: 'Move buildings, remove parking', small: true, items: [
+    'Move any building overnight from its panel: pick a new spot like building it new. It keeps its name, size and history; moving costs a fifth of what it took to build, plus any clearing and leveling.',
+    'Parking sections can be removed again (Parking › Main lot), with a little salvage back, and off-site parking can be closed.',
+    'Fixed: since 2.35, town buses and parking shuttles stopped running after 4:15 PM, leaving some guests waiting at the station.',
+  ] },
   { v: '2.35.1', date: 'Oct 27, 2026', title: 'Night lights that light things', small: true, items: [
     'After dark, lamp posts, fire pits, open buildings, the parking lot and trail lights now light the snow, buildings, trees and skiers around them, instead of floating glowing orbs.',
     'The parking lot has real light poles now, lit after dark on open sections.',
