@@ -4702,6 +4702,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
   else if (a === 'upgrade' && obj) upgradeTier(obj);
+  else if (a === 'firepitBase' && obj && obj.type === 'firepit') { obj.bare = !obj.bare; restyleBuilding(obj); renderSheet(); scheduleSave(); }
   else if (a === 'upgradeStation' && obj) upgradeStation(obj);
   else if (a === 'offsiteBuy') buyOffsite();
   else if (a === 'levelB' && obj) {
@@ -5094,7 +5095,7 @@ function serializeWorld() {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
+    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
@@ -7130,7 +7131,7 @@ function drawLightMap() {
     else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
     else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
   }
-  if (open) for (const p of lotPoles()) if (p.sec < lotsOpen()) spot(p.x, p.z, 7.5, LAMP, 0.7);
+  if (open) for (const p of lotPoleList) if (p.sec < lotsOpen()) spot(p.x, p.z, 6.5, LAMP, 0.7);
   if (nightNow() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
   lightTex.needsUpdate = true;
 }
@@ -7150,19 +7151,47 @@ const groundPools = new THREE.Mesh(new THREE.BufferGeometry(), POOL_GLOW);
 groundPools.renderOrder = 3; groundPools.frustumCulled = false;
 scene.add(groundPools);
 let lightSig = '', litSig = '', lmSig = '', lmSweep = 0, glowSpots = [], poolSpots = [];
-// Poles at the ends of each parking section.
+// Light poles in each parking section: two in each strip between the rows of stalls.
 function lotPoles() {
   const out = [];
-  lotGroup.children.forEach((m, k) => {
-    if (!m.geometry) return;
-    const b = new THREE.Box3().setFromObject(m), c = b.getCenter(new THREE.Vector3());
-    const long = b.max.x - b.min.x > b.max.z - b.min.z;
-    for (const s of [-1, 1]) {
-      const x = long ? c.x + s * (b.max.x - b.min.x) * 0.35 : c.x, z = long ? c.z : c.z + s * (b.max.z - b.min.z) * 0.35;
-      out.push({ x, z, sec: k });
-    }
-  });
+  for (let k = 0; k < state.lotSections; k++) {
+    const o = sectionOrigin(k);
+    for (const dz of [2.8, 5.6]) for (const dx of [2, 6]) { const x = o.x + dx, z = o.z + dz; out.push({ x, z, y: heightAt(x, z), sec: k }); }
+  }
   return out;
+}
+const LOT_POLE_GEO = (() => {
+  const parts = [new THREE.CylinderGeometry(0.05, 0.07, 3.1, 6).translate(0, 1.55, 0), new THREE.BoxGeometry(1.1, 0.07, 0.08).translate(0, 3.05, 0)].map((q) => q.toNonIndexed());
+  const n = parts.reduce((a, q) => a + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const q of parts) { pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3); o += q.attributes.position.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return g;
+})();
+const LOT_HEAD_GEO = (() => { const a = new THREE.BoxGeometry(0.3, 0.1, 0.22); return a; })();
+const MAX_LOT_POLES = 4 * 40;
+const lotPoleMesh = new THREE.InstancedMesh(LOT_POLE_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LOT_POLES);
+const lotHeadMesh = new THREE.InstancedMesh(LOT_HEAD_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_LOT_POLES * 2);
+lotHeadMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_LOT_POLES * 2 * 3), 3);
+for (const m of [lotPoleMesh, lotHeadMesh]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
+lotPoleMesh.castShadow = true;
+let lotPoleList = [];
+function rebuildLotPoles() {
+  lotPoleList = lotPoles().slice(0, MAX_LOT_POLES);
+  const _o = new THREE.Object3D();
+  lotPoleList.forEach((p, i) => {
+    _o.position.set(p.x, p.y, p.z); _o.rotation.set(0, 0, 0); _o.updateMatrix(); lotPoleMesh.setMatrixAt(i, _o.matrix);
+    for (const s of [0, 1]) { _o.position.set(p.x + (s ? 0.5 : -0.5), p.y + 2.97, p.z); _o.updateMatrix(); lotHeadMesh.setMatrixAt(i * 2 + s, _o.matrix); }
+  });
+  lotPoleMesh.count = lotPoleList.length; lotHeadMesh.count = lotPoleList.length * 2;
+  lotPoleMesh.instanceMatrix.needsUpdate = true; lotHeadMesh.instanceMatrix.needsUpdate = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// The lamps on the lot poles: lit after dark on open sections, dark grey otherwise.
+function styleLotHeads(dark, open) {
+  const c = lotHeadMesh.instanceColor.array, on = [1, 0.88, 0.66], off = [0.36, 0.38, 0.42];
+  lotPoleList.forEach((p, i) => { const col = dark > 0.05 && open && p.sec < lotsOpen() ? on : off; c.set(col, i * 6); c.set(col, i * 6 + 3); });
+  lotHeadMesh.instanceColor.needsUpdate = true;
 }
 // Where the light comes from: lamp heads, fire pit flames, lot poles, and the doors of buildings.
 function rebuildGlows() {
@@ -7172,7 +7201,7 @@ function rebuildGlows() {
     else if (B.type === 'firepit') { glowSpots.push({ x: B.x, y: B.baseY + 0.4, z: B.z, kind: 'fire', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.4, B, w: 1.1, fire: true }); }
     else poolSpots.push({ x: B.door.x, z: B.door.z, r: 1.8, B, w: 0.8 });
   }
-  for (const p of lotPoles()) { glowSpots.push({ x: p.x, y: heightAt(p.x, p.z) + 2.6, z: p.z, kind: 'lot', sec: p.sec }); poolSpots.push({ x: p.x, z: p.z, r: 4.2, sec: p.sec, w: 0.8 }); }
+  rebuildLotPoles(); // real poles, lit by the light map; no floating glows
   // the lot's light poles share the trail-light mesh
   const pos = decorGlow.geometry.attributes.position.array;
   glowSpots.slice(0, 800).forEach((g, i) => pos.set([g.x, g.y, g.z], i * 3));
@@ -7193,7 +7222,7 @@ function rebuildGlows() {
   litSig = '';
 }
 function updateEveningGlow() {
-  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}`;
+  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}|${stalls.length && stalls[0].x}`;
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
@@ -7201,6 +7230,7 @@ function updateEveningGlow() {
   if (lit !== litSig) {
     litSig = lit;
     for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
+    styleLotHeads(dark, open);
     const col = groundPools.geometry.attributes.color;
     if (col) {
       const R = 14;
@@ -7849,12 +7879,14 @@ function modelLamp() {
   k.add(new THREE.ConeGeometry(0.13, 0.1, 4), BM.dark, 0, 1.53, 0, 0, Math.PI / 4, 0);
   return k;
 }
-function modelFirepit() {
-  const k = new Kit();
-  k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
-  k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
-  for (let i = 0; i < 3; i++) k.add(bx(0.06, 0.06, 0.42), BM.wood, 0, 0.21, 0, 0, i * Math.PI / 3, 0); // logs
-  k.add(new THREE.ConeGeometry(0.16, 0.34, 7), BM.glow, 0, 0.36, 0); // the flames
+function modelFirepit(tier, b) {
+  const k = new Kit(), bare = b && b.bare, y = bare ? -0.12 : 0; // without the stone base, the fire sits right on the snow
+  if (!bare) {
+    k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
+    k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
+  }
+  for (let i = 0; i < 3; i++) k.add(bx(0.06, 0.06, 0.42), BM.wood, 0, 0.21 + y, 0, 0, i * Math.PI / 3, 0); // logs
+  k.add(new THREE.ConeGeometry(0.16, 0.34, 7), BM.glow, 0, 0.36 + y, 0); // the flames
   // log benches in a ring, with seats facing the fire
   for (let i = 0; i < 7; i++) {
     const a = i / 7 * Math.PI * 2, r = 0.95;
@@ -8201,14 +8233,14 @@ function nextBuildingName(type, x, z, skip) {
   for (let i = 2; ; i++) { const n = `${bases[0]} ${i}`; if (!used.has(n)) return n; }
 }
 function buildingVisual(b, ghost) {
-  const k = MODELS[b.type](b.tier);
+  const k = MODELS[b.type](b.tier, b);
   const s = bspec(b);
   const bb = boxOf(b), fs = footprintStats(bb);
   const top = b.padY != null ? Math.max(b.padY, fs.hmin) : fs.hmax;
   const baseY = top * VEX + 0.03;
   const fh = Math.max(0.25, (top - fs.hmin) * VEX + 0.25);
   if (!ghost && BY_ROAD.includes(b.type)) { const back = -s.d / 2 - 0.03, front = BAY_FRONT[b.type]; k.add(bx(s.w + 0.06, fh, front - back), BM.stone, 0, -fh / 2 + 0.01, (front + back) / 2); }
-  else if (!ghost) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
+  else if (!ghost && !(b.type === 'firepit' && b.bare)) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
   const g = k.build();
   g.position.set(b.x, baseY, b.z);
   g.rotation.y = b.rot * Math.PI / 2;
@@ -8238,6 +8270,16 @@ function removeBuilding(b) {
   bldGroup.remove(b.group);
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== b);
+  renderer.shadowMap.needsUpdate = true;
+}
+// Redraw a building in place (same spot, same guests), after a change to how it looks.
+function restyleBuilding(b) {
+  bldGroup.remove(b.group);
+  b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  const v = buildingVisual(b, false);
+  b.group = v.group; b.baseY = v.baseY;
+  b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
+  bldGroup.add(b.group);
   renderer.shadowMap.needsUpdate = true;
 }
 function upgradeBuilding(b) {
@@ -9155,6 +9197,8 @@ function bldSheet(B) {
     </dl>
     ${planLine((P) => MODE_WORD[bldModeIn(P, B)])}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
+    ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire and log benches, on the snow' : 'A stone pad and ring around the fire'}</span></div>
+      <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${upgrade}
     ${levelOffer(B)}
     ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
@@ -12596,6 +12640,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.35.1', date: 'Oct 27, 2026', title: 'Night lights that light things', small: true, items: [
     'After dark, lamp posts, fire pits, open buildings, the parking lot and trail lights now light the snow, buildings, trees and skiers around them, instead of floating glowing orbs.',
+    'The parking lot has real light poles now, lit after dark on open sections.',
+    'Fire pits have a Stone base switch in their panel: turn it off for just the fire and log benches on the snow.',
   ] },
   { v: '2.35', date: 'Oct 27, 2026', title: 'Evenings: lights, fire pits and their own panel', show: ['evenings', 'Open Evenings'], spots: ['biz', 'evenings'], items: [
     'Evenings is now its own button under Business: après-ski, night hours, the night ticket and your lit trails, for each plan. Operations is tidier, with lifts and buildings folded into one-line summaries.',
