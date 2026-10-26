@@ -7013,7 +7013,7 @@ const MAX_LIGHTS = 2500, LIGHT_GAP = 7;
 const lightMesh = new THREE.InstancedMesh(LIGHT_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LIGHTS);
 lightMesh.count = 0; lightMesh.castShadow = true; lightMesh.frustumCulled = false;
 scene.add(lightMesh);
-const lampGlow = glowPoints(MAX_LIGHTS, 14, 0xfff0c8);
+const lampGlow = glowPoints(MAX_LIGHTS, 6, 0xfff0c8);
 const litPools = new THREE.Group();
 scene.add(litPools);
 const POOL_MAT = new THREE.MeshBasicMaterial({ color: 0xfff1cf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
@@ -7070,10 +7070,69 @@ function rebuildLights() {
 function updateNightLights() {
   const on = duskK > 0.15 && (nightNow() || (torchTonight() && state.time < TORCH.end));
   const k = on ? duskK : 0;
-  POOL_MAT.opacity = 0.22 * k;
-  litPools.visible = k > 0;
+  litPools.visible = false; // lit trails are lit by the light map, from their poles
   lampGlow.geometry.setDrawRange(0, k > 0 ? lampSpots.length : 0);
   lampGlow.material.opacity = k;
+}
+
+// Night light that actually lights things: every lamp, fire pit, open door, lit parking section and
+// trail light paints a warm patch into a map of the whole mountain, seen from above. After dark, the
+// snow, buildings, trees, skiers and cars under a patch are lit by it.
+const LM_PX = 1024;
+const lmCanvas = document.createElement('canvas');
+lmCanvas.width = lmCanvas.height = LM_PX;
+const lmCtx = lmCanvas.getContext('2d');
+const lightTex = new THREE.CanvasTexture(lmCanvas);
+lightTex.flipY = false; // canvas rows run with world z
+const MM_LIGHT = { map: { value: lightTex }, night: { value: 0 }, box: { value: new THREE.Vector4(-HALF, -HALF, 2 * HALF, 2 * HALF) } };
+function nightLit(mat) {
+  if (mat.userData.mmLit) return;
+  mat.userData.mmLit = true;
+  const prev = mat.onBeforeCompile, own = mat.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey;
+  const base = own ? mat.customProgramCacheKey() : prev ? String(prev) : '';
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(mat, sh, r);
+    sh.uniforms.mmLightMap = MM_LIGHT.map; sh.uniforms.mmNight = MM_LIGHT.night; sh.uniforms.mmBox = MM_LIGHT.box;
+    sh.vertexShader = 'varying vec3 vMmW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+  { vec4 mw = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    mw = instanceMatrix * mw;
+  #endif
+    vMmW = (modelMatrix * mw).xyz; }`);
+    sh.fragmentShader = 'varying vec3 vMmW;\nuniform sampler2D mmLightMap;\nuniform float mmNight;\nuniform vec4 mmBox;\n' + sh.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+      `outgoingLight += diffuseColor.rgb * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5;
+gl_FragColor = vec4( outgoingLight, diffuseColor.a );`);
+  };
+  mat.customProgramCacheKey = () => base + '|mmlit';
+  mat.needsUpdate = true;
+}
+// Lambert materials get the night light as they appear (trails, buildings and the like are made as you build).
+function patchNightMaterials() {
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m.isMeshLambertMaterial) nightLit(m);
+  });
+}
+function drawLightMap() {
+  const c = lmCtx, k = LM_PX / (2 * HALF);
+  c.globalCompositeOperation = 'source-over'; c.fillStyle = '#000'; c.fillRect(0, 0, LM_PX, LM_PX);
+  c.globalCompositeOperation = 'lighter';
+  const spot = (x, z, r, rgb, a) => {
+    const px = (x + HALF) * k, pz = (z + HALF) * k, pr = r * k, g = c.createRadialGradient(px, pz, 0, px, pz, pr);
+    g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.45, `rgba(${rgb},${a * 0.55})`); g.addColorStop(1, `rgba(${rgb},0)`);
+    c.fillStyle = g; c.fillRect(px - pr, pz - pr, pr * 2, pr * 2);
+  };
+  const WARM = '255,196,130', FIRE = '255,140,60', LAMP = '255,214,160';
+  const open = state.phase === 'open';
+  for (const B of world.buildings) {
+    if (!bldLitNow(B)) continue;
+    if (B.type === 'lamp') spot(B.x, B.z, 5, LAMP, 0.85);
+    else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
+    else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
+  }
+  if (open) for (const p of lotPoles()) if (p.sec < lotsOpen()) spot(p.x, p.z, 7.5, LAMP, 0.7);
+  if (nightNow() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
+  lightTex.needsUpdate = true;
 }
 
 // Evening lights around the resort: windows glow only in buildings that are open right now, lamp posts
@@ -7085,12 +7144,12 @@ function bldLitNow(B) {
   if (state.phase !== 'open') return true;
   return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
 }
-const decorGlow = glowPoints(800, 16, 0xffffff);
+const decorGlow = glowPoints(800, 7, 0xffffff);
 const POOL_GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 const groundPools = new THREE.Mesh(new THREE.BufferGeometry(), POOL_GLOW);
 groundPools.renderOrder = 3; groundPools.frustumCulled = false;
 scene.add(groundPools);
-let lightSig = '', litSig = '', glowSpots = [], poolSpots = [];
+let lightSig = '', litSig = '', lmSig = '', lmSweep = 0, glowSpots = [], poolSpots = [];
 // Poles at the ends of each parking section.
 function lotPoles() {
   const out = [];
@@ -7138,7 +7197,7 @@ function updateEveningGlow() {
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
-  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '');
+  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
   if (lit !== litSig) {
     litSig = lit;
     for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
@@ -7154,8 +7213,10 @@ function updateEveningGlow() {
       col.needsUpdate = true;
     }
   }
-  POOL_GLOW.opacity = 0.75 * dark;
-  groundPools.visible = dark > 0.02;
+  groundPools.visible = false; // the light map does this now
+  MM_LIGHT.night.value = dark;
+  if (dark > 0.02 && (lit !== lmSig)) { lmSig = lit; drawLightMap(); }
+  if ((lmSweep -= 1) <= 0) { lmSweep = 90; patchNightMaterials(); }
   // glow points: lamps and lot poles after dark; fires always, flickering
   const cl = decorGlow.geometry.attributes.color.array, t = performance.now() / 1000;
   let n = 0;
@@ -12533,6 +12594,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.35.1', date: 'Oct 27, 2026', title: 'Night lights that light things', small: true, items: [
+    'After dark, lamp posts, fire pits, open buildings, the parking lot and trail lights now light the snow, buildings, trees and skiers around them, instead of floating glowing orbs.',
+  ] },
   { v: '2.35', date: 'Oct 27, 2026', title: 'Evenings: lights, fire pits and their own panel', show: ['evenings', 'Open Evenings'], spots: ['biz', 'evenings'], items: [
     'Evenings is now its own button under Business: après-ski, night hours, the night ticket and your lit trails, for each plan. Operations is tidier, with lifts and buildings folded into one-line summaries.',
     'Lamp posts and fire pits: place them anywhere. Fire pits give free warm-ups by day and draw an après crowd at night, most of all beside a bar, lodge or restaurant.',
