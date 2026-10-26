@@ -132,6 +132,12 @@ button { font: inherit; color: inherit; }
   body.tb-tight .cash { padding: 8px 10px; }
   body.tb-tight .cash .label { display: none; }
   body.tb-tight .cash .value { font-size: 19px; }
+  /* slim: the status line shortens with an ellipsis and the plan chip steps aside (it's in Operations) */
+  body.tb-slim .tb-sub { flex-wrap: nowrap; }
+  body.tb-slim .tb-st { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.tb-slim .tb-plan:not(.tb-ev) { display: none; }
+  /* with the time bar on its own row, the side buttons drop below it */
+  body.tb-low .manage { top: calc(50% + 56px); }
   /* with the time bar on its own row there's room for the name again; the bulb sits beside it */
   body.tb-low .badge { padding: 7px 12px 7px 8px; gap: 8px; }
   body.tb-low .badge .peak { width: 24px; height: 24px; }
@@ -12730,6 +12736,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.36.1', date: 'Oct 27, 2026', title: 'Steadier top bar', small: true, items: [
+    'On laptop and tablet screens, a long status (an event under way, night skiing) no longer pushes the time bar onto its own row over the side buttons. It shortens the status instead, and goes back to normal when the status does.',
+  ] },
   { v: '2.36', date: 'Oct 27, 2026', title: 'Move buildings, remove parking', small: true, items: [
     'Move any building overnight from its panel: pick a new spot like building it new. It keeps its name, size and history; moving costs a fifth of what it took to build, plus any clearing and leveling.',
     'Parking sections can be removed again (Parking › Main lot), with a little salvage back, and off-site parking can be closed.',
@@ -13567,27 +13576,33 @@ window.addEventListener('resize', resize);
 // stays put; the badge gives way instead: first a smaller name, then just its icon, then the time bar and
 // cash tighten up. Only on screens too narrow even for that does the time bar drop below (phones already
 // stack it there).
-const TOP_FITS = ['', 'badge-sm', 'badge-icon', 'tb-tight', 'tb-low'];
+const TOP_FITS = ['', 'badge-sm', 'badge-icon', 'tb-tight', 'tb-tight tb-slim', 'tb-low']; // tighter and tighter; tb-low puts the time bar on its own row
+let fitFullAt = 0;
 // The layout is worked out afresh only when the window or the day's phase changes (the time bar's buttons
 // differ when open). In between it may only tighten: re-fitting from scratch every check made the cash box and
 // time bar flip between sizes whenever the clock or cash figure grew or shrank by a few pixels.
 let fitKey = '';
 function fitTopBar() {
-  const body = document.body;
-  const key = `${innerWidth}x${innerHeight}:${state.phase}`, full = key !== fitKey;
+  const body = document.body, cls = (c) => (c ? c.split(' ') : []);
+  const has = (c) => c && cls(c).every((k) => body.classList.contains(k));
+  const cur = TOP_FITS.reduce((m, c, i) => (has(c) ? i : m), 0);
+  // a fresh fit when the window or phase changes, and every few seconds while squeezed, so the bar
+  // grows back once a long status (an event, night skiing) is gone
+  const key = `${innerWidth}x${innerHeight}:${state.phase}`, full = key !== fitKey || (cur >= 4 && performance.now() - fitFullAt > 4000);
   fitKey = key;
-  if (innerWidth <= 640 || !$('timebar').getBoundingClientRect().width) { for (const c of TOP_FITS) if (c) body.classList.remove(c); return; }
+  const clear = () => { for (const c of TOP_FITS) body.classList.remove(...cls(c)); };
+  if (innerWidth <= 640 || !$('timebar').getBoundingClientRect().width) { clear(); return; }
   const fits = () => {
     const b = $('badge').getBoundingClientRect(), t = $('timebar').getBoundingClientRect(), k = $('cashBox').getBoundingClientRect();
     return t.left >= b.right + 10 && t.right <= k.left - 10;
   };
-  let i = full ? 0 : Math.max(0, TOP_FITS.findIndex((c) => c && body.classList.contains(c)));
-  if (full) for (const c of TOP_FITS) if (c) body.classList.remove(c);
+  let i = full ? 0 : cur;
+  if (full) { clear(); fitFullAt = performance.now(); }
   else if (fits()) return;
   // Step to tighter layouts until everything fits. A fresh fit keeps a little extra room so small changes don't tip it over.
   for (; i < TOP_FITS.length; i++) {
-    for (const c of TOP_FITS) if (c) body.classList.remove(c);
-    if (TOP_FITS[i]) body.classList.add(TOP_FITS[i]);
+    clear();
+    if (TOP_FITS[i]) body.classList.add(...cls(TOP_FITS[i]));
     if (TOP_FITS[i] === 'tb-low') return;
     if (full ? fitsWithRoom(24) : fits()) return;
   }
