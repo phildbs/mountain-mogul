@@ -87,6 +87,12 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
   .rx .ver { font-weight: 700; }
   .rxbar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: rgba(210, 60, 90, 0.25); vertical-align: middle; overflow: hidden; }
   .rxbar i { display: block; height: 100%; background: #2c9a55; }
+  .fold > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary h2 { margin: 0; }
+  .fold > summary::after { content: '▸'; margin-left: auto; color: var(--ink-2, #5b6472); transition: transform .15s; }
+  .fold[open] > summary::after { transform: rotate(90deg); }
+  .fold[open] > summary { margin-bottom: 8px; }
   .players { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .players th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2, #5b6472); padding: 6px 8px; border-bottom: 1px solid rgba(20,36,58,.12); }
   .players td { vertical-align: top; padding: 8px; border-bottom: 1px solid rgba(20,36,58,.08); }
@@ -203,14 +209,15 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
     if (p.message) return `<h2>Signed-in players</h2><p class="note err">${esc(p.message)}</p>`;
     const nameOf = (u) => u.name || (u.mountains.find((m) => m.creator) || {}).creator || '';
     const day = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    return `<h2>Signed-in players</h2><p class="note">${num(p.length)} ${p.length === 1 ? 'player has' : 'players have'} signed in with Google or email. Guests who never signed in aren’t listed. Most recently active first; tap a resort to visit it read-only.</p>
+    let open = false; try { open = localStorage.getItem('mm.stats.playersOpen') === '1'; } catch (e) {}
+    return `<details class="fold" id="playersFold"${open ? ' open' : ''}><summary><h2>Signed-in players</h2><span class="note">${num(p.length)} ${p.length === 1 ? 'player' : 'players'}</span></summary><p class="note">${num(p.length)} ${p.length === 1 ? 'player has' : 'players have'} signed in with Google or email. Guests who never signed in aren’t listed. Most recently active first; tap a resort to visit it read-only.</p>
       <div class="scroll"><table class="players"><thead><tr><th>Player</th><th>Signed up</th><th>Last seen</th><th>Resorts</th></tr></thead><tbody>${p.map((u) => {
         const n = nameOf(u);
         return `<tr><td>${n ? `<b>${esc(n)}</b>` : '<span class="note">No name set</span>'}${u.name ? '' : n ? ' <span class="priv">from resort</span>' : ''}${u.public ? '' : ' <span class="priv">private profile</span>'}<div class="note">${u.via === 'google' ? 'Google' : 'Email'}</div></td>
           <td>${day(u.joined)}</td><td>${u.last_seen ? ago(u.last_seen) : '–'}</td>
           <td>${u.mountains.length ? u.mountains.map((m) => `<div class="pres"><a class="visit" href="./?visit=${encodeURIComponent(m.id)}">${esc(m.name || 'Unnamed')}</a>${m.public ? '' : ' <span class="priv">private</span>'}
             <span class="note">${esc(mtName(m.mt ?? ''))} · season ${m.season || 1} · ${num(m.guests || 0)} guests all time · ${m.lifts || 0} lifts, ${m.trails || 0} trails${m.stars != null ? ` · ★ ${m.stars}` : ''} · ${ago(m.updated)}</span></div>`).join('') : '<span class="note">No resort saved</span>'}</td></tr>`;
-      }).join('')}</tbody></table></div>`;
+      }).join('')}</tbody></table></div></details>`;
   }
   function reactionsHtml(r) {
     if (!r || r.missing) return '<h2>Update reactions</h2><p class="note">Not set up yet. Run <b>supabase/reactions.sql</b> in the Supabase SQL Editor.</p>';
@@ -252,6 +259,10 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
     $('resorts').innerHTML = `<table><thead><tr>${COLS.map(th).join('')}</tr></thead>
       <tbody>${list.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td><td>${t.public ? `<button class="pickb${t.featured ? ' on' : ''}" data-pick="${esc(t.id)}" title="${t.featured ? 'Remove from staff picks' : 'Add to staff picks (shown in Browse)'}" aria-pressed="${!!t.featured}">${t.featured ? '★' : '☆'}</button>` : ''}</td></tr>`).join('')}</tbody></table>`;
   }
+  // Remember whether the players list was left open.
+  document.addEventListener('toggle', (e) => {
+    if (e.target.id === 'playersFold') try { localStorage.setItem('mm.stats.playersOpen', e.target.open ? '1' : '0'); } catch (err) {}
+  }, true);
   document.addEventListener('click', async (e) => {
     const pk = e.target.closest('[data-pick]');
     if (pk) {
