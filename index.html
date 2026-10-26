@@ -561,6 +561,10 @@ body.visiting .badge { cursor: default; }
 .guidecard b { font-family: var(--display); font-weight: 800; font-size: 21px; line-height: 1.05; text-transform: uppercase; letter-spacing: 0.01em; }
 .guidecard .gc-txt span { font-size: 12.5px; color: var(--ink-2); line-height: 1.35; }
 .guidecard i { font-style: normal; font-size: 26px; color: var(--accent); font-weight: 600; }
+/* Wide screens: the guide sits in the bottom-right corner, always in view, clear of the mountain card. */
+@media (min-width: 1000px) and (min-height: 560px) {
+  #title .guidecard { position: absolute; right: max(24px, env(safe-area-inset-right, 0px)); bottom: 24px; width: 360px; margin: 0; }
+}
 .tfoot { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; width: min(400px, 100%); }
 .tfoot button, .tfoot a { border: 0; background: none; padding: 2px 0; font: 600 12.5px var(--ui); color: var(--ink-2); cursor: pointer; text-decoration: none; }
 .tfoot button:hover, .tfoot a:hover { color: var(--ink); text-decoration: underline; }
@@ -11044,7 +11048,8 @@ function apresPageHtml(r) {
   if (!a.guests) tips.push('Nobody stayed for après today. Happy guests, sunny afternoons and weekends bring the biggest crowds.');
   if (!a.bar) tips.push('A bar at the base draws the biggest après crowd.');
   if (a.guests && a.profit < 0) tips.push('Après lost money today. Try it on weekends only, keep fewer venues open late, or raise drink prices.');
-  if (a.guests && a.venues[0]) tips.push(`${esc(a.venues[0].name)} was the busiest spot, with ${a.venues[0].guests} visits.`);
+  const top = a.venues.find((v) => v.type !== 'firepit');
+  if (a.guests && top) tips.push(`${esc(top.name)} was the busiest spot, with ${top.guests} visits.`);
   if (r.night && r.night.guests) tips.push('Night skiers stop in on their way home too: the bar stays open at least 45 minutes after the lights go out.');
   if (a.locals) tips.push(`${a.locals} locals drove up for the bar in the evening.`);
   if (a.rowdy) tips.push('<b>A rowdy late night got talked about</b> with light security: your reputation slipped a little. Full security after 10 PM prevents it.');
@@ -11060,7 +11065,7 @@ function apresPageHtml(r) {
     </dl>
     <div class="rp-lines">
       <span class="h">Revenue</span>
-      ${a.venues.length ? a.venues.map((v) => (v.type === 'firepit' ? `<span>${esc(v.name)} · ${v.guests} visits</span><span>free</span>` : line(`${esc(v.name)} · ${v.guests} visits`, v.rev))).join('') : '<span>No sales</span><span>$0</span>'}
+      ${a.venues.length ? a.venues.filter((v) => v.type !== 'firepit').map((v) => line(`${esc(v.name)} · ${v.guests} visits`, v.rev)).join('') + ((pits) => (pits.length ? `<span>Fire pits${pits.length > 1 ? ` × ${pits.length}` : ''} · ${pits.reduce((n, v) => n + v.guests, 0)} visits</span><span>free</span>` : ''))(a.venues.filter((v) => v.type === 'firepit')) : '<span>No sales</span><span>$0</span>'}
       <span class="tot">Après revenue</span><span class="tot">${money(a.rev)}</span>
       <span class="h">Expenses</span>
       ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff - (a.security || 0))}${a.security ? line('Security after 10 PM', a.security) : ''}${line('Drinks and food', a.cogs)}
@@ -11582,11 +11587,11 @@ function opsReportHtml(r) {
     if (L.stopped) continue;
     rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
   }
-  // Lights are one line per kind, with what they cost together; there can be dozens.
-  const many = { tlight: 'Trail lights', lamp: 'Lamp posts' };
+  // Lights and fire pits are one line per kind, with what they cost together; there can be dozens.
+  const many = { tlight: 'Trail lights', lamp: 'Lamp posts', firepit: 'Fire pits' };
   for (const [type, label] of Object.entries(many)) {
-    const Ls = o.blds.filter((B) => B.type === type);
-    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
+    const Ls = o.blds.filter((B) => B.type === type), visits = Ls.reduce((a, B) => a + B.visits, 0);
+    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${type === 'firepit' ? `${visits.toLocaleString('en-US')} visits · ` : ''}${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
   }
   for (const B of o.blds) {
     if (many[B.type]) continue;
@@ -12135,11 +12140,11 @@ async function loadBoard(force) {
   CLOUD.boardAt = Date.now();
   const [{ data, error }, picks, social] = await Promise.all([
     CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500),
-    CLOUD.sb.from('featured').select('mountain_id').eq('picked', true).then((r) => r, () => ({ data: null })),
+    CLOUD.sb.from('featured').select('mountain_id, picked_at').eq('picked', true).then((r) => r, () => ({ data: null })),
     CLOUD.sb.rpc('social_counts').then((r) => r, () => ({ data: null })),
   ]);
   if (error) { CLOUD.boardAt = 0; return; }
-  CLOUD.picks = new Set(((picks && picks.data) || []).map((r) => r.mountain_id));
+  CLOUD.picks = new Map(((picks && picks.data) || []).map((r) => [r.mountain_id, Date.parse(r.picked_at) || 0])); // id → when it was picked
   CLOUD.social = new Map(((social && social.data) || []).map((r) => [r.mountain_id, { likes: r.likes, visits: r.visits }]));
   const soc = (id) => CLOUD.social.get(id) || { likes: 0, visits: 0 };
   CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at), ...soc(r.id) })).filter((m) => m.name);
@@ -12598,7 +12603,7 @@ function browseHtml() {
   if (!others.length) return '<p class="help">No other resorts to browse yet. Check back soon.</p>';
   const week = Date.now() - 7 * 864e5;
   const shelves = [
-    ['Staff picks', 'Hand-picked resorts worth a visit.', others.filter((m) => CLOUD.picks && CLOUD.picks.has(m.id)), null],
+    ['Staff picks', 'Hand-picked resorts worth a visit.', others.filter((m) => CLOUD.picks && CLOUD.picks.has(m.id)).sort((a, b) => CLOUD.picks.get(b.id) - CLOUD.picks.get(a.id)), null], // newest picks first
     ['Recently active', 'Played in the last few hours and days.', [...others].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), (m) => agoShort(m.updatedAt)],
     ['Rising stars', 'New resorts in their first season, busiest first.', others.filter((m) => (m.season || 1) <= 1 && (m.updatedAt || 0) > week && (m.bestGuests || 0) > 0).sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)), null],
     ['Most liked', 'The resorts players love most.', others.filter((m) => m.likes > 0).sort((a, b) => b.likes - a.likes), null],
@@ -12865,6 +12870,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.37.4', date: 'Oct 27, 2026', title: 'Tidier reports', small: true, items: [
+    'Fire pits are one line in the day report and the Après report, with their visits added up.',
+    'Browse shows the newest staff picks first.',
+    'On wide screens the player’s guide sits in the corner of the title screen, always in view.',
+  ] },
   { v: '2.37.3', date: 'Oct 27, 2026', title: 'Steadier after switching apps', small: true, items: [
     'On phones, if the graphics reset while the game was in the background, it now waits until you come back before reloading, instead of reloading out of sight and landing on “couldn’t start the 3D view”.',
   ] },
