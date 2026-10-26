@@ -1891,10 +1891,15 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: GFX !== 'low', alpha: true, powerPreference: GFX === 'full' ? 'high-performance' : 'default' });
 } catch (e) {
-  noteError(`3D view couldn’t start (${GFX}): ${e.message}`, e.stack, { t: Date.now(), gfx: GFX, w: innerWidth, h: innerHeight, dpr: devicePixelRatio });
-  window.mmBootTrouble('gl');
+  // Started in the background (a reload after a reset while the app was switched away): browsers often
+  // refuse 3D to a hidden page. Try once more when the player comes back, before showing the trouble box.
+  let again = false; try { again = document.hidden && !sessionStorage.getItem('mm.glRetry'); if (again) sessionStorage.setItem('mm.glRetry', '1'); } catch (err) { /* ignore */ }
+  if (again) document.addEventListener('visibilitychange', () => { if (!document.hidden) location.reload(); });
+  else window.mmBootTrouble('gl');
+  noteError(`3D view couldn’t start (${GFX}${document.hidden ? ', in background' : ''}): ${e.message}`, e.stack, { t: Date.now(), gfx: GFX, w: innerWidth, h: innerHeight, dpr: devicePixelRatio });
   throw e;
 }
+try { sessionStorage.removeItem('mm.glRetry'); } catch (e) { /* ignore */ }
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, { full: 2, phone: 1.25, low: 1 }[GFX]));
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = GFX !== 'low';
@@ -1903,21 +1908,28 @@ renderer.shadowMap.autoUpdate = false;
 
 // Phones sometimes reset the graphics chip (low memory, switching apps). The 3D view
 // then goes blank while the rest of the page keeps running, so save and reload
-// straight back into the game.
+// straight back into the game. If it happened while the game was switched away, wait until the
+// player comes back: a page reloaded in the background often can't get its 3D view back.
 let glLost = false;
 canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   if (glLost) return;
   glLost = true;
+  const away = document.hidden;
   try {
-    const recent = (readJSON('mm.glresets') || []).filter((t) => Date.now() - t < 300e3).concat(Date.now());
-    localStorage.setItem('mm.glresets', JSON.stringify(recent));
-    noteError(`Graphics reset (${GFX})`, '', crumbs());
-    if (recent.length >= 2 && GFX !== 'low') { localStorage.setItem('mm.gfx', 'low'); localStorage.setItem('mm.gfxAuto', '1'); }
+    noteError(`Graphics reset (${GFX}${away ? ', in background' : ''})`, '', crumbs());
+    // Resets while away are the phone reclaiming memory, not the game being too heavy: they don't count.
+    if (!away) {
+      const recent = (readJSON('mm.glresets') || []).filter((t) => Date.now() - t < 300e3).concat(Date.now());
+      localStorage.setItem('mm.glresets', JSON.stringify(recent));
+      if (recent.length >= 2 && GFX !== 'low') { localStorage.setItem('mm.gfx', 'low'); localStorage.setItem('mm.gfxAuto', '1'); }
+    }
   } catch (err) { /* ignore */ }
-  setTimeout(recoverGraphics, 1500);
+  if (away) { try { if (state.started && !visiting) saveNow(); } catch (err) { /* ignore */ } }
+  else setTimeout(recoverGraphics, 1500);
 });
-canvas.addEventListener('webglcontextrestored', () => { if (glLost) recoverGraphics(); });
+document.addEventListener('visibilitychange', () => { if (glLost && !document.hidden) setTimeout(recoverGraphics, 300); });
+canvas.addEventListener('webglcontextrestored', () => { if (glLost && !document.hidden) recoverGraphics(); });
 function recoverGraphics() {
   if (!glLost) return;
   glLost = false;
@@ -12853,6 +12865,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.37.3', date: 'Oct 27, 2026', title: 'Steadier after switching apps', small: true, items: [
+    'On phones, if the graphics reset while the game was in the background, it now waits until you come back before reloading, instead of reloading out of sight and landing on “couldn’t start the 3D view”.',
+  ] },
   { v: '2.37.2', date: 'Oct 27, 2026', title: 'Lights on one line', small: true, items: [
     'The day report lists trail lights and lamp posts as one line each, with how many you have and their upkeep added up.',
     'Fixed: each light and fire pit was also charged a building’s staff wages ($600 a day). They now cost only their upkeep.',
@@ -13811,7 +13826,7 @@ function frame(now) {
   processHover();
   updateLabels();
   updateHandles();
-  if (!NO_RENDER) renderer.render(scene, camera);
+  if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
 }
 
