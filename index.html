@@ -755,6 +755,7 @@ a.vtag { text-decoration: none; }
 .tb-st { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-plan { flex: none; border: 1px solid rgba(223, 86, 44, 0.35); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 7px; font: 700 10.5px var(--ui); cursor: pointer; }
 .tb-plan:disabled { cursor: default; opacity: 0.7; }
+.tb-ev { border-color: rgba(122, 76, 196, 0.4); background: rgba(122, 76, 196, 0.12); color: #6a3fb8; }
 .rp-ops { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 7px; }
 .rp-ops-h { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
 .rp-ops-h > span:last-child { color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -789,6 +790,7 @@ a.vtag { text-decoration: none; }
 .rp-auto[hidden] { display: none; }
 body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .tb-speed button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.18); }
+.tb-speed button:disabled { opacity: 0.35; cursor: default; }
 .tb-go { padding: 9px 14px; font-size: 13.5px; }
 .tb-go.calm { background: var(--ink); box-shadow: none; }
 .tb-go.calm:hover { background: #22364f; }
@@ -2493,6 +2495,7 @@ function applySave(sv) {
   satSpaces = 0;
   rebuildWorld(ok ? sv.world : null);
   Object.assign(state, SIM_DEFAULTS, ok && sv.clock ? sv.clock : {});
+  if (ok && sv.clock && !('rebated' in sv.clock)) state.rebated = 0; // saved before 2.33.2: may be owed the grooming refund
   if (satSpaces) {
     // A resort saved with satellite lots gets off-site parking at least as big, free.
     const tier = OFFSITE.findIndex((o) => o.spaces >= satSpaces);
@@ -5114,7 +5117,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, rebated: 0, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5448,7 +5451,7 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0 }, satSum: 0, satN: 0,
   };
@@ -5568,6 +5571,7 @@ function goQueue(g, L, mode) {
   setMove(g, queueSlot(L, L.queue.length + L.incoming - 1), mode, { k: 'queue', lid: L.id });
 }
 function goCar(g) {
+  if (staysForShow(g)) { const p = watchSpot(); if (!g.leaving) g.leaving = true; return setMove(g, p, g.onSkis ? 'glide' : 'walk', { k: 'watch' }); }
   if (!g.leaving) { g.leaving = true; thought(g, 'Time to head home.'); }
   const car = cars.find((c) => c.id === g.car) || offCars.find((c) => c.id === g.car);
   if (g.bus || (car && car.offsite)) {
@@ -5989,6 +5993,8 @@ function arrive(g) {
     joinBuildingQueue(g, B);
   } else if (t.k === 'bus') {
     g.st = 'busq';
+  } else if (t.k === 'watch') {
+    g.st = 'watch';
   } else if (t.k === 'pq') {
     g.st = 'pq'; g.qSince = state.time;
   }
@@ -6056,6 +6062,7 @@ function updateGuest(g, dt) {
       break;
     }
     case 'inside': case 'lesson': if (state.time >= g.until) finishVisit(g); break;
+    case 'watch': if (state.time >= TORCH.parade[1] + 8) showOver(g); break;
     default: break;
   }
   if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow') updateNeeds(g, dt);
@@ -6239,7 +6246,9 @@ function simStep(dt) {
     for (const g of guests) if (!g.leaving && g.st !== 'incar') { g.leaving = true; thought(g, 'Lifts are closing. Last run!'); }
     for (const L of world.lifts) if (L.fromBase) for (const g of L.queue.splice(0)) baseDecision(g);
   }
-  if ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= closeTime() + DAY_HARD_END - DAY_CLOSE) endDay();
+  // On a torchlight night the day runs until the fireworks are done.
+  const show = torchTonight() && state.time < TORCH.end;
+  if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= closeTime() + DAY_HARD_END - DAY_CLOSE)) endDay();
 }
 
 function openDay() {
@@ -6358,7 +6367,7 @@ function endDay() {
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights,
+    busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6476,6 +6485,385 @@ function nextDay() {
   if (!hadPlans) toast(w.snow >= 4 && w.type !== 'rain' ? `${inch(w.snow)} of new snow overnight!` : smr.trails ? `Snowmaking ran on ${smr.trails} ${smr.trails === 1 ? 'trail' : 'trails'} overnight · −${money(smr.cost)}` : 'Overnight: build and plan, then open for the day.');
 }
 
+/* =====================================================================
+   EVENTS ON THE MOUNTAIN
+   A booked event shows: the torchlight parade at dusk with fireworks after, race gates and racers on
+   the black diamond, a pond skim at the bottom of a green run. Guests stay to watch.
+   ===================================================================== */
+const TORCH = { dusk: [955, 985], parade: [972, 1000], fireworks: [996, 1014], end: 1015 };
+const showToday = () => (state.phase === 'open' ? eventToday() : null);
+const torchTonight = () => { const e = showToday(); return !!e && e.type === 'torch'; };
+// The show runs at normal speed, so it doesn't flash past at 4x: the game drops to 1x as the parade
+// starts, holds there (pausing still works), and goes back to the player's speed after the fireworks.
+const showSlow = () => torchTonight() && state.time >= TORCH.parade[0] - 5 && state.time < TORCH.end;
+let showSpeed = null;
+function syncShowSpeed() {
+  if (showSlow()) {
+    if (showSpeed == null) {
+      showSpeed = state.speed;
+      if (state.speed > 1) toast('Slowing to 1× for the torchlight parade and fireworks.');
+    }
+    if (state.speed > 1) state.speed = 1;
+  } else if (showSpeed != null) {
+    if (state.speed === 1 && showSpeed > 1) state.speed = showSpeed;
+    showSpeed = null;
+  }
+}
+// The parade comes down the gentlest connected trail: the longest of the easiest.
+let torchCache = null;
+function torchTrail() {
+  if (torchCache && torchCache.day === state.day && world.trails.includes(torchCache.t)) return torchCache.t;
+  const ok = realTrails().filter((t) => t.open && t.reachable && t.returns);
+  ok.sort((a, b) => trailSign(a) - trailSign(b) || b.an.len - a.an.len);
+  torchCache = { day: state.day, t: ok[0] || null };
+  return torchCache.t;
+}
+const TORCH_N = 16, TORCH_GAP = 1.5;
+const TORCH_LOOK = { jc: 0xc0302a, pc: 0x24272e, hc: 0xf2f2f2 };
+// Soft round glows for torches and fireworks.
+const GLOW_TEX = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.75)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+// Sized in screen pixels, so a torch or a spark reads at any zoom.
+function glowPoints(n, size, color) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  geo.setDrawRange(0, 0);
+  const m = new THREE.Points(geo, new THREE.PointsMaterial({ size: size * renderer.getPixelRatio(), sizeAttenuation: false, map: GLOW_TEX, color, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  m.frustumCulled = false; m.renderOrder = 8;
+  scene.add(m);
+  return m;
+}
+const torchGlow = glowPoints(TORCH_N, 16, 0xffb050);
+const FW_N = 2400;
+const fireworks = glowPoints(FW_N, 7, 0xffffff);
+const fw = { vel: new Float32Array(FW_N * 3), life: new Float32Array(FW_N), max: new Float32Array(FW_N), base: new Float32Array(FW_N * 3), next: 0, t: 0, rockets: [] };
+const FW_COLORS = [[1, 0.35, 0.3], [1, 0.8, 0.3], [0.45, 0.75, 1], [0.6, 1, 0.55], [1, 0.5, 0.95], [1, 1, 1]];
+// Where the fireworks go up: over the base area, beside the main lot.
+function fireworksSpot() {
+  const lodge = world.buildings.find((B) => B.isBase && B.type === 'lodge'), c = lodge || lotCenter() || roadEnd();
+  return { x: c.x, z: c.z - 8 };
+}
+function burst(x, y, z) {
+  const col = FW_COLORS[Math.floor(Math.random() * FW_COLORS.length)], n = 90, sp = 9 + Math.random() * 6;
+  const pos = fireworks.geometry.attributes.position.array, cl = fireworks.geometry.attributes.color.array;
+  for (let k = 0; k < n; k++) {
+    const i = fw.next; fw.next = (fw.next + 1) % FW_N;
+    const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u), s = sp * (0.75 + Math.random() * 0.25);
+    pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+    fw.vel[i * 3] = r * Math.cos(a) * s; fw.vel[i * 3 + 1] = u * s; fw.vel[i * 3 + 2] = r * Math.sin(a) * s;
+    fw.life[i] = fw.max[i] = 1.6 + Math.random() * 0.7;
+    fw.base[i * 3] = col[0]; fw.base[i * 3 + 1] = col[1]; fw.base[i * 3 + 2] = col[2];
+    cl.set(col, i * 3);
+  }
+}
+// Real time, not game time: a firework looks the same at any speed.
+function updateFireworks(dt) {
+  const on = torchTonight() && state.time >= TORCH.fireworks[0] && state.time < TORCH.fireworks[1];
+  const pos = fireworks.geometry.attributes.position.array, cl = fireworks.geometry.attributes.color.array;
+  if (on) {
+    fw.t -= dt;
+    if (fw.t <= 0) {
+      fw.t = 0.25 + Math.random() * 0.45;
+      const c = fireworksSpot(), x = c.x + (Math.random() - 0.5) * 40, z = c.z + (Math.random() - 0.5) * 20;
+      fw.rockets.push({ x, z, y: heightAt(x, z), top: heightAt(x, z) + 30 + Math.random() * 18, slot: fw.next });
+      fw.next = (fw.next + 1) % FW_N;
+    }
+  }
+  for (const r of fw.rockets) {
+    r.y += dt * 40;
+    const i = r.slot;
+    pos[i * 3] = r.x; pos[i * 3 + 1] = r.y; pos[i * 3 + 2] = r.z; cl.set([1, 0.85, 0.6], i * 3); fw.life[i] = 0.2; fw.max[i] = 0.2;
+    if (r.y >= r.top) { r.done = true; burst(r.x, r.y, r.z); }
+  }
+  fw.rockets = fw.rockets.filter((r) => !r.done);
+  let any = false;
+  for (let i = 0; i < FW_N; i++) {
+    if (fw.life[i] <= 0) continue;
+    any = true;
+    fw.life[i] -= dt;
+    const f = Math.max(0, fw.life[i] / fw.max[i]);
+    fw.vel[i * 3 + 1] -= 5 * dt;
+    for (let a = 0; a < 3; a++) { fw.vel[i * 3 + a] *= 1 - 0.9 * dt; pos[i * 3 + a] += fw.vel[i * 3 + a] * dt; }
+    cl[i * 3] = fw.base[i * 3] * f; cl[i * 3 + 1] = fw.base[i * 3 + 1] * f; cl[i * 3 + 2] = fw.base[i * 3 + 2] * f;
+  }
+  fireworks.geometry.setDrawRange(0, any || fw.rockets.length ? FW_N : 0);
+  fireworks.geometry.attributes.position.needsUpdate = true; fireworks.geometry.attributes.color.needsUpdate = true;
+}
+// The torch-bearers: instructors in red, one after another, each with a flame.
+function drawTorches(n) {
+  const T = torchTonight() && state.time >= TORCH.parade[0] && state.time < TORCH.parade[1] + 2 ? torchTrail() : null;
+  let lit = 0;
+  if (T) {
+    const p = (state.time - TORCH.parade[0]) / (TORCH.parade[1] - TORCH.parade[0]), head = p * (T.len + TORCH_N * TORCH_GAP);
+    const pos = torchGlow.geometry.attributes.position.array, cl = torchGlow.geometry.attributes.color.array;
+    for (let i = 0; i < TORCH_N; i++) {
+      const s = head - i * TORCH_GAP;
+      if (s < 0 || s > T.len) continue;
+      // a gentle zigzag, the way a torchlight descent winds down the slope
+      const k = Math.min(T.samples.length - 2, Math.floor(s / 0.5)), a = T.samples[k], b = T.samples[k + 1];
+      const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1, side = Math.sin(s * 0.35) * TRAIL_WIDTHS[T.width].hw * 0.45;
+      const x = a.x - dz / L * side, z = a.z + dx / L * side, y = heightAt(x, z) + 0.12;
+      if (n < MAX_G) writeFig(n++, x, y, z, Math.atan2(dx, dz), 1, TORCH_LOOK, 0.12);
+      const fl = 0.85 + Math.random() * 0.15;
+      pos[lit * 3] = x; pos[lit * 3 + 1] = y + 0.55 * figScale; pos[lit * 3 + 2] = z;
+      cl[lit * 3] = fl; cl[lit * 3 + 1] = fl * 0.92; cl[lit * 3 + 2] = fl * 0.8;
+      lit++;
+    }
+    torchGlow.geometry.attributes.position.needsUpdate = true; torchGlow.geometry.attributes.color.needsUpdate = true;
+  }
+  torchGlow.geometry.setDrawRange(0, lit);
+  return n;
+}
+// Dusk falls over the mountain on parade night.
+let duskK = 0;
+const DUSK_SKY = ['#1b2040', '#4a3f68'];
+function updateDusk() {
+  const k = torchTonight() ? sstep(TORCH.dusk[0], TORCH.dusk[1], state.time) : 0;
+  if (Math.abs(k - duskK) < 0.01 && !(k === 0 && duskK > 0)) return;
+  duskK = k;
+  applyWeatherLook();
+}
+function darkenForDusk(L) {
+  if (!duskK) return;
+  sun.intensity = L.sun * (1 - 0.9 * duskK); hemi.intensity = L.hemi * (1 - 0.7 * duskK);
+  const mix = (a, b) => '#' + new THREE.Color(a).lerp(new THREE.Color(b), duskK).getHexString();
+  document.documentElement.style.setProperty('--sky-1', mix(L.sky[0], DUSK_SKY[0]));
+  document.documentElement.style.setProperty('--sky-2', mix(L.sky[1], DUSK_SKY[1]));
+  const h = new THREE.Color(L.haze).lerp(new THREE.Color(0x3a3d5c), duskK);
+  HAZE.copy(h); scene.fog.color.copy(h);
+}
+// Guests heading home on parade night stop to watch first, near the bottom of the parade trail.
+function watchSpot() {
+  const T = torchTrail(), end = T ? T.samples[T.samples.length - 1] : roadEnd();
+  const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 5;
+  return { x: end.x + Math.cos(a) * r, z: end.z + Math.sin(a) * r };
+}
+const staysForShow = (g) => torchTonight() && state.time >= 900 && state.time < TORCH.parade[1] && !g.watched && g.sat >= 30 && g.st !== 'hurt';
+function showOver(g) {
+  g.watched = true;
+  g.sat = clamp(g.sat + 6, 0, 100);
+  today.showGuests = (today.showGuests || 0) + AGENT;
+  thought(g, Math.random() < 0.5 ? 'The torchlight parade was amazing!' : 'Fireworks over the mountain. What a way to end the day!');
+  if (Math.random() < 0.45) g.apres = true;
+  if (!maybeApres(g)) goCar(g);
+}
+
+// Race weekend: gates down the hardest open run, racers one after another, a crowd at the finish.
+const RACE = { start: 600, end: 900, gap: 6, gate: 7 };
+const raceToday = () => { const e = showToday(); return !!e && e.type === 'race'; };
+let raceCache = null;
+function raceTrail() {
+  if (raceCache && raceCache.day === state.day && world.trails.includes(raceCache.t)) return raceCache.t;
+  const ok = realTrails().filter((t) => t.open && t.reachable && t.returns && trailSign(t) >= 2);
+  ok.sort((a, b) => trailSign(b) - trailSign(a) || b.an.len - a.an.len);
+  raceCache = { day: state.day, t: ok[0] || null };
+  return raceCache.t;
+}
+const hashR = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+const RACER_SPEED = SKI_SPEED[3] * 60 * 2; // units per game minute, twice an expert
+const RACER_JACKETS = [0x1f5fbf, 0xd23b2e, 0xf2c230, 0x111418, 0x2fa36b, 0xe85d9c];
+const CROWD_JACKETS = [0x3b6fb6, 0xc0442e, 0x2f8f5e, 0xe0a030, 0x7a4cc4, 0x2b2f36, 0xd9d4c7];
+// Each racer's run: a little faster or slower than the field, the same every time it's drawn.
+function racerRun(T, k) {
+  const r = hashR(state.day * 131 + k * 17 + 3);
+  return { start: RACE.start + k * RACE.gap, dur: T.len / RACER_SPEED * (0.93 + r * 0.14), r };
+}
+const racerCount = () => Math.floor((Math.min(RACE.end, closeTime() - 10) - RACE.start) / RACE.gap) + 1;
+// The racing line: across the trail and back, through a gate at each turn.
+function raceLine(T, s) {
+  const k = Math.min(T.samples.length - 2, Math.max(0, Math.floor(s / 0.5))), a = T.samples[k], b = T.samples[k + 1];
+  const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1;
+  const amp = s < RACE.gate * 0.5 || s > T.len - RACE.gate ? 0 : TRAIL_WIDTHS[T.width].hw * 0.45;
+  const side = Math.sin((s - RACE.gate * 0.5) / RACE.gate * Math.PI + Math.PI / 2) * amp;
+  return { x: a.x - dz / L * side, z: a.z + dx / L * side, cx: a.x, cz: a.z, nx: -dz / L, nz: dx / L, yaw: Math.atan2(dx, dz) };
+}
+let raceCourse = null, raceKey = '';
+function syncRaceCourse() {
+  const T = raceToday() ? raceTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === raceKey) return;
+  raceKey = key;
+  if (raceCourse) { scene.remove(raceCourse); raceCourse.traverse((o) => o.isMesh && o.geometry.dispose()); raceCourse = null; }
+  if (!T) return;
+  const g = new THREE.Group(), pole = new THREE.CylinderGeometry(0.035, 0.035, 1.1, 5);
+  const red = new THREE.MeshLambertMaterial({ color: 0xd8342a }), blue = new THREE.MeshLambertMaterial({ color: 0x2559c4 }), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  const add = (geo, mat, x, y, z, yaw) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = yaw || 0; m.castShadow = true; g.add(m); return m; };
+  // gates: two poles and a panel, alternating red and blue
+  let n = 0;
+  for (let s = RACE.gate; s < T.len - RACE.gate; s += RACE.gate, n++) {
+    const p = raceLine(T, s), mat = n % 2 ? blue : red;
+    for (const o of [-0.65, 0.65]) { const x = p.x + p.nx * o, z = p.z + p.nz * o; add(pole, mat, x, heightAt(x, z) + 0.55, z); }
+    add(new THREE.BoxGeometry(1.3, 0.42, 0.03), mat, p.x, heightAt(p.x, p.z) + 0.82, p.z, p.yaw);
+  }
+  // the finish: an arch across the trail and fencing down the last stretch
+  const hw = TRAIL_WIDTHS[T.width].hw, f = raceLine(T, T.len - 2.5), tall = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
+  for (const o of [-hw - 0.3, hw + 0.3]) { const x = f.cx + f.nx * o, z = f.cz + f.nz * o; add(tall, white, x, heightAt(x, z) + 1.3, z); }
+  add(new THREE.BoxGeometry(hw * 2 + 0.8, 0.45, 0.08), red, f.cx, heightAt(f.cx, f.cz) + 2.45, f.cz, f.yaw);
+  const rail = new THREE.BoxGeometry(0.05, 0.35, 1);
+  for (let s = T.len - 16; s < T.len - 1.5; s += 1.5) {
+    const p = raceLine(T, s), q = raceLine(T, s + 1.5);
+    for (const o of [-hw * 0.68, hw * 0.68]) {
+      const x0 = p.cx + p.nx * o, z0 = p.cz + p.nz * o, x1 = q.cx + q.nx * o, z1 = q.cz + q.nz * o, x = (x0 + x1) / 2, z = (z0 + z1) / 2;
+      add(rail, FENCE_MAT, x, heightAt(x, z) + 0.2, z, Math.atan2(x1 - x0, z1 - z0)).scale.z = Math.hypot(x1 - x0, z1 - z0);
+    }
+  }
+  mergeStatic(g);
+  raceCourse = g; scene.add(g);
+}
+// Racers on the course, and the crowd along the finish fences.
+function drawRace(n) {
+  const T = raceToday() ? raceTrail() : null;
+  if (!T) return n;
+  const t = state.time;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - RACE.start) / RACE.gap) - 3); k < racerCount() && n < MAX_G; k++) {
+    const run = racerRun(T, k);
+    if (run.start > t) break;
+    const e = (t - run.start) / run.dur;
+    if (e >= 1) continue;
+    const s = T.len * e, p = raceLine(T, s), q = raceLine(T, Math.min(T.len, s + 0.6));
+    if (s > T.len - 20) near = true;
+    writeFig(n++, p.x, heightAt(p.x, p.z) + 0.12, p.z, Math.atan2(q.x - p.x, q.z - p.z), 0.82, { jc: RACER_JACKETS[k % RACER_JACKETS.length], pc: 0x15171c, hc: 0xf2f2f2 }, 0.35);
+  }
+  if (t < RACE.start - 30 || t > RACE.end + 20) return n;
+  return drawCrowd(T, n, T.len - 3, TRAIL_WIDTHS[T.width].hw * 0.68 + 0.35, near);
+}
+// Spectators down both sides of the last stretch of a trail, facing in; they jump when something's happening.
+function drawCrowd(T, n, s0, inner, near) {
+  const hw = TRAIL_WIDTHS[T.width].hw, now = performance.now() / 1000;
+  for (let i = 0; i < 26 && n < MAX_G; i++) {
+    const s = s0 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
+    const o = side * (inner + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+    const hop = near ? Math.max(0, Math.sin(now * 9 + i * 1.7)) * 0.12 : 0;
+    writeFig(n++, x, heightAt(x, z) + 0.12 + hop, z, p.yaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2), 1, { jc: CROWD_JACKETS[i % CROWD_JACKETS.length], pc: 0x2b2f36, hc: hashR(i * 3) < 0.5 ? 0xe8c39e : 0x8d5a3c }, 0);
+  }
+  return n;
+}
+// The day's results, for the report: how many ran and the fastest time.
+function raceResults() {
+  const T = raceTrail();
+  if (!T) return null;
+  let best = null;
+  const runs = racerCount();
+  for (let k = 0; k < runs; k++) {
+    const run = racerRun(T, k), secs = T.len * FT_PER_UNIT / 70 * (0.93 + run.r * 0.14);
+    if (!best || secs < best.secs) best = { secs, bib: k + 1 };
+  }
+  return { runs, trail: T.name, best };
+}
+const raceTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+
+// Pond skim: a meltwater pond at the bottom of the gentlest run, and skiers in costume trying to cross it.
+const POND = { start: 660, end: 900, gap: 4, run: 32, at: 9, len: 6 };
+const pondToday = () => { const e = showToday(); return !!e && e.type === 'pond'; };
+const COSTUMES = [
+  { jc: 0xff4fa3, pc: 0xffd23a, hc: 0x7cf0ff }, { jc: 0x48d16a, pc: 0x7a3dc8, hc: 0xffa12b }, { jc: 0xffe14a, pc: 0x1f5fbf, hc: 0xff4f4f },
+  { jc: 0xf4f4f4, pc: 0xd8342a, hc: 0xd8342a }, { jc: 0xff8a1f, pc: 0x24272e, hc: 0x48d16a }, { jc: 0x2bc4d8, pc: 0xff4fa3, hc: 0xffe14a },
+];
+const pondCount = () => Math.floor((Math.min(POND.end, closeTime() - 10) - POND.start) / POND.gap) + 1;
+// Each skimmer's attempt: how fast, and whether they make it across. The same every time it's drawn.
+function skimRun(k) {
+  const r = hashR(state.day * 71 + k * 29 + 11), f = hashR(state.day * 13 + k * 7 + 5);
+  return { start: POND.start + k * POND.gap, speed: RACER_SPEED * (0.5 + r * 0.25), dry: f < 0.45, sink: 0.25 + f * 0.6 };
+}
+let pondMesh = null, pondKey = '';
+function syncPond() {
+  const T = pondToday() ? torchTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === pondKey) return;
+  pondKey = key;
+  if (pondMesh) { scene.remove(pondMesh); pondMesh.traverse((o) => o.isMesh && o.geometry.dispose()); pondMesh = null; }
+  if (!T || T.len < POND.run + 4) return;
+  // a disc draped over the snow, so it sits flat on a slope
+  const hw = TRAIL_WIDTHS[T.width].hw, mid = T.len - POND.at + POND.len / 2, R = 24, rings = 6;
+  const g = new THREE.Group(), pos = [], idx = [];
+  const at = (u, v) => { const p = raceLine(T, mid + u * POND.len / 2); const x = p.cx + p.nx * v * hw * 0.85, z = p.cz + p.nz * v * hw * 0.85; return [x, heightAt(x, z) + 0.05, z]; };
+  pos.push(...at(0, 0));
+  for (let r = 1; r <= rings; r++) for (let a = 0; a < R; a++) { const t = a / R * Math.PI * 2, k = r / rings; pos.push(...at(Math.cos(t) * k, Math.sin(t) * k)); }
+  for (let a = 0; a < R; a++) idx.push(0, 1 + a, 1 + (a + 1) % R);
+  for (let r = 1; r < rings; r++) for (let a = 0; a < R; a++) {
+    const i0 = 1 + (r - 1) * R + a, i1 = 1 + (r - 1) * R + (a + 1) % R, j0 = i0 + R, j1 = i1 + R;
+    idx.push(i0, j0, j1, i0, j1, i1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const water = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3f93d6, transparent: true, opacity: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  water.receiveShadow = true; water.renderOrder = 2;
+  g.add(water);
+  // bunting poles at the corners
+  const pole = new THREE.CylinderGeometry(0.06, 0.06, 2.2, 6), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  for (const [u, v] of [[-1.1, -1.15], [-1.1, 1.15], [1.1, -1.15], [1.1, 1.15]]) {
+    const [x, y, z] = at(u, v), m = new THREE.Mesh(pole, white); m.position.set(x, y + 1.05, z); m.castShadow = true; g.add(m);
+  }
+  pondMesh = g; scene.add(g);
+}
+const splash = glowPoints(400, 6, 0xffffff);
+const splashSt = { vel: new Float32Array(400 * 3), life: new Float32Array(400), next: 0, done: new Set() };
+function splashAt(x, y, z) {
+  const pos = splash.geometry.attributes.position.array;
+  for (let k = 0; k < 40; k++) {
+    const i = splashSt.next, a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 1.6;
+    splashSt.next = (splashSt.next + 1) % 400;
+    pos.set([x, y + 0.2, z], i * 3);
+    splashSt.vel.set([Math.cos(a) * r, 2 + Math.random() * 2.5, Math.sin(a) * r], i * 3);
+    splashSt.life[i] = 0.8 + Math.random() * 0.5;
+  }
+}
+function updateSplash(dt) {
+  const pos = splash.geometry.attributes.position.array, cl = splash.geometry.attributes.color.array;
+  let any = false;
+  for (let i = 0; i < 400; i++) {
+    if (splashSt.life[i] <= 0) continue;
+    any = true; splashSt.life[i] -= dt; splashSt.vel[i * 3 + 1] -= 7 * dt;
+    for (let a = 0; a < 3; a++) pos[i * 3 + a] += splashSt.vel[i * 3 + a] * dt;
+    const f = Math.max(0, Math.min(1, splashSt.life[i] / 0.6)); cl[i * 3] = 0.75 * f; cl[i * 3 + 1] = 0.9 * f; cl[i * 3 + 2] = f;
+  }
+  splash.geometry.setDrawRange(0, any ? 400 : 0);
+  splash.geometry.attributes.position.needsUpdate = true; splash.geometry.attributes.color.needsUpdate = true;
+}
+// Skimmers come down the last stretch, hit the water, and either skim across or go in and wade out.
+function drawPond(n) {
+  const T = pondToday() ? torchTrail() : null;
+  if (!T || !pondMesh) return n;
+  const t = state.time, p0 = T.len - POND.run, w0 = T.len - POND.at, w1 = w0 + POND.len;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - POND.start) / POND.gap) - 3); k < pondCount() && n < MAX_G; k++) {
+    const run = skimRun(k);
+    if (run.start > t) break;
+    const el = t - run.start, look = COSTUMES[k % COSTUMES.length];
+    let s = p0 + el * run.speed;
+    const stopAt = run.dry ? T.len - 0.5 : w0 + POND.len * run.sink;
+    if (s >= stopAt) {
+      // landed: dry skimmers stand at the end for a moment; the rest splash and wade out
+      const tStop = run.start + (stopAt - p0) / run.speed, after = t - tStop;
+      if (after > 2.5) continue;
+      if (!run.dry && !splashSt.done.has(`${state.day}|${k}`)) { const p = raceLine(T, stopAt); splashSt.done.add(`${state.day}|${k}`); splashAt(p.cx, heightAt(p.cx, p.cz), p.cz); }
+      const p = raceLine(T, stopAt), o = run.dry ? 0 : Math.min(1, after / 2.5) * TRAIL_WIDTHS[T.width].hw * 0.95 * (k % 2 ? 1 : -1);
+      const x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+      writeFig(n++, x, heightAt(x, z) + (run.dry ? 0.12 : -0.15 + Math.min(1, after / 2.5) * 0.25), z, p.yaw + (run.dry ? 0 : Math.sign(o || 1) * Math.PI / 2), 1, look, 0);
+      near = true;
+      continue;
+    }
+    if (s > w0 - 6) near = true;
+    const p = raceLine(T, s), onWater = s >= w0 && s <= w1;
+    writeFig(n++, p.cx, heightAt(p.cx, p.cz) + (onWater ? 0.06 : 0.12), p.cz, p.yaw, 0.85, look, onWater ? -0.15 : 0.25);
+  }
+  if (t < POND.start - 30 || t > POND.end + 20) return n;
+  return drawCrowd(T, n, T.len - 1, TRAIL_WIDTHS[T.width].hw * 0.9 + 0.4, near);
+}
+function pondResults() {
+  const T = torchTrail();
+  if (!T || T.len < POND.run + 4) return null;
+  let dry = 0;
+  const runs = pondCount();
+  for (let k = 0; k < runs; k++) if (skimRun(k).dry) dry++;
+  return { runs, dry, trail: T.name };
+}
+
 /* ---------- Drawing guests and cars ---------- */
 const _c = new THREE.Color();
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _e = new THREE.Euler();
@@ -6562,6 +6950,8 @@ function drawPeople() {
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
   }
   if (showFigs && state.phase === 'open') n = drawStaff(n);
+  // event figures; with figures hidden, only the torch glows still show
+  if (state.phase === 'open') { const m = drawPond(drawRace(drawTorches(showFigs ? n : MAX_G))); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
   drawBuses();
   for (const k of ['jacket', 'pants', 'head']) {
     figMeshes[k].count = n;
@@ -8589,6 +8979,7 @@ function applyWeatherLook() {
   document.documentElement.style.setProperty('--sky-2', L.sky[1]);
   HAZE.setHex(L.haze); scene.fog.color.setHex(L.haze);
   weatherFall = winterView ? 0.15 : L.fall; weatherKind = L.kind; weatherDrift = L.drift || 0;
+  darkenForDusk(L);
   snowPts.material.uniforms.uColor.value.setHex(weatherKind === 'rain' ? 0xb8c6d6 : 0xffffff);
   snowPts.material.uniforms.uSize.value = weatherKind === 'rain' ? 2.2 : 3.2;
 }
@@ -9533,18 +9924,22 @@ function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
   const onMtn = onMountain * AGENT;
   let sub = state.phase === 'open'
-    ? (state.time >= closeTime() ? `Lifts closed · <b>${onMtn}</b> heading home` : `Open · <b>${onMtn}</b> on the mountain`)
+    ? (state.time >= closeTime() ? `Lifts closed · <b>${onMtn}</b> ${torchTonight() && state.time < TORCH.end ? 'staying for the show' : 'heading home'}` : `Open · <b>${onMtn}</b> on the mountain`)
     : state.phase === 'report' ? 'Day complete' : state.phase === 'season' ? 'Season over'
     : state.summer ? `Summer · season ${state.season + 1} starts in November`
     : preOpening() && state.day <= SEASON_LAST ? preseasonLine()
     : `Season ${state.season} · ${state.day < 0 ? 'Pre-season' : state.day > SEASON_LAST ? 'Spring bonus day' : hol || 'Closed overnight'}`;
   const plan = !world.lifts.length || state.summer || state.phase === 'report' || state.phase === 'season' ? ''
     : `<button class="tb-plan" ${visiting ? 'disabled' : ''} title="Operations plan for the day">${OPS_NAME[state.phase === 'open' && runOps ? runOps.kind : planFor(state.day)]} plan</button>`;
-  sub = `<span class="tb-st">${sub}</span>${plan}`;
+  const ev = state.phase === 'open' || state.phase === 'closed' ? eventToday() : null;
+  const evLbl = !ev ? '' : ev.type === 'torch' ? (state.phase === 'open' && state.time >= TORCH.parade[0] ? (state.time >= TORCH.end ? 'Show over' : state.time >= TORCH.fireworks[0] ? 'Fireworks' : 'Parade under way') : 'Parade tonight')
+    : ev.type === 'race' ? 'Race day' : 'Pond skim today';
+  const evChip = ev ? `<button class="tb-plan tb-ev" ${visiting ? 'disabled' : ''} title="${esc(EVENTS[ev.type].name)} today">${evLbl}</button>` : '';
+  sub = `<span class="tb-st">${sub}</span>${evChip}${plan}`;
   const w = todayWx();
   const base = avgBase();
   const wxKey = state.summer ? 'summer' : `${w.type}${w.hi}${Math.round(base)}${w.snow}`;
-  const key = [state.day, state.phase, Math.floor(state.time), sub, state.speed, wxKey].join('|');
+  const key = [state.day, state.phase, Math.floor(state.time), sub, state.speed, wxKey, showSlow()].join('|');
   if (key === tbCache && !force) return;
   tbCache = key;
   refreshTips();
@@ -9556,7 +9951,12 @@ function refreshTimebar(force) {
   $('tbClock').textContent = state.phase === 'open' ? clockLabel(state.time) : state.summer ? '' : 'Night';
   $('tbClock').hidden = state.summer;
   $('tbSpeed').hidden = state.phase !== 'open';
-  document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.s === state.speed)));
+  const slow = showSlow();
+  document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(+b.dataset.s === state.speed));
+    b.disabled = slow && +b.dataset.s > 1;
+    if (+b.dataset.s > 1) b.title = slow ? 'Back to fast speeds after the fireworks' : '';
+  });
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
   go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? 'Closing…' : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
@@ -9568,6 +9968,7 @@ function refreshTimebar(force) {
 }
 $('tbSub').onclick = (e) => {
   if (!e.target.closest('.tb-plan') || visiting) return;
+  if (e.target.closest('.tb-ev')) return openManage('events');
   opsEdit = null; resortTab = 'ops';
   openManage('ops');
 };
@@ -9765,6 +10166,9 @@ function showReport(r = state.lastReport, past = false) {
   note(4, ...opsNotes(r));
   if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
+  if (r.race && r.race.best) note(5, `${r.race.runs} racers ran the gates on <b>${esc(r.race.trail)}</b>. Fastest run: bib ${r.race.best.bib} in ${raceTime(r.race.best.secs)}.`);
+  if (r.pond && r.pond.runs) note(5, `${r.pond.runs} skiers in costume tried to skim the pond at the bottom of <b>${esc(r.pond.trail)}</b>. ${r.pond.dry ? `${r.pond.dry} made it across dry.` : 'Every one of them went in.'}`);
+  if (r.event === 'torch' && r.showGuests) note(5, `${r.showGuests.toLocaleString()} guests stayed after the lifts closed to watch the torches come down and the fireworks.`);
   if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
   if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
   if (r.holds && r.holds.length) {
@@ -10312,6 +10716,7 @@ function guestActivity(g) {
   if (g.st === 'tow') return 'Being brought down by ski patrol';
   if (g.st === 'busq') return 'Waiting for the town bus';
   if (g.st === 'pq') return 'Waiting for the parking shuttle';
+  if (g.st === 'watch') return 'Watching the torchlight parade';
   if (t && t.k === 'pq') return 'Walking to the parking shuttle';
   if (t && t.k === 'bld' && B) return `Heading to ${B.name}`;
   if (t && t.k === 'bus') return 'Walking to the shuttle';
@@ -12396,8 +12801,9 @@ function frame(now) {
 
   if (draft.dirty) recomputeDraft();
   if (practice && state.started && !visiting) tutTick();
+  if (state.started && !visiting) syncShowSpeed();
   if (state.started && state.phase === 'open' && state.speed > 0) {
-    let gdt = dt * GS_PER_REAL * state.speed;
+    let gdt = dt * GS_PER_REAL * (showSlow() ? Math.min(1, state.speed) : state.speed);
     while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }
     autosaveT += dt;
     if (autosaveT > 15) { autosaveT = 0; saveNow(); }
@@ -12419,6 +12825,11 @@ function frame(now) {
   if (!NO_RENDER) {
     updateSnow(dt, clock);
     updatePuffs(dt);
+    updateFireworks(dt);
+    updateDusk();
+    syncRaceCourse();
+    syncPond();
+    updateSplash(dt);
     updateChairs();
     updatePlumes(clock);
     drawPeople();

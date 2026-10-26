@@ -21,7 +21,24 @@ export default async function ({ browser, url }) {
   // wait to the Saturday, open, and check the crowd came
   await g.ev(`(() => { while (state.day < 18) waitDay(); for (let k = 0; k < NV*NV; k++) NS[k] = 50; refreshSnowState(todayWx()); })()`);
   eq(await g.ev(`eventToday() && eventToday().type`), 'torch', 'event day');
-  await g.ev(`openDay()`); await g.ev(SETUPS.finishDay);
+  await g.ev(`refreshTimebar(true)`);
+  assert(/Parade tonight/.test(await g.ev(`$('tbSub').innerText`)), 'top bar shows the event');
+  await g.ev(`openDay()`);
+  // guests stay on after closing to watch, and the day doesn't end before the fireworks
+  // at 4x, the game drops to 1x for the show, locks the fast speeds, and goes back to 4x afterwards
+  await g.ev(`(() => { state.speed = 4; let n = 0; while (state.phase === 'open' && state.time < 990 && n < 90000) { simStep(1.5); n++; } syncShowSpeed(); refreshTimebar(true); })()`);
+  eq(await g.ev(`state.speed`), 1, 'slowed to 1x for the show');
+  eq(await g.ev(`$('tbSpeed').querySelector('[data-s="4"]').disabled`), true, 'fast speeds locked during the show');
+  await g.ev(`(() => { $('tbSpeed').querySelector('[data-s="4"]').click(); syncShowSpeed(); })()`);
+  eq(await g.ev(`state.speed`), 1, 'stays at 1x');
+  eq(await g.ev(`state.phase`), 'open', 'still open for the show');
+  assert(await g.ev(`guests.filter((x) => x.st === 'watch').length`) > 0, 'guests watching');
+  await g.ev(`(() => { let n = 0; while (state.phase === 'open' && state.time < 1016 && n < 90000) { simStep(1.5); n++; } syncShowSpeed(); refreshTimebar(true); })()`);
+  eq(await g.ev(`state.speed`), 4, 'back to 4x after the fireworks');
+  eq(await g.ev(`$('tbSpeed').querySelector('[data-s="4"]').disabled`), false, 'fast speeds unlocked');
+  await g.ev(SETUPS.finishDay);
+  assert(await g.ev(`state.lastReport.showGuests`) > 0, 'report counts the show crowd');
+  assert(/stayed after the lifts closed/.test(await g.ev(`$('rpBody').innerText`)), 'report mentions the show');
   eq(await g.ev(`state.lastReport.event`), 'torch', 'report knows the event');
   assert(/Torchlight parade/.test(await g.ev(`$('rpBody').innerText`)), 'report mentions the event');
   await g.click('#rpNext'); await g.wait(200);
