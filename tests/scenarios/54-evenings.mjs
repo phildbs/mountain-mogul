@@ -49,6 +49,18 @@ export default async function ({ browser, url }) {
       if (d(sp.x, sp.z) >= d(_p.x, _p.z)) wrong++; });
     return { n: lampSpots.length, bad, wrong }; })()`);
   assert(poles.n > 6 && poles.bad === 0 && poles.wrong === 0, `light poles: ${JSON.stringify(poles)}`);
+  // a trail light placed beside a trail faces it, lights up for night skiing, and adds to the night power bill
+  const tl = await g.ev(`(() => {
+    const T = realTrails()[0], q = T.samples[Math.floor(T.samples.length / 2)], q2 = T.samples[Math.floor(T.samples.length / 2) + 2];
+    const dx = q2.x - q.x, dz = q2.z - q.z, L = Math.hypot(dx, dz), hw = TRAIL_WIDTHS[T.width].hw;
+    for (const side of [1, -1]) for (const off of [hw + 0.8, hw + 1.3, hw + 2]) {
+      const x = Math.round((q.x - dz / L * off * side) * 2) / 2, z = Math.round((q.z + dx / L * off * side) * 2) / 2, v = evalBuilding('tlight', x, z, 0, false);
+      if (!v.problems.length) { commitBuilding(v, 'tlight', x, z, 0); computeNetwork(); const B = world.buildings.find((b) => b.type === 'tlight');
+        const head = B.lightAt, d = (p) => Math.min(...T.samples.map((s) => Math.hypot(s.x - p.x, s.z - p.z)));
+        return { faces: d(head) < d(B), saved: saveData().world.buildings.some((b) => b.type === 'tlight') }; }
+    }
+    return null; })()`);
+  eq(tl, { faces: true, saved: true }, 'trail light faces its trail and is saved');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

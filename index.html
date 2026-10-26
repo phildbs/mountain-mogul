@@ -3896,6 +3896,7 @@ function computeNetwork() {
   const sidx = surfaceIndex();
   for (const t of world.trails) refreshTrailMesh(t, sidx);
   rebuildGuns(); rebuildLights();
+  for (const B of world.buildings) if (B.type === 'tlight') faceTrail(B);
   if (state.started) refreshTips();
 }
 
@@ -6984,7 +6985,8 @@ function nightCost(lv) {
   if (!nightEnd()) return { lights: 0, staff: 0 };
   const hours = (nightEnd() - closeTime()) / 60;
   const lit = realTrails().filter((t) => t.lit && t.open);
-  const lights = Math.round(lit.reduce((a, t) => a + t.len, 0) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
+  const extra = world.buildings.filter((B) => B.type === 'tlight').length * LIGHT_GAP; // each trail light you place draws like a stretch of lit trail
+  const lights = Math.round((lit.reduce((a, t) => a + t.len, 0) + extra) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
   const staff = Math.round((NIGHT_BASE_HR + NIGHT_LIFT_HR * world.lifts.filter((L) => L.open && liftLit(L)).length) * hours * MOUNTAIN.costs * lv.cost);
   return { lights, staff };
 }
@@ -7128,6 +7130,7 @@ function drawLightMap() {
   for (const B of world.buildings) {
     if (!bldLitNow(B)) continue;
     if (B.type === 'lamp') spot(B.x, B.z, 5, LAMP, 0.85);
+    else if (B.type === 'tlight') { const p = B.lightAt || B; spot(p.x, p.z, 5.5, LAMP, 0.8); }
     else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
     else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
   }
@@ -7142,6 +7145,7 @@ const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38;
 function bldLitNow(B) {
   if (B.type === 'firepit') return true;
   if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
+  if (B.type === 'tlight') return nightNow() || (torchTonight() && state.time >= TORCH.parade[0] - 10 && state.time < TORCH.end);
   if (state.phase !== 'open') return true;
   return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
 }
@@ -7199,6 +7203,7 @@ function rebuildGlows() {
   for (const B of world.buildings) {
     if (B.type === 'lamp') { glowSpots.push({ x: B.x, y: B.baseY + 1.4, z: B.z, kind: 'lamp', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.6, B, w: 1 }); }
     else if (B.type === 'firepit') { glowSpots.push({ x: B.x, y: B.baseY + 0.4, z: B.z, kind: 'fire', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.4, B, w: 1.1, fire: true }); }
+    else if (B.type === 'tlight') continue;
     else poolSpots.push({ x: B.door.x, z: B.door.z, r: 1.8, B, w: 0.8 });
   }
   rebuildLotPoles(); // real poles, lit by the light map; no floating glows
@@ -7470,6 +7475,8 @@ const BTYPES = {
     desc: 'Long, pricey meals and après. Guests who love dining out seek it out; it pays on busy days.' },
   bar: { name: 'Bar and pub', where: 'base', cost: 120000, sign: 'BAR', accent: 0xb8452a, seats: 90, counter: 6, stalls: 4, w: 3.6, d: 2.6, upkeep: 900,
     desc: 'The heart of après-ski: drinks and a loud deck after the lifts close. A snack bar at lunch. Turn on après under Evenings to keep it open until 7.' },
+  tlight: { name: 'Trail light', where: 'any', cost: 4000, accent: 0x9aa3b0, w: 0.5, d: 0.5, upkeep: 10, decor: true,
+    desc: 'A tall light pole for night skiing. Place it beside a trail to fill a dark stretch; its arm turns to face the trail, and it lights up during night sessions.' },
   lamp: { name: 'Lamp post', where: 'any', cost: 3000, accent: 0xe8b04a, w: 0.5, d: 0.5, upkeep: 15, decor: true,
     desc: 'A warm pool of light on the snow after dark. Line a path, light up the base, mark a lift.' },
   firepit: { name: 'Fire pit', where: 'any', cost: 12000, accent: 0xe0702a, seats: 14, w: 2.4, d: 2.4, upkeep: 110, decor: true,
@@ -7499,9 +7506,9 @@ const BTYPES = {
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
     desc: 'An upgraded shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
-const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Lights and fire pits', ['lamp', 'firepit']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
+const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Lights and fire pits', ['tlight', 'lamp', 'firepit']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
@@ -7871,6 +7878,15 @@ function modelRestaurant() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
   return k;
 }
+// The same pole as along lit trails: its arm reaches out along -x, turned to face the nearest trail.
+function modelTrailLight() {
+  const k = new Kit();
+  k.add(new THREE.CylinderGeometry(0.05, 0.06, 2.4, 6), BM.dark, 0, 1.2, 0);
+  k.add(bx(0.5, 0.06, 0.08), BM.dark, -0.22, 2.35, 0);
+  k.add(bx(0.22, 0.1, 0.18), BM.dark, -0.45, 2.3, 0);
+  k.add(bx(0.18, 0.04, 0.14), BM.glow, -0.45, 2.24, 0);
+  return k;
+}
 function modelLamp() {
   const k = new Kit();
   k.add(new THREE.CylinderGeometry(0.035, 0.05, 1.3, 6), BM.dark, 0, 0.65, 0);
@@ -8112,7 +8128,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { lamp: modelLamp, firepit: modelFirepit, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -8197,6 +8213,7 @@ const LODGE_NAMES = {
   top: ['Summit Lodge', 'Summit House', 'Skyline Lodge', 'Eagle’s Nest', 'Top of the World Lodge', 'Peak Chalet', 'Cloud Nine Lodge'],
 };
 const OTHER_NAMES = {
+  tlight: ['Trail light'],
   lamp: ['Lamp post'],
   firepit: ['Fire pit'],
   bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
@@ -8218,7 +8235,7 @@ const OTHER_NAMES = {
   transit: ['Transit Center', 'Bus Terminal'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['lamp', 'firepit', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -8258,6 +8275,7 @@ function addBuilding(b) {
   if (b.type === 'transit') { b.stop = toWorld(b, 0.4, 0.75); b.approach = toWorld(b, -5, 0.75); b.door = toWorld(b, 0, -0.05); }
   if (BY_ROAD.includes(b.type)) addDriveway(b);
   if (b.type === 'school') b.door = toWorld(b, 0, s.d / 2 + 0.2);
+  if (b.type === 'tlight') faceTrail(b);
   // each building gets its own window glow, so a closed one can go dark
   b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
   bldGroup.add(b.group);
@@ -8271,6 +8289,15 @@ function removeBuilding(b) {
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== b);
   renderer.shadowMap.needsUpdate = true;
+}
+// A trail light turns its arm toward the nearest trail.
+function faceTrail(b) {
+  let best = null, bd = Infinity;
+  for (const t of realTrails()) for (let i = 0; i < t.samples.length; i += 2) { const q = t.samples[i], d = Math.hypot(q.x - b.x, q.z - b.z); if (d < bd) { bd = d; best = q; } }
+  if (!best) return;
+  const dx = best.x - b.x, dz = best.z - b.z, L = Math.hypot(dx, dz) || 1;
+  b.group.rotation.y = Math.atan2(dz / L, -dx / L);
+  b.lightAt = { x: b.x + dx / L * 0.45, z: b.z + dz / L * 0.45 };
 }
 // Redraw a building in place (same spot, same guests), after a change to how it looks.
 function restyleBuilding(b) {
@@ -8998,6 +9025,7 @@ const hexOf = (c) => '#' + c.toString(16).padStart(6, '0');
 function capOf(type, s) {
   switch (type) {
     case 'lodge': case 'restaurant': case 'fine': return `${s.seats} seats · restrooms (${s.stalls} stalls)`;
+    case 'tlight': return 'Lights the trail beside it during night skiing';
     case 'lamp': return 'Lights up after dark';
     case 'firepit': return `${s.seats} seats around the fire · free`;
     case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
@@ -11152,7 +11180,7 @@ function eventsPanel() {
 }
 function bldsList() {
   const Bs = realBlds(), live = state.phase === 'open';
-  const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit').length;
+  const lamps = world.buildings.filter((B) => B.type === 'lamp' || B.type === 'tlight').length, fires = world.buildings.filter((B) => B.type === 'firepit').length;
   const rows = Bs.map((B) => {
     const t = BTYPES[B.type], s = bspec(B), mode = bldPlanMode(B), y = B.yday;
     const pill = mode === 'closed' ? ['Closed', 'off'] : mode === 'lunch' ? ['Lunch only', 'warn'] : ['Open', 'on'];
@@ -11231,7 +11259,7 @@ function eveningsStatus() {
 function eveningsPanel() {
   const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day, kind = opsEdit || planFor(day), P = o.plans[kind];
   const lit = realTrails().filter((t) => t.lit);
-  const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit');
+  const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit'), tls = world.buildings.filter((B) => B.type === 'tlight').length;
   const near = firesNearVenues(), r = state.lastReport;
   const last = r && (r.apres || r.night) ? `<div class="field-label">Last open day</div><p class="help">${[r.apres ? `Après ${signedMoney(r.apres.profit)} from ${r.apres.guests} guests` : '', r.night ? `night skiing ${signedMoney(r.night.profit)} from ${r.night.guests + r.night.stayed} skiers` : ''].filter(Boolean).join('; ')}. <button class="link" data-action="pastReport" data-i="${(state.history || []).length - 1}">See the report</button></p>` : '';
   return `<p class="help">What happens after the lifts close at 4. Each plan has its own settings, like in Operations.</p>
@@ -11241,8 +11269,8 @@ function eveningsPanel() {
     ${lit.length ? `${priceStepper('night')}
       <ul class="llist">${lit.map((t) => `<li class="lrow" data-action="goTo" data-k="trail" data-id="${t.id}"><div class="l1"><b>${esc(t.name)}</b><span class="pill on">Lit</span></div><div class="l2"><span>About ${money(Math.round(t.len * LIGHT_HOUR_UNIT * MOUNTAIN.costs))} an hour in power</span></div></li>`).join('')}</ul>` : ''}
     <div class="field-label">Lights and fire pits</div>
-    <p class="help">${lamps || fires.length ? `${lamps ? `${lamps} lamp post${lamps === 1 ? '' : 's'}` : ''}${lamps && fires.length ? ' and ' : ''}${fires.length ? `${fires.length} fire pit${fires.length === 1 ? '' : 's'}` : ''}. ` : ''}Lamp posts light up the base and paths after dark. Fire pits give free warm-ups by day and draw an après crowd${near ? `; ${near} sit${near === 1 ? 's' : ''} by a bar, lodge or restaurant, which helps most` : ', most of all beside a bar, lodge or restaurant'}.</p>
-    ${visiting ? '' : `<button class="btn secondary" data-action="buildDecor">Place lamp posts and fire pits</button>`}
+    <p class="help">${tls ? `${tls} trail light${tls === 1 ? '' : 's'} filling dark stretches. ` : ''}${lamps || fires.length ? `${lamps ? `${lamps} lamp post${lamps === 1 ? '' : 's'}` : ''}${lamps && fires.length ? ' and ' : ''}${fires.length ? `${fires.length} fire pit${fires.length === 1 ? '' : 's'}` : ''}. ` : ''}Lamp posts light up the base and paths after dark. Fire pits give free warm-ups by day and draw an après crowd${near ? `; ${near} sit${near === 1 ? 's' : ''} by a bar, lodge or restaurant, which helps most` : ', most of all beside a bar, lodge or restaurant'}.</p>
+    ${visiting ? '' : `<button class="btn secondary" data-action="buildDecor">Place lights and fire pits</button>`}
     ${last}`;
 }
 // Après and night skiing in a plan, with what they cost to staff.
@@ -12642,6 +12670,7 @@ const CHANGES = [
     'After dark, lamp posts, fire pits, open buildings, the parking lot and trail lights now light the snow, buildings, trees and skiers around them, instead of floating glowing orbs.',
     'The parking lot has real light poles now, lit after dark on open sections.',
     'Fire pits have a Stone base switch in their panel: turn it off for just the fire and log benches on the snow.',
+    'New trail light: place one anywhere to fill a dark stretch of a lit trail. Its arm turns to face the trail, and it lights up for night skiing.',
   ] },
   { v: '2.35', date: 'Oct 27, 2026', title: 'Evenings: lights, fire pits and their own panel', show: ['evenings', 'Open Evenings'], spots: ['biz', 'evenings'], items: [
     'Evenings is now its own button under Business: après-ski, night hours, the night ticket and your lit trails, for each plan. Operations is tidier, with lifts and buildings folded into one-line summaries.',
