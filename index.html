@@ -132,11 +132,30 @@ button { font: inherit; color: inherit; }
   body.tb-tight .cash { padding: 8px 10px; }
   body.tb-tight .cash .label { display: none; }
   body.tb-tight .cash .value { font-size: 19px; }
-  body.tb-low .badge > span { display: none; }
-  body.tb-low .timebar { top: calc(76px + env(safe-area-inset-top, 0px)); }
-  body.tb-low .sheet { top: calc(140px + env(safe-area-inset-top, 0px)); max-height: calc(100% - 270px); }
-  body.tb-low .hint { top: calc(138px + env(safe-area-inset-top, 0px)); }
-  body.tb-low .tut { top: calc(140px + env(safe-area-inset-top, 0px)); }
+  /* with the time bar on its own row there's room for the name again; the bulb sits beside it */
+  body.tb-low .badge { padding: 7px 12px 7px 8px; gap: 8px; }
+  body.tb-low .badge .peak { width: 24px; height: 24px; }
+  body.tb-low .badge .name { font-size: 18px; max-width: 34vw; }
+  body.tb-low .badge .sub { display: none; }
+  body.tb-low .tips-btn { position: absolute; left: calc(100% + 8px); top: 0; height: 100%; margin: 0; }
+  body.tb-low .cash { padding: 7px 12px; }
+  body.tb-low .cash .label { display: none; }
+  /* narrow tablets: the time bar drops below the badge and cash, full width, in two rows */
+  body.tb-low .timebar {
+    top: calc(76px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); transform: none;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "clock when wx" "speed wait go"; row-gap: 6px; column-gap: 10px; white-space: normal;
+  }
+  body.tb-low .tb-when { grid-area: when; min-width: 0; }
+  body.tb-low .tb-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.tb-low .tb-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+  body.tb-low .tb-clock { grid-area: clock; }
+  body.tb-low .tb-wx { grid-area: wx; justify-self: end; }
+  body.tb-low .tb-speed { grid-area: speed; justify-self: start; }
+  body.tb-low .tb-wait { grid-area: wait; justify-self: end; }
+  body.tb-low .tb-go { grid-area: go; justify-self: end; }
+  body.tb-low .sheet { top: calc(186px + env(safe-area-inset-top, 0px)); max-height: calc(100% - 316px); }
+  body.tb-low .hint { top: calc(184px + env(safe-area-inset-top, 0px)); }
+  body.tb-low .tut, body.tb-low #tutCard { top: calc(186px + env(safe-area-inset-top, 0px)); }
 }
 .badge .sub { display: block; font-size: 12px; color: var(--ink-2); margin-top: 2px; }
 .diff-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--green); margin-right: 5px; vertical-align: 0; }
@@ -2499,6 +2518,7 @@ function applySave(sv) {
   rebuildWorld(ok ? sv.world : null);
   Object.assign(state, SIM_DEFAULTS, ok && sv.clock ? sv.clock : {});
   if (ok && sv.clock && !('rebated' in sv.clock)) state.rebated = 0; // saved before 2.33.2: may be owed the grooming refund
+  if (ok && !visiting) cancelStaleEvent();
   if (satSpaces) {
     // A resort saved with satellite lots gets off-site parking at least as big, free.
     const tier = OFFSITE.findIndex((o) => o.spaces >= satSpaces);
@@ -9663,6 +9683,18 @@ const EVENTS = {
   pond: { name: 'Pond skim', cost: 15000, boost: 1.35, rep: 0.02, blurb: 'Costumed skiers try to cross a meltwater pond. A spring classic.',
     ok: (day) => dateOf(day).getUTCMonth() >= 2 && dateOf(day).getUTCMonth() < 5 || 'Only in spring, from March.' },
 };
+// A booking the season ended before (it's always for the next weekend, so one far off is left over
+// from last season): cancelled and refunded, so it doesn't block booking new events.
+function cancelStaleEvent(seasonOver) {
+  const e = state.event;
+  if (!e || (!seasonOver && !state.summer && e.days[0] <= state.day + 10)) return;
+  const E = EVENTS[e.type];
+  state.event = null;
+  if (state.eventsHeld && state.eventsHeld.types) state.eventsHeld.types = state.eventsHeld.types.filter((k) => k !== e.type);
+  if (!E || visiting) return;
+  state.cash += E.cost;
+  if (state.started) setTimeout(() => toast(`The season ended before your ${E.name}, so it was cancelled and the ${money(E.cost)} refunded.`), 2500);
+}
 const eventToday = () => (state.event && state.event.days.includes(state.day) && !state.summer ? state.event : null);
 // The first Saturday at least two days away, so there's time to get ready.
 function nextSaturday() {
@@ -10366,6 +10398,7 @@ syncAuto();
 $('tbWait').onclick = waitDay;
 $('tbWx').onclick = () => openManage('snow');
 function enterSummer() {
+  cancelStaleEvent(true);
   $('report').hidden = true;
   $('rpNext').textContent = 'Start the next day';
   state.summer = true; state.phase = 'closed';
@@ -12290,6 +12323,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.34.1', date: 'Oct 26, 2026', title: 'Tablet top bar and stuck event bookings', small: true, items: [
+    'On narrower tablets the time bar no longer runs off the screen: it sits on its own row under your resort name and cash.',
+    'An event booked for a weekend the season never reached was blocking new bookings. It’s now cancelled and refunded, and new events can be booked again.',
+  ] },
   { v: '2.34', date: 'Oct 26, 2026', title: 'Après-ski, night skiing and live events', show: ['ops', 'Open Operations'], spots: ['biz', 'ops', 'events'], items: [
     'Après-ski: turn it on in Operations and your bar, lodge and restaurants stay open until 7 PM. Guests who had a good day stop in on the way home, and the day report gets its own Après page.',
     'Night skiing: light a trail from its panel, pick night hours in Operations (until 7, 8 or 9 PM) and set a night ticket price. Locals drive up after work, some day guests stay on, and the report gets a Night page.',
