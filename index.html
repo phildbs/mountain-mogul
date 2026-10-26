@@ -883,6 +883,11 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .fold-head .chev { font-size: 16px; color: var(--ink-2); transition: transform 0.15s; }
 .fold-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
 .rp-page > .rp-notes { margin-top: 12px; }
+.rp-hours { display: grid; gap: 3px; margin-top: 4px; }
+.rp-page .rp-lines + .field-label { margin-top: 14px; }
+.rp-hours > div { display: grid; grid-template-columns: 52px 1fr 64px 70px; align-items: center; gap: 8px; font-size: 12.5px; }
+.rp-hours i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+.rp-hours b { text-align: right; font-variant-numeric: tabular-nums; } .rp-hours small { color: var(--ink-2); }
 .rp-hero .pos { color: #1f7a42; } .rp-hero .neg { color: #9a3326; }
 .rp-lines { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .rp-lines .h { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 6px; }
@@ -5182,7 +5187,7 @@ function holidayOf(d) {
 }
 function dateLabel(i) { const d = dateOf(i); return `${DOW[d.getUTCDay()]}, ${MON[d.getUTCMonth()]} ${d.getUTCDate()}`; }
 function clockLabel(min) {
-  const h = Math.floor(min / 60), m = Math.floor(min % 60);
+  const h = Math.floor(min / 60) % 24, m = Math.floor(min % 60); // past midnight on a late last call
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, hsq: 420, six: 520, gondola: 900 };
@@ -5891,7 +5896,7 @@ function carPath(stall) {
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
-function spawnCar(size, night) {
+function spawnCar(size, night, evening) {
   // The main lot's open sections fill first; then cars go to off-site parking.
   const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
   for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
@@ -5908,7 +5913,7 @@ function spawnCar(size, night) {
   }
   const si = free[0];
   const path = carPath(stalls[si]);
-  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0, night: !!night,
+  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0, night: !!night, evening: !!evening,
     extra: free.slice(1).map((i) => ({ i, color: pick(CARS) })) };
   for (const i of free) stalls[i].car = car.id;
   cars.push(car);
@@ -5937,6 +5942,7 @@ function makeGuest(car, x, z) {
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
   g.wantsTune = ab >= 2 && !g.needsRental && Math.random() < 0.2;
   g.family = ab >= 1 && Math.random() < 0.16; // brought young kids along
+  g.owl = !g.family && Math.random() < (runOps && runOps.dayKind === 'weekend' ? 0.2 : 0.1); // out late if the bar's open
   g.first = ab === 0 && Math.random() < 0.4; g.learnLaps = 0; // never skied before
   // Some visitors don't ski at all: with a gondola at the base they buy a scenic ride instead of a lift ticket.
   if (scenicGondola() && Math.random() < 0.06 * clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5)) {
@@ -5958,7 +5964,9 @@ function carArrived(car) {
   for (let k = 0; k < car.size; k++) {
     const g = makeGuest(car, s.x + 0.25 + (k - car.size / 2) * 0.12, s.z);
     if (car.night) nightGuest(g);
+    if (car.evening) eveningGuest(g);
     guests.push(g); gById.set(g.id, g); car.members.push(g.id);
+    if (car.evening) { if (!anotherRound(g, true)) goCar(g); continue; } // straight to the bar
     payTicket(g); today.guests += AGENT;
     thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
@@ -6182,7 +6190,7 @@ const STAFF_LEVELS = {
   extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
 };
 const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
-const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on', apres: 'off', night: 0 });
+const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on', apres: 'off', night: 0, lastCall: APRES_END, security: 'full' });
 function opsState() {
   if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
   for (const [k] of OPS_KINDS) state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) };
@@ -6226,7 +6234,8 @@ function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
   const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [],
     shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on',
-    apres: P.apres === 'on' && world.buildings.some((B) => APRES_VENUES.includes(B.type)) ? 'on' : 'off', night: nightOk(P) };
+    apres: P.apres === 'on' && world.buildings.some((B) => APRES_VENUES.includes(B.type)) ? 'on' : 'off', night: nightOk(P),
+    lastCall: P.lastCall || APRES_END, security: P.security || 'full' };
   for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
   for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
   return ops;
@@ -6312,9 +6321,9 @@ function styleLot() {
 /* ---------- The day ---------- */
 function simStep(dt) {
   state.time += dt / 60;
-  while (schedule.length && schedule[schedule.length - 1].t <= state.time && (state.time < closeTime() || (schedule[schedule.length - 1].night && state.time < nightEnd() - 45))) {
+  while (schedule.length && schedule[schedule.length - 1].t <= state.time && (state.time < closeTime() || (schedule[schedule.length - 1].night && state.time < nightEnd() - 45) || (schedule[schedule.length - 1].evening && state.time < apresEnd() - 60))) {
     const e = schedule.pop();
-    if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size, e.night);
+    if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size, e.night, e.evening);
   }
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
   for (const L of world.lifts) stepLift(L, dt);
@@ -6331,7 +6340,7 @@ function simStep(dt) {
   if (onMountain > today.peak) today.peak = onMountain;
   if (state.time >= closeTime() && !today.closed) {
     today.closed = true;
-    schedule = schedule.filter((e) => e.night); busPending = 0;
+    schedule = schedule.filter((e) => e.night || e.evening); busPending = 0;
     for (const g of guests) if (!g.leaving && g.st !== 'incar' && !g.night && !maybeStayNight(g)) { g.leaving = true; thought(g, 'Lifts are closing. Last run!'); }
     for (const L of world.lifts) if (L.fromBase && !(nightNow() && liftLit(L))) for (const g of L.queue.splice(0)) baseDecision(g);
   }
@@ -6341,7 +6350,7 @@ function simStep(dt) {
     for (const L of world.lifts) if (L.fromBase) for (const g of L.queue.splice(0)) baseDecision(g);
   }
   // On a torchlight night the day runs until the fireworks are done.
-  const show = torchTonight() && state.time < TORCH.end;
+  const show = (torchTonight() && state.time < TORCH.end) || (apresOn() && state.time < apresEnd()); // the bar is open (and staffed) until last call
   if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= dayHardEnd())) endDay();
 }
 
@@ -6393,7 +6402,9 @@ function openDay() {
   const S = stations(), share = ops.townBus === 'off' || !S.length ? 0 : Math.max(...S.map((B) => BUS_RUN[B.type].share));
   for (const e of schedule) e.bus = Math.random() < share;
   // The night crowd arrives from late afternoon, by car.
-  if (ops.night) { schedule.push(...nightSchedule(Math.ceil(nightDemand(n) / AGENT))); schedule.sort((a, b) => b.t - a.t); }
+  if (ops.night) schedule.push(...nightSchedule(Math.ceil(nightDemand(n) / AGENT)));
+  schedule.push(...eveningSchedule(n));
+  schedule.sort((a, b) => b.t - a.t);
   guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN; nextParkAt = DAY_OPEN; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
@@ -6416,7 +6427,14 @@ function endDay() {
   today.exp.cogs = Math.round(today.exp.cogs);
   // Après: bartenders and servers for each venue kept open after the lifts close.
   today.nightCost = nightCost(lv); today.exp.night = today.nightCost.lights + today.nightCost.staff;
-  today.exp.apres = apresOn() ? Math.round(world.buildings.filter((B) => apresOpen(B) && !isDecor(B)).length * APRES_STAFF_HR * (apresEnd() - closeTime()) / 60 * MOUNTAIN.costs * lv.cost) : 0;
+  const ap = apresStaff(lv); today.apresSecurity = ap.security; today.exp.apres = ap.staff + ap.security;
+  // light security on a late night: some rowdiness gets talked about
+  today.rowdy = 0;
+  if (apresOn() && runOps.security === 'light' && apresEnd() > 1380) {
+    const late = Object.entries(today.apres.hours || {}).filter(([h]) => +h >= 23).reduce((a, [, v]) => a + v.guests, 0);
+    today.rowdy = Math.min(0.025, late * 0.0005 * (runOps.dayKind === 'weekend' ? 1 : 1.5));
+    if (today.rowdy) state.reputation = clamp(state.reputation - today.rowdy, 0.5, 1.5);
+  }
   // Short-handed patrol: an injury can turn into a claim against the resort.
   let claims = 0;
   const patrolCut = hasBld('patrol') && (ops.patrol === 'skeleton' || world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] === 'closed'));
@@ -8501,7 +8519,11 @@ function maybeVisit(g, here, radius, baseToo, resume) {
    close, until 7 PM (or an hour after night skiing ends). Guests heading home stop in for a drink or a
    meal, more so when they've had a good day, on weekends and sunny afternoons, and when there's a bar.
    It's reported on its own page of the day report. */
-const APRES_END = 1140, APRES_STAFF_HR = 95;
+const APRES_END = 1140, APRES_STAFF_HR = 95, SECURITY_HR = 160, LATE_FROM = 1320; // 10 PM: late-night pay, and security
+// Last call, per plan: the bar and fire pits stay open until then. The lodge stops serving at 8 and the
+// restaurants at 10, like a real base village, so a late last call is all about the bar.
+const LAST_CALLS = [[1140, '7 PM'], [1260, '9 PM'], [1380, '11 PM'], [1500, '1 AM']];
+const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, fine: 1320 };
 const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
 const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
@@ -8514,11 +8536,57 @@ function dayHardEnd() {
   if (nightEnd()) e = Math.max(e, nightEnd() + 30);
   return e;
 }
-const apresEnd = () => Math.max(APRES_END, nightEnd() ? nightEnd() + 45 : 0);
-const apresOpen = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
+const lastCall = () => (runOps && runOps.lastCall) || APRES_END;
+const apresEnd = () => Math.max(lastCall(), nightEnd() ? nightEnd() + 45 : 0);
+const venueClose = (B) => Math.min(apresEnd(), VENUE_CLOSE[B.type] ?? Infinity);
+const apresVenue = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
+const apresOpen = (B) => apresVenue(B) && (state.phase !== 'open' || state.time < venueClose(B));
+// Staff for the evening: each venue until it closes, at time and a half after 10 PM, plus security
+// after 10 when last call is later than that (light security costs less but risks a rowdy reputation).
+function apresStaff(lv) {
+  if (!apresOn()) return { staff: 0, security: 0 };
+  let staff = 0;
+  for (const B of world.buildings) {
+    if (!apresVenue(B) || isDecor(B)) continue;
+    const end = venueClose(B), early = Math.max(0, Math.min(end, LATE_FROM) - closeTime()), late = Math.max(0, end - LATE_FROM);
+    staff += APRES_STAFF_HR * (early + late * 1.5) / 60;
+  }
+  const lateHrs = Math.max(0, apresEnd() - LATE_FROM) / 60;
+  const security = lateHrs ? SECURITY_HR * lateHrs * (runOps.security === 'light' ? 0.4 : 1) : 0;
+  return { staff: Math.round(staff * MOUNTAIN.costs * lv.cost), security: Math.round(security * MOUNTAIN.costs) };
+}
+// Evening locals: with a late last call and a bar, people from town drive up after dinner just for
+// the bar, more on weekends and the later it stays open. No lift ticket; they come for the bar.
+function eveningSchedule(dayN) {
+  if (!apresOn() || lastCall() <= 1260 || !world.buildings.some((B) => B.type === 'bar' && apresVenue(B))) return [];
+  const n = Math.round(dayN * 0.05 * (runOps.dayKind === 'weekend' ? 1.6 : 0.7) * ((lastCall() - 1260) / 240 + 0.5) * state.reputation), out = [];
+  let total = 0;
+  while (total < n) { const size = Math.random() < 0.5 ? 2 : Math.random() < 0.5 ? 3 : 4; out.push({ t: 1170 + Math.random() * Math.max(30, lastCall() - 1260), size, evening: true }); total += size; }
+  return out;
+}
+function eveningGuest(g) {
+  g.local = true; g.owl = true; g.apresGuest = true; g.apresDone = true; g.leaving = true; g.onSkis = false;
+  g.sight = false; g.first = false; g.family = false; g.wantsLesson = false; g.needsRental = false; g.wantsTune = false; g.shopper = false; g.ate = true;
+  today.apres.guests += AGENT; today.apres.locals = (today.apres.locals || 0) + AGENT;
+}
+// Night owls: after a drink they may go round again at a venue that's still open.
+function anotherRound(g, first) {
+  if (!apresOn() || !g.apresGuest || !(g.owl || g.night || g.local) || state.time < closeTime() || state.time > apresEnd() - 40 || (g.rounds || 0) >= 6 || (!first && Math.random() > (g.local ? 0.7 : 0.6))) return false;
+  let best = null, bv = -Infinity;
+  for (const B of world.buildings) {
+    if (!apresOpen(B) || state.time > venueClose(B) - 30) continue;
+    const v = (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2 : 0) - distXZ(B.door, g) * 0.1 - estWait(B, apresSvc(B)) * 0.5 + Math.random() * 2;
+    if (v > bv) { bv = v; best = B; }
+  }
+  if (!best) return false;
+  g.rounds = (g.rounds || 0) + 1;
+  if (g.rounds === 1) thought(g, g.local ? 'Heading up to the mountain bar tonight.' : Math.random() < 0.5 ? 'One more round!' : 'The night is young.');
+  startVisit(g, best, apresSvc(best), { k: 'car' });
+  return true;
+}
 // Fire pits within a short walk of an après bar, lodge or restaurant.
 function firesNearVenues() {
-  const venues = world.buildings.filter((B) => B.type !== 'firepit' && apresOpen(B));
+  const venues = world.buildings.filter((B) => B.type !== 'firepit' && apresVenue(B));
   return world.buildings.filter((F) => F.type === 'firepit' && venues.some((B) => distXZ(B.door, F.door) < 14)).length;
 }
 // The après page of the day report: who came, where, and what it made after its own staff and supplies.
@@ -8526,7 +8594,7 @@ function apresReport() {
   if (!apresOn()) return null;
   const a = today.apres, venues = Object.entries(a.byB).map(([id, v]) => ({ name: (bldById(+id) || {}).name || 'A venue', type: (bldById(+id) || {}).type, ...v })).sort((x, y) => y.rev - x.rev);
   const cogs = Math.round(a.cogs), staff = today.exp.apres || 0;
-  return { guests: a.guests, rev: Math.round(a.rev), cogs, staff, profit: Math.round(a.rev - cogs - staff), venues, open: world.buildings.filter((B) => apresOpen(B) && !isDecor(B)).length, fires: a.byB && Object.entries(a.byB).filter(([id]) => (bldById(+id) || {}).type === 'firepit').reduce((n, [, v]) => n + v.guests, 0),
+  return { guests: a.guests, locals: a.locals || 0, rev: Math.round(a.rev), cogs, staff, security: today.apresSecurity || 0, rowdy: today.rowdy || 0, hours: a.hours || {}, lastCall: lastCall(), profit: Math.round(a.rev - cogs - staff), venues, open: world.buildings.filter((B) => apresVenue(B) && !isDecor(B)).length, fires: a.byB && Object.entries(a.byB).filter(([id]) => (bldById(+id) || {}).type === 'firepit').reduce((n, [, v]) => n + v.guests, 0),
     bar: world.buildings.some((B) => B.type === 'bar'), until: apresEnd(), left: today.guests };
 }
 function apresChance(g) {
@@ -8534,7 +8602,7 @@ function apresChance(g) {
   const w = todayWx();
   if (w.type === 'sunny' && w.hi > 22) p += 0.08;
   if (w.type === 'rain' || w.type === 'heavy') p -= 0.05;
-  if (world.buildings.some((B) => B.type === 'bar' && apresOpen(B))) p += 0.1;
+  if (world.buildings.some((B) => B.type === 'bar' && apresVenue(B))) p += 0.1;
   p += Math.min(0.12, firesNearVenues() * 0.04); // fire pits by the bar or lodge make the base a place to hang out
   if (runOps.dayKind === 'weekend') p *= 1.3;
   return clamp(p, 0.03, 0.7);
@@ -8637,7 +8705,11 @@ function serve(g, B) {
     return leaveBuilding(g, B);
   }
   if (svc === 'rent') B.rented++;
-  if (g.apresGuest) (today.apres.byB[B.id] || (today.apres.byB[B.id] = { guests: 0, rev: 0 })).guests += AGENT;
+  if (g.apresGuest) {
+    (today.apres.byB[B.id] || (today.apres.byB[B.id] = { guests: 0, rev: 0 })).guests += AGENT;
+    const h = Math.floor(state.time / 60), hours = today.apres.hours || (today.apres.hours = {});
+    (hours[h] || (hours[h] = { guests: 0, rev: 0 })).guests += AGENT;
+  }
   if (price > 0) {
     const amt = price * AGENT;
     state.cash += amt; B.today.revenue += amt;
@@ -8645,6 +8717,7 @@ function serve(g, B) {
     if (g.apresGuest) {
       today.rev.apres = (today.rev.apres || 0) + amt; today.apres.rev += amt; today.apres.cogs += c;
       today.apres.byB[B.id].rev += amt;
+      today.apres.hours[Math.floor(state.time / 60)].rev += amt;
     } else today.rev[REV_CAT[svc]] += amt;
   }
   B.used[pool]++; B.today.visits += AGENT;
@@ -8714,7 +8787,7 @@ function resumeGuest(g) {
   g.resume = null;
   if (!r) return baseDecision(g);
   if (r.k === 'arrive') return arrivalFlow(g);
-  if (r.k === 'car') return goCar(g);
+  if (r.k === 'car') { if (anotherRound(g)) return; return goCar(g); }
   if (r.k === 'top') { const L = liftById(r.lid); if (L && topDecision(g, L, true)) return; return baseDecision(g); }
   if (r.k === 'ski') {
     const T = trailById(r.tid);
@@ -10639,8 +10712,8 @@ function refreshTimebar(force) {
   });
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
-  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
-  go.disabled = state.phase === 'open' && state.time >= closeTime();
+  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : canSkipToLastCall() ? 'Skip to last call' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
+  go.disabled = state.phase === 'open' && state.time >= closeTime() && !canSkipToLastCall();
   go.classList.toggle('calm', state.phase === 'open');
   const locked = state.phase !== 'closed';
   $('tClear').classList.toggle('locked', locked);
@@ -10696,7 +10769,14 @@ $('pBuild').onclick = () => {
   setBuildTray(on);
 };
 $('tManage').onclick = () => { if (selected && selected.kind === 'manage' && state.tool === 'explore') select(null); else openManage(lastManage); };
-$('tbGo').onclick = () => { if (state.phase === 'open') closeEarly(); else { autoDays = 0; openDay(); } };
+$('tbGo').onclick = () => { if (state.phase === 'open') { if (canSkipToLastCall()) skipToLastCall(); else closeEarly(); } else { autoDays = 0; openDay(); } };
+// After the lifts close (and any night skiing ends), skip the quiet evening straight to last call.
+const canSkipToLastCall = () => state.phase === 'open' && !visiting && apresOn() && state.time >= closeTime() && !nightNow() && state.time < apresEnd() - 5;
+function skipToLastCall() {
+  let n = 0;
+  while (state.phase === 'open' && state.time < apresEnd() && n < 200000) { simStep(1.5); n++; }
+  refreshTimebar(true); updateCash(true);
+}
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
 $('rpBody').addEventListener('click', (e) => {
   if (!e.target.closest('[data-rp=area]') || state.phase !== 'report') return;
@@ -10939,21 +11019,29 @@ function apresPageHtml(r) {
   if (!a.guests) tips.push('Nobody stayed for après today. Happy guests, sunny afternoons and weekends bring the biggest crowds.');
   if (!a.bar) tips.push('A bar at the base draws the biggest après crowd.');
   if (a.guests && a.profit < 0) tips.push('Après lost money today. Try it on weekends only, keep fewer venues open late, or raise drink prices.');
-  if (a.guests && a.venues[0]) tips.push(`${esc(a.venues[0].name)} was the busiest spot, with ${a.venues[0].guests} guests.`);
-  if (r.night && r.night.guests) tips.push('Night skiers stop in on their way home too: the bar stays open until an hour after the lights go out.');
+  if (a.guests && a.venues[0]) tips.push(`${esc(a.venues[0].name)} was the busiest spot, with ${a.venues[0].guests} visits.`);
+  if (r.night && r.night.guests) tips.push('Night skiers stop in on their way home too: the bar stays open at least 45 minutes after the lights go out.');
+  if (a.locals) tips.push(`${a.locals} locals drove up for the bar in the evening.`);
+  if (a.rowdy) tips.push('<b>A rowdy late night got talked about</b> with light security: your reputation slipped a little. Full security after 10 PM prevents it.');
+  // which hours paid: revenue against the staff on that hour
+  const hrs = Object.entries(a.hours || {}).map(([h, v]) => [+h, v]).filter(([h]) => h * 60 >= DAY_CLOSE - 60).sort((x, y) => x[0] - y[0]);
+  const hourLabel = (h) => { const hh = h % 24, ap = hh >= 12 ? 'PM' : 'AM'; return `${hh % 12 || 12} ${ap}`; };
+  const maxRev = Math.max(1, ...hrs.map(([, v]) => v.rev));
+  const hourHtml = hrs.length > 1 ? `<div class="field-label">Hour by hour</div><div class="rp-hours">${hrs.map(([h, v]) => `<div><span>${hourLabel(h)}</span><i style="width:${Math.round(v.rev / maxRev * 100)}%"></i><b>${money(v.rev)}</b><small>${v.guests} visits</small></div>`).join('')}</div>` : '';
   return `<dl class="rp-hero">
       <div><dt>Après profit</dt><dd class="${a.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(a.profit)}</dd></div>
       <div><dt>Guests</dt><dd>${a.guests.toLocaleString('en-US')}<small>${share}% of today's</small></dd></div>
-      <div><dt>Open until</dt><dd>${clockLabel(a.until)}</dd></div>
+      <div><dt>Last call</dt><dd>${clockLabel(a.until)}</dd></div>
     </dl>
     <div class="rp-lines">
       <span class="h">Revenue</span>
-      ${a.venues.length ? a.venues.map((v) => (v.type === 'firepit' ? `<span>${esc(v.name)} · ${v.guests} guests</span><span>free</span>` : line(`${esc(v.name)} · ${v.guests} guests`, v.rev))).join('') : '<span>No sales</span><span>$0</span>'}
+      ${a.venues.length ? a.venues.map((v) => (v.type === 'firepit' ? `<span>${esc(v.name)} · ${v.guests} visits</span><span>free</span>` : line(`${esc(v.name)} · ${v.guests} visits`, v.rev))).join('') : '<span>No sales</span><span>$0</span>'}
       <span class="tot">Après revenue</span><span class="tot">${money(a.rev)}</span>
       <span class="h">Expenses</span>
-      ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff)}${line('Drinks and food', a.cogs)}
+      ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff - (a.security || 0))}${a.security ? line('Security after 10 PM', a.security) : ''}${line('Drinks and food', a.cogs)}
       <span class="tot">Après profit</span><span class="tot ${a.profit >= 0 ? '' : 'neg'}">${signedMoney(a.profit)}</span>
     </div>
+    ${hourHtml}
     ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
     <p class="help">Après is already counted in the day's profit. Turn it on or off for each plan under Evenings.</p>`;
 }
@@ -11346,11 +11434,18 @@ function eveningsPanel() {
 // Après and night skiing in a plan, with what they cost to staff.
 function apresOpsHtml(P) {
   const venues = world.buildings.filter((B) => APRES_VENUES.includes(B.type) && !isDecor(B) && bldModeIn(P, B) === 'open');
-  const bar = world.buildings.some((B) => B.type === 'bar');
-  const cost = Math.round(venues.length * APRES_STAFF_HR * (APRES_END - DAY_CLOSE) / 60 * MOUNTAIN.costs);
-  return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On · until 7']], 'Après-ski')}
+  const bar = venues.some((B) => B.type === 'bar'), on = (P.apres || 'off') === 'on', lc = P.lastCall || APRES_END;
+  const late = Math.max(0, lc - LATE_FROM) / 60;
+  const hrs = (B) => { const end = Math.min(lc, VENUE_CLOSE[B.type] ?? Infinity); return (Math.max(0, Math.min(end, LATE_FROM) - DAY_CLOSE) + Math.max(0, end - LATE_FROM) * 1.5) / 60; };
+  const cost = Math.round((venues.reduce((a, B) => a + APRES_STAFF_HR * hrs(B), 0) + SECURITY_HR * late * (P.security === 'light' ? 0.4 : 1)) * MOUNTAIN.costs);
+  const closes = venues.filter((B) => VENUE_CLOSE[B.type] && VENUE_CLOSE[B.type] < lc).map((B) => `${esc(B.name)} at ${clockLabel(VENUE_CLOSE[B.type])}`);
+  return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On']], 'Après-ski')}
+    ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map(([k, l]) => [String(k), l]), 'Last call')}` : ''}
     <p class="help">${!venues.length ? 'Build a bar, lodge or restaurant at the base for guests to go to after skiing.'
-      : `${(P.apres || 'off') === 'on' ? 'After the lifts close, ' : 'When on, '}${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until 7 PM for guests heading home. About ${money(cost)} in staff.${bar ? '' : ' A bar draws the biggest après crowd.'}`}</p>`;
+      : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? ', with late-night pay and security after 10' : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
+      : 'Keep the bar, lodge and restaurants open after the lifts close for guests heading home.'}</p>
+    ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after 10 PM</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
+      <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? 'Cheaper, but past 11 PM a rowdy night can cost you some reputation, more so on weeknights.' : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
 }
 function nightOpsHtml(P) {
   const lit = realTrails().filter((t) => t.lit);
@@ -11415,6 +11510,8 @@ function opsAction(a, b) {
   else if (a === 'opsHours') P.hours = v;
   else if (a === 'opsFold') opsFold[v] = !opsFold[v];
   else if (a === 'opsApres') P.apres = v;
+  else if (a === 'opsLastCall') P.lastCall = +v;
+  else if (a === 'opsSecurity') P.security = v;
   else if (a === 'opsNight') P.night = +v;
   else if (a === 'opsShuttles') P.shuttles = v;
   else if (a === 'pkShuttles') o.plans[b.dataset.id].shuttles = v;
@@ -12736,6 +12833,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.37', date: 'Oct 27, 2026', title: 'Last call: après until 1 AM', show: ['evenings', 'Open Evenings'], spots: ['evenings'], items: [
+    'Choose last call for each plan under Evenings: 7 PM, 9 PM, 11 PM or 1 AM. The lodge stops serving at 8 and the restaurants at 10; the bar and fire pits stay open until last call.',
+    'Night owls, more of them on weekends, stay out for another round. Late nights pay staff time and a half after 10 PM, plus security; light security is cheaper, but a rowdy night past 11 can cost you some reputation.',
+    'Once the lifts are closed and night skiing is over, Skip to last call jumps straight to the end of the evening.',
+    'The Après report shows revenue and guests hour by hour, so you can see whether the late hours pay.',
+  ] },
   { v: '2.36.1', date: 'Oct 27, 2026', title: 'Steadier top bar', small: true, items: [
     'On laptop and tablet screens, a long status (an event under way, night skiing) no longer pushes the time bar onto its own row over the side buttons. It shortens the status instead, and goes back to normal when the status does.',
   ] },
