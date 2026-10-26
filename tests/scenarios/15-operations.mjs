@@ -24,6 +24,7 @@ export default async function ({ browser, url }) {
   await g.click('.tb-plan'); await g.wait(200);
   assert(/Weekday plan/.test(await g.ev(`$('sheet').innerText`)), 'Operations tab shows the weekday plan');
   const lodge = await g.ev(`world.buildings[0].id`);
+  await g.click('[data-action=opsFold][data-v=blds]'); await g.click('[data-action=opsFold][data-v=lifts]'); await g.wait(100); // lists start folded
   await g.click(`[data-action=opsBld][data-id="${lodge}"][data-v=lunch]`);
   await g.click('[data-action=opsStaff][data-v=lean]');
   await g.click('[data-action=opsHours][data-v=short]');

@@ -6304,7 +6304,7 @@ function planRunCost(P) {
   }
   for (const B of world.buildings) {
     const m = bldModeIn(P, B);
-    staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1);
+    if (!isDecor(B)) staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1); // lights and fire pits need no crew
     upkeep += bldUpkeep(B, m, B.type === 'patrol' && P.patrol === 'skeleton');
   }
   return Math.round(staff * c * lv.cost * (short ? 0.94 : 1) + lifts + upkeep + lotsIn(P) * LOT_RUN_DAY * c + busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)));
@@ -6431,7 +6431,7 @@ function closeEarly() {
 }
 function endDay() {
   const ops = today.ops || startOps(state.day), lv = STAFF_LEVELS[ops.staff] || STAFF_LEVELS.normal, short = ops.hours === 'short';
-  const bStaff = world.buildings.reduce((a, B) => a + ({ closed: 0, lunch: 0.5 }[ops.bld[B.id]] ?? 1), 0);
+  const bStaff = realBlds().reduce((a, B) => a + ({ closed: 0, lunch: 0.5 }[ops.bld[B.id]] ?? 1), 0);
   today.exp.staff = Math.round((STAFF_DAY + STAFF_PER_LIFT * world.lifts.filter((L) => L.open).length + STAFF_PER_BUILDING * bStaff + STAFF_PER_GUEST * today.guests) * MOUNTAIN.costs * lv.cost * (short ? 0.94 : 1));
   const upk = (B) => bldUpkeep(B, ops.bld[B.id] || 'open', B.type === 'patrol' && ops.patrol === 'skeleton');
   today.exp.upkeep = Math.round(world.buildings.reduce((a, B) => a + upk(B), 0));
@@ -11570,7 +11570,14 @@ function opsReportHtml(r) {
     if (L.stopped) continue;
     rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
   }
+  // Lights are one line per kind, with what they cost together; there can be dozens.
+  const many = { tlight: 'Trail lights', lamp: 'Lamp posts' };
+  for (const [type, label] of Object.entries(many)) {
+    const Ls = o.blds.filter((B) => B.type === type);
+    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
+  }
   for (const B of o.blds) {
+    if (many[B.type]) continue;
     const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} served · ${signedMoney(B.profit)}`;
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
@@ -12846,6 +12853,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.37.2', date: 'Oct 27, 2026', title: 'Lights on one line', small: true, items: [
+    'The day report lists trail lights and lamp posts as one line each, with how many you have and their upkeep added up.',
+    'Fixed: each light and fire pit was also charged a building’s staff wages ($600 a day). They now cost only their upkeep.',
+  ] },
   { v: '2.37.1', date: 'Oct 27, 2026', title: 'Player’s guide', small: true, items: [
     'New player’s guide, linked from the title screen: tips, keyboard shortcuts, and lesser-known features for new and returning players.',
   ] },
