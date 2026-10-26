@@ -850,6 +850,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .rp-hero dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
 .rp-hero dd { margin: 3px 0 0; font-family: var(--display); font-weight: 800; font-size: 28px; font-variant-numeric: tabular-nums; }
 .rp-hero .away { display: block; font: 600 11.5px var(--ui); color: var(--steep); }
+.rp-hero dd small:not(.away) { display: block; font: 600 11.5px var(--ui); color: var(--ink-2); }
+.rp-tabs { margin: 2px 0 0; }
+.rp-page > .rp-notes { margin-top: 12px; }
 .rp-hero .pos { color: #1f7a42; } .rp-hero .neg { color: #9a3326; }
 .rp-lines { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .rp-lines .h { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 6px; }
@@ -3867,7 +3870,7 @@ function computeNetwork() {
   rebuildPads();
   const sidx = surfaceIndex();
   for (const t of world.trails) refreshTrailMesh(t, sidx);
-  rebuildGuns();
+  rebuildGuns(); rebuildLights();
   if (state.started) refreshTips();
 }
 
@@ -4605,6 +4608,7 @@ function trailSheet(t) {
     </dl>
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${guests.filter((g) => g.st === 'ski' && g.T === t).length * AGENT}</b> skiing now · <b>${(today.trailRuns[t.id] || 0) * AGENT}</b> runs so far</p>` : ''}
     ${trailSnowSection(t)}
+    ${trailNightSection(t)}
     <div class="field-label">Signed as</div>
     <div class="seg" role="group" aria-label="Trail sign">${RATINGS.map((r, i) =>
       `<button data-action="sign" data-v="${i}" aria-pressed="${sign === i}" aria-label="${r.name}" title="${r.name}">${ratingSymbol(i)}</button>`).join('')}</div>
@@ -4697,6 +4701,22 @@ sheet.addEventListener('click', (e) => {
     state.cash -= cost; obj.sm = { on: true, mode: 'auto', target: Math.max(needOf(obj) + 12, 30) };
     rebuildGuns(); updateCash(true); renderSheet(); scheduleSave();
     toast(`Snowmaking added to ${obj.name} · −${money(cost)}`);
+  }
+  else if (a === 'lightsInstall' && obj) {
+    const cost = lightCost(obj);
+    if (state.phase !== 'closed' || state.cash < cost || obj.lit) return;
+    pushUndo(`lights on ${obj.name}`);
+    state.cash -= cost; obj.lit = true; obj.litCost = cost;
+    rebuildLights(); updateCash(true); renderSheet(); scheduleSave();
+    toast(`${obj.name} is lit for night skiing · −${money(cost)}${OPS_KINDS.some(([k]) => opsState().plans[k].night) ? '' : '. Turn night skiing on in Operations.'}`, false, OPS_KINDS.some(([k]) => opsState().plans[k].night) ? null : { label: 'Operations', fn: () => openManage('ops') });
+  }
+  else if (a === 'lightsRemove' && obj) {
+    if (state.phase !== 'closed' || !obj.lit) return;
+    pushUndo(`lights on ${obj.name}`);
+    const back = Math.round((obj.litCost || lightCost(obj)) * 0.25);
+    state.cash += back; obj.lit = false; delete obj.litCost;
+    rebuildLights(); updateCash(true); renderSheet(); scheduleSave();
+    toast(`Lights taken down on ${obj.name} · +${money(back)}`);
   }
   else if (a === 'baseSmInstall') {
     const cost = baseSmCost();
@@ -4896,7 +4916,7 @@ function updateLabels() {
     labelsDirty = false;
     for (const t of realTrails()) {
       const n = open ? (t.count || 0) * AGENT : 0;
-      setLabel(t.labelEl, `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`);
+      setLabel(t.labelEl, `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : nightNow() && !t.lit ? '<em>Dark</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`);
       t.labelEl.classList.toggle('sel', !!(selected && selected.obj === t));
       t.labelEl.classList.toggle('off', !t.open || t.snowOk === false);
       t.labelEl._prio = 1;
@@ -5044,7 +5064,7 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, icy: t.icy, sinceSnow: t.sinceSnow })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
@@ -5450,7 +5470,9 @@ function newToday() {
   return {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
-    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0 }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
+    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, apres: 0, night: 0 },
+    apres: { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 },
+    night: { guests: 0, stayed: 0, lifts: 0, runs: {} }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
     injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0 }, satSum: 0, satN: 0,
@@ -5459,8 +5481,10 @@ function newToday() {
 
 function canLoad(L) {
   if (state.phase !== 'open' || !L.open || L.windHold) return false;
-  // Base lifts stop loading at closing time; upper lifts keep running so nobody is stranded.
-  return state.time < closeTime() || !L.fromBase;
+  // Base lifts stop loading at closing time, unless they serve a lit trail for night skiing; upper
+  // lifts keep running so nobody is stranded.
+  if (state.time < closeTime() || !L.fromBase) return true;
+  return nightNow() && liftLit(L);
 }
 const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 
@@ -5590,7 +5614,7 @@ function hikeOut(g) {
 }
 function updateLeaving(g) {
   if (g.leaving) return;
-  if (state.time >= g.leaveAt || g.fat >= g.stam || g.sat < 22 || state.time >= closeTime()) {
+  if (state.time >= g.leaveAt || g.fat >= g.stam || g.sat < 22 || state.time >= sessionEnd(g)) {
     g.leaving = true;
     if (g.sat < 22 && (g.waitOver || 0) > 15) leftEarly(g); // worn down mostly by lift lines
     thought(g, g.sat < 22 ? 'I’ve had enough of this place.' : g.fat >= g.stam ? 'My legs are done for the day.' : 'Time to head home.');
@@ -5694,6 +5718,7 @@ function endOfTrail(g) {
   g.seen[T.id] = (g.seen[T.id] || 0) + 1;
   g.fat += T.an.vert * PACE * FATIGUE; g.vert += T.an.vert;
   today.trailRuns[T.id] = (today.trailRuns[T.id] || 0) + 1;
+  if (nightNow()) today.night.runs[T.id] = (today.night.runs[T.id] || 0) + 1;
   if (T.virtual) {
     // A lap of the learning area: first-timers gain confidence fast.
     if (!g.learnLaps) today.learners += AGENT;
@@ -5793,6 +5818,7 @@ function demandForDay() {
   const ev = eventToday();
   if (ev) dayPull *= EVENTS[ev.type].boost;
   if (runOps && runOps.hours === 'short') amen *= 0.9; // a shorter day tempts fewer people to make the drive
+  if (runOps && runOps.apres === 'on') amen *= has('bar') ? 1.05 : 1.02; // a lively base after skiing draws a crowd
   return Math.min(MAX_G * AGENT, Math.round(base * f * season * priceF * amen * parkF * state.reputation * (ev ? EVENTS[ev.type].boost : 1) * (0.9 + Math.random() * 0.2)));
 }
 function gaussian() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random()); }
@@ -5810,7 +5836,7 @@ function carPath(stall) {
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
-function spawnCar(size) {
+function spawnCar(size, night) {
   // The main lot's open sections fill first; then cars go to off-site parking.
   const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
   for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
@@ -5827,7 +5853,7 @@ function spawnCar(size) {
   }
   const si = free[0];
   const path = carPath(stalls[si]);
-  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0,
+  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0, night: !!night,
     extra: free.slice(1).map((i) => ({ i, color: pick(CARS) })) };
   for (const i of free) stalls[i].car = car.id;
   cars.push(car);
@@ -5876,6 +5902,7 @@ function carArrived(car) {
   car.st = 'parked';
   for (let k = 0; k < car.size; k++) {
     const g = makeGuest(car, s.x + 0.25 + (k - car.size / 2) * 0.12, s.z);
+    if (car.night) nightGuest(g);
     guests.push(g); gById.set(g.id, g); car.members.push(g.id);
     payTicket(g); today.guests += AGENT;
     thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
@@ -5904,9 +5931,11 @@ function stepLift(L, dt) {
     if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i);
     if (p1 >= total) loadBottom(L, i);
   }
-  if (L.open) {
+  // Lifts draw power while they run: all day, then at night only for night skiing or to bring riders up.
+  if (L.open && (state.time < closeTime() || (nightNow() && liftLit(L)) || L.queue.length || L.riders.some((r) => r.length))) {
     const c = LIFT_OP_HOUR[L.type] * dt / 3600 * (slow ? SLOW.cost : 1);
     today.exp.lifts += c; state.cash -= c;
+    if (state.time >= closeTime()) today.night.lifts += c;
     if (today.liftCost) today.liftCost[L.id] = (today.liftCost[L.id] || 0) + c;
   }
 }
@@ -6098,7 +6127,7 @@ const STAFF_LEVELS = {
   extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
 };
 const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
-const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on' });
+const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on', apres: 'off', night: 0 });
 function opsState() {
   if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
   for (const [k] of OPS_KINDS) state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) };
@@ -6137,7 +6166,8 @@ function bldOpenNow(B) {
 function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
   const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [],
-    shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on' };
+    shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on',
+    apres: P.apres === 'on' && world.buildings.some((B) => APRES_VENUES.includes(B.type)) ? 'on' : 'off', night: nightOk(P) };
   for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
   for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
   return ops;
@@ -6223,9 +6253,9 @@ function styleLot() {
 /* ---------- The day ---------- */
 function simStep(dt) {
   state.time += dt / 60;
-  while (schedule.length && schedule[schedule.length - 1].t <= state.time && state.time < closeTime()) {
+  while (schedule.length && schedule[schedule.length - 1].t <= state.time && (state.time < closeTime() || (schedule[schedule.length - 1].night && state.time < nightEnd() - 45))) {
     const e = schedule.pop();
-    if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size);
+    if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size, e.night);
   }
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
   for (const L of world.lifts) stepLift(L, dt);
@@ -6242,13 +6272,18 @@ function simStep(dt) {
   if (onMountain > today.peak) today.peak = onMountain;
   if (state.time >= closeTime() && !today.closed) {
     today.closed = true;
-    schedule = []; busPending = 0;
-    for (const g of guests) if (!g.leaving && g.st !== 'incar') { g.leaving = true; thought(g, 'Lifts are closing. Last run!'); }
+    schedule = schedule.filter((e) => e.night); busPending = 0;
+    for (const g of guests) if (!g.leaving && g.st !== 'incar' && !g.night && !maybeStayNight(g)) { g.leaving = true; thought(g, 'Lifts are closing. Last run!'); }
+    for (const L of world.lifts) if (L.fromBase && !(nightNow() && liftLit(L))) for (const g of L.queue.splice(0)) baseDecision(g);
+  }
+  if (today.night && nightEnd() && state.time >= nightEnd() && !today.nightClosed) {
+    today.nightClosed = true;
+    for (const g of guests) if (g.night && !g.leaving && g.st !== 'incar') { g.leaving = true; thought(g, 'Lights out. What a night session!'); }
     for (const L of world.lifts) if (L.fromBase) for (const g of L.queue.splice(0)) baseDecision(g);
   }
   // On a torchlight night the day runs until the fireworks are done.
   const show = torchTonight() && state.time < TORCH.end;
-  if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= closeTime() + DAY_HARD_END - DAY_CLOSE)) endDay();
+  if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= dayHardEnd())) endDay();
 }
 
 function openDay() {
@@ -6298,6 +6333,8 @@ function openDay() {
   // Town buses bring a share of the day's guests: half if any station is a transit center.
   const S = stations(), share = ops.townBus === 'off' || !S.length ? 0 : Math.max(...S.map((B) => BUS_RUN[B.type].share));
   for (const e of schedule) e.bus = Math.random() < share;
+  // The night crowd arrives from late afternoon, by car.
+  if (ops.night) { schedule.push(...nightSchedule(Math.ceil(nightDemand(n) / AGENT))); schedule.sort((a, b) => b.t - a.t); }
   guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN; nextParkAt = DAY_OPEN; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
@@ -6318,6 +6355,9 @@ function endDay() {
   today.exp.parking = Math.round(ops.lots * LOT_RUN_DAY * MOUNTAIN.costs);
   today.exp.shuttles = busCost(ops.shuttles || 'off', ops.townBus || 'on', (B) => ops.bld[B.id] || 'open');
   today.exp.cogs = Math.round(today.exp.cogs);
+  // Après: bartenders and servers for each venue kept open after the lifts close.
+  today.nightCost = nightCost(lv); today.exp.night = today.nightCost.lights + today.nightCost.staff;
+  today.exp.apres = apresOn() ? Math.round(world.buildings.filter(apresOpen).length * APRES_STAFF_HR * (apresEnd() - closeTime()) / 60 * MOUNTAIN.costs * lv.cost) : 0;
   // Short-handed patrol: an injury can turn into a claim against the resort.
   let claims = 0;
   const patrolCut = hasBld('patrol') && (ops.patrol === 'skeleton' || world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] === 'closed'));
@@ -6327,15 +6367,15 @@ function endDay() {
   }
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
   // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
-  state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims;
+  state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
   for (const B of world.buildings) {
     const cost = upk(B) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
-  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) - (today.refunds || 0);
+  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor;
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
   // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
@@ -6363,11 +6403,11 @@ function endDay() {
   state.lastReport = {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
+    busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
@@ -6620,11 +6660,13 @@ function drawTorches(n) {
   torchGlow.geometry.setDrawRange(0, lit);
   return n;
 }
-// Dusk falls over the mountain on parade night.
+// Dusk falls over the mountain late in the day: around 4 PM it fades, and by 4:40 it's dark. Après,
+// night skiing and the torchlight parade all happen under it.
+const EVENING = [955, 1000];
 let duskK = 0;
 const DUSK_SKY = ['#1b2040', '#4a3f68'];
 function updateDusk() {
-  const k = torchTonight() ? sstep(TORCH.dusk[0], TORCH.dusk[1], state.time) : 0;
+  const k = state.phase === 'open' && !state.summer ? sstep(EVENING[0], EVENING[1], state.time) : 0;
   if (Math.abs(k - duskK) < 0.01 && !(k === 0 && duskK > 0)) return;
   duskK = k;
   applyWeatherLook();
@@ -6864,6 +6906,124 @@ function pondResults() {
   return { runs, dry, trail: T.name };
 }
 
+/* ---------- Night skiing ----------
+   Light a trail (from its panel, overnight) and the night plan can keep it open after the lifts close:
+   until 7, 8 or 9 PM. Only lit trails run at night, and only lifts with a lit trail off the top. A
+   night crowd of locals drives up after work and buys night tickets; some day guests stay on. Lights,
+   night staff and lift power are the costs. It's reported on its own page of the day report. */
+const LIGHT_COST_UNIT = 420, LIGHT_HOUR_UNIT = 0.8, NIGHT_BASE_HR = 160, NIGHT_LIFT_HR = 120;
+const NIGHT_HOURS = [[0, 'Off'], [1140, 'Until 7'], [1200, 'Until 8'], [1260, 'Until 9']];
+const lightCost = (t) => Math.round(t.len * LIGHT_COST_UNIT * MOUNTAIN.costs / 500) * 500;
+const nightNow = () => !!nightEnd() && state.phase === 'open' && state.time >= closeTime() && state.time < nightEnd();
+const liftLit = (L) => L.departing.some((t) => t.lit && t.open && t.snowOk !== false);
+const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
+// The night crowd: a share of a day's demand, more on weeknights (after work), fewer when it's bitter
+// cold, and more the more lit terrain there is to ski.
+function nightDemand(dayN) {
+  const lit = realTrails().filter((t) => t.lit && runnable(t) && t.reachable && t.returns);
+  if (!lit.length) return 0;
+  const dow = dateOf(state.day).getUTCDay(), f = dow === 0 ? 0.5 : dow === 6 ? 0.9 : dow === 5 ? 1.1 : 1;
+  const priceF = clamp(Math.exp(-(svcPrice('night') - 35) / 35 * 1.6), 0.15, 1.6);
+  const terrain = Math.min(1.3, 0.45 + lit.length * 0.2), hours = (nightEnd() - DAY_CLOSE) / 120;
+  const cold = todayWx().lo < 5 ? 0.7 : 1;
+  return Math.round(dayN * 0.22 * f * priceF * terrain * hours * cold * state.reputation);
+}
+function nightSchedule(n) {
+  const out = [];
+  let total = 0;
+  while (total < n) {
+    const r = Math.random(), size = r < 0.35 ? 1 : r < 0.75 ? 2 : r < 0.9 ? 3 : 4;
+    out.push({ t: clamp(950 + Math.abs(gaussian()) * 45, 945, nightEnd() - 60), size, night: true }); total += size;
+  }
+  return out;
+}
+// Day guests with energy left may stay on under the lights.
+function maybeStayNight(g) {
+  if (!nightEnd() || g.night || g.leaving || g.sight || g.ab === 0 || g.fat > g.stam * 0.9 || g.sat < 45) return false;
+  if (Math.random() > 0.15 + (g.ab >= 2 ? 0.08 : 0) + (g.sat - 45) / 300) return false;
+  g.fat = Math.min(g.fat, g.stam * 0.6); // a second wind
+  g.night = true; g.stayedNight = true; g.leaveAt = nightEnd() - Math.random() * 60; today.night.stayed += AGENT;
+  thought(g, 'Staying for night skiing under the lights!');
+  return true;
+}
+// Night skiing costs: lights on every lit trail that ran, night crew, and patrol.
+function nightCost(lv) {
+  if (!nightEnd()) return { lights: 0, staff: 0 };
+  const hours = (nightEnd() - closeTime()) / 60;
+  const lit = realTrails().filter((t) => t.lit && t.open);
+  const lights = Math.round(lit.reduce((a, t) => a + t.len, 0) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
+  const staff = Math.round((NIGHT_BASE_HR + NIGHT_LIFT_HR * world.lifts.filter((L) => L.open && liftLit(L)).length) * hours * MOUNTAIN.costs * lv.cost);
+  return { lights, staff };
+}
+function nightReport() {
+  if (!nightEnd()) return null;
+  const n = today.night, c = today.nightCost || { lights: 0, staff: 0 }, lifts = Math.round(n.lifts);
+  let busiest = null;
+  for (const t of realTrails()) if (t.lit && n.runs[t.id] && (!busiest || n.runs[t.id] > busiest.n)) busiest = { name: t.name, n: n.runs[t.id] * AGENT };
+  return { guests: n.guests, stayed: n.stayed, rev: Math.round(today.rev.night || 0), lights: c.lights, staff: c.staff, lifts,
+    profit: Math.round((today.rev.night || 0) - c.lights - c.staff - lifts), until: nightEnd(), lit: realTrails().filter((t) => t.lit).length, busiest,
+    trails: realTrails().length, cold: todayWx().lo < 5 };
+}
+
+// Light poles along lit trails, and their glow and pools of light after dark.
+const LIGHT_GEO = (() => {
+  const pole = new THREE.CylinderGeometry(0.05, 0.06, 2.4, 5); pole.translate(0, 1.2, 0);
+  const arm = new THREE.BoxGeometry(0.5, 0.06, 0.08); arm.translate(-0.22, 2.35, 0);
+  const lamp = new THREE.BoxGeometry(0.22, 0.1, 0.18); lamp.translate(-0.45, 2.3, 0);
+  const parts = [pole, arm, lamp].map((q) => q.toNonIndexed());
+  const n = parts.reduce((a, q) => a + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const q of parts) { pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3); o += q.attributes.position.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return g;
+})();
+const MAX_LIGHTS = 2500, LIGHT_GAP = 7;
+const lightMesh = new THREE.InstancedMesh(LIGHT_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LIGHTS);
+lightMesh.count = 0; lightMesh.castShadow = true; lightMesh.frustumCulled = false;
+scene.add(lightMesh);
+const lampGlow = glowPoints(MAX_LIGHTS, 14, 0xfff0c8);
+const litPools = new THREE.Group();
+scene.add(litPools);
+const POOL_MAT = new THREE.MeshBasicMaterial({ color: 0xfff1cf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+let lampSpots = [];
+function rebuildLights() {
+  lampSpots = [];
+  for (const m of litPools.children.slice()) { litPools.remove(m); m.geometry.dispose(); }
+  const _o = new THREE.Object3D();
+  for (const t of realTrails()) {
+    if (!t.lit) continue;
+    const hw = TRAIL_WIDTHS[t.width].hw, n = Math.max(2, Math.round(t.len / LIGHT_GAP));
+    for (let k = 0; k <= n && lampSpots.length < MAX_LIGHTS; k++) {
+      const i = Math.min(t.samples.length - 2, Math.round(k / n * (t.samples.length - 2))), a = t.samples[i], b = t.samples[i + 1];
+      let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+      const side = k % 2 ? 1 : -1, off = side * (hw + 0.45), x = a.x - dz * off, z = a.z + dx * off;
+      // the arm leans out over the trail
+      const yaw = Math.atan2(-dz * side, dx * side) + Math.PI / 2;
+      _o.position.set(x, heightAt(x, z), z); _o.rotation.set(0, yaw, 0); _o.updateMatrix();
+      lightMesh.setMatrixAt(lampSpots.length, _o.matrix);
+      lampSpots.push({ x: x + dz * side * 0.45, y: heightAt(x, z) + 2.3, z: z - dx * side * 0.45, t });
+    }
+    const pool = new THREE.Mesh(ribbonGeometry(t.samples, hw * 0.95, edgeTint(trailSign(t))), POOL_MAT);
+    pool.renderOrder = 3; pool.userData.t = t;
+    litPools.add(pool);
+  }
+  lightMesh.count = lampSpots.length;
+  lightMesh.instanceMatrix.needsUpdate = true;
+  const pos = lampGlow.geometry.attributes.position.array;
+  lampSpots.forEach((p, i) => pos.set([p.x, p.y, p.z], i * 3));
+  lampGlow.geometry.attributes.position.needsUpdate = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// After dark, lit trails glow when the night plan is running (and always in the night preview).
+function updateNightLights() {
+  const on = duskK > 0.15 && (nightNow() || (torchTonight() && state.time < TORCH.end));
+  const k = on ? duskK : 0;
+  POOL_MAT.opacity = 0.22 * k;
+  litPools.visible = k > 0;
+  lampGlow.geometry.setDrawRange(0, k > 0 ? lampSpots.length : 0);
+  lampGlow.material.opacity = k;
+}
+
 /* ---------- Drawing guests and cars ---------- */
 const _c = new THREE.Color();
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _e = new THREE.Euler();
@@ -7017,6 +7177,7 @@ function restoreSim(sim) {
   for (const B of world.buildings) initBldSim(B);
   if (state.phase !== 'open' || !sim) { if (state.phase === 'open') state.phase = 'closed'; return; }
   today = sim.today; schedule = sim.schedule || [];
+  today.apres = today.apres || { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 }; today.night = today.night || { guests: 0, stayed: 0, lifts: 0, runs: {} }; // a day saved before après and night skiing
   resumeOps(today.ops); nextGid = sim.nextGid || 1; nextCid = sim.nextCid || 1;
   buses = (sim.buses || []).filter((b) => b.kind !== 'park' || !b.load || Array.isArray(b.load)); busPending = sim.busPending || 0; nextBusAt = sim.nextBusAt || 0;
   for (const b of buses) { if (!b.kind) b.kind = 'town'; if (b.stn == null) b.stn = (world.buildings.find(isStation) || {}).id; }
@@ -7070,6 +7231,8 @@ const BTYPES = {
     desc: 'Sit-down family meals and an après-ski bar. Guests spend more and stay longer.' },
   fine: { name: 'Fine dining', where: 'any', cost: 260000, sign: 'FINE DINING', accent: 0x6b2b47, seats: 60, stalls: 6, w: 4.4, d: 3.2, upkeep: 1900,
     desc: 'Long, pricey meals and après. Guests who love dining out seek it out; it pays on busy days.' },
+  bar: { name: 'Bar and pub', where: 'base', cost: 120000, sign: 'BAR', accent: 0xb8452a, seats: 90, counter: 6, stalls: 4, w: 3.6, d: 2.6, upkeep: 900,
+    desc: 'The heart of après-ski: drinks and a loud deck after the lifts close. A snack bar at lunch. Turn on après in Operations to keep it open until 7.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
     desc: 'Fits guests with skis and boots when they arrive.' },
   tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
@@ -7095,9 +7258,9 @@ const BTYPES = {
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
     desc: 'An upgraded shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
-const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
+const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
@@ -7180,15 +7343,17 @@ function addDriveway(b) {
   b.stop = toWorld(b, 0.2, cz);
 }
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
-const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine'];
+const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar'];
 const isEatery = (B) => EATS.includes(B.type);
 const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
-const PRICE_DEFAULTS = { food: 16, snack: 11, dining: 38, fine: 85, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0 };
+const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0 };
 const PRICE_INFO = {
   snack: { label: 'Snack (truck, café)', min: 3, max: 30, step: 1 },
   food: { label: 'Lodge meal', min: 5, max: 60, step: 1 },
   dining: { label: 'Casual restaurant meal', min: 15, max: 120, step: 2 },
   fine: { label: 'Fine dining meal', min: 30, max: 250, step: 5 },
+  drinks: { label: 'Après drinks (bar, lodge)', min: 4, max: 60, step: 1 },
+  night: { label: 'Night skiing ticket', min: 10, max: 120, step: 5 },
   rental: { label: 'Ski rental', min: 10, max: 120, step: 5 },
   tune: { label: 'Ski tuning', min: 10, max: 120, step: 5 },
   gear: { label: 'Gear (goggles, gloves)', min: 15, max: 200, step: 5 },
@@ -7463,6 +7628,23 @@ function modelRestaurant() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
   return k;
 }
+function modelBar() {
+  const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
+  hall(k, { w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
+  for (const wx of [-1.1, -0.55, 0.55, 1.1]) { k.add(bx(0.4, 0.4, 0.04), BM.dark, wx, 0.36, 0.41); k.add(bx(0.34, 0.34, 0.05), BM.glow, wx, 0.36, 0.415); }
+  door(k, 0, 0.42, 0.46, 0.34, BM.dark);
+  k.add(bx(3.2, 0.06, 0.3), acc, 0, 0.66, 0.56, -0.2); // awning
+  sign(k, 'bar', 0, 0.94, 0.42, 0.9);
+  chimneyTop(k, 1.05, 1.4, -0.85);
+  deck(k, 0, 1.1, 3.6, 1.2);
+  for (const px of [-1.2, 1.2]) picnic(k, px, 1.25);
+  // a fire pit in the middle of the deck, and string lights over it
+  k.add(new THREE.CylinderGeometry(0.22, 0.26, 0.14, 10), BM.stone, 0, 0.24, 1.2);
+  k.add(new THREE.CylinderGeometry(0.14, 0.1, 0.1, 8), BM.glow, 0, 0.33, 1.2);
+  for (let i = 0; i <= 12; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.75 + i * 0.29, 0.66 - 0.08 * Math.sin(i / 12 * Math.PI), 1.75);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
+  return k;
+}
 function modelRental() {
   const k = new Kit();
   hall(k, { w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
@@ -7661,7 +7843,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -7746,6 +7928,7 @@ const LODGE_NAMES = {
   top: ['Summit Lodge', 'Summit House', 'Skyline Lodge', 'Eagle’s Nest', 'Top of the World Lodge', 'Peak Chalet', 'Cloud Nine Lodge'],
 };
 const OTHER_NAMES = {
+  bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
   tuning: ['Tune & Demo Center', 'Edge Works', 'Wax On', 'Edge & Base', 'The Tuning Fork', 'Sharp Edges', 'Base Grind'],
   store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear', 'Powder Room Outfitters', 'The Gear Garage', 'Alpine Supply', 'Peak Performance', 'Slope Shop'],
   gift: ['Gift Kiosk', 'Souvenir Stand', 'Trinket Hut', 'The Mitten Shop', 'Postcards & Pins', 'Snow Globe Gifts', 'The Logo Shop'],
@@ -7868,13 +8051,13 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
 /* =====================================================================
    BUILDINGS: how guests use them
    ===================================================================== */
-const POOL = { shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
-const SVC_TIME = { shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
-const COGS = { shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
-const REV_CAT = { camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
-const OFFERS = { lodge: ['food', 'warm', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
-const PRICE_KEY = { tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp' };
-const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
+const POOL = { drinks: 'seat', shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
+const SVC_TIME = { drinks: [30, 70], shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
+const COGS = { drinks: 0.25, shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
+const REV_CAT = { drinks: 'apres', camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
+const OFFERS = { bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
+const PRICE_KEY = { bar: 'drinks', tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp' };
+const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', rent: 'Renting skis', lesson: 'A lesson' };
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
@@ -7883,6 +8066,8 @@ function poolSlots(B, pool) {
 }
 function priceOf(svc, prices) {
   if (svc === 'tune') return prices.tune ?? 35;
+  if (svc === 'drinks') return prices.drinks ?? 18;
+  if (svc === 'night') return prices.night ?? 35;
   if (svc === 'gear') return prices.gear ?? 60;
   if (svc === 'shop') return prices.gift ?? 14;
   if (svc === 'camp') return prices.camp ?? 110;
@@ -7973,8 +8158,64 @@ function maybeVisit(g, here, radius, baseToo, resume) {
   startVisit(g, v.B, v.svc, resume);
   return true;
 }
+/* ---------- Après-ski ----------
+   With après on in the day's plan, the bar, the lodge and the restaurants stay open after the lifts
+   close, until 7 PM (or an hour after night skiing ends). Guests heading home stop in for a drink or a
+   meal, more so when they've had a good day, on weekends and sunny afternoons, and when there's a bar.
+   It's reported on its own page of the day report. */
+const APRES_END = 1140, APRES_STAFF_HR = 95;
+const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine'];
+const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : 'drinks');
+const apresOn = () => !!runOps && runOps.apres === 'on';
+const nightEnd = () => (runOps && runOps.night) || 0;
+function nightOk(P) { return P.night && realTrails().some((t) => t.lit) ? P.night : 0; }
+// The latest the day can run: an hour and a quarter after the lifts close, or later for après and night skiing.
+function dayHardEnd() {
+  let e = closeTime() + DAY_HARD_END - DAY_CLOSE;
+  if (apresOn()) e = Math.max(e, apresEnd() + 10);
+  if (nightEnd()) e = Math.max(e, nightEnd() + 30);
+  return e;
+}
+const apresEnd = () => Math.max(APRES_END, nightEnd() ? nightEnd() + 45 : 0);
+const apresOpen = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
+// The après page of the day report: who came, where, and what it made after its own staff and supplies.
+function apresReport() {
+  if (!apresOn()) return null;
+  const a = today.apres, venues = Object.entries(a.byB).map(([id, v]) => ({ name: (bldById(+id) || {}).name || 'A venue', type: (bldById(+id) || {}).type, ...v })).sort((x, y) => y.rev - x.rev);
+  const cogs = Math.round(a.cogs), staff = today.exp.apres || 0;
+  return { guests: a.guests, rev: Math.round(a.rev), cogs, staff, profit: Math.round(a.rev - cogs - staff), venues, open: world.buildings.filter(apresOpen).length,
+    bar: world.buildings.some((B) => B.type === 'bar'), until: apresEnd(), left: today.guests };
+}
+function apresChance(g) {
+  let p = 0.16 + (g.sat - 60) / 120 + (g.spend - 1) * 0.3 + (g.fancy ? 0.08 : 0) - (g.family ? 0.15 : 0) - (g.first ? 0.05 : 0);
+  const w = todayWx();
+  if (w.type === 'sunny' && w.hi > 22) p += 0.08;
+  if (w.type === 'rain' || w.type === 'heavy') p -= 0.05;
+  if (world.buildings.some((B) => B.type === 'bar' && apresOpen(B))) p += 0.1;
+  if (runOps.dayKind === 'weekend') p *= 1.3;
+  return clamp(p, 0.03, 0.7);
+}
 function maybeApres(g) {
-  if (!g.apres || g.apresDone || state.time < 870) return false;
+  if (g.apresDone || state.time < 870) return false;
+  if (apresOn()) {
+    g.apresDone = true;
+    if (state.time > apresEnd() - 30 || Math.random() > apresChance(g)) return false;
+    // Where: big spenders and diners head for a restaurant; most want the bar; the lodge will do.
+    let best = null, bv = -Infinity;
+    for (const B of world.buildings) {
+      if (!apresOpen(B)) continue;
+      const svc = apresSvc(B);
+      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'lodge' ? 0 : g.fancy ? 3 : -1)
+        - Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4 + Math.random() * 2;
+      if (v > bv) { bv = v; best = B; }
+    }
+    if (!best) return false;
+    g.apresGuest = true; today.apres.guests += AGENT;
+    thought(g, best.type === 'bar' ? `Après at ${best.name}!` : `Heading to ${best.name} to warm up after skiing.`);
+    startVisit(g, best, apresSvc(best), { k: 'car' });
+    return true;
+  }
+  if (!g.apres) return false;
   g.apresDone = true;
   const list = world.buildings.filter((B) => (B.type === 'restaurant' || B.type === 'fine') && bldOpenNow(B));
   let best = null, bd = Infinity;
@@ -8054,8 +8295,13 @@ function serve(g, B) {
   if (svc === 'rent') B.rented++;
   if (price > 0) {
     const amt = price * AGENT;
-    state.cash += amt; B.today.revenue += amt; today.rev[REV_CAT[svc]] += amt;
+    state.cash += amt; B.today.revenue += amt;
     const c = amt * COGS[svc]; B.today.cogs += c; today.exp.cogs += c;
+    if (g.apresGuest) {
+      today.rev.apres = (today.rev.apres || 0) + amt; today.apres.rev += amt; today.apres.cogs += c;
+      const v = today.apres.byB[B.id] || (today.apres.byB[B.id] = { guests: 0, rev: 0 });
+      v.guests += AGENT; v.rev += amt;
+    } else today.rev[REV_CAT[svc]] += amt;
   }
   B.used[pool]++; B.today.visits += AGENT;
   g.until = state.time + lerp(SVC_TIME[svc][0], SVC_TIME[svc][1], Math.random());
@@ -8094,6 +8340,7 @@ function finishVisit(g) {
   else if (svc === 'snack') { g.ate = true; g.sat += 2; thought(g, `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
+  else if (svc === 'drinks') { g.sat += 6; thought(g, Math.random() < 0.5 ? `Après at ${name}: cold drinks and good company.` : `Swapping stories about today's runs at ${name}.`); }
   else if (svc === 'rr' && B && B.type === 'hrest') {
     const cold = todayWx().hi < 20;
     g.bl = 0; g.sat += cold ? 4 : 2; g.fat = Math.max(0, g.fat - g.stam * 0.08);
@@ -8459,6 +8706,7 @@ const hexOf = (c) => '#' + c.toString(16).padStart(6, '0');
 function capOf(type, s) {
   switch (type) {
     case 'lodge': case 'restaurant': case 'fine': return `${s.seats} seats · restrooms (${s.stalls} stalls)`;
+    case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
     case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
     case 'store': return `${s.seats} shoppers at a time`;
@@ -8531,7 +8779,8 @@ function buildBuildingDraft() {
   pushUndo(`the new ${BTYPES[draft.btype].name.toLowerCase()}`);
   const b = commitBuilding(info, draft.btype, draft.bpos.x, draft.bpos.z, draft.rot);
   computeNetwork(); syncLabels(); updateCash(true);
-  toast(`Built ${b.name} · −${money(info.cost)}`);
+  if (b.type === 'bar' && !OPS_KINDS.some(([k]) => opsState().plans[k].apres === 'on')) toast(`Built ${b.name} · −${money(info.cost)}. Turn on après in Operations to keep it open after the lifts close.`, false, { label: 'Operations', fn: () => openManage('ops') });
+  else toast(`Built ${b.name} · −${money(info.cost)}`);
   draft.bpos = null; draft.info = null; clearGhost();
   renderSheet(); scheduleSave();
 }
@@ -8587,7 +8836,7 @@ function buyOffsite() {
 function bldLive(B) {
   const s = bspec(B);
   switch (B.type) {
-    case 'lodge': case 'restaurant': case 'fine': case 'cafe': case 'truck': {
+    case 'lodge': case 'restaurant': case 'fine': case 'cafe': case 'truck': case 'bar': {
       const taken = Math.min(s.seats, B.used.seat * AGENT), line = B.q.seat.length * AGENT;
       let txt = `<b>${taken}</b> of ${s.seats} ${B.type === 'truck' ? 'eating nearby' : 'seats taken'} · <b>${line}</b> in line`;
       if (B.type === 'truck' || B.type === 'cafe') txt += `<br>The window serves about ${s.counter} guests a minute.`;
@@ -8608,7 +8857,7 @@ function bldLive(B) {
   }
 }
 // Prices in sections, each with what guests consider normal.
-const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', ['scenic']]];
+const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine', 'drinks']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', ['scenic']], ['Night skiing', ['night']]];
 const groupedPrices = () => `<p class="help">Guests compare each price with what’s normal, shown beside it. Charge more and some will pass.</p>`
   + PRICE_GROUPS.map(([label, keys]) => `<h4 class="price-group">${label}</h4>${keys.map(priceStepper).join('')}`).join('');
 function priceStepper(key) {
@@ -8820,7 +9069,7 @@ function applyDayMelt(w) {
 }
 
 /* ---------- Trail snow: natural cover plus machine snow ---------- */
-const runnable = (t) => t.open && t.snowOk !== false;
+const runnable = (t) => t.open && t.snowOk !== false && (t.lit || !nightNow());
 const needOf = (t) => OPEN_NEED[trailSign(t)];
 function trailNatural(t) {
   let s = 0, n = 0;
@@ -9311,6 +9560,18 @@ function weatherSheet(noHead) {
       <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
       <p class="help">Skip ahead up to 7 days, stopping early if a big storm arrives.${preOpening() ? ' Until your first open day of the season, overhead runs at the summer rate.' : ' Overhead still runs every day.'} Snowmaking keeps running on cold nights.</p>` : ''}`;
 }
+function trailNightSection(t) {
+  if (visiting) return t.lit ? `<div class="field-label">Night skiing</div><p class="help">Lit for night skiing.</p>` : '';
+  const closed = state.phase === 'closed' && !state.summer, cost = lightCost(t), hrs = Math.round(t.len * LIGHT_HOUR_UNIT * MOUNTAIN.costs);
+  if (!t.lit) return `<div class="field-label">Night skiing</div>
+    <p class="help">Light poles along ${esc(t.name)} let it stay open after dark when your plan runs night skiing.</p>
+    <button class="btn secondary" data-action="lightsInstall" ${closed && state.cash >= cost ? '' : 'disabled'}>${closed ? `Add lights · ${money(cost)}` : 'Add lights overnight'}</button>`;
+  const on = OPS_KINDS.filter(([k]) => opsState().plans[k].night).map(([, l]) => l.toLowerCase());
+  return `<div class="field-label">Night skiing</div>
+    <div class="status"><span class="pill on">Lit</span><span class="muted">about ${money(hrs)} an hour in power when lit</span></div>
+    <p class="help">${on.length ? `Open at night on ${on.join(', ')}.` : 'Night skiing is off in every plan.'} <button class="link" data-action="opsOpen">Night hours in Operations</button></p>
+    <button class="link" data-action="lightsRemove" ${closed ? '' : 'disabled'}>Remove the lights</button>`;
+}
 function trailSnowSection(t) {
   const need = needOf(t), sm = t.sm || {};
   const status = !t.snowOk ? `<span class="pill off">Not enough snow</span>` : t.surface === 'thin' ? `<span class="pill warn">Thin cover</span>` : `<span class="pill on">${SURFACE[t.surface] || 'Groomed'}</span>`;
@@ -9475,7 +9736,18 @@ function scenicGondola(p) {
   }
   return best;
 }
+// A night-session guest: a local after work, here to ski under the lights and go home.
+function nightGuest(g) {
+  g.night = true; g.sight = false; g.first = false; g.family = false; g.wantsLesson = false; g.shopper = false;
+  g.needsRental = Math.random() < 0.08; g.ab = Math.max(1, g.ab); g.ate = true; g.apres = false;
+  g.leaveAt = nightEnd() - Math.random() * 50; g.stam *= 0.6;
+  today.night.guests += AGENT;
+}
 function payTicket(g) {
+  if (g.night) {
+    if (Math.random() < (today.passShare || 0) * 1.5) { g.pass = true; g.paid = 0; today.passGuests += AGENT; return; }
+    g.paid = svcPrice('night'); state.cash += g.paid * AGENT; today.rev.night += g.paid * AGENT; return;
+  }
   if (g.sight) { g.paid = svcPrice('scenic'); state.cash += g.paid * AGENT; today.rev.tickets += g.paid * AGENT; return; }
   if (Math.random() < (today.passShare || 0)) { g.pass = true; g.paid = 0; today.passGuests += AGENT; return; }
   g.paid = ticketOn(state.day);
@@ -9924,7 +10196,9 @@ function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
   const onMtn = onMountain * AGENT;
   let sub = state.phase === 'open'
-    ? (state.time >= closeTime() ? `Lifts closed · <b>${onMtn}</b> ${torchTonight() && state.time < TORCH.end ? 'staying for the show' : 'heading home'}` : `Open · <b>${onMtn}</b> on the mountain`)
+    ? (state.time >= closeTime() ? (nightNow() ? `Night skiing until ${clockLabel(nightEnd())} · <b>${onMtn}</b> here`
+      : apresOn() && state.time < apresEnd() && today.apres.guests ? `Après until ${clockLabel(apresEnd())} · <b>${onMtn}</b> here`
+      : `Lifts closed · <b>${onMtn}</b> ${torchTonight() && state.time < TORCH.end ? 'staying for the show' : 'heading home'}`) : `Open · <b>${onMtn}</b> on the mountain`)
     : state.phase === 'report' ? 'Day complete' : state.phase === 'season' ? 'Season over'
     : state.summer ? `Summer · season ${state.season + 1} starts in November`
     : preOpening() && state.day <= SEASON_LAST ? preseasonLine()
@@ -9959,7 +10233,7 @@ function refreshTimebar(force) {
   });
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
-  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? 'Closing…' : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
+  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
   go.disabled = state.phase === 'open' && state.time >= closeTime();
   go.classList.toggle('calm', state.phase === 'open');
   const locked = state.phase !== 'closed';
@@ -10154,9 +10428,9 @@ let rpPast = false;
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
-  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor;
-  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes - rv.refunds;
+  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor + ex.apres + ex.night;
+  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
   // Notes are ranked so problems and money matters come first; routine ones fold away under More.
@@ -10207,8 +10481,11 @@ function showReport(r = state.lastReport, past = false) {
   if (r.baseBare) note(4, `<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
   if (c.stranded) note(3, `${c.stranded} guests had to hike out because a lift was stopped.`);
   const notes = ranked.sort((x, y) => y[0] - x[0] || x[1] - y[1]).map((n) => n[2]);
+  const tabs = [['day', 'Day'], ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
   $('rpBody').innerHTML = `
     <div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
+    ${tabs.length > 1 ? `<div class="tabs rp-tabs" role="tablist">${tabs.map(([k, l], i) => `<button role="tab" data-rptab="${k}" aria-pressed="${!i}">${l}</button>`).join('')}</div>` : ''}
+    <div class="rp-page" data-page="day">
     <dl class="rp-hero">
       <div><dt>Profit</dt><dd class="${r.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(r.profit)}</dd></div>
       <div><dt>Guests</dt><dd>${r.guests.toLocaleString('en-US')}${r.turnedAway ? `<small class="away">+${r.turnedAway} turned away</small>` : ''}</dd></div>
@@ -10217,20 +10494,23 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
-      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
+      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${opsReportHtml(r)}
     ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
     ${notes.length ? `<ul class="rp-notes">${notes.slice(0, NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
     ${notes.length > NOTES_SHOWN ? `<details class="rp-more"><summary>More about today (${notes.length - NOTES_SHOWN})</summary><ul class="rp-notes">${notes.slice(NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul></details>` : ''}
-    <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>`;
+    <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>
+    </div>
+    ${r.apres ? `<div class="rp-page" data-page="apres" hidden>${apresPageHtml(r)}</div>` : ''}
+    ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}`;
   $('report').hidden = false;
   if ($('rpPlan')) $('rpPlan').onclick = planTomorrow;
   $('rpNext').focus({ preventScroll: true });
@@ -10239,6 +10519,60 @@ function showReport(r = state.lastReport, past = false) {
   armAuto();
 }
 
+$('rpBody').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rptab]');
+  if (!b) return;
+  for (const t of $('rpBody').querySelectorAll('[data-rptab]')) t.setAttribute('aria-pressed', String(t === b));
+  for (const pg of $('rpBody').querySelectorAll('.rp-page')) pg.hidden = pg.dataset.page !== b.dataset.rptab;
+});
+// The après page of the day report.
+function apresPageHtml(r) {
+  const a = r.apres, line = (label, v, neg) => `<span>${label}</span><span${neg ? ' class="neg"' : ''}>${neg ? '−' : ''}${money(v)}</span>`;
+  const share = r.guests ? Math.round(a.guests / r.guests * 100) : 0, tips = [];
+  if (!a.guests) tips.push('Nobody stayed for après today. Happy guests, sunny afternoons and weekends bring the biggest crowds.');
+  if (!a.bar) tips.push('A bar at the base draws the biggest après crowd.');
+  if (a.guests && a.profit < 0) tips.push('Après lost money today. Try it on weekends only, keep fewer venues open late, or raise drink prices.');
+  if (a.guests && a.venues[0]) tips.push(`${esc(a.venues[0].name)} was the busiest spot, with ${a.venues[0].guests} guests.`);
+  if (r.night && r.night.guests) tips.push('Night skiers stop in on their way home too: the bar stays open until an hour after the lights go out.');
+  return `<dl class="rp-hero">
+      <div><dt>Après profit</dt><dd class="${a.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(a.profit)}</dd></div>
+      <div><dt>Guests</dt><dd>${a.guests.toLocaleString('en-US')}<small>${share}% of today's</small></dd></div>
+      <div><dt>Open until</dt><dd>${clockLabel(a.until)}</dd></div>
+    </dl>
+    <div class="rp-lines">
+      <span class="h">Revenue</span>
+      ${a.venues.length ? a.venues.map((v) => line(`${esc(v.name)} · ${v.guests} guests`, v.rev)).join('') : '<span>No sales</span><span>$0</span>'}
+      <span class="tot">Après revenue</span><span class="tot">${money(a.rev)}</span>
+      <span class="h">Expenses</span>
+      ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff)}${line('Drinks and food', a.cogs)}
+      <span class="tot">Après profit</span><span class="tot ${a.profit >= 0 ? '' : 'neg'}">${signedMoney(a.profit)}</span>
+    </div>
+    ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
+    <p class="help">Après is already counted in the day's profit. Turn it on or off for each plan in Operations.</p>`;
+}
+// The night skiing page of the day report.
+function nightPageHtml(r) {
+  const n = r.night, line = (label, v) => `<span>${label}</span><span>${money(v)}</span>`, tips = [];
+  if (n.busiest) tips.push(`${esc(n.busiest.name)} was the busiest lit trail, skied ${n.busiest.n} times after dark.`);
+  if (n.stayed) tips.push(`${n.stayed} day guests stayed on for night skiing.`);
+  if (n.lit < 3) tips.push('More lit terrain draws more night skiers: light another trail from its panel.');
+  if (n.cold) tips.push('A bitterly cold night kept some locals at home.');
+  if (n.profit < 0) tips.push('Night skiing lost money tonight. Try a shorter session, weeknights only, or a different night ticket price.');
+  return `<dl class="rp-hero">
+      <div><dt>Night profit</dt><dd class="${n.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(n.profit)}</dd></div>
+      <div><dt>Night skiers</dt><dd>${(n.guests + n.stayed).toLocaleString('en-US')}${n.stayed ? `<small>${n.stayed} stayed from the day</small>` : ''}</dd></div>
+      <div><dt>Lights on until</dt><dd>${clockLabel(n.until)}</dd></div>
+    </dl>
+    <div class="rp-lines">
+      <span class="h">Revenue</span>
+      ${line(`Night tickets · ${n.guests} guests`, n.rev)}
+      <span class="h">Expenses</span>
+      ${line(`Lights on ${n.lit} trail${n.lit === 1 ? '' : 's'}`, n.lights)}${line('Night crew', n.staff)}${line('Lift power after 4 PM', n.lifts)}
+      <span class="tot">Night profit</span><span class="tot ${n.profit >= 0 ? '' : 'neg'}">${signedMoney(n.profit)}</span>
+    </div>
+    ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
+    <p class="help">Night skiing is already counted in the day's profit. Set the night hours for each plan in Operations, and the night ticket price in Prices.</p>`;
+}
 // Someone else's resort: its finances, to look at only.
 function visitResortSheet() {
   const r = state.lastReport;
@@ -10563,6 +10897,24 @@ function opsSeg(action, id, cur, modes, label) {
   return `<div class="seg ops" role="group" aria-label="${esc(label)}">${modes.map(([k, l]) =>
     `<button data-action="${action}" data-id="${id}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
 }
+// Après and night skiing in a plan, with what they cost to staff.
+function apresOpsHtml(P) {
+  const venues = world.buildings.filter((B) => APRES_VENUES.includes(B.type) && bldModeIn(P, B) === 'open');
+  const bar = world.buildings.some((B) => B.type === 'bar');
+  const cost = Math.round(venues.length * APRES_STAFF_HR * (APRES_END - DAY_CLOSE) / 60 * MOUNTAIN.costs);
+  return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On · until 7']], 'Après-ski')}
+    <p class="help">${!venues.length ? 'Build a bar, lodge or restaurant at the base for guests to go to after skiing.'
+      : `${(P.apres || 'off') === 'on' ? 'After the lifts close, ' : 'When on, '}${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until 7 PM for guests heading home. About ${money(cost)} in staff.${bar ? '' : ' A bar draws the biggest après crowd.'}`}</p>`;
+}
+function nightOpsHtml(P) {
+  const lit = realTrails().filter((t) => t.lit);
+  if (!lit.length) return `<div class="field-label">Night skiing</div><p class="help">Light a trail (in its panel, overnight) to run night skiing.</p>`;
+  const hrs = P.night ? (P.night - DAY_CLOSE) / 60 : 0;
+  const lights = Math.round(lit.reduce((a, t) => a + t.len, 0) * LIGHT_HOUR_UNIT * MOUNTAIN.costs);
+  const lifts = world.lifts.filter((L) => L.departing && L.departing.some((t) => t.lit)).length;
+  return `<div class="field-label">Night skiing</div>${opsSeg('opsNight', 0, String(P.night || 0), NIGHT_HOURS.map(([k, l]) => [String(k), l]), 'Night skiing')}
+    <p class="help">${lit.length} lit trail${lit.length === 1 ? '' : 's'} on ${lifts} lift${lifts === 1 ? '' : 's'}. ${P.night ? `About ${money(Math.round((lights + (NIGHT_BASE_HR + NIGHT_LIFT_HR * lifts) * MOUNTAIN.costs) * hrs))} for lights and night crew, plus lift power.` : 'A night crowd of locals buys night tickets; some day guests stay on.'}</p>`;
+}
 // One line on a lift or building panel: how each plan runs it, with a link to change them.
 function planLine(word) {
   if (visiting) return '';
@@ -10598,6 +10950,8 @@ function opsSection() {
       <p class="help">${money(Math.round(SHUTTLES.normal.cost * MOUNTAIN.costs))} a day every 15 minutes, ${money(Math.round(SHUTTLES.frequent.cost * MOUNTAIN.costs))} every 8. Off: no off-site parking that day.</p>` : ''}
     ${hasStation() ? `<div class="field-label">Town buses</div>${opsSeg('opsTownBus', 0, P.townBus || 'on', [['on', 'Running'], ['off', 'Off']], 'Town buses')}` : ''}
     <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
+    ${apresOpsHtml(P)}
+    ${nightOpsHtml(P)}
     <div class="field-label">Staffing</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}
     ${hasBld('patrol') ? `<div class="field-label">Ski patrol</div>${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}` : ''}
     <div class="costs"><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
@@ -10614,6 +10968,8 @@ function opsAction(a, b) {
   else if (a === 'opsBld') { if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
   else if (a === 'opsHours') P.hours = v;
+  else if (a === 'opsApres') P.apres = v;
+  else if (a === 'opsNight') P.night = +v;
   else if (a === 'opsShuttles') P.shuttles = v;
   else if (a === 'pkShuttles') o.plans[b.dataset.id].shuttles = v;
   else if (a === 'pkTownBus') o.plans[b.dataset.id].townBus = v;
@@ -11934,6 +12290,14 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.34', date: 'Oct 26, 2026', title: 'Après-ski, night skiing and live events', show: ['ops', 'Open Operations'], spots: ['biz', 'ops', 'events'], items: [
+    'Après-ski: turn it on in Operations and your bar, lodge and restaurants stay open until 7 PM. Guests who had a good day stop in on the way home, and the day report gets its own Après page.',
+    'Night skiing: light a trail from its panel, pick night hours in Operations (until 7, 8 or 9 PM) and set a night ticket price. Locals drive up after work, some day guests stay on, and the report gets a Night page.',
+    'A new Bar and pub for the base area: the biggest après crowd, with a fire pit on the deck.',
+    'Evenings get dark: the sun sets around 4:30, windows glow and lit trails shine under their lights.',
+    'Events happen on the mountain: a torchlight parade and fireworks at dusk, race weekends with gates, racers and a finish crowd, and spring pond skims with skiers in costume.',
+    'Lifts stop drawing power after closing unless they are carrying riders or running for night skiing.',
+  ] },
   { v: '2.33.3', date: 'Oct 24, 2026', title: 'Guests use the nearest shop', small: true, items: [
     'With more than one rental shop, tuning center, ski school, kids’ camp or scenic gondola, arriving guests now go to the one nearest to where they parked or were dropped off, counting the line, instead of the first one built.',
     'Ski patrol takes injured guests to the nearest clinic or base patrol hut.',
@@ -12185,6 +12549,7 @@ const SPOTS = {
   edges: '#mEdges',
   bulb: '#mTips',
   labels: '#tLabels',
+  ops: '#bizFly [data-m=ops], .mtile[data-v=ops]',
 };
 function newSpots() {
   let since = null, seen = [];
@@ -12826,7 +13191,7 @@ function frame(now) {
     updateSnow(dt, clock);
     updatePuffs(dt);
     updateFireworks(dt);
-    updateDusk();
+    updateDusk(); updateNightLights();
     syncRaceCourse();
     syncPond();
     updateSplash(dt);
