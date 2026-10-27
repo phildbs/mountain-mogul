@@ -697,6 +697,12 @@ a.vtag { text-decoration: none; }
 .handle.snap { border-color: var(--green); box-shadow: 0 0 0 4px rgba(44, 154, 85, 0.25); }
 .handle.drag { cursor: grabbing; transform-origin: center; }
 @media (pointer: coarse) { .handle { width: 24px; height: 24px; margin: -12px 0 0 -12px; } }
+/* The first lift: a pulsing circle where a station would go well, with a caption. Tapping it places the station there. */
+.lifthint { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer; }
+.lifthint i { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--accent); background: rgba(223, 86, 44, 0.18); box-sizing: border-box; animation: lhPulse 1.6s ease-in-out infinite; }
+.lifthint span { position: absolute; left: 0; top: 26px; transform: translateX(-50%); white-space: nowrap; background: var(--accent); color: #fff; font: 700 12px var(--ui); padding: 3px 9px; border-radius: 999px; box-shadow: 0 2px 8px rgba(20, 36, 58, 0.25); }
+@keyframes lhPulse { 0%, 100% { transform: scale(0.85); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .lifthint i { animation: none; } }
 
 .sheet {
   z-index: 10;
@@ -1067,6 +1073,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div id="hud" hidden>
     <div class="layer" id="labels"></div>
     <div class="layer" id="handles"></div>
+    <div class="layer" id="hints"><button class="lifthint" id="liftHint" type="button" hidden><i aria-hidden="true"></i><span></span></button></div>
     <div class="top-left">
       <button class="panel badge" id="badge" aria-haspopup="true" aria-expanded="false">
         <svg class="peak" viewBox="0 0 30 30" aria-hidden="true">
@@ -2728,6 +2735,7 @@ function setTool(tool) {
     return;
   }
   if (tool !== state.tool) { resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
+  if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
@@ -4652,8 +4660,9 @@ function trailDraftSheet() {
 
 function liftDraftSheet() {
   const n = draft.pts.length, info = draft.info;
-  const help = n === 0 ? 'Click where the bottom station goes.'
-    : n === 1 ? 'Now click where the top station goes.'
+  const hint = !!liftHint();
+  const help = n === 0 ? `Click where the bottom station goes.${hint ? ' The orange circle marks a good spot at the top of the base area, leaving the flat ground by the lot for a village: tap it to put the station there.' : ''}`
+    : n === 1 ? `Now click where the top station goes.${hint ? ' The circle marks a good spot partway up.' : ''}`
       : 'Drag either station to adjust. Towers follow the terrain.';
   let body = '';
   if (info) {
@@ -5187,7 +5196,77 @@ function syncHandles() {
     pt.el = el;
   });
 }
+// The first lift: until there's a lift from the base, the lift tool marks a good bottom station near the
+// parking lot, then a good top station for wherever the bottom went. Found by trying lifts the way a
+// player would, with the same checks; the best climbs well for its cost and starts close to the lot.
+let liftHintCache = { key: null, v: null };
+function liftSearch(type, from) {
+  const lot = lotCenter() || roadEnd();
+  let bottoms = [];
+  if (from) bottoms = [{ x: from.x, z: from.z, d: 0 }];
+  else {
+    // the upper edge of the base area, well clear of the lot: the flat ground below stays free for a village
+    for (let dx = -45; dx <= 45; dx += 3) for (let dz = -45; dz <= 45; dz += 3) {
+      const p = { x: Math.round(lot.x + dx), z: Math.round(lot.z + dz) }, d = Math.hypot(dx, dz);
+      if (d >= 18 && isBase(p) && sampleGrid(GR, p.x + HALF, p.z + HALF) < 0.25 && sampleGrid(CREEKD, p.x + HALF, p.z + HALF) >= 8) bottoms.push({ ...p, d, side: Math.abs(dx), y: trueY(p.x, p.z) });
+    }
+    bottoms = bottoms.sort((p, q) => q.y - p.y).slice(0, 14);
+  }
+  let best = null, bs = -Infinity;
+  for (const a of bottoms) for (let k = 0; k < 16; k++) for (const len of [55, 75, 95]) {
+    const ang = k / 16 * Math.PI * 2, b = { x: a.x + Math.cos(ang) * len, z: a.z + Math.sin(ang) * len };
+    if (heightAt(b.x, b.z) <= heightAt(a.x, a.z) + 5) continue;
+    const v = evalLift(a, b, type);
+    if (v.problems.length || !v.fromBase || v.cost > state.cash * 0.55) continue; // leave money for a trail and a lodge
+    const s = v.lay.vertM * 2 - v.cost / 20000 - (a.side || 0) * 1.5; // vertical makes room for trails; trees and length cost; straight up from the lot, not off to one side by the creek
+    if (s > bs) { bs = s; best = v; }
+  }
+  return best;
+}
+function liftHint() {
+  if (!tipsOn || state.tool !== 'lift' || visiting || !state.started || dragHandle || draft.pts.length >= 2 || world.lifts.some((L) => L.fromBase)) return null; // Help bulb off: no circles either
+  const from = draft.pts[0] || null;
+  const key = `${draft.liftType}|${from ? `${from.x.toFixed(1)},${from.z.toFixed(1)}` : ''}|${world.buildings.length}|${world.lifts.length}`;
+  if (liftHintCache.key !== key) liftHintCache = { key, v: liftSearch(draft.liftType, from) };
+  const v = liftHintCache.v;
+  if (!v) return null;
+  return from ? { p: v.b, label: 'Top station here' } : { p: v.a, label: 'Bottom station here' };
+}
+const liftHintEl = $('liftHint');
+liftHintEl.addEventListener('pointerdown', (e) => {
+  const h = liftHint();
+  if (!h) return;
+  e.stopPropagation(); e.preventDefault();
+  draftTap({ x: h.p.x, z: h.p.z });
+  renderSheet();
+  setTimeout(revealLiftHint, 60); // now the top station's circle
+});
+// Glide the view so the circle sits in the open part of the screen: above a phone's bottom panel,
+// beside a desktop's side panel, clear of the top bar.
+function revealLiftHint() {
+  const h = liftHint();
+  if (!h) return;
+  const sh = $('sheet'), r = sh && !sh.hidden ? sh.getBoundingClientRect() : null;
+  const bottom = r && r.top > H * 0.4 ? r.top : H, right = r && r.top <= H * 0.4 ? r.left : W;
+  const q = project(h.p.x, heightAt(h.p.x, h.p.z) + 0.9, h.p.z);
+  if (q.ok && q.y > 150 && q.y < bottom - 60 && q.x > 40 && q.x < right - 40) return; // already in view
+  flyTo(h.p.x, h.p.z);
+  const to = camTween.to, up = (H / 2 - (130 + bottom) / 2) / H * to.viewH / Math.sin(EL), side = (W / 2 - right / 2) / H * to.viewH;
+  // move the view's centre toward the camera (the circle rises on screen) and sideways (it moves left)
+  to.x += Math.sin(cam.azGoal) * up + Math.cos(cam.azGoal) * side;
+  to.z += Math.cos(cam.azGoal) * up - Math.sin(cam.azGoal) * side;
+}
+function updateLiftHint() {
+  const h = liftHint();
+  liftHintEl.hidden = !h;
+  if (!h) return;
+  const q = project(h.p.x, heightAt(h.p.x, h.p.z) + 0.9, h.p.z);
+  liftHintEl.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px)`;
+  const sp = liftHintEl.lastChild;
+  if (sp.textContent !== h.label) sp.textContent = h.label;
+}
 function updateHandles() {
+  updateLiftHint();
   const n = draft.pts.length;
   for (let i = 0; i < n; i++) {
     const pt = draft.pts[i];
@@ -12945,6 +13024,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.38.4', date: 'Oct 27, 2026', title: 'A hand with the first lift', small: true, items: [
+    'Until a resort has a lift from its base, the lift tool marks a good bottom station at the top of the base area (leaving the flat ground by the lot for a village), then a good top station. Tap a circle to put the station there. Turn the Help bulb off in the menu to hide them.',
+    'A resort’s first lift starts as a double chair, the affordable choice, instead of a quad.',
+  ] },
   { v: '2.38.3', date: 'Oct 27, 2026', title: 'New resorts start in the snow', small: true, items: [
     'A new resort now starts on Dec 10 with snow on the mountain and a mild first week, so you can build and open right away instead of waiting weeks for snow. Later seasons still start in pre-season.',
   ] },
