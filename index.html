@@ -6436,7 +6436,7 @@ function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
   const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [],
     shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on',
-    apres: P.apres === 'on' && world.buildings.some((B) => APRES_VENUES.includes(B.type)) ? 'on' : 'off', night: nightOk(P),
+    apres: P.apres === 'on' && world.buildings.some(apresType) ? 'on' : 'off', night: nightOk(P),
     lastCall: P.lastCall || APRES_END, security: P.security || 'full' };
   for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
   for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
@@ -7216,12 +7216,15 @@ function nightSchedule(n) {
   }
   return out;
 }
+// Some night skiers want a snack partway through the session.
+function nightSnack(g) { g.snackAt = Math.random() < 0.45 ? closeTime() + 30 + Math.random() * Math.max(30, nightEnd() - closeTime() - 75) : Infinity; }
 // Day guests with energy left may stay on under the lights.
 function maybeStayNight(g) {
   if (!nightEnd() || g.night || g.leaving || g.sight || g.ab === 0 || g.fat > g.stam * 0.9 || g.sat < 45) return false;
   if (Math.random() > 0.15 + (g.ab >= 2 ? 0.08 : 0) + (g.sat - 45) / 300) return false;
   g.fat = Math.min(g.fat, g.stam * 0.6); // a second wind
   g.night = true; g.stayedNight = true; g.leaveAt = nightEnd() - Math.random() * 60; today.night.stayed += AGENT;
+  g.warmed = false; nightSnack(g); // a new session, and it's colder now
   thought(g, 'Staying for night skiing under the lights!');
   return true;
 }
@@ -8662,6 +8665,12 @@ function needs(g) {
   if (!g.warmed && !g.leaving && g.fat > g.stam * 0.55 && state.time < 870) n.push('warm');
   if (g.wantsGear && !g.leaving && state.time < 900) n.push('gear');
   if (g.shopper && !g.shopped && state.time > 630 && state.time < 960) n.push('shop');
+  // Under the lights it's cold: night skiers stop to warm up, and some grab a snack, at whatever's open
+  // nearby, on the mountain or at the base.
+  if (g.night && !g.leaving && state.time >= closeTime()) {
+    if (!g.warmed && g.fat > g.stam * 0.45) n.push('warm');
+    if (!g.snacked && state.time >= (g.snackAt ?? Infinity)) n.push('snack');
+  }
   return n;
 }
 function svcFor(B, need) {
@@ -8719,7 +8728,7 @@ function maybeVisit(g, here, radius, baseToo, resume) {
   return true;
 }
 /* ---------- Après-ski ----------
-   With après on in the day's plan, the bar, the lodge and the restaurants stay open after the lifts
+   With après on in the day's plan, the bar, the lodge, the restaurants and base cafés and trucks stay open after the lifts
    close, until 7 PM (or an hour after night skiing ends). Guests heading home stop in for a drink or a
    meal, more so when they've had a good day, on weekends and sunny afternoons, and when there's a bar.
    It's reported on its own page of the day report. */
@@ -8727,9 +8736,15 @@ const APRES_END = 1140, APRES_STAFF_HR = 95, SECURITY_HR = 160, LATE_FROM = 1320
 // Last call, per plan: the bar and fire pits stay open until then. The lodge stops serving at 8 and the
 // restaurants at 10, like a real base village, so a late last call is all about the bar.
 const LAST_CALLS = [[1140, '7 PM'], [1260, '9 PM'], [1380, '11 PM'], [1500, '1 AM']];
-const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, fine: 1320 };
+const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, fine: 1320, cafe: 1140, truck: 1140 };
 const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
-const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : 'drinks');
+// Cafés and food trucks in the base area serve the après crowd too (hot drinks, a bite for the drive)
+// until 7 PM. Up the mountain they're only open for night skiers.
+const BASE_APRES = ['cafe', 'truck'];
+// A café or truck needs a far smaller evening crew than a lodge or bar.
+const APRES_CREW = { cafe: 0.5, truck: 0.3 };
+const apresType = (B) => APRES_VENUES.includes(B.type) || (BASE_APRES.includes(B.type) && B.isBase);
+const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
 function nightOk(P) { return P.night && realTrails().some((t) => t.lit) ? P.night : 0; }
@@ -8743,7 +8758,7 @@ function dayHardEnd() {
 const lastCall = () => (runOps && runOps.lastCall) || APRES_END;
 const apresEnd = () => Math.max(lastCall(), nightEnd() ? nightEnd() + 45 : 0);
 const venueClose = (B) => Math.min(apresEnd(), VENUE_CLOSE[B.type] ?? Infinity);
-const apresVenue = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
+const apresVenue = (B) => apresType(B) && bldMode(B) === 'open';
 const apresOpen = (B) => apresVenue(B) && (state.phase !== 'open' || state.time < venueClose(B));
 // After skiing, guests walk to après: anything more than about 130 ft above where they stand (a fire pit
 // up the slope) is out of reach. The base area spans about 115 ft, so every base venue is still in reach,
@@ -8758,7 +8773,7 @@ function apresStaff(lv) {
   for (const B of world.buildings) {
     if (!apresVenue(B) || isDecor(B)) continue;
     const end = venueClose(B), early = Math.max(0, Math.min(end, LATE_FROM) - closeTime()), late = Math.max(0, end - LATE_FROM);
-    staff += APRES_STAFF_HR * (early + late * 1.5) / 60;
+    staff += APRES_STAFF_HR * (APRES_CREW[B.type] ?? 1) * (early + late * 1.5) / 60;
   }
   const lateHrs = Math.max(0, apresEnd() - LATE_FROM) / 60;
   const security = lateHrs ? SECURITY_HR * lateHrs * (runOps.security === 'light' ? 0.4 : 1) : 0;
@@ -8783,7 +8798,7 @@ function anotherRound(g, first) {
   if (!apresOn() || !g.apresGuest || !(g.owl || g.night || g.local) || state.time < closeTime() || state.time > apresEnd() - 40 || (g.rounds || 0) >= 6 || (!first && Math.random() > (g.local ? 0.7 : 0.6))) return false;
   let best = null, bv = -Infinity;
   for (const B of world.buildings) {
-    if (!apresOpen(B) || state.time > venueClose(B) - 30 || !withinWalk(g, B)) continue;
+    if (!apresOpen(B) || BASE_APRES.includes(B.type) || state.time > venueClose(B) - 30 || !withinWalk(g, B)) continue;
     const v = (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2 : 0) - distXZ(B.door, g) * 0.1 - estWait(B, apresSvc(B)) * 0.5 + Math.random() * 2;
     if (v > bv) { bv = v; best = B; }
   }
@@ -8795,7 +8810,7 @@ function anotherRound(g, first) {
 }
 // Fire pits within a short walk of an après bar, lodge or restaurant.
 function firesNearVenues() {
-  const venues = world.buildings.filter((B) => B.type !== 'firepit' && apresVenue(B));
+  const venues = world.buildings.filter((B) => B.type !== 'firepit' && !BASE_APRES.includes(B.type) && apresVenue(B));
   return world.buildings.filter((F) => F.type === 'firepit' && venues.some((B) => distXZ(B.door, F.door) < 14)).length;
 }
 // The après page of the day report: who came, where, and what it made after its own staff and supplies.
@@ -8826,7 +8841,7 @@ function maybeApres(g) {
     for (const B of world.buildings) {
       if (!apresOpen(B) || !withinWalk(g, B)) continue;
       const svc = apresSvc(B);
-      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : g.fancy ? 3 : -1)
+      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : B.type === 'cafe' ? (g.family ? 1.5 : -0.5) + (todayWx().hi < 20 ? 1 : 0) : B.type === 'truck' ? g.qh * 2 - 2 - (g.fancy ? 2 : 0) : g.fancy ? 3 : -1)
         - (B.type === 'firepit' ? 0 : Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4) + Math.random() * 2;
       if (v > bv) { bv = v; best = B; }
     }
@@ -8909,6 +8924,7 @@ function serve(g, B) {
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
     if (svc === 'food' || svc === 'dine') { g.ate = true; g.skipped = true; }
     if (svc === 'warm') g.warmed = true;
+    if (svc === 'snack') g.snacked = true;
     if (svc === 'rent') { g.needsRental = false; g.sat -= 4; }
     shopDone(g, svc);
     return leaveBuilding(g, B);
@@ -8958,13 +8974,13 @@ function finishVisit(g) {
   else if (svc === 'warm') {
     const cafe = B && B.type === 'cafe';
     g.warmed = true; g.fat = Math.max(0, g.fat - g.stam * (cafe ? 0.3 : 0.25)); g.sat += cafe ? 5 : 3;
-    thought(g, cafe ? `A hot chocolate at ${name}. Toasty and recharged!` : 'A hot chocolate break. Feeling recharged!');
+    thought(g, g.apresGuest ? `A hot drink at ${name} to end a great day.` : cafe ? `A hot chocolate at ${name}. Toasty and recharged!` : 'A hot chocolate break. Feeling recharged!');
   }
   else if (svc === 'dine') { g.ate = true; g.sat += 8; thought(g, `What a meal at ${name}!`); }
   else if (svc === 'shop') { shopDone(g, svc); g.sat += 1; thought(g, `Picked up a souvenir at ${name}.`); }
   else if (svc === 'gear') { shopDone(g, svc); g.sat += 6; thought(g, `New goggles from ${name}. I can actually see now!`); }
   else if (svc === 'tune') { shopDone(g, svc); g.sat += 4; g.onSkis = true; thought(g, `Fresh edges from ${name}. These skis rip!`); }
-  else if (svc === 'snack') { g.ate = true; g.sat += 2; thought(g, `Grabbed a quick bite at ${name}. Back to the slopes!`); }
+  else if (svc === 'snack') { g.ate = true; g.snacked = true; g.sat += 2; thought(g, g.apresGuest ? `Grabbed a bite at ${name} for the drive home.` : `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
   else if (svc === 'fire') { g.sat += 7; g.fat = Math.max(0, g.fat - g.stam * 0.1); thought(g, Math.random() < 0.5 ? 'Warming up by the fire pit. Best seat at the resort.' : 'S’mores by the fire after a long day on the hill.'); }
@@ -10537,7 +10553,7 @@ function scenicGondola(p) {
 function nightGuest(g) {
   g.night = true; g.sight = false; g.first = false; g.family = false; g.wantsLesson = false; g.shopper = false;
   g.needsRental = Math.random() < 0.08; g.ab = Math.max(1, g.ab); g.ate = true; g.apres = false;
-  g.leaveAt = nightEnd() - Math.random() * 50; g.stam *= 0.6;
+  g.leaveAt = nightEnd() - Math.random() * 50; g.stam *= 0.6; nightSnack(g);
   today.night.guests += AGENT;
 }
 function payTicket(g) {
@@ -11833,17 +11849,17 @@ function eveningsPanel() {
 }
 // Après and night skiing in a plan, with what they cost to staff.
 function apresOpsHtml(P) {
-  const venues = world.buildings.filter((B) => APRES_VENUES.includes(B.type) && !isDecor(B) && bldModeIn(P, B) === 'open');
+  const venues = world.buildings.filter((B) => apresType(B) && !isDecor(B) && bldModeIn(P, B) === 'open');
   const bar = venues.some((B) => B.type === 'bar'), on = (P.apres || 'off') === 'on', lc = P.lastCall || APRES_END;
   const late = Math.max(0, lc - LATE_FROM) / 60;
   const hrs = (B) => { const end = Math.min(lc, VENUE_CLOSE[B.type] ?? Infinity); return (Math.max(0, Math.min(end, LATE_FROM) - DAY_CLOSE) + Math.max(0, end - LATE_FROM) * 1.5) / 60; };
-  const cost = Math.round((venues.reduce((a, B) => a + APRES_STAFF_HR * hrs(B), 0) + SECURITY_HR * late * (P.security === 'light' ? 0.4 : 1)) * MOUNTAIN.costs);
+  const cost = Math.round((venues.reduce((a, B) => a + APRES_STAFF_HR * (APRES_CREW[B.type] ?? 1) * hrs(B), 0) + SECURITY_HR * late * (P.security === 'light' ? 0.4 : 1)) * MOUNTAIN.costs);
   const closes = venues.filter((B) => VENUE_CLOSE[B.type] && VENUE_CLOSE[B.type] < lc).map((B) => `${esc(B.name)} at ${clockLabel(VENUE_CLOSE[B.type])}`);
   return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On']], 'Après-ski')}
     ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map(([k, l]) => [String(k), l]), 'Last call')}` : ''}
-    <p class="help">${!venues.length ? 'Build a bar, lodge or restaurant at the base for guests to go to after skiing.'
+    <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base for guests to go to after skiing.'
       : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? ', with late-night pay and security after 10' : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
-      : 'Keep the bar, lodge and restaurants open after the lifts close for guests heading home.'}</p>
+      : 'Keep the bar, lodge, restaurants and base cafés and food trucks open after the lifts close for guests heading home.'}</p>
     ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after 10 PM</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
       <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? 'Cheaper, but past 11 PM a rowdy night can cost you some reputation, more so on weeknights.' : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
 }
@@ -13243,6 +13259,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.39.3', date: 'Oct 27, 2026', title: 'Cafés and food trucks after dark', small: true, items: [
+    'Night skiers now get cold and hungry under the lights: they stop for hot chocolate or a snack at open cafés, food trucks and lodges, on the mountain and at the base.',
+    'With après on, cafés and food trucks in the base area stay open until 7 PM for guests heading home: a hot drink, or a bite for the drive.',
+  ] },
   { v: '2.39.2', date: 'Oct 27, 2026', title: 'No more hiking to après', small: true, items: [
     'Après guests no longer climb the mountain to reach a fire pit or bar placed up the slope. They walk to venues around the base, or near where they finish, within about 130 ft of climb.',
   ] },

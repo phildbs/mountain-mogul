@@ -56,6 +56,13 @@ export default async function ({ browser, url }) {
   assert(await g.ev(`!!document.querySelector('[data-rptab=night]')`), 'night tab');
   // and the cash still matches with both running
   await day();
+  // cafés and food trucks: base ones serve après, mountain ones don't; night skiers get cold and peckish
+  eq(await g.ev(`[apresType({ type: 'truck', isBase: true }), apresType({ type: 'cafe', isBase: true }), apresType({ type: 'truck', isBase: false }), apresType({ type: 'cafe', isBase: false }), apresSvc({ type: 'cafe' }), apresSvc({ type: 'truck' })]`),
+    [true, true, false, false, 'warm', 'snack'], 'base cafés and trucks are après venues; mountain ones are not');
+  eq(await g.ev(`(() => { const sv = [state.phase, state.time, runOps]; state.phase = 'open'; runOps = { ...(runOps || {}), night: 1260 }; state.time = closeTime() + 60;
+    const n = needs({ night: true, leaving: false, warmed: false, fat: 50, stam: 100, bl: 0, ate: true, snackAt: closeTime() + 30, lunchAt: 720 });
+    const done = needs({ night: true, leaving: false, warmed: true, fat: 50, stam: 100, bl: 0, ate: true, snacked: true, snackAt: closeTime() + 30, lunchAt: 720 });
+    [state.phase, state.time, runOps] = sv; return [n, done]; })()`), [['warm', 'snack'], []], 'night skiers want a warm-up and a snack, once each');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
