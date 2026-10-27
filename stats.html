@@ -63,6 +63,7 @@ td.num, th.num { text-align: right; }
 .pickb { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: #b9c2cf; padding: 2px 4px; }
 .pickb.on { color: #d99a14; }
 .linkb { border: 0; background: none; padding: 0; font: inherit; color: var(--accent, #df562c); text-decoration: underline; cursor: pointer; }
+.more { margin: 10px 0 0; font-size: 13.5px; }
 .sortb { border: 0; background: none; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .sortb span { font-size: 9px; color: var(--accent); }
 .sortb.on { color: var(--ink); }
@@ -210,12 +211,13 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
       <section class="card" style="margin-bottom:12px" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
-      <section class="card" style="margin-bottom:12px">
-        <div class="head"><h2>Resorts</h2><div class="range" role="group" aria-label="Which resorts">
+      <section class="card" style="margin-bottom:12px"><details class="fold" id="resortsFold"${resortsOpen() ? ' open' : ''}>
+        <summary><h2>Resorts</h2><span class="note">${num(recentRows().length)} played in 48 h · ${num(d.mountains)} in all</span></summary>
+        <div class="head"><div class="range" role="group" aria-label="Which resorts">
           <button data-range="recent" aria-pressed="${range === 'recent'}">Last 48 hours <b>${num(recentRows().length)}</b></button><button data-range="all" aria-pressed="${range === 'all'}">All <b>${num(d.mountains)}</b></button></div></div>
         <p class="note">Tap a column heading to sort, or a name to visit it read-only. Nothing you do there changes it. Tap ☆ to make a public resort a staff pick in the game’s Browse tab.</p>
         <div class="scroll" id="resorts"></div>
-      </section>
+      </details></section>
       <section class="card" style="margin-bottom:12px" id="players">${playersHtml(players)}</section>
       <section class="card" style="margin-bottom:12px" id="reacts">${reactionsHtml(reacts)}</section>
       <section class="card" style="margin-bottom:12px" id="errs">${errorsHtml(errs)}</section>
@@ -284,18 +286,24 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
   try { if (localStorage.getItem('mmStatsRange') === 'all') range = 'all'; } catch (e) { /* the default */ }
   const recentRows = () => rows.filter((t) => Date.now() - new Date(t.updated_at) < 48 * 3600e3);
   try { const v = JSON.parse(localStorage.getItem('mmStatsSort')); if (v && COLS.some((c) => c[0] === v.k)) sort = v; } catch (e) { /* keep the default */ }
+  // The resorts table folds away (remembered), and shows the top rows until you ask for the rest.
+  const RESORT_ROWS = 15;
+  let resortsAll = false;
+  const resortsOpen = () => { try { return localStorage.getItem('mm.stats.resortsOpen') === '1'; } catch (e) { return false; } };
   function renderResorts() {
     const col = COLS.find((c) => c[0] === sort.k), key = col[3];
     const shown = range === 'recent' ? recentRows() : rows;
     if (!shown.length) { $('resorts').innerHTML = '<p class="note">Nobody has played in the last 48 hours. <button class="linkb" data-range="all">Show all resorts</button></p>'; return; }
     const list = [...shown].sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || (b.best_guests - a.best_guests); });
     const th = ([k, label, kind]) => `<th class="${kind === 'num' && k !== 'updated_at' && k !== 'when' ? 'num' : ''}" aria-sort="${sort.k === k ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button class="sortb${sort.k === k ? ' on' : ''}" data-k="${k}">${label}<span aria-hidden="true">${sort.k === k ? (sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
+    const cut = resortsAll ? list : list.slice(0, RESORT_ROWS);
     $('resorts').innerHTML = `<table><thead><tr>${COLS.map(th).join('')}</tr></thead>
-      <tbody>${list.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td><td>${t.public ? `<button class="pickb${t.featured ? ' on' : ''}" data-pick="${esc(t.id)}" title="${t.featured ? 'Remove from staff picks' : 'Add to staff picks (shown in Browse)'}" aria-pressed="${!!t.featured}">${t.featured ? '★' : '☆'}</button>` : ''}</td></tr>`).join('')}</tbody></table>`;
+      <tbody>${cut.map((t) => `<tr><td><a class="visit" href="./?visit=${encodeURIComponent(t.id)}">${esc(t.name || 'Unnamed')}</a>${t.public ? '' : ' <span class="priv">private</span>'}</td><td>${esc(mtName(t.mt ?? ''))}</td><td>${esc(t.when || '')}</td><td class="num">${t.lifts}</td><td class="num">${t.trails}</td><td class="num">${num(t.best_guests)}</td><td class="num">${t.cash < 0 ? '−' : ''}$${num(Math.abs(t.cash))}</td><td>${ago(t.updated_at)}</td><td>${t.public ? `<button class="pickb${t.featured ? ' on' : ''}" data-pick="${esc(t.id)}" title="${t.featured ? 'Remove from staff picks' : 'Add to staff picks (shown in Browse)'}" aria-pressed="${!!t.featured}">${t.featured ? '★' : '☆'}</button>` : ''}</td></tr>`).join('')}</tbody></table>${list.length > RESORT_ROWS ? `<p class="more"><button class="linkb" data-more="1">${resortsAll ? `Show the top ${RESORT_ROWS}` : `Show all ${num(list.length)}`}</button></p>` : ''}`;
   }
-  // Remember whether the players list was left open.
+  // Remember whether the players and resorts lists were left open.
   document.addEventListener('toggle', (e) => {
     if (e.target.id === 'playersFold') try { localStorage.setItem('mm.stats.playersOpen', e.target.open ? '1' : '0'); } catch (err) {}
+    if (e.target.id === 'resortsFold') try { localStorage.setItem('mm.stats.resortsOpen', e.target.open ? '1' : '0'); } catch (err) {}
   }, true);
   document.addEventListener('click', async (e) => {
     const pk = e.target.closest('[data-pick]');
@@ -306,6 +314,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       if (!error) t.featured = !t.featured;
       return renderResorts();
     }
+    if (e.target.closest('[data-more]')) { resortsAll = !resortsAll; return renderResorts(); }
     const r = e.target.closest('[data-range]');
     if (r) {
       range = r.dataset.range;
