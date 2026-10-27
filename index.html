@@ -2823,7 +2823,7 @@ function setTool(tool) {
   hover.dirty = true;
 }
 // Bulldoze: the tree, light or fire pit nearest the pointer on screen.
-const DOZE_TYPES = ['tlight', 'lamp', 'firepit'];
+const DOZE_TYPES = ['tlight', 'lamp', 'firepit', 'tree', 'bench', 'picnic'];
 function dozeTarget(sx, sy) {
   const p = pickTerrain(sx, sy);
   let best = null, bd = hover.touch ? 30 : 20;
@@ -4364,7 +4364,8 @@ const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost)
 function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover) {
   const v = validateBuilding(type, mover ? mover.tier : 0, x, z, rot, mover ? mover.id : undefined);
   v.padY = padHeight(v.bb);
-  v.grading = levelRect(v.bb, v.padY, 2.5, true).cost;
+  if (BTYPES[type].noPad) v.padY = null; // trees and seats sit on the ground as it is
+  v.grading = BTYPES[type].noPad ? 0 : levelRect(v.bb, v.padY, 2.5, true).cost;
   if (allowPlans) {
     const bb = bAABB(type, 0, x, z, rot);
     const clash = world.plans.find((p) => p !== selfPlan && p.kind === 'bld' && boxOverlap(bAABB(p.type, 0, p.x, p.z, p.rot, 0.4), bb));
@@ -4377,9 +4378,10 @@ function commitBuilding(info, type, x, z, rot) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const b = { id: world.nextId++, type, tier: 0, x, z, rot, spent: info.cost, yday: null, padY: info.padY };
+  b.name = nextBuildingName(type, x, z);
+  if (BTYPES[type].noPad) { addBuilding(b); return b; }
   const res = levelRect(info.bb, info.padY, 2.5, false);
   applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
-  b.name = nextBuildingName(type, x, z);
   addBuilding(b);
   refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, b);
   return b;
@@ -4593,6 +4595,13 @@ function draftTap(p) {
     if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); draft.bpos = { x: sn.x, z: sn.z }; draft.rot = sn.rot; }
     else draft.bpos = { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2 };
     draft.dirty = true;
+    // Trees and seats go down with one tap overnight; while open they become blueprints as usual.
+    if (BTYPES[draft.btype].plop && !draft.moving && !planning()) {
+      if (draft.btype === 'tree') draft.rot = Math.floor(Math.random() * 4);
+      recomputeBldDraft(); draft.dirty = false;
+      if (draft.info && !draft.info.problems.length && draft.info.cost <= state.cash) buildBuildingDraft();
+      else renderSheet();
+    }
     return;
   }
   if (draft.kind === 'trail') {
@@ -6588,7 +6597,7 @@ const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
 const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
 const skeletonPatrol = () => !!runOps && runOps.patrol === 'skeleton';
 // Open at night for night skiers: food and warm-ups, restrooms, rentals and the patrol.
-const NIGHT_OPEN = ['lodge', 'cafe', 'truck', 'restroom', 'hrest', 'rental', 'tuning', 'patrol', 'clinic', 'firepit'];
+const NIGHT_OPEN = ['lodge', 'cafe', 'truck', 'restroom', 'hrest', 'rental', 'tuning', 'patrol', 'clinic', 'firepit', 'bench', 'picnic'];
 function bldOpenNow(B) {
   const m = bldMode(B);
   if (m === 'closed') return false;
@@ -7901,7 +7910,14 @@ const BTYPES = {
   lamp: { name: 'Lamp post', where: 'any', cost: 3000, accent: 0xe8b04a, w: 0.5, d: 0.5, upkeep: 15, decor: true,
     desc: 'A warm pool of light on the snow after dark. Line a path, light up the base, mark a lift.' },
   firepit: { name: 'Fire pit', where: 'any', cost: 12000, accent: 0xe0702a, seats: 14, w: 2.4, d: 2.4, upkeep: 110, decor: true,
-    desc: 'Benches around a fire. Free warm-ups by day; after the lifts close it draws an après crowd, most of all beside a bar or lodge.' },
+    desc: 'Benches around a fire. Tired guests stop for a rest and a free warm-up by day; after the lifts close it draws an après crowd, most of all beside a bar or lodge.' },
+  // Plopped with one tap: trees for looks, and seats where tired guests stop for a breather.
+  tree: { name: 'Tree', where: 'any', cost: 400, accent: 0x2e6b45, w: 0.8, d: 0.8, upkeep: 0, decor: true, plop: true, noPad: true,
+    desc: 'Plant a tree anywhere off the trails. Frame the base village, screen the parking lot, or soften a bare slope.' },
+  bench: { name: 'Bench', where: 'any', cost: 1500, accent: 0x8a5a36, seats: 2, w: 0.8, d: 0.5, upkeep: 5, decor: true, plop: true, noPad: true,
+    desc: 'A seat for tired skiers to catch their breath and get a little energy back. Put one by a lift or beside a trail; skiers stop as they pass.' },
+  picnic: { name: 'Picnic table', where: 'any', cost: 3500, accent: 0x9a6b3c, seats: 6, w: 1.0, d: 1.0, upkeep: 10, decor: true, plop: true, noPad: true,
+    desc: 'Room for a group to sit down and rest. Guests get a little energy back; families love them.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
     desc: 'Fits guests with skis and boots when they arrive.' },
   tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
@@ -7927,9 +7943,9 @@ const BTYPES = {
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
     desc: 'An upgraded shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests.' },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
-const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Lights and fire pits', ['tlight', 'lamp', 'firepit']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
+const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Trees, seats and lights', ['tree', 'bench', 'picnic', 'firepit', 'lamp', 'tlight']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
   ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle']]];
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
@@ -8332,6 +8348,29 @@ function modelFirepit(tier, b) {
   }
   return k;
 }
+function modelBench() {
+  const k = new Kit();
+  k.add(bx(0.62, 0.035, 0.16), BM.wood, 0, 0.12, 0.01);
+  k.add(bx(0.62, 0.1, 0.025), BM.wood, 0, 0.21, -0.075, -0.15);
+  for (const x of [-0.26, 0.26]) { k.add(bx(0.035, 0.12, 0.14), BM.dark, x, 0.06, 0.01); k.add(bx(0.035, 0.12, 0.025), BM.dark, x, 0.19, -0.07); }
+  k.seat(-0.14, 0.13, 0.02, 0); k.seat(0.14, 0.13, 0.02, 0);
+  return k;
+}
+function modelPicnic() {
+  const k = new Kit();
+  k.add(bx(0.64, 0.035, 0.34), BM.wood, 0, 0.2, 0);
+  for (const z of [-0.31, 0.31]) k.add(bx(0.64, 0.03, 0.11), BM.wood, 0, 0.11, z);
+  for (const x of [-0.24, 0.24]) { k.add(bx(0.035, 0.03, 0.74), BM.dark, x, 0.08, 0); k.add(bx(0.035, 0.2, 0.035), BM.dark, x, 0.1, 0); }
+  for (const x of [-0.2, 0, 0.2]) { k.seat(x, 0.12, 0.31, Math.PI); k.seat(x, 0.12, -0.31, 0); }
+  return k;
+}
+// A planted tree is drawn with the forest's own tree, in one batch with every other planted tree; its
+// building only shows a stand-in while it's being placed.
+function modelTree(tier, b, ghost) {
+  const k = new Kit();
+  if (ghost) { k.add(new THREE.ConeGeometry(0.38, 0.9, 7), BM.dark, 0, 0.6, 0); k.add(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 5), BM.wood, 0, 0.15, 0); }
+  return k;
+}
 function modelBar() {
   const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
   hall(k, { w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
@@ -8547,7 +8586,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
 /* =====================================================================
    BUILDINGS: placement
    Buildings turn in quarter steps, so their footprints stay axis-aligned.
@@ -8635,6 +8674,9 @@ const OTHER_NAMES = {
   tlight: ['Trail light'],
   lamp: ['Lamp post'],
   firepit: ['Fire pit'],
+  tree: ['Tree'],
+  bench: ['Bench'],
+  picnic: ['Picnic table'],
   bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
   tuning: ['Tune & Demo Center', 'Edge Works', 'Wax On', 'Edge & Base', 'The Tuning Fork', 'Sharp Edges', 'Base Grind'],
   store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear', 'Powder Room Outfitters', 'The Gear Garage', 'Alpine Supply', 'Peak Performance', 'Slope Shop'],
@@ -8654,7 +8696,7 @@ const OTHER_NAMES = {
   transit: ['Transit Center', 'Bus Terminal'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -8669,14 +8711,14 @@ function nextBuildingName(type, x, z, skip) {
   for (let i = 2; ; i++) { const n = `${bases[0]} ${i}`; if (!used.has(n)) return n; }
 }
 function buildingVisual(b, ghost) {
-  const k = MODELS[b.type](b.tier, b);
+  const k = MODELS[b.type](b.tier, b, ghost);
   const s = bspec(b);
   const bb = boxOf(b), fs = footprintStats(bb);
   const top = b.padY != null ? Math.max(b.padY, fs.hmin) : fs.hmax;
   const baseY = top * VEX + 0.03;
   const fh = Math.max(0.25, (top - fs.hmin) * VEX + 0.25);
   if (!ghost && BY_ROAD.includes(b.type)) { const back = -s.d / 2 - 0.03, front = BAY_FRONT[b.type]; k.add(bx(s.w + 0.06, fh, front - back), BM.stone, 0, -fh / 2 + 0.01, (front + back) / 2); }
-  else if (!ghost && !(b.type === 'firepit' && b.bare)) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
+  else if (!ghost && !(b.type === 'firepit' && b.bare) && !BTYPES[b.type].noPad) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
   const g = k.build();
   g.position.set(b.x, baseY, b.z);
   g.rotation.y = b.rot * Math.PI / 2;
@@ -8700,9 +8742,44 @@ function addBuilding(b) {
   bldGroup.add(b.group);
   world.buildings.push(b);
   initBldSim(b);
+  if (b.type === 'tree') plantDirty = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// Planted trees: one batch for all of them, redrawn whenever one is planted or removed.
+const PLANT_CAP = 6000;
+let plantMesh = null, plantDirty = false, plantHaze = null;
+const plantHash = (id, k) => { const x = Math.sin(id * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+function syncPlanted() {
+  plantDirty = false;
+  const list = world.buildings.filter((B) => B.type === 'tree');
+  if (!plantMesh) {
+    if (!list.length) return;
+    const geo = buildTreeGeometry();
+    plantHaze = new THREE.InstancedBufferAttribute(new Float32Array(PLANT_CAP), 1);
+    geo.setAttribute('ihaze', plantHaze);
+    plantMesh = new THREE.InstancedMesh(geo, treeMaterial(), PLANT_CAP);
+    plantMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+    plantMesh.castShadow = true; plantMesh.frustumCulled = false;
+    scene.add(plantMesh);
+  }
+  let n = 0;
+  for (const B of list.slice(0, PLANT_CAP)) {
+    const sc = 0.85 + 0.4 * plantHash(B.id, 1), t = plantHash(B.id, 3);
+    dummy.position.set(B.x, B.baseY - 0.09, B.z);
+    dummy.rotation.set(0, plantHash(B.id, 2) * Math.PI * 2, 0);
+    dummy.scale.set(sc, sc * (0.9 + 0.25 * plantHash(B.id, 4)), sc);
+    dummy.updateMatrix();
+    plantMesh.setMatrixAt(n, dummy.matrix);
+    plantMesh.setColorAt(n, _tc.setRGB(0.84 + 0.3 * t, 0.86 + 0.24 * t, 0.84 + 0.22 * (1 - t)));
+    plantHaze.array[n] = hazeAt(B.x + HALF, B.z + HALF);
+    n++;
+  }
+  plantMesh.count = n;
+  plantMesh.instanceMatrix.needsUpdate = true; plantMesh.instanceColor.needsUpdate = true; plantHaze.needsUpdate = true;
   renderer.shadowMap.needsUpdate = true;
 }
 function removeBuilding(b) {
+  if (b.type === 'tree') plantDirty = true;
   if (b.glowMat) b.glowMat.dispose();
   bldGroup.remove(b.group);
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -8781,13 +8858,13 @@ function showGhost(type, tier, x, z, rot, ok, padY) {
 /* =====================================================================
    BUILDINGS: how guests use them
    ===================================================================== */
-const POOL = { fire: 'seat', drinks: 'seat', shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
-const SVC_TIME = { fire: [20, 40], drinks: [30, 70], shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
-const COGS = { fire: 0, drinks: 0.25, shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
+const POOL = { rest: 'seat', fire: 'seat', drinks: 'seat', shop: 'seat', gear: 'seat', tune: 'rent', food: 'seat', snack: 'seat', warm: 'seat', dine: 'seat', finedine: 'seat', apres: 'seat', rr: 'rr', rent: 'rent', lesson: 'lesson' };
+const SVC_TIME = { rest: [5, 10], fire: [20, 40], drinks: [30, 70], shop: [3, 6], gear: [8, 14], tune: [6, 10], food: [22, 38], snack: [4, 9], warm: [10, 18], dine: [35, 55], finedine: [60, 90], apres: [40, 75], rr: [3, 5], rent: [4, 7], lesson: [85, 95] };
+const COGS = { rest: 0, fire: 0, drinks: 0.25, shop: 0.5, gear: 0.55, tune: 0.15, food: 0.35, snack: 0.4, warm: 0.35, dine: 0.32, finedine: 0.3, apres: 0.3, rent: 0.05, lesson: 0, rr: 0 };
 const REV_CAT = { fire: 'apres', drinks: 'apres', camp: 'lessons', shop: 'retail', gear: 'retail', tune: 'rentals', food: 'food', snack: 'food', warm: 'food', dine: 'dining', finedine: 'dining', apres: 'dining', rent: 'rentals', lesson: 'lessons' };
-const OFFERS = { firepit: ['warm'], bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
+const OFFERS = { firepit: ['warm', 'rest'], bench: ['rest'], picnic: ['rest'], bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
 const PRICE_KEY = { bar: 'drinks', tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp' };
-const SVC_WORD = { camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', fire: 'A seat by the fire', rent: 'Renting skis', lesson: 'A lesson' };
+const SVC_WORD = { rest: 'A rest', camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', fire: 'A seat by the fire', rent: 'Renting skis', lesson: 'A lesson' };
 const offers = (B) => OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
@@ -8832,6 +8909,8 @@ function needs(g) {
   if (!g.warmed && !g.leaving && g.fat > g.stam * 0.55 && state.time < 870) n.push('warm');
   if (g.wantsGear && !g.leaving && state.time < 900) n.push('gear');
   if (g.shopper && !g.shopped && state.time > 630 && state.time < 960) n.push('shop');
+  // A breather: tired skiers sit down for a few minutes now and then, all day, wherever there's a seat.
+  if (!g.leaving && g.fat > g.stam * 0.35 && state.time - (g.restT ?? -999) > 60) n.push('rest');
   // Under the lights it's cold: night skiers stop to warm up, and some grab a snack, at whatever's open
   // nearby, on the mountain or at the base.
   if (g.night && !g.leaving && state.time >= closeTime()) {
@@ -8852,6 +8931,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
       const svc = svcFor(B, need);
       if (!svc || !bldOpenNow(B)) continue;
       if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
+      if (svc === 'rest' && B.used.seat >= poolSlots(B, 'seat')) continue; // nobody queues for a bench
       if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
       if (d > radius && !(baseToo && B.isBase)) continue;
@@ -9080,7 +9160,7 @@ function bldStep(B) {
   if (B.used.seat > B.today.peak) B.today.peak = B.used.seat;
 }
 function serve(g, B) {
-  const svc = g.svc, pool = POOL[svc], price = B.type === 'firepit' ? 0 : svcPrice(svc);
+  const svc = g.svc, pool = POOL[svc], price = isDecor(B) ? 0 : svcPrice(svc); // fire pits and seats are free
   if (svc === 'rent' && B.rented * AGENT >= bspec(B).inventory) {
     g.sat -= 8; today.complaints.rentOut++; g.needsRental = false;
     thought(g, `${B.name} ran out of skis, so I rented in town.`);
@@ -9150,6 +9230,11 @@ function finishVisit(g) {
   else if (svc === 'snack') { g.ate = true; g.snacked = true; g.sat += 2; thought(g, g.apresGuest ? `Grabbed a bite at ${name} for the drive home.` : `Grabbed a quick bite at ${name}. Back to the slopes!`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
+  else if (svc === 'rest') {
+    const kind = B ? B.type : 'bench', back = kind === 'firepit' ? 0.16 : kind === 'picnic' ? 0.14 : 0.12;
+    g.restT = state.time; g.fat = Math.max(0, g.fat - g.stam * back); g.sat += kind === 'picnic' && g.family ? 4 : 2;
+    if (Math.random() < 0.5) thought(g, kind === 'firepit' ? 'A few minutes by the fire. Legs feel fresh again.' : kind === 'picnic' ? `A breather at the picnic table${g.family ? ' with the kids' : ''}. Ready for more.` : 'Caught my breath on a bench. Back at it!');
+  }
   else if (svc === 'fire') { g.sat += 7; g.fat = Math.max(0, g.fat - g.stam * 0.1); thought(g, Math.random() < 0.5 ? 'Warming up by the fire pit. Best seat at the resort.' : 'S’mores by the fire after a long day on the hill.'); }
   else if (svc === 'drinks') { g.sat += 6; thought(g, Math.random() < 0.5 ? `Après at ${name}: cold drinks and good company.` : `Swapping stories about today's runs at ${name}.`); }
   else if (svc === 'rr' && B && B.type === 'hrest') {
@@ -9525,6 +9610,8 @@ function capOf(type, s) {
     case 'tlight': return 'Lights the trail beside it during night skiing';
     case 'lamp': return 'Lights up after dark';
     case 'firepit': return `${s.seats} seats around the fire · free`;
+    case 'tree': return 'Just for looks';
+    case 'bench': case 'picnic': return `${s.seats} seats · a free rest`;
     case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
     case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
@@ -9566,7 +9653,8 @@ function bldDraftSheet() {
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
-  const help = !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
+  const help = t.plop && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
+    : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
   let body = '';
   if (info) {
     body = `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
@@ -9579,10 +9667,10 @@ function bldDraftSheet() {
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
-    ${BY_ROAD.includes(draft.btype) ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
+    ${BY_ROAD.includes(draft.btype) || draft.btype === 'tree' ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
     ${body}
     ${plan ? PLAN_NOTE : ''}
-    <button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}
+    ${t.plop && !plan ? '' : `<button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}`}
     <button class="link" data-action="pickB" data-v="">Choose a different building</button>`;
 }
 // Moving a building: pick a new spot like placing a new one; it keeps its name, size and history.
@@ -9614,11 +9702,11 @@ function moveBuildingDraft() {
   B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== B);
   Object.assign(B, { x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, padY: info.padY });
-  const res = levelRect(info.bb, info.padY, 2.5, false);
-  applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
+  const res = !BTYPES[B.type].noPad && levelRect(info.bb, info.padY, 2.5, false);
+  if (res) applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   const y = B.yday;
   addBuilding(B); B.yday = y;
-  refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, B);
+  if (res) refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, B);
   computeNetwork(); syncLabels(); updateCash(true);
   toast(`Moved ${B.name} · −${money(info.cost)}`);
   draft.moving = null; draft.bpos = null; draft.info = null; clearGhost();
@@ -12248,10 +12336,10 @@ function opsReportHtml(r) {
     rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
   }
   // Lights and fire pits are one line per kind, with what they cost together; there can be dozens.
-  const many = { tlight: 'Trail lights', lamp: 'Lamp posts', firepit: 'Fire pits' };
+  const many = { tlight: 'Trail lights', lamp: 'Lamp posts', firepit: 'Fire pits', bench: 'Benches', picnic: 'Picnic tables', tree: 'Planted trees' };
   for (const [type, label] of Object.entries(many)) {
     const Ls = o.blds.filter((B) => B.type === type), visits = Ls.reduce((a, B) => a + B.visits, 0);
-    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${type === 'firepit' ? `${visits.toLocaleString('en-US')} visits · ` : ''}${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
+    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${['firepit', 'bench', 'picnic'].includes(type) ? `${visits.toLocaleString('en-US')} visits · ` : ''}${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
   }
   for (const B of o.blds) {
     if (many[B.type]) continue;
@@ -13534,6 +13622,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.42', date: 'Oct 27, 2026', title: 'Plant trees, add benches and picnic tables', show: ['plop', 'Open Buildings'], items: [
+    'Plant trees anywhere off the trails: frame the base village, screen the lot, or soften a bare slope. Each tap plants one; keep tapping to plant a row.',
+    'Benches and picnic tables go down with one tap too. Tired skiers stop for a few minutes and head back out with more energy, all day long. Put them by lifts, at the base, or beside a trail, where skiers stop as they pass.',
+    'Fire pits work the same way by day: a quick rest by the fire, as well as a warm-up.',
+  ] },
   { v: '2.41', date: 'Oct 27, 2026', title: 'See how the business is doing', show: ['money', 'Open Money'], items: [
     'Money now charts your season day by day: guests, profit, satisfaction and cash. Hover or tap a chart to read any day.',
     'Every day report opens with why the day went the way it did: guests against your recent average, what made the difference (snow, the weekend, a holiday, weather, prices) and the biggest leak, like a full lot or long lift lines.',
@@ -13889,6 +13982,7 @@ function showFeature(k) {
   if (k === 'more') return isPhone() ? openManage('more') : openManage('parking');
   if (k === 'trail') return setTool('trail');
   if (k === 'doze') { state.landMode = 'doze'; return openLandscape(); }
+  if (k === 'plop') { setTool('bld'); draft.btype = null; return renderSheet(); }
   openManage(k);
 }
 /* ---------- NEW dots: on the buttons where a big new feature lives, for players who had an earlier
@@ -14561,6 +14655,7 @@ function frame(now) {
     drawPeople();
   }
   processHover();
+  if (plantDirty) syncPlanted();
   updateLabels();
   updateChips();
   updateHandles();

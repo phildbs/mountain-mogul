@@ -62,7 +62,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { const sv = [state.phase, state.time, runOps]; state.phase = 'open'; runOps = { ...(runOps || {}), night: 1260 }; state.time = closeTime() + 60;
     const n = needs({ night: true, leaving: false, warmed: false, fat: 50, stam: 100, bl: 0, ate: true, snackAt: closeTime() + 30, lunchAt: 720 });
     const done = needs({ night: true, leaving: false, warmed: true, fat: 50, stam: 100, bl: 0, ate: true, snacked: true, snackAt: closeTime() + 30, lunchAt: 720 });
-    [state.phase, state.time, runOps] = sv; return [n, done]; })()`), [['warm', 'snack'], []], 'night skiers want a warm-up and a snack, once each');
+    [state.phase, state.time, runOps] = sv; return [n, done].map((x) => x.filter((k) => k !== 'rest')); })()`), [['warm', 'snack'], []], 'night skiers want a warm-up and a snack, once each');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
