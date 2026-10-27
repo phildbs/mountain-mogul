@@ -62,6 +62,16 @@ export default async function ({ browser, url }) {
   const car = await g.ev(`(() => { const first = rowLen(0) * 96; openDay(); for (let i = 0; i < first; i++) stalls[i].car = -1; spawnCar(2); const c = cars[cars.length - 1]; for (let i = 0; i < first; i++) stalls[i].car = null; return { row: stalls[c.stall].row, path: c.path.length }; })()`);
   eq(car.row, 1, 'with the first row full, cars park in the second');
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(false))); applySave(sv); return [state.lotSections, rowLen(1), stalls.length]; })()`), [lot.sections, lot.row1, lot.stalls], 'the layout is saved');
+  // choosing the direction: 3 across and 2 down
+  const dir = await g.ev(`(() => {
+    state.lotSections = 1; state.lotLayout = null; buildLot(); openManage('parking'); renderSheet();
+    const press = (row) => { const b = document.querySelector('#sheet [data-action=expandLot][data-row="' + row + '"]'); if (b && !b.disabled) b.click(); renderSheet(); };
+    press(0); press(0); press(1); press(1); press(1); press(1);
+    const chip = document.querySelector('#sheet .chip');
+    return { layout: state.lotLayout, below: lotGrowBlock(1), pos: chip && getComputedStyle(chip).position }; })()`);
+  eq(dir.layout, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]], 'two along the road, then a row below: 3 across, 2 down');
+  assert(/Add along the road first/.test(dir.below), 'the row below stops at the first row’s length');
+  assert(dir.pos !== 'absolute', `panel chips stay in the panel (map markers have their own class): ${dir.pos}`);
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

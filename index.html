@@ -722,24 +722,24 @@ a.vtag { text-decoration: none; }
   box-shadow: 0 2px 8px rgba(20, 36, 58, 0.16); pointer-events: auto; cursor: pointer; margin-top: -4px;
 }
 .flabel:hover { border-color: rgba(20, 36, 58, 0.3); }
-.chip {
+.mapchip {
   position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 10px 4px 6px; border-radius: 999px;
   border: 1px solid #e3b23c; background: #fff6dc; color: #6b4a00; font: 700 12px/1.2 var(--ui); white-space: nowrap; cursor: pointer;
   box-shadow: 0 3px 10px rgba(20, 36, 58, 0.22); pointer-events: auto;
 }
-.chip i { font-style: normal; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #e3a51c; color: #fff; font-size: 10px; font-weight: 800; }
-.chip.bad { border-color: var(--steep); background: var(--steep); color: #fff; }
-.chip.land { padding: 4px 10px; border-color: #e3b23c; }
-.chip.land::after { display: none; }
-.chip.land.pend { background: #e7efff; border-color: var(--blue); color: var(--blue); }
-.chip.land.sel { background: var(--ink); border-color: var(--ink); color: #fff; }
-.chip.land.off { opacity: 0.6; }
+.mapchip i { font-style: normal; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #e3a51c; color: #fff; font-size: 10px; font-weight: 800; }
+.mapchip.bad { border-color: var(--steep); background: var(--steep); color: #fff; }
+.mapchip.land { padding: 4px 10px; border-color: #e3b23c; }
+.mapchip.land::after { display: none; }
+.mapchip.land.pend { background: #e7efff; border-color: var(--blue); color: var(--blue); }
+.mapchip.land.sel { background: var(--ink); border-color: var(--ink); color: #fff; }
+.mapchip.land.off { opacity: 0.6; }
 .land-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px; background: #fff; display: grid; gap: 6px; }
 .land-card .l1 { display: flex; align-items: center; gap: 8px; }
 .land-card .l1 b { flex: 1; font-size: 15px; }
 .lrow.on { border-color: var(--ink); background: #fff; }
-.chip.bad i { background: #fff; color: var(--steep); }
-.chip::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; border: inherit; border-top: 0; border-left: 0; transform: rotate(45deg); }
+.mapchip.bad i { background: #fff; color: var(--steep); }
+.mapchip::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; border: inherit; border-top: 0; border-left: 0; transform: rotate(45deg); }
 .flabel.sel { background: var(--ink); color: #fff; border-color: var(--ink); }
 .flabel em { font-style: normal; font-weight: 700; font-size: 10.5px; color: var(--steep); text-transform: uppercase; letter-spacing: 0.04em; }
 .flabel.sel em { color: #ffb59c; }
@@ -5229,10 +5229,11 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'repay') repay(+b.dataset.v);
   else if (a === 'expandLot') {
     if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
-    const block = mainLotBlock();
+    const row = b.dataset.row == null ? null : +b.dataset.row; // a chosen direction, or wherever it fits next
+    const block = row == null ? mainLotBlock() : lotGrowBlock(row);
     if (block) { toast(block, true); return; }
     pushUndo('the parking expansion');
-    const n = nextLotSlot(), bb = n.bb;
+    const n = row == null ? nextLotSlot() : { row, col: rowLen(row), bb: slotBox(row, rowLen(row)) }, bb = n.bb;
     if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
     state.lotLayout.push([n.row, n.col]);
     state.cash -= LOT_EXPAND_COST; state.lotSections++;
@@ -5549,7 +5550,7 @@ function updateLandMarks() {
       line.computeLineDistances(); line.renderOrder = 15;
       landGroup.add(line);
       const el = document.createElement('button');
-      el.className = 'chip land' + (l ? ' pend' : '') + (landSel === p.id ? ' sel' : '') + (!l && !landReachable(p) ? ' off' : '');
+      el.className = 'mapchip land' + (l ? ' pend' : '') + (landSel === p.id ? ' sel' : '') + (!l && !landReachable(p) ? ' off' : '');
       el.innerHTML = `<span>${l ? `Permits ${l.wait}d` : landReachable(p) ? shortMoney(landPrice(p)) : 'Corner'}</span>`;
       el.title = `${p.name} · ${LAND_KIND[parcelInfo(p).kind].label}`;
       el.onclick = () => { landSel = p.id; landMarksDirty = true; renderSheet(); if (isPhone()) setTimeout(() => fitLandView(p.id), 60); };
@@ -5601,7 +5602,7 @@ function updateChips() {
     for (const [k, el] of chipEls) if (!keep.has(k)) { el.remove(); chipEls.delete(k); }
     for (const c of chipList) {
       let el = chipEls.get(c.key);
-      if (!el) { el = document.createElement('button'); el.className = 'chip'; chipLayer.appendChild(el); chipEls.set(c.key, el); }
+      if (!el) { el = document.createElement('button'); el.className = 'mapchip'; chipLayer.appendChild(el); chipEls.set(c.key, el); }
       const html = `<i aria-hidden="true">${c.icon}</i><span>${esc(c.text)}</span>`;
       if (el._html !== html) { el.innerHTML = html; el._html = html; }
       el.classList.toggle('bad', c.sev >= 2); el.title = c.title; el.setAttribute('aria-label', c.title);
@@ -5983,6 +5984,16 @@ function mainLotBlock() {
   if (below && below.what) return `The lot can’t grow along the road (${n.land}), and ${below.what} is where a second row would go. Remove it to add a second row.`;
   if (below && /property line/.test(below.land)) return `The main lot can’t grow along the road any further: ${n.land}. Buy the land below it (Business › Land) and a second row of parking can go there.`;
   return `The main lot can’t grow any further: ${n.land}. Set up off-site parking with a shuttle instead (Parking › Off-site parking).`;
+}
+// Growing the lot in a chosen direction: along the road (the first row), or a row below (one section
+// under each in the first row). Returns what stops it, or null.
+function lotGrowBlock(row) {
+  const r0 = rowLen(0), r1 = rowLen(1);
+  if (row === 1 && r1 >= r0) return 'The row below is as long as the first. Add along the road first.';
+  const bb = slotBox(row, row ? r1 : r0), land = lotLandBlock(bb), what = !land && inLotWay(bb);
+  if (row === 0) return land ? `It can’t grow along the road: ${land}.` : what ? `${what} is in the way along the road.` : null;
+  if (/property line/.test(land)) return 'Buy the land below the lot (Business › Land) to add a row below.';
+  return land ? `No row below: ${land}.` : what ? `${what} is in the way below the lot.` : null;
 }
 // Building where the main lot will grow is allowed, with a heads-up.
 const LOT_WARN = 'Heads up: this is where the main lot grows. You can build here, but you’d have to remove it before adding more main-lot parking.';
@@ -12467,7 +12478,8 @@ function parkingPanel() {
   const lot = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Main lot</b><span class="pill ${lotsOpen() < state.lotSections ? 'warn' : 'on'}">${lotsOpen()} of ${state.lotSections} open</span></div>
       <div class="l2"><span>${live ? `<b>${used}</b> of ` : ''}${lotsOpen() * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
-      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3"><button class="chip" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Add a section overnight' : `Add ${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}`}</button>${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
+      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${state.phase === 'closed' && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
+      ${visiting || block ? '' : (() => { const w0 = lotGrowBlock(0), w1 = lotGrowBlock(1); const note = state.phase !== 'closed' ? 'Parking is added overnight.' : [w0, w1].filter(Boolean).join(' '); return `<p class="help lot-help">${esc(note || `Each section is ${SPACES_PER_SECTION} spaces. Grow it along the road, or a row below under the first.`)} Now ${rowLen(0)} across${rowLen(1) ? ` and 2 rows deep` : ''}.</p>`; })()}
     </li>`;
   const spec = offsiteSpec(), nx = OFFSITE[state.offsite + 1], offUsed = live && today ? today.offUsed : 0;
   const off = `<li class="lrow static">
@@ -14068,6 +14080,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.44.1', date: 'Oct 27, 2026', title: 'Choose which way the lot grows', small: true, items: [
+    'The main lot’s Parking panel now has two buttons: Along the road, or A row below (on land you own). Build it 3 across and 2 down, or whatever shape fits.',
+    'Fixed: since 2.41, small buttons inside some panels (like Add parking and Set up gravel field) were drawn in the wrong place, at the top of the panel.',
+  ] },
   { v: '2.44', date: 'Oct 27, 2026', title: 'Replant trees, a second row of parking, and smarter lunch advice', items: [
     'Replant: a new Landscape brush regrows the trees that were cleared, $150 a tree. Fill in the glades between trails, or screen the parking lot; trails and lift lines stay clear.',
     'Once the main lot can’t grow along the road, buy the land below it (Business › Land) and a second row of parking fits underneath, one section under each.',
