@@ -10436,8 +10436,16 @@ function upgradeTier(B) {
 // A shuttle station becomes a transit center where it stands: two bays and bigger town buses.
 function upgradeStation(B) {
   if (B.type !== 'shuttle' || state.phase !== 'closed') return;
-  const v = validateBuilding('transit', 0, B.x, B.z, B.rot, B.id);
-  if (v.problems.length) { toast(`Can’t upgrade here: ${v.problems[0]}`, true); return; }
+  // A transit center is deeper than a station, and stations sit as close to the road as they can,
+  // so it steps back from the road (a little at a time, up to 2 units) until it fits.
+  const ar = B.rot * Math.PI / 2;
+  let v = null, first = null, x = B.x, z = B.z;
+  for (let k = 0; k <= 8; k++) {
+    const cx = B.x - Math.sin(ar) * k * 0.25, cz = B.z - Math.cos(ar) * k * 0.25, t = validateBuilding('transit', 0, cx, cz, B.rot, B.id);
+    if (!first) first = t;
+    if (!t.problems.length) { v = t; x = cx; z = cz; break; }
+  }
+  if (!v) { toast(`Can’t upgrade here: ${first.problems[0]}`, true); return; }
   const cost = BTYPES.transit.cost - BTYPES.shuttle.cost + v.treeSet.size * TREE_COST;
   if (cost > state.cash) { toast(`Upgrading needs ${money(cost)}`, true); return; }
   pushUndo(`the ${B.name} upgrade`);
@@ -10446,6 +10454,7 @@ function upgradeStation(B) {
   bldGroup.remove(B.group);
   B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== B);
+  B.x = x; B.z = z;
   if (OTHER_NAMES.shuttle.includes(B.name)) { B.type = 'transit'; B.name = nextBuildingName('transit', B.x, B.z); } else B.type = 'transit';
   addBuilding(B);
   computeNetwork(); syncLabels(); updateCash(true);
@@ -14348,6 +14357,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.46.5', date: 'Oct 28, 2026', title: 'Shuttle stations upgrade again', small: true, items: [
+    'Fixed: upgrading a shuttle station to a transit center almost always said it would block the access road. The bigger building now steps back from the road to fit.',
+  ] },
   { v: '2.46.4', date: 'Oct 28, 2026', title: 'New on the roadmap', small: true, items: [
     'The Roadmap card shows how many ideas are new or have changed since you last looked, and the roadmap tags them New or Updated. Seven player ideas were just added to vote on.',
   ] },
