@@ -36,7 +36,13 @@ export default async function ({ browser, url }) {
   // after the lifts close: the school is dark, the bar and fire pits lit
   eq(await g.ev(`['school', 'bar', 'firepit', 'lamp'].map((t) => bldLitNow(world.buildings.find((B) => B.type === t)))`), [false, true, true, true], 'closed buildings go dark at night');
   eq(await g.ev(`(() => { updateEveningGlow(); return world.buildings.find((B) => B.type === "school").glowMat.color.getHex() === WIN_OFF; })()`), true, "school windows off");
+  // the fire pit up top is too far uphill to walk to for après; keep hold of tonight's tally to check
+  await g.ev(`(() => { const L = world.lifts[0]; window.__top = world.buildings.filter((B) => B.type === 'firepit').sort((x, y) => distXZ(y.door, L.a) - distXZ(x.door, L.a))[0].id; window.__ap = today.apres; })()`);
   await g.ev(SETUPS.finishDay);
+  eq(await g.ev(`(window.__ap.byB[window.__top] || { guests: 0 }).guests`), 0, 'nobody hikes up the mountain to the top fire pit for après');
+  eq(await g.ev(`(() => { const at = world.buildings.find((B) => B.type === 'bar').door, pits = world.buildings.filter((B) => B.type === 'firepit');
+    return [withinWalk(at, pits.find((B) => B.id !== window.__top)), withinWalk(at, bldById(window.__top)), withinWalk(world.lifts[0].b, bldById(window.__top))]; })()`),
+    [true, false, true], 'après is a walk from where you stand: the fire pit by the bar, not one up the mountain, unless you’re already up there');
   const a = await g.ev(`state.lastReport.apres`);
   assert(a.venues.some((v) => v.type === 'firepit' && v.guests > 0), `fire pit après guests: ${JSON.stringify(a.venues)}`);
   assert(/free/.test(await g.ev(`document.querySelector('.rp-page[data-page=apres]').textContent`)), 'report shows the fire pit as free');

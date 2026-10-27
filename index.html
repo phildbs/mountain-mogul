@@ -8745,6 +8745,11 @@ const apresEnd = () => Math.max(lastCall(), nightEnd() ? nightEnd() + 45 : 0);
 const venueClose = (B) => Math.min(apresEnd(), VENUE_CLOSE[B.type] ?? Infinity);
 const apresVenue = (B) => APRES_VENUES.includes(B.type) && bldMode(B) === 'open';
 const apresOpen = (B) => apresVenue(B) && (state.phase !== 'open' || state.time < venueClose(B));
+// After skiing, guests walk to après: anything more than about 130 ft above where they stand (a fire pit
+// up the slope) is out of reach. The base area spans about 115 ft, so every base venue is still in reach,
+// and so is a deck beside a mid-mountain station for guests who finish there.
+const APRES_CLIMB = 4;
+const withinWalk = (g, B) => trueY(B.door.x, B.door.z) - trueY(g.x, g.z) <= APRES_CLIMB;
 // Staff for the evening: each venue until it closes, at time and a half after 10 PM, plus security
 // after 10 when last call is later than that (light security costs less but risks a rowdy reputation).
 function apresStaff(lv) {
@@ -8778,7 +8783,7 @@ function anotherRound(g, first) {
   if (!apresOn() || !g.apresGuest || !(g.owl || g.night || g.local) || state.time < closeTime() || state.time > apresEnd() - 40 || (g.rounds || 0) >= 6 || (!first && Math.random() > (g.local ? 0.7 : 0.6))) return false;
   let best = null, bv = -Infinity;
   for (const B of world.buildings) {
-    if (!apresOpen(B) || state.time > venueClose(B) - 30) continue;
+    if (!apresOpen(B) || state.time > venueClose(B) - 30 || !withinWalk(g, B)) continue;
     const v = (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2 : 0) - distXZ(B.door, g) * 0.1 - estWait(B, apresSvc(B)) * 0.5 + Math.random() * 2;
     if (v > bv) { bv = v; best = B; }
   }
@@ -8819,7 +8824,7 @@ function maybeApres(g) {
     // Where: big spenders and diners head for a restaurant; most want the bar; the lodge will do.
     let best = null, bv = -Infinity;
     for (const B of world.buildings) {
-      if (!apresOpen(B)) continue;
+      if (!apresOpen(B) || !withinWalk(g, B)) continue;
       const svc = apresSvc(B);
       const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : g.fancy ? 3 : -1)
         - (B.type === 'firepit' ? 0 : Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4) + Math.random() * 2;
@@ -13238,6 +13243,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.39.2', date: 'Oct 27, 2026', title: 'No more hiking to après', small: true, items: [
+    'Après guests no longer climb the mountain to reach a fire pit or bar placed up the slope. They walk to venues around the base, or near where they finish, within about 130 ft of climb.',
+  ] },
   { v: '2.39.1', date: 'Oct 27, 2026', title: 'Suggest a feature', small: true, items: [
     'Have an idea for the game? Tap Suggest a feature on the title screen, or Feedback & feature ideas in the menu. Every idea is read and reviewed to see what can be built.',
     'The skip button now looks the same on every device, instead of turning into an emoji on some tablets.',
