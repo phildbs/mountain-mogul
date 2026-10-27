@@ -2572,8 +2572,10 @@ function applySave(sv) {
   }
   if (ok && sv.snow) decodeSnow(sv.snow);
   else if (ok) for (let k = 0; k < NV * NV; k++) NS[k] = 26 + 34 * elevFrac(HT[k]); // older saves: a midwinter snowpack
+  else if (!practice && !visiting) winterStart();
   else seedPreseasonSnow();
-  if (!state.wx) state.wx = initWeather(state.day);
+  if (!state.wx) state.wx = initWeather(state.day, !ok); // a new resort's first week is kind: no rain or wind holds
+  if (!ok) state.wx.mild = false; // and after that, real weather
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
   state.prices = { ...PRICE_DEFAULTS, ...(ok && sv.clock && sv.clock.prices ? sv.clock.prices : {}) };
   if (state.speed > 4) state.speed = 4;
@@ -2845,7 +2847,7 @@ function processHover() {
 function hintText() {
   return isCoarse
     ? 'Drag to move · Pinch to zoom · Tap a trail or lift to inspect it'
-    : 'Drag to move · <kbd>Scroll</kbd> zoom · <kbd>Q</kbd><kbd>E</kbd> rotate · <kbd>1</kbd>–<kbd>4</kbd> tools · Click a trail or lift to inspect it';
+    : 'Drag to move · <kbd>Scroll</kbd> zoom · <kbd>Q</kbd><kbd>E</kbd> rotate · <kbd>1</kbd>–<kbd>5</kbd> tools · Click a trail or lift to inspect it';
 }
 function showHint(force) {
   let seen = false;
@@ -9595,6 +9597,13 @@ function advanceWeather() {
 }
 
 /* ---------- Natural snow ---------- */
+// A new resort starts in early December with snow on the ground and snowy trees, so the first thing
+// to do is build and open. Later seasons start in pre-season, once you know how snow works.
+const FIRST_DAY = 9; // Thu, Dec 10
+function winterStart() {
+  for (let k = 0; k < NV * NV; k++) NS[k] = 20 + 26 * elevFrac(HT[k]);
+  state.day = FIRST_DAY; state.treeSnow = 1;
+}
 function seedPreseasonSnow() {
   for (let k = 0; k < NV * NV; k++) {
     const e = elevFrac(HT[k]);
@@ -10031,7 +10040,8 @@ function adviceSheet(mode) {
   const welcome = mode === 'welcome';
   return `<div class="sheet-title"><h3>${welcome ? `Welcome to ${esc(state.resortName)}` : 'What next?'}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     ${welcome ? `<label class="namefield">Name your resort<span class="namerow"><input id="advName" maxlength="28" autocomplete="off" value="${esc(state.resortName)}"><button type="button" class="dice" data-action="rollName" title="Suggest a name" aria-label="Suggest a name">🎲</button></span></label>
-    <p class="help">It’s ${dateLabel(state.day)}, pre-season, and there’s no snow on the mountain yet. Natural snow usually builds up between late November and mid-December, so use the time to build. Running costs stay low until you first open.</p>` : ''}
+    <p class="help">${state.day < 0 ? `It’s ${dateLabel(state.day)}, pre-season, and there’s no snow on the mountain yet. Natural snow usually builds up between late November and mid-December, so use the time to build.`
+      : `It’s ${dateLabel(state.day)} and the snow is in. Build a chairlift from the base, a trail back down and a lodge, then open for your first day. The holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`} Running costs stay low until you first open.</p>` : ''}
     <ol class="advice">${adviceShown.map((a, i) => `<li class="${a.urgent ? 'urgent' : ''}"><p>${a.text}</p><button class="btn ${i ? 'secondary' : ''}" data-action="advice" data-v="${i}">${esc(a.label)}</button></li>`).join('')}</ol>
     <p class="help">Tap the lightbulb by your resort’s name any time for what to do next.</p>`;
 }
@@ -10805,7 +10815,8 @@ function refreshTimebar(force) {
   go.hidden = state.phase === 'report' || state.phase === 'season';
   go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : canSkipToLastCall() ? 'Skip to last call' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
   go.disabled = state.phase === 'open' && state.time >= closeTime() && !canSkipToLastCall();
-  go.classList.toggle('calm', state.phase === 'open');
+  // Before a first lift and trail exist, Open for the day steps back so the welcome's first step stands out.
+  go.classList.toggle('calm', state.phase === 'open' || (state.phase === 'closed' && !state.summer && !visiting && preOpening() && !realTrails().some((t) => t.reachable && t.returns)));
   const locked = state.phase !== 'closed';
   $('tClear').classList.toggle('locked', locked);
   for (const id of Object.keys(BUILD_TITLES)) $(id).title = locked ? (id === 'tClear' ? 'Trees can only be cleared overnight' : BUILD_TITLES[id].replace(/ \(/, ' plan (')) : BUILD_TITLES[id];
@@ -12934,6 +12945,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.38.3', date: 'Oct 27, 2026', title: 'New resorts start in the snow', small: true, items: [
+    'A new resort now starts on Dec 10 with snow on the mountain and a mild first week, so you can build and open right away instead of waiting weeks for snow. Later seasons still start in pre-season.',
+  ] },
   { v: '2.38.2', date: 'Oct 27, 2026', title: 'Fewer refunds on busy evenings', small: true, items: [
     'Fixed: when the main lot was full, night skiers and après guests who parked off-site were sold a day ticket as they arrived at dusk, then refunded straight away. Busy resorts saw hundreds of these refunds a day. Now après guests head to the bar without a lift ticket, and night skiers pay the night price, the same as guests who park on-site.',
   ] },

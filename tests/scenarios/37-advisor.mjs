@@ -1,4 +1,4 @@
-// New players get a welcome that explains pre-season, and the lightbulb's "What next?" list walks them
+// New players start on Dec 10 with snow on the mountain and get a welcome that says what to build, and the lightbulb's "What next?" list walks them
 // from an empty mountain to opening day, with a button for each step.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -6,15 +6,19 @@ export default async function ({ browser, url }) {
   await g.click('#startBtn'); await g.wait(2200);
   eq(await g.ev(`selected && selected.kind + ':' + selected.obj`), 'advice:welcome', 'a new mountain opens with the welcome');
   const w = await g.ev(`$('sheet').innerText`);
-  assert(/no snow on the mountain yet/.test(w) && /late November and mid-December/.test(w), 'it explains pre-season');
+  assert(/Dec 10 and the snow is in/.test(w), 'it starts in December, with snow: ' + w.slice(0, 200));
+  eq(await g.ev(`[state.day, state.treeSnow, avgBase() > 0 || NS.some((v) => v >= 20)]`), [9, 1, true], 'snow on the ground and on the trees');
   assert(/Build your first chairlift/.test(w), 'and the first step');
-  eq(await g.ev(`$('tbSub').querySelector('.tb-st').textContent`), 'Pre-season · build a lift and a trail', 'the status line says what to do');
+  eq(await g.ev(`$('tbSub').querySelector('.tb-st').textContent`), 'Not open yet · build a lift and a trail', 'the status line says what to do');
   // the step's button takes you there
   await g.click('#sheet [data-action=advice][data-v="0"]'); await g.wait(100);
   eq(await g.ev(`state.tool`), 'lift', 'Build a lift picks the lift tool');
   await g.ev(`setTool('explore')`);
-  // built, but no snow yet
+  // built: ready to open straight away
   await g.ev(SETUPS.juniperStarter); await g.ev(`state.lastReport = null; refreshTimebar(true)`);
+  eq(await g.ev(`$('tbSub').querySelector('.tb-st').textContent`), 'Ready for opening day!', 'a new resort can open as soon as it is built');
+  // a pre-season start (as later seasons have): no snow yet
+  await g.ev(`(() => { state.day = -10; seedPreseasonSnow(); for (const t of world.trails) t.base = 0; refreshSnowState(todayWx()); refreshTimebar(true); })()`);
   const ws = await g.ev(`$('tbSub').querySelector('.tb-st').textContent`); assert(/^Waiting for snow · trails [0-9]+″ of 12″$/.test(ws), 'waiting for snow, with the depths: ' + ws);
   const a = await g.ev(`advice().map((x) => x.label)`);
   eq(a[0], 'Stay closed for a week', 'the top step is to wait for snow');
