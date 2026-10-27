@@ -41,9 +41,13 @@ begin
                      coalesce((summary->>'stars')::int, 0) as stars, updated_at,
                      exists (select 1 from featured f where f.mountain_id = mountains.id and f.picked) as featured
               from mountains order by updated_at desc limit 300) t), -- the most recently played; the page sorts them
-    'feedback_count', (select count(*) from feedback),
+    'feedback_count', (select count(*) from feedback where message not like '💡 Idea:%'),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
-                   select created_at, message from feedback order by created_at desc limit 10) f)
+                   select created_at, message from feedback where message not like '💡 Idea:%' order by created_at desc limit 10) f),
+    -- Feature ideas from the in-game form (stored with a 💡 Idea: prefix), listed apart from feedback.
+    'ideas_count', (select count(*) from feedback where message like '💡 Idea:%'),
+    'ideas', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
+                select created_at, message from feedback where message like '💡 Idea:%' order by created_at desc limit 20) f)
   );
 end;
 $$;

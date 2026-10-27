@@ -195,6 +195,11 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       const w = total ? (n / total) * 100 : 0;
       return `<div class="bar" title="${esc(label)}: ${num(n)}${sub ? '' : ` (${pct(n, total)})`}"><span class="lbl">${esc(label)}${sub ? ` <small>${esc(sub)}</small>` : ''}</span><span class="track"><span class="fill" style="width:${w}%"></span>${w > 60 ? `<span class="val in" style="right:calc(${100 - w}% + 8px)">` : `<span class="val" style="left:calc(${w}% + 6px)">`}${num(n)}${sub ? '' : ` · ${pct(n, total)}`}</span></span></div>`;
     }).join('')}</div>`;
+    // Feature ideas arrive as feedback starting "💡 Idea:". Older SQL returns one combined list, so split it here too.
+    const IDEA = '💡 Idea:', isIdea = (f) => f.message.startsWith(IDEA);
+    const ideas = d.ideas ? { n: d.ideas_count, list: d.ideas } : { n: d.feedback.filter(isIdea).length, list: d.feedback.filter(isIdea) };
+    const notes = d.ideas ? { n: d.feedback_count, list: d.feedback } : { n: d.feedback_count - ideas.n, list: d.feedback.filter((f) => !isIdea(f)) };
+    const fbList = (list, none) => list.length ? `<ul class="fb">${list.map((f) => `<li><time>${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(isIdea(f) ? f.message.slice(IDEA.length).trim() : f.message)}</li>`).join('')}</ul>` : `<p class="note">${none}</p>`;
     const mts = d.by_mountain.map((r) => [mtName(r.mt), r.n]).reduce((acc, [k, n]) => { const f = acc.find((a) => a[0] === k); if (f) f[1] += n; else acc.push([k, n]); return acc; }, []).sort((a, b) => b[1] - a[1]);
     rows = d.top;
     $('out').innerHTML = `
@@ -223,10 +228,10 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <section class="card"><h2>How far players get</h2><p class="note">Share of everyone who opened the game.</p>${bars(funnel, d.visitors)}</section>
         <section class="card"><h2>Mountains picked</h2><p class="note">${num(d.mountains)} mountains started.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
       </div>
-      <section class="card">
-        <h2>Feedback</h2><p class="note">${num(d.feedback_count)} ${d.feedback_count === 1 ? 'message' : 'messages'} from Feedback &amp; feature ideas in the game. Feature ideas start with 💡. Newest first.</p>
-        ${d.feedback.length ? `<ul class="fb">${d.feedback.map((f) => `<li><time>${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(f.message)}</li>`).join('')}</ul>` : '<p class="note">None yet.</p>'}
-      </section>`;
+      <div class="two">
+        <section class="card"><h2>Feature ideas</h2><p class="note">${num(ideas.n)} ${ideas.n === 1 ? 'idea' : 'ideas'} sent with Suggest a feature. Newest first.</p>${fbList(ideas.list, 'No ideas yet.')}</section>
+        <section class="card"><h2>Feedback</h2><p class="note">${num(notes.n)} ${notes.n === 1 ? 'message' : 'messages'} about problems and the game so far. Newest first.</p>${fbList(notes.list, 'None yet.')}</section>
+      </div>`;
     renderResorts();
   }
 
