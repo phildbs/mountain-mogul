@@ -72,6 +72,15 @@ export default async function ({ browser, url }) {
   eq(dir.layout, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]], 'two along the road, then a row below: 3 across, 2 down');
   assert(/Add along the road first/.test(dir.below), 'the row below stops at the first row’s length');
   assert(dir.pos !== 'absolute', `panel chips stay in the panel (map markers have their own class): ${dir.pos}`);
+  // choosing on the map: Grow the main lot puts a + on each spot, and tapping one adds a section there
+  const pick = await g.ev(`(() => { state.lotSections = 1; state.lotLayout = null; buildLot(); openManage('lotgrow'); updateLotMarks();
+    const tags = [...document.querySelectorAll('#lotTags button')].map((b) => b.textContent);
+    [...document.querySelectorAll('#lotTags button')].find((b) => /Below/.test(b.textContent)).click(); updateLotMarks();
+    return { tags, layout: state.lotLayout, after: [...document.querySelectorAll('#lotTags button')].map((b) => b.textContent) }; })()`);
+  eq(pick.tags, ['+ Along the road · $75k', '+ Below · $75k'], 'a + along the road and one below');
+  eq(pick.layout, [[0, 0], [1, 0]], 'tapping + Below adds a section under the first');
+  eq(pick.after, ['+ Along the road · $75k'], 'then only along the road, until the first row is longer');
+  eq(await g.ev(`(() => { select(null); updateLotMarks(); return document.querySelectorAll('#lotTags button').length; })()`), 0, 'gone when the panel closes');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

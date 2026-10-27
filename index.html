@@ -1149,6 +1149,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="layer" id="labels"></div>
     <div class="layer" id="chips"></div>
     <div class="layer" id="landTags"></div>
+    <div class="layer" id="lotTags"></div>
     <div class="layer" id="handles"></div>
     <div class="layer" id="hints"><button class="lifthint" id="liftHint" type="button" hidden><i aria-hidden="true"></i><span></span></button></div>
     <div class="top-left">
@@ -5227,29 +5228,8 @@ sheet.addEventListener('click', (e) => {
     toast(`You bought ${INVESTOR_SHORT} out. Every dollar is yours again.`);
   }
   else if (a === 'repay') repay(+b.dataset.v);
-  else if (a === 'expandLot') {
-    if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
-    const row = b.dataset.row == null ? null : +b.dataset.row; // a chosen direction, or wherever it fits next
-    const block = row == null ? mainLotBlock() : lotGrowBlock(row);
-    if (block) { toast(block, true); return; }
-    pushUndo('the parking expansion');
-    const n = row == null ? nextLotSlot() : { row, col: rowLen(row), bb: slotBox(row, rowLen(row)) }, bb = n.bb;
-    if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
-    state.lotLayout.push([n.row, n.col]);
-    state.cash -= LOT_EXPAND_COST; state.lotSections++;
-    gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
-    buildLot(); updateCash(true);
-    toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
-  }
-  else if (a === 'shrinkLot') {
-    if (state.phase !== 'closed' || state.lotSections <= 1) return;
-    pushUndo('removing a parking section');
-    const back = Math.round(LOT_EXPAND_COST * 0.25);
-    state.lotSections--; state.cash += back;
-    if (state.lotLayout) state.lotLayout.length = state.lotSections; // the newest section goes
-    buildLot(); styleLot(); updateCash(true);
-    toast(`Removed a parking section (${SPACES_PER_SECTION} spaces) · +${money(back)} salvage`); renderSheet(); scheduleSave();
-  }
+  else if (a === 'expandLot') growLot(b.dataset.row == null ? null : +b.dataset.row);
+  else if (a === 'shrinkLot') shrinkLot();
   else if (a === 'offsiteClose') {
     if (state.phase !== 'closed' || state.offsite < 0) return;
     pushUndo('closing off-site parking');
@@ -5984,6 +5964,100 @@ function mainLotBlock() {
   if (below && below.what) return `The lot can’t grow along the road (${n.land}), and ${below.what} is where a second row would go. Remove it to add a second row.`;
   if (below && /property line/.test(below.land)) return `The main lot can’t grow along the road any further: ${n.land}. Buy the land below it (Business › Land) and a second row of parking can go there.`;
   return `The main lot can’t grow any further: ${n.land}. Set up off-site parking with a shuttle instead (Parking › Off-site parking).`;
+}
+// Growing the main lot by a section: row 0 along the road, 1 the row below, null wherever it fits next.
+function growLot(row) {
+  if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
+  const block = row == null ? mainLotBlock() : lotGrowBlock(row);
+  if (block) { toast(block, true); return; }
+  pushUndo('the parking expansion');
+  const n = row == null ? nextLotSlot() : { row, col: rowLen(row), bb: slotBox(row, rowLen(row)) }, bb = n.bb;
+  if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
+  state.lotLayout.push([n.row, n.col]);
+  state.cash -= LOT_EXPAND_COST; state.lotSections++;
+  gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
+  buildLot(); updateCash(true);
+  toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
+  if (selected && selected.obj === 'lotgrow') setTimeout(fitLotView, 60); // keep the next spots in view
+}
+function shrinkLot() {
+  if (state.phase !== 'closed' || state.lotSections <= 1) return;
+  pushUndo('removing a parking section');
+  const back = Math.round(LOT_EXPAND_COST * 0.25);
+  state.lotSections--; state.cash += back;
+  if (state.lotLayout) state.lotLayout.length = state.lotSections; // the newest section goes
+  buildLot(); styleLot(); updateCash(true);
+  toast(`Removed a parking section (${SPACES_PER_SECTION} spaces) · +${money(back)} salvage`); renderSheet(); scheduleSave();
+  if (selected && selected.obj === 'lotgrow') setTimeout(fitLotView, 60);
+}
+// The Grow the main lot panel: tap a + on the map (or a button here) to add a section there.
+function lotGrowPanel() {
+  const closed = state.phase === 'closed', short = state.cash < LOT_EXPAND_COST, w = [lotGrowBlock(0), lotGrowBlock(1)];
+  return `<p class="help">${closed ? `Tap a <b>+</b> on the map to add ${SPACES_PER_SECTION} spaces there, ${money(LOT_EXPAND_COST)} each. Along the road extends the first row; below it adds a second row, one section under each.` : 'Parking is added overnight, while the resort is closed.'}</p>
+    <div class="row">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label], i) => `<button class="btn secondary" data-action="expandLot" data-row="${row}" ${closed && !w[i] && !short ? '' : 'disabled'}>${label}</button>`).join('')}</div>
+    ${w.filter(Boolean).length ? `<p class="help">${esc(w.filter(Boolean).join(' '))}</p>` : ''}${short && closed ? `<p class="help warn">You need ${money(LOT_EXPAND_COST - state.cash)} more.</p>` : ''}
+    <p class="conn">Now <b>${rowLen(0)}</b> across${rowLen(1) ? ` and <b>2</b> rows deep` : ''} · ${lotCapacity().toLocaleString('en-US')} spaces</p>
+    ${state.lotSections > 1 && closed ? `<button class="link" data-action="shrinkLot">Remove the newest section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}</button>` : ''}
+    <button class="btn wide" data-action="close">Done</button>`;
+}
+// On the map while choosing: an outline and a + where each next section could go, or why it can't.
+const lotTagLayer = $('lotTags'), lotPickGroup = new THREE.Group();
+scene.add(lotPickGroup);
+let lotTagsSig = '', lotTagEls = [];
+function updateLotMarks() {
+  const on = state.started && !visiting && state.tool === 'explore' && selected && selected.kind === 'manage' && (selected.obj === 'lotgrow' || selected.obj === 'parking');
+  const sig = on ? `${selected.obj}:${state.lotSections}:${JSON.stringify(state.lotLayout)}:${landSig}:${state.phase}:${state.cash >= LOT_EXPAND_COST}:${terrainRev}:${world.buildings.length}` : '';
+  if (sig !== lotTagsSig) {
+    const first = on && !lotTagsSig;
+    lotTagsSig = sig;
+    lotPickGroup.children.forEach((o) => { o.geometry.dispose(); o.material.dispose(); }); lotPickGroup.clear();
+    lotTagLayer.innerHTML = ''; lotTagEls = [];
+    if (on) {
+      for (const row of [0, 1]) {
+        const why = lotGrowBlock(row);
+        if (row === 1 && rowLen(1) >= rowLen(0)) continue; // nothing to show under a full second row
+        const bb = slotBox(row, rowLen(row)), ok = !why && state.phase === 'closed';
+        const pts = [], at = (x, z) => pts.push(new THREE.Vector3(x, heightAt(x, z) + 0.15, z));
+        for (const [x, z] of [[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x1, bb.z1], [bb.x0, bb.z1], [bb.x0, bb.z0]]) at(x, z);
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: ok ? 0xe3a51c : 0x8a94a3, dashSize: 0.7, gapSize: 0.5, depthTest: false, transparent: true, fog: false }));
+        line.computeLineDistances(); line.renderOrder = 15; lotPickGroup.add(line);
+        const el = document.createElement('button');
+        el.className = 'mapchip land' + (ok ? '' : ' off');
+        el.innerHTML = `<span>${ok ? `+ ${row ? 'Below' : 'Along the road'} · ${shortMoney(LOT_EXPAND_COST)}` : /Buy the land/.test(why || '') ? 'Buy the land below first' : row ? 'No room below' : 'No room along the road'}</span>`;
+        el.title = why || `Add ${SPACES_PER_SECTION} spaces here`;
+        el.onclick = () => (ok ? growLot(row) : toast(why || 'Parking is added overnight.', true));
+        lotTagLayer.appendChild(el); lotTagEls.push({ el, x: (bb.x0 + bb.x1) / 2, z: (bb.z0 + bb.z1) / 2 });
+      }
+      if (first && selected.obj === 'lotgrow') setTimeout(fitLotView, 60);
+    }
+  }
+  for (const { el, x, z } of lotTagEls) {
+    const q = project(x, heightAt(x, z) + 0.8, z), r = sheet.hidden ? null : sheet.getBoundingClientRect();
+    const vis = q.ok && q.x > -60 && q.x < W + 60 && q.y > 20 && q.y < H + 20 && !(r && q.y > r.top - 8 && q.x > r.left - 8 && q.x < r.right + 8);
+    el.hidden = !vis;
+    if (vis) el.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`;
+  }
+}
+// Bring the lot and its next spots into view, above the panel.
+function fitLotView() {
+  const boxes = [...lotBoxes(), slotBox(0, rowLen(0)), ...(rowLen(1) < rowLen(0) ? [slotBox(1, rowLen(1))] : [])];
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const b of boxes) { x0 = Math.min(x0, b.x0); x1 = Math.max(x1, b.x1); z0 = Math.min(z0, b.z0); z1 = Math.max(z1, b.z1); }
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, P = { x: cx, y: heightAt(cx, cz), z: cz };
+  const top = $('timebar').getBoundingClientRect().bottom + 20, bottom = sheet.hidden ? H : sheet.getBoundingClientRect().top - 10;
+  const goalY = isPhone() ? (top + bottom) / 2 : H / 2, goalX = isPhone() || sheet.hidden ? W / 2 : sheet.getBoundingClientRect().left / 2;
+  const keep = { x: cam.target.x, z: cam.target.z, viewH: cam.viewH };
+  cam.viewH = clamp(Math.max(x1 - x0, z1 - z0) * (isPhone() ? 2.6 : 1.6), 40, 160);
+  const f = (x, z) => { cam.target.x = x; cam.target.z = z; updateCamera(); camera.updateMatrixWorld(); const r = project(P.x, P.y, P.z); return [r.x - goalX, r.y - goalY]; };
+  for (let i = 0; i < 4; i++) {
+    const bx = cam.target.x, bz = cam.target.z, d0 = f(bx, bz), dx = f(bx + 1, bz), dz = f(bx, bz + 1);
+    const J = [[dx[0] - d0[0], dz[0] - d0[0]], [dx[1] - d0[1], dz[1] - d0[1]]], det = J[0][0] * J[1][1] - J[0][1] * J[1][0];
+    if (Math.abs(det) < 1e-9) break;
+    cam.target.x = bx - (J[1][1] * d0[0] - J[0][1] * d0[1]) / det; cam.target.z = bz - (-J[1][0] * d0[0] + J[0][0] * d0[1]) / det;
+  }
+  const to = { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH };
+  Object.assign(cam.target, { x: keep.x, z: keep.z }); cam.viewH = keep.viewH; cam.viewGoal = null; updateCamera();
+  camTween = { t: 0, from: { x: keep.x, z: keep.z, az: cam.az, viewH: keep.viewH }, to };
 }
 // Growing the lot in a chosen direction: along the road (the first row), or a row below (one section
 // under each in the first row). Returns what stops it, or null.
@@ -10073,7 +10147,7 @@ function bldDraftSheet() {
       ${BGROUPS.map(([label, keys]) => `<div class="field-label">${label}</div><div class="bpick">${keys.map((k) => {
         const t = BTYPES[k];
         return `<button data-action="pickB" data-v="${k}"><i style="background:${hexOf(t.accent)}"></i><span><b>${t.name}</b><small>${money(t.cost)}${BY_ROAD.includes(k) ? ' · by the road' : t.where === 'base' ? ' · base area' : ''}</small></span></button>`;
-      }).join('')}${keys.includes('shuttle') ? `<button data-action="manage" data-v="parking"><i style="background:#2565d4"></i><span><b>Off-site parking</b><small>${offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking'}</small></span></button>` : ''}${keys.includes('shuttle') && !mainLotBlock() ? `<button data-action="expandLot" ${state.phase === 'closed' && state.cash >= LOT_EXPAND_COST ? '' : 'disabled'}><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
+      }).join('')}${keys.includes('shuttle') ? `<button data-action="manage" data-v="parking"><i style="background:#2565d4"></i><span><b>Off-site parking</b><small>${offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking'}</small></span></button>` : ''}${keys.includes('shuttle') ? `<button data-action="manage" data-v="lotgrow"><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `Choose where · +${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[0] : t, info = draft.info;
@@ -12307,7 +12381,7 @@ function syncBizFly() {
   const r = btn.getBoundingClientRect(), rail = $('manage').getBoundingClientRect();
   f.style.left = `${rail.right + 8}px`; f.style.top = `${r.top + r.height / 2 - f.offsetHeight / 2}px`;
 }
-const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', evenings: 'Evenings', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', land: 'Land', more: 'More' };
+const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', evenings: 'Evenings', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', land: 'Land', lotgrow: 'Grow the main lot', more: 'More' };
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
@@ -12328,7 +12402,7 @@ function managePanel(key) {
     <div class="sheet-title"><h3>${MANAGE_TITLE[key]}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   const body = key === 'trails' ? trailsList() : key === 'lifts' ? liftsList() : key === 'blds' ? bldsList() : key === 'parking' ? parkingPanel()
     : key === 'ops' ? opsSection() : key === 'prices' ? pricesPanel() : key === 'events' ? eventsPanel() : key === 'evenings' ? eveningsPanel() : key === 'snow' ? weatherSheet(true)
-      : key === 'plans' ? plansList() : key === 'more' ? moreHub() : key === 'land' ? landPanel() : moneyPanel();
+      : key === 'plans' ? plansList() : key === 'more' ? moreHub() : key === 'land' ? landPanel() : key === 'lotgrow' ? lotGrowPanel() : moneyPanel();
   return head + body;
 }
 const PRICES_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/></svg>';
@@ -12479,6 +12553,7 @@ function parkingPanel() {
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Main lot</b><span class="pill ${lotsOpen() < state.lotSections ? 'warn' : 'on'}">${lotsOpen()} of ${state.lotSections} open</span></div>
       <div class="l2"><span>${live ? `<b>${used}</b> of ` : ''}${lotsOpen() * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
       ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${state.phase === 'closed' && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
+      ${visiting ? '' : '<div class="l3"><button class="link" data-action="manage" data-v="lotgrow">Choose where on the map ›</button></div>'}
       ${visiting || block ? '' : (() => { const w0 = lotGrowBlock(0), w1 = lotGrowBlock(1); const note = state.phase !== 'closed' ? 'Parking is added overnight.' : [w0, w1].filter(Boolean).join(' '); return `<p class="help lot-help">${esc(note || `Each section is ${SPACES_PER_SECTION} spaces. Grow it along the road, or a row below under the first.`)} Now ${rowLen(0)} across${rowLen(1) ? ` and 2 rows deep` : ''}.</p>`; })()}
     </li>`;
   const spec = offsiteSpec(), nx = OFFSITE[state.offsite + 1], offUsed = live && today ? today.offUsed : 0;
@@ -14080,6 +14155,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.44.2', date: 'Oct 27, 2026', title: 'Choose where the lot grows, on the map', small: true, items: [
+    'Grow the main lot (in Build, and under Parking) now shows each spot it could grow on the map: tap + Along the road or + Below to add a section right there. Works on phones too.',
+  ] },
   { v: '2.44.1', date: 'Oct 27, 2026', title: 'Choose which way the lot grows', small: true, items: [
     'The main lot’s Parking panel now has two buttons: Along the road, or A row below (on land you own). Build it 3 across and 2 down, or whatever shape fits.',
     'Fixed: since 2.41, small buttons inside some panels (like Add parking and Set up gravel field) were drawn in the wrong place, at the top of the panel.',
@@ -15134,6 +15212,7 @@ function frame(now) {
   updateLabels();
   updateChips();
   updateLandMarks();
+  updateLotMarks();
   updateHandles();
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
