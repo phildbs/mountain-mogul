@@ -567,6 +567,7 @@ body.visiting .badge { cursor: default; }
 .scard.on canvas, .scard.on .sc-map { height: 150px; min-height: 0; }
 .tutbig { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; text-align: left; padding: 10px 14px; }
 .tutbig > span:first-child { font-size: 22px; }
+.mb-go { display: flex; gap: 8px; } .mb-go .btn { flex: 1; }
 .tutbig b { display: block; font-size: 14px; } .tutbig small { display: block; font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
 .ccard { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; }
 .ccard .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
@@ -1372,7 +1373,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       </div>
       <div id="mbBody"></div>
       <div class="mb-code"><span class="field-label">Mountain code</span><input id="mbCode" maxlength="20" spellcheck="false" autocomplete="off" aria-label="Mountain code"><span class="help" id="mbCodeMsg"></span></div>
-      <button class="btn wide" id="mbStart">Start building</button>
+      <div class="row mb-go"><button class="btn" id="mbStart">Start building</button><button class="btn secondary" id="mbSandbox" title="Unlimited money, no goals">Sandbox</button></div>
     </div>
   </div>
 
@@ -2699,13 +2700,14 @@ function newMountain(mt = MOUNTAIN.id) {
   if (state.started && !visiting) saveNow();
   const id = newId();
   const name = nextMountainName(mt);
-  slots.list.push({ id, owner: CLOUD.uid || null, mountain: mt, name, when: '', savedAt: Date.now() });
+  slots.list.push({ id, owner: CLOUD.uid || null, mountain: mt, name, when: '', savedAt: Date.now(), ...(sandboxNext ? { sandbox: true } : {}) });
   slots.active = id;
   writeSlots();
   if (mt !== MOUNTAIN.id) { reloadInto('start'); return false; }
   CLOUD.sentJson = '';
   applySave(null);
   state.resortName = name;
+  if (sandboxNext) { setSandboxNext(false); startSandbox(); }
   $('resortName').textContent = name;
   saveNow();
   return true;
@@ -2729,7 +2731,7 @@ function saveData(withSim) {
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, nudges: state.nudges },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -2742,7 +2744,7 @@ function applySave(sv) {
   clearUndo();
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
-  state.cash = START_CASH; state.cleared = 0;
+  state.cash = START_CASH; state.cleared = 0; state.sandbox = false; // the save's own setting comes back with its clock below
   if (sv && sv.n === trees.n && (sv.mt || 'juniper') === MOUNTAIN.id) {
     state.cash = sv.cash; state.cleared = sv.cleared || 0;
     try { decodeCleared(sv.trees); } catch (e) { trees.alive.fill(1); }
@@ -2938,9 +2940,21 @@ const ft = (h) => Math.round((MOUNTAIN.baseFt + (h - MOUNTAIN.baseH) * FT_PER_UN
 const ftVis = (y) => ft(y / VEX);
 
 let shownCash = null; // the dollar figure on screen, so the frame loop can keep it current
+// Sandbox: unlimited money and no goals, for building for the fun of it. The cash is simply kept
+// topped up, so every price check passes; the day reports still show what the resort earns.
+const SANDBOX_CASH = 1e12;
+let sandboxNext = false; // the next new mountain starts as a sandbox
+try { sandboxNext = sessionStorage.getItem('mm.sandboxNext') === '1'; } catch (e) { /* storage blocked */ }
+const cashText = () => (state.sandbox ? 'Unlimited' : money(state.cash));
+function startSandbox() {
+  state.sandbox = true; state.cash = SANDBOX_CASH; state.goals = null;
+  updateCash(false); if (BADGE_SUB) syncBadgeSub(); scheduleSave();
+}
+function setSandboxNext(on) { sandboxNext = on; try { on ? sessionStorage.setItem('mm.sandboxNext', '1') : sessionStorage.removeItem('mm.sandboxNext'); } catch (e) { /* storage blocked */ } }
 function updateCash(flash) {
+  if (state.sandbox && state.cash < SANDBOX_CASH / 2) state.cash = SANDBOX_CASH;
   shownCash = Math.round(state.cash);
-  $('cash').textContent = money(state.cash);
+  $('cash').textContent = cashText();
   $('cashDebt').textContent = state.debt ? `Loan ${money(state.debt)}` : '';
   $('cashDebt').hidden = !state.debt;
   if (flash) {
@@ -4800,7 +4814,7 @@ function plansList() {
   }).join('');
   return `<p class="help">Blueprints are built overnight from the top of the list down, as long as there’s cash. If the next one costs more than you have, the ones below it wait so the money is saved for it. Paused blueprints stay on the map until you resume them.</p>
     <ol class="plist">${rows}</ol>
-    <p class="help">${live.length} to build · ${money(total)} in all · you have ${money(state.cash)}</p>`;
+    <p class="help">${live.length} to build · ${money(total)} in all · you have ${state.sandbox ? 'unlimited money' : money(state.cash)}</p>`;
 }
 function refreshPlanBtn() {
   const b = $('manage').querySelector('[data-m=plans]');
@@ -5466,7 +5480,7 @@ const toggleAllLabels = () => { const any = LABEL_KINDS.some((k) => labelsOn[k])
    is paid every night from then on and can be handed back while nothing of yours stands on it. Each
    parcel you take on makes the next one dearer. Land comes up for sale after your first week open. */
 const LAND_PERMIT_DAYS = 3, LEASE_RATE = 0.0015, LAND_STEP = 0.15, LAND_OPEN_DAYS = 7;
-const landOpen = () => state.season > 1 || ((state.seasonStats && state.seasonStats.days) || 0) >= LAND_OPEN_DAYS || (state.land || []).length > 0;
+const landOpen = () => state.sandbox || state.season > 1 || ((state.seasonStats && state.seasonStats.days) || 0) >= LAND_OPEN_DAYS || (state.land || []).length > 0;
 const landHeld = (id) => (state.land || []).find((l) => l.id === id);
 const landPrice = (p) => Math.round(parcelInfo(p).base * (1 + LAND_STEP * (state.land || []).length) / 10000) * 10000;
 const leaseOf = (price) => Math.round(price * LEASE_RATE / 10) * 10;
@@ -6007,7 +6021,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -11141,6 +11155,7 @@ function adviceSheet(mode) {
   const welcome = mode === 'welcome';
   return `<div class="sheet-title"><h3>${welcome ? `Welcome to ${esc(state.resortName)}` : 'What next?'}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     ${welcome ? `<label class="namefield">Name your resort<span class="namerow"><input id="advName" maxlength="28" autocomplete="off" value="${esc(state.resortName)}"><button type="button" class="dice" data-action="rollName" title="Suggest a name" aria-label="Suggest a name">🎲</button></span></label>
+    ${welcome && state.sandbox ? '<p class="help"><b>Sandbox:</b> money is unlimited, there are no goals, and you can buy more land straight away. Build whatever you like.</p>' : ''}
     <p class="help">${state.day < 0 ? `It’s ${dateLabel(state.day)}, pre-season, and there’s no snow on the mountain yet. Natural snow usually builds up between late November and mid-December, so use the time to build.`
       : starterOffered() ? `It’s ${dateLabel(state.day)} and the snow is in. Holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`
       : `It’s ${dateLabel(state.day)} and the snow is in. Build a chairlift from the base, a trail back down and a lodge, then open for your first day. The holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`}${starterOffered() ? '' : ' Running costs stay low until you first open.'}</p>` : ''}
@@ -11310,7 +11325,7 @@ const bestGuests = () => (state.records && state.records.bestGuests) || 0;
 const starsOf = () => goalList().filter((G) => state.goals && state.goals[G.id]).length;
 const starText = (n, max) => '★'.repeat(n) + '☆'.repeat(Math.max(0, max - n));
 function checkGoals(kind, x) {
-  if (practice || visiting) return [];
+  if (practice || visiting || state.sandbox) return [];
   const got = state.goals || (state.goals = {});
   const done = goalList().filter((G) => !got[G.id] && G[kind] && G[kind](x));
   for (const G of done) { got[G.id] = { season: state.season, day: state.day }; toast(`★ Goal complete: ${G.title}`); }
@@ -12418,7 +12433,7 @@ function visitResortSheet() {
   return `<div class="sheet-title"><h3>${esc(visiting.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">Their finances, read only.</p>
     <dl class="kv">
-      <div><dt>Cash</dt><dd>${money(state.cash)}</dd></div>
+      <div><dt>Cash</dt><dd>${cashText()}</dd></div>
       <div><dt>Bank loan</dt><dd>${money(state.debt || 0)}</dd></div>
       <div><dt>Lift ticket</dt><dd>${money(state.ticket)}${state.ticketPeak != null && state.ticketPeak !== state.ticket ? ` · ${money(state.ticketPeak)} weekends` : ''}</dd></div>
       ${Object.keys(PRICE_INFO).map((k) => `<div><dt>${PRICE_INFO[k].label}</dt><dd>${state.prices[k] ? money(state.prices[k]) : 'Free'}</dd></div>`).join('')}
@@ -12520,7 +12535,7 @@ function moreHub() {
     ['events', 'Events', state.summer ? 'Back next winter' : ev ? `${ev.name} · ${dateLabel(state.event.days[0]).replace(/^\w+, /, '')}` : 'None planned'],
     ['evenings', 'Evenings', eveningsStatus()],
     ['snow', 'Snow', `${inch(baseDepth())} base${todayWx().snow >= 1 ? ` · ${inch(todayWx().snow)} new` : ''}`],
-    ['money', 'Money', `${money(state.cash)}${state.debt ? ` · loan ${money(state.debt)}` : ''}`],
+    ['money', 'Money', `${cashText()}${state.debt ? ` · loan ${money(state.debt)}` : ''}`],
     ['land', 'Land', landOpen() ? `${ownedAcres().toLocaleString('en-US')} acres` : 'For sale after your first week'],
     ...(world.plans.length ? [['plans', 'Blueprints', `${world.plans.length} waiting`]] : []),
   ].filter(([k]) => !visiting || VISIT_MANAGE.includes(k));
@@ -12759,7 +12774,7 @@ function seasonChartsHtml() {
       </svg>
       <div class="sc-ax"><span>${esc(short(rows[0].d))}</span><span>${esc(short(rows[n - 1].d))}</span></div></figure>`;
   };
-  return `<div class="field-label">Season ${state.season} by day</div><div class="scharts" data-days="${esc(JSON.stringify(rows.map((r) => short(r.d))))}">${CHARTS.map(chart).join('')}</div>`;
+  return `<div class="field-label">Season ${state.season} by day</div><div class="scharts" data-days="${esc(JSON.stringify(rows.map((r) => short(r.d))))}">${CHARTS.filter((c) => !(state.sandbox && c[0] === 'c')).map(chart).join('')}</div>`; // no cash chart in a sandbox
 }
 // Reading a day off a season chart: the crosshair follows the pointer and the heading shows that day.
 function chartHover(e, leave) {
@@ -12783,7 +12798,7 @@ function moneyPanel() {
   const live = state.phase === 'open' && today;
   const liveRev = live ? Object.values(today.rev).reduce((a, b) => a + b, 0) - (today.refunds || 0) : 0;
   return `<dl class="kv">
-      <div><dt>Cash</dt><dd>${money(state.cash)}</dd></div>
+      <div><dt>Cash</dt><dd>${cashText()}</dd></div>
       <div><dt>Bank loan</dt><dd>${money(state.debt || 0)}</dd></div>
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
       <div><dt>${live ? 'Today so far' : 'Last day'}</dt><dd>${live ? `${money(liveRev)} in` : r ? signedMoney(r.profit) : '–'}</dd></div>
@@ -13271,6 +13286,7 @@ $('badge').onclick = () => {
   if (visiting) return;
   const open = $('menu').hidden;
   $('mGoalsN').textContent = `★ ${starsOf()} of ${goalList().length}`;
+  $('mGoalsMenu').hidden = !!state.sandbox;
   refreshCommBtn();
   closeMenu();
   $('menu').hidden = !open;
@@ -13327,8 +13343,9 @@ $('mResetNo').onclick = closeMenu;
 $('mResetYes').onclick = () => {
   closeMenu(); setTool('explore');
   if (practice) { newTutorial(); renderTut(); toast('Tutorial restarted'); return; }
-  const name = state.resortName;
+  const name = state.resortName, sandbox = state.sandbox;
   clearSave(); applySave(null); state.resortName = name; $('resortName').textContent = name;
+  if (sandbox) startSandbox(); // starting over keeps it a sandbox
   scheduleSave(); toast(`${name} is untouched again`);
 };
 
@@ -13418,7 +13435,7 @@ function summaryDoc() {
   return {
     v: 1, mt: MOUNTAIN.id, stars: starsOf(), name: state.resortName || 'Juniper Ridge', creator: creatorShown(), updatedAt: Date.now(),
     season: state.season || 1, when: state.bankrupt ? 'Foreclosed' : state.summer ? `Summer after season ${state.season}` : `Season ${state.season || 1} · ${dateLabel(state.day)}`,
-    cash: Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100,
+    cash: state.sandbox ? null : Math.round(state.cash), rep: Math.round(state.reputation * 100) / 100, ...(state.sandbox ? { sandbox: true } : {}),
     trails: realTrails().length, lifts: world.lifts.length, buildings: realBlds().length,
     bestGuests: rc.bestGuests, bestDayProfit: rc.bestDayProfit, bestSeasonProfit: rc.bestSeasonProfit, totalVisitors: rc.totalVisitors,
   };
@@ -13450,7 +13467,8 @@ function boardEntries(mt) {
 }
 function ranked(key, mt) {
   const B = BOARDS[key] || BOARDS.guests;
-  return boardEntries(mt).filter((m) => B.val(m) > -Infinity).sort((a, b) => B.val(b) - B.val(a));
+  return boardEntries(mt).filter((m) => !m.sandbox && B.val(m) > -Infinity).sort( // sandboxes play for fun, not for the boards
+   (a, b) => B.val(b) - B.val(a));
 }
 const ownerOf = (m) => (m.me || (m.owner && m.owner === CLOUD.uid) ? 'You' : m.creator || (m.guest ? 'A guest' : 'A player'));
 // A creator's name, as a link to their page when they have a public profile.
@@ -14254,6 +14272,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.46', date: 'Oct 27, 2026', title: 'Sandbox mode', items: [
+    'Just want to build? Start any mountain as a Sandbox: money is unlimited, there are no goals to chase, and you can buy more land from day one.',
+    'Pick Sandbox next to Start here when you add a new mountain, on your first mountain’s card, or in Design your own.',
+    'Day reports still show what your resort would earn. Sandbox resorts can be shared and visited but don’t go on the leaderboards.',
+  ] },
   { v: '2.45.1', date: 'Oct 27, 2026', title: 'Trail ratings you can trust', small: true, items: [
     'Fixed: the rating shown while drawing a trail could differ from the one it got once built, mostly on trails drawn uphill-first or graded downhill. The panel now shows exactly the rating the trail will have.',
   ] },
@@ -14762,7 +14785,7 @@ $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew')
 let titleTime = 0, BADGE_SUB = '';
 // The badge under the resort name: the mountain's level and how many acres you hold.
 const ownedAcres = () => Math.round(PN * PN * ACRES_PER_CELL) + landRects.reduce((a, p) => a + parcelInfo(p).acres, 0);
-function syncBadgeSub() { BADGE_SUB = `${MOUNTAIN.level} · ${ownedAcres().toLocaleString('en-US')} acres`; $('resortSub').textContent = BADGE_SUB; }
+function syncBadgeSub() { BADGE_SUB = `${state.sandbox ? 'Sandbox' : MOUNTAIN.level} · ${ownedAcres().toLocaleString('en-US')} acres`; $('resortSub').textContent = BADGE_SUB; }
 function refreshTitle() { renderSlots(); }
 /* ---------- Your mountains: a shelf of cards, one per save ---------- */
 let slotAsk = null; // the mountain waiting for a delete confirmation
@@ -14846,7 +14869,7 @@ function renderSlots() {
         <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.level)} · starts with ${money(M.cash)}</div>
           <h2>${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
-          <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button></div></div></article>`).join('')
+          <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button><button class="btn secondary" data-slot="pick" data-mt="${M.id}" data-sandbox="1" title="Unlimited money, no goals">Sandbox</button></div></div></article>`).join('')
       + `<article class="panel scard pick">
         <div class="sc-design" aria-hidden="true">✎</div>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:#8a5cc7"></i>Custom · you choose</div>
@@ -14889,7 +14912,8 @@ function freshCard() {
       <dl class="stats"><div><dt>Summit</dt><dd>${ft(M.summitH).toLocaleString('en-US')}</dd></div><div><dt>Base</dt><dd>${ft(M.baseH).toLocaleString('en-US')}</dd></div>
         <div><dt>Vertical</dt><dd>${(ft(M.summitH) - ft(M.baseH)).toLocaleString('en-US')}</dd></div><div><dt>Acres</dt><dd>${Math.round(PN * PN * ACRES_PER_CELL).toLocaleString('en-US')}</dd></div></dl>
       <div class="actions"><button class="btn" id="startBtn">Start building</button><button class="link goal-link" id="mGoals"><span class="stars">${starText(0, max)}</span> ${max} goals to earn</button></div>
-      <button class="btn secondary tutbig" data-slot="tutorial"><span>🎓</span><span><b>New to tycoon games?</b><small>Take the 3-minute tutorial first</small></span></button></div></article>`;
+      <button class="btn secondary tutbig" data-slot="tutorial"><span>🎓</span><span><b>New to tycoon games?</b><small>Take the 3-minute tutorial first</small></span></button>
+      <button class="btn secondary tutbig sandbig" data-slot="sandboxStart"><span>🛠</span><span><b>Just want to build?</b><small>Sandbox: unlimited money, no goals</small></span></button></div></article>`;
 }
 function slotCard(r, active) {
   const M = mountainDef(r.mt);
@@ -14929,7 +14953,7 @@ function slotCard(r, active) {
       <h2 ${live ? 'id="mName"' : ''}>${esc(r.name)}</h2>
       <p class="sc-when">${esc(r.when || sum.when || 'Not started yet')}${r.savedAt ? ` · <span>played ${ago(r.savedAt)}</span>` : ''}</p>
       ${facts ? `<dl class="sc-facts">${facts}</dl>` : ''}
-      <div class="actions">${play}${live ? '<button class="link goal-link" id="mGoals">' : '<span class="goal-link static">'}<span class="stars">${starText(stars, max)}</span> ${stars} of ${max} goals${live ? '</button>' : '</span>'}</div>
+      <div class="actions">${play}${(live ? state.sandbox : sum.sandbox) ? '<span class="goal-link static">Sandbox · unlimited money</span>' : `${live ? '<button class="link goal-link" id="mGoals">' : '<span class="goal-link static">'}<span class="stars">${starText(stars, max)}</span> ${stars} of ${max} goals${live ? '</button>' : '</span>'}`}</div>
       <div class="sc-foot"><span class="sc-badge">${esc(badge)}</span>${isCustomId(r.mt) ? `<span class="sc-badge">Code ${esc(prettyCode(parseRecipe(r.mt.slice(2))))}</span>` : ''}${slotMore === r.id ? `<button class="link danger-link" data-slot="del" data-id="${r.id}">Delete this mountain</button><button class="link" data-slot="more" data-id="${r.id}">Cancel</button>` : `<button class="link more" data-slot="more" data-id="${r.id}" aria-label="More options for ${esc(r.name)}" title="More">⋯</button>`}</div>
     </div></article>`;
 }
@@ -15114,14 +15138,16 @@ $('mbCode').addEventListener('input', () => {
 $('mbCode').addEventListener('blur', () => { $('mbCode').value = prettyCode(mb); $('mbCodeMsg').textContent = ''; });
 $('mbClose').onclick = closeBuilder;
 $('builder').addEventListener('click', (e) => { if (e.target.id === 'builder') closeBuilder(); });
-$('mbStart').onclick = () => { closeBuilder(); picking = false; if (newMountain(customId(mb))) startGame(null); };
+$('mbStart').onclick = () => { closeBuilder(); picking = false; setSandboxNext(false); if (newMountain(customId(mb))) startGame(null); };
+$('mbSandbox').onclick = () => { closeBuilder(); picking = false; setSandboxNext(true); if (newMountain(customId(mb))) startGame(null); };
 $('titleSlots').addEventListener('click', async (e) => {
-  if (e.target.closest('#startBtn')) return startFromTitle();
+  if (e.target.closest('#startBtn')) { if (!slots.active) setSandboxNext(false); return startFromTitle(); }
   if (e.target.closest('#mGoals')) return openGoals();
   const b = e.target.closest('[data-slot]');
   if (!b) return;
   const id = b.dataset.id, act = b.dataset.slot;
-  if (act === 'pick') { picking = false; if (newMountain(b.dataset.mt)) startGame(null); return; }
+  if (act === 'pick') { picking = false; setSandboxNext(!!b.dataset.sandbox); if (newMountain(b.dataset.mt)) startGame(null); return; }
+  if (act === 'sandboxStart') { setSandboxNext(true); return startFromTitle(); }
   if (act === 'tutorial') return startTutorial();
   if (act === 'board' || act === 'browse') return openCommunity(act);
   if (act === 'more') { slotMore = slotMore === id ? null : id; return renderSlots(); }
@@ -15176,6 +15202,9 @@ async function keepAwake() {
 document.addEventListener('visibilitychange', keepAwake);
 function startGame(camFrom) {
   const sv = camFrom === undefined ? loadSave() : camFrom;
+  // a new sandbox mountain that needed a page reload to reach its terrain
+  { const slot = activeSlot();
+    if (slot && slot.sandbox && !state.sandbox && !practice && !world.lifts.length && !world.trails.length && !realBlds().length && !(state.seasonStats && state.seasonStats.days)) { setSandboxNext(false); startSandbox(); } }
   const t = $('title');
   t.classList.add('out');
   setTimeout(() => { if (state.started) t.hidden = true; }, 600);
