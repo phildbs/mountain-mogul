@@ -2771,7 +2771,7 @@ function setTool(tool) {
     toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -4240,7 +4240,7 @@ function commitTrail(info, pts, width) {
   addTrail(made);
   return made;
 }
-function evalLift(a0, b0, type, allowPlans) {
+function evalLift(a0, b0, type, allowPlans, self) {
   let a = a0, b = b0;
   if (heightAt(a.x, a.z) > heightAt(b.x, b.z)) [a, b] = [b, a];
   const lay = liftLayout(a, b, type), t = LIFT_TYPES[type];
@@ -4254,7 +4254,7 @@ function evalLift(a0, b0, type, allowPlans) {
   if (lay.hlen > maxLen) problems.push(`Too long. Keep a ${t.long.toLowerCase()} under ${ftOf(maxLen)}.`);
   if (lay.vertM < minVert) problems.push(`The top station must be at least ${fmtFt(Math.round(minVert * 3.281))} higher than the bottom.`);
   if (t.maxGrade && lay.vertM / lay.horizM > t.maxGrade) problems.push(`Too steep for a ${t.long.toLowerCase()}. Pick a gentler slope${type === 'carpet' ? ', or use a T-bar' : ', or a chairlift'}.`);
-  const stations = world.lifts.map((L) => [L.name, L.a, L.b]);
+  const stations = world.lifts.filter((L) => L !== self).map((L) => [L.name, L.a, L.b]);
   if (allowPlans) for (const pl of world.plans) if (pl.kind === 'lift') stations.push(['a planned lift', pl.a, pl.b]);
   for (const [name, sa, sb] of stations) {
     if (distXZ(a, sa) < 4 || distXZ(a, sb) < 4 || distXZ(b, sa) < 4 || distXZ(b, sb) < 4) { problems.push(`Too close to the ${name} stations.`); break; }
@@ -4278,6 +4278,53 @@ function commitLift(info, type) {
   };
   addLift(made);
   return made;
+}
+// Moving a lift: re-rigging the towers and cable costs a quarter of what the lift cost (at least $5,000),
+// plus any extra length and the trees along the new line. A shorter lift saves nothing.
+const liftMoveFee = (L) => Math.max(5000, Math.round((L.cost || 0) * 0.25 / 1000) * 1000);
+const liftBuildCost = (type, lay) => Math.round((LIFT_TYPES[type].base + LIFT_TYPES[type].perUnit * lay.slopeM / 10) / 1000) * 1000;
+function evalLiftMove(L, a, b) {
+  const info = evalLift(a, b, L.type, false, L);
+  const fee = liftMoveFee(L), extra = Math.max(0, info.build - liftBuildCost(L.type, L.lay));
+  const moved = distXZ(info.a, L.a) > 0.25 || distXZ(info.b, L.b) > 0.25;
+  // Trails tied to a station that moves away lose their connection.
+  const cut = moved ? realTrails().filter((t) => {
+    const s = t.samples[0], e = t.samples[t.samples.length - 1];
+    return (distXZ(s, L.b) < STATION_R && distXZ(s, info.b) >= STATION_R) || (distXZ(e, L.a) < STATION_R && distXZ(e, info.a) >= STATION_R);
+  }) : [];
+  return { ...info, fee, extra, moved, cut, build: fee + extra, cost: fee + extra + info.treeSet.size * TREE_COST };
+}
+function startLiftMove(L) {
+  if (state.phase !== 'closed' || visiting) return;
+  setTool('lift');
+  draft.movingLift = L; draft.liftType = L.type;
+  draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }];
+  L.group.visible = false;
+  draft.dirty = true; syncHandles(); renderSheet();
+}
+function endLiftMove() {
+  const L = draft.movingLift;
+  if (!L) return;
+  draft.movingLift = null;
+  if (L.group) L.group.visible = true;
+}
+// Back to the lift's panel, unchanged.
+function cancelLiftMove() { const L = draft.movingLift; setTool('explore'); if (L) select({ kind: 'lift', obj: L }); }
+function moveLiftDraft() {
+  const info = draft.info, L = draft.movingLift;
+  if (!info || !info.moved || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  pushUndo(`moving ${L.name}`);
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  L.a = { x: info.a.x, z: info.a.z }; L.b = { x: info.b.x, z: info.b.z };
+  L.cost = (L.cost || 0) + info.extra; // the longer line is part of what it's worth
+  endLiftMove();
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Moved ${L.name} · −${money(info.cost)}`);
+  resetDraft();
+  setTool('explore'); select({ kind: 'lift', obj: L });
+  scheduleSave();
 }
 // Moving a building costs a fifth of what it took to build (at least $500), plus any clearing and leveling.
 const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost) * 0.2 / 100) * 100);
@@ -4317,7 +4364,7 @@ function recomputeTrailDraft() {
 }
 function recomputeLiftDraft() {
   if (draft.pts.length < 2) { draft.info = null; return; }
-  const info = evalLift(draft.pts[0], draft.pts[1], draft.liftType, planning());
+  const info = draft.movingLift ? evalLiftMove(draft.movingLift, draft.pts[0], draft.pts[1]) : evalLift(draft.pts[0], draft.pts[1], draft.liftType, planning());
   draft.info = info;
   draftLift = buildLiftVisual({ a: info.a, b: info.b, color: 0xdf562c, type: draft.liftType }, info.lay, false);
   draftGroup.add(draftLift);
@@ -4326,6 +4373,7 @@ function recomputeLiftDraft() {
 const planToast = () => `Blueprint saved, number ${world.plans.length} in the build order. It’s built overnight when there’s cash; change the order or pause it under Plans.`;
 function buildDraft() {
   if (draft.kind === 'bld') return buildBuildingDraft();
+  if (draft.movingLift) return moveLiftDraft();
   const info = draft.info;
   if (!info || (info.an ? info.an.problems.length : info.problems.length)) return;
   if (planning()) {
@@ -4530,7 +4578,7 @@ function draftTap(p) {
   syncHandles();
 }
 function draftUndo() {
-  if (!draft.pts.length) return;
+  if (!draft.pts.length || draft.movingLift) return;
   draft.pts.pop();
   draft.dirty = true;
   syncHandles();
@@ -4631,7 +4679,7 @@ function renderSheet() {
   for (const b of document.querySelectorAll('.dock .ph[data-pm]')) b.setAttribute('aria-pressed', String(!!m && (b.dataset.pm === m || (b.dataset.pm === 'more' && MORE_LISTS.includes(m)))));
   sheet.classList.toggle('wide', !!(selected && selected.kind === 'manage' && state.tool === 'explore'));
   sheet.hidden = !html || !state.started;
-  $('undoFab').hidden = !(state.started && (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length);
+  $('undoFab').hidden = !(state.started && (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length && !draft.movingLift);
   document.body.classList.toggle('sheet-open', !sheet.hidden);
   // Only touch the DOM when something changed, so a click in progress isn't lost.
   if (html && html !== lastSheetHtml) sheet.innerHTML = html;
@@ -4696,6 +4744,7 @@ function trailDraftSheet() {
 }
 
 function liftDraftSheet() {
+  if (draft.movingLift) return liftMoveSheet();
   const n = draft.pts.length, info = draft.info;
   const hint = !!liftHint();
   const help = n === 0 ? `Click where the bottom station goes.${hint ? ' Anywhere in the base area works. The orange circle is just a suggestion: a good spot at the top of the base area, leaving the flat ground by the lot for a village. Tap it to use it, or click anywhere else.' : ''}`
@@ -4724,6 +4773,32 @@ function liftDraftSheet() {
     ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
     ${body}
     ${buildRow(info, info && !info.problems.length)}`;
+}
+
+// Moving a lift: drag either station; it keeps its name, type, colour and history.
+function liftMoveSheet() {
+  const L = draft.movingLift, info = draft.info, hex = '#' + L.color.toString(16).padStart(6, '0');
+  let body = '';
+  if (info) {
+    const s = info.stats, was = L.stats, delta = (now, then, f) => (now === then ? f(now) : `${f(now)} <small class="muted">was ${f(then)}</small>`);
+    body = `<dl class="kv">
+      <div><dt>Length</dt><dd>${delta(s.lenFt, was.lenFt, fmtFt)}</dd></div>
+      <div><dt>Vertical</dt><dd>${delta(s.vertFt, was.vertFt, fmtFt)}</dd></div>
+      <div><dt>Ride time</dt><dd>${fmtTime(s.ride)}</dd></div>
+      <div><dt>Capacity</dt><dd>${s.cap.toLocaleString('en-US')}/hr</dd></div>
+    </dl>
+    ${info.moved ? `<p class="conn">${info.fromBase ? 'Guests can walk to the bottom station from the base area.' : 'The bottom station is up the mountain. Skiers will need a trail that ends here.'}</p>` : ''}
+    ${problemsHtml(info.problems)}${info.cut.length && info.moved ? `<ul class="problems soft"><li>${esc(info.cut.map((t) => t.name).join(', '))} will no longer connect to this lift. Redraw ${info.cut.length === 1 ? 'it' : 'them'} to the new station, or skiers can’t use ${info.cut.length === 1 ? 'it' : 'them'} from here.</li></ul>` : ''}${lotWarnHtml(info.lotWarn)}
+    ${info.moved ? `<div class="costs"><span>Moving the lift</span><span>${money(info.fee)}</span>${info.extra ? `<span>Extra length</span><span>${money(info.extra)}</span>` : ''}
+      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>` : ''}`;
+  }
+  const ok = info && info.moved && !info.problems.length, short = info && info.cost > state.cash;
+  return `<div class="sheet-title"><span class="swatch" style="background:${hex}"></span><h3>Move ${esc(L.name)}</h3><button class="x" data-action="exitTool" aria-label="Cancel the move" title="Cancel (Esc)">✕</button></div>
+    <p class="help">Drag the top or bottom station to a new spot. Towers follow the terrain. It keeps its name, type and history. Moving costs ${money(liftMoveFee(L))}, plus any extra length and clearing trees along the new line.</p>
+    ${body}
+    <div class="row"><button class="btn secondary" data-action="liftMoveReset" ${info && info.moved ? '' : 'disabled'}>Put it back</button></div>
+    <button class="btn wide" data-action="build" ${ok && !short ? '' : 'disabled'}>${!info || !info.moved ? 'Drag a station to move it' : short ? `Need ${money(info.cost - state.cash)} more` : `Move it · ${money(info.cost)}`}</button>
+    <button class="link" data-action="exitTool">Keep it where it is</button>`;
 }
 
 function removeBlock(what, note) {
@@ -4810,6 +4885,7 @@ function liftSheet(L) {
     <p class="conn">${esc(feeders)}${departing ? '<br>' + esc(departing) : ''}</p>
     ${planLine((P) => MODE_WORD[liftModeIn(P, L)])}
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
 
@@ -4824,6 +4900,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'gradeTrail') { draft.grade = !draft.grade; draft.dirty = true; renderSheet(); }
   else if (a === 'undo') draftUndo();
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
+  else if (a === 'liftMoveReset' && draft.movingLift) { const L = draft.movingLift; draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }]; draft.dirty = true; syncHandles(); }
+  else if (a === 'moveLift' && obj) startLiftMove(obj);
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
@@ -4836,7 +4914,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') setTool('explore');
+  else if (a === 'exitTool') { if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -5165,7 +5243,7 @@ function updateLabels() {
   }
   for (const L of world.lifts) {
     const mx = lerp(L.a.x, L.b.x, 0.55), mz = lerp(L.a.z, L.b.z, 0.55);
-    placeLabel(L.labelEl, mx, heightAt(mx, mz) + 2.2, mz, (show && labelsOn.lift) || (selected && selected.obj === L));
+    placeLabel(L.labelEl, mx, heightAt(mx, mz) + 2.2, mz, draft.movingLift !== L && ((show && labelsOn.lift) || (selected && selected.obj === L))); // hidden while it's being moved
   }
   declutterLabels();
 }
@@ -5225,6 +5303,7 @@ function syncHandles() {
       if (!p) return;
       const last = draft.kind === 'trail' && (i === 0 || i === draft.pts.length - 1);
       const q = last ? snapEnd(p) : { x: p.x, z: p.z, snap: false };
+      q.el = el; // the handle follows the point it moved
       draft.pts[i] = q;
       draft.dirty = true;
     });
@@ -12171,7 +12250,7 @@ window.addEventListener('keydown', (e) => {
   if (typingIn(e.target) || typingIn(document.activeElement) || dialogOpen()) return;
   if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
-    if (draft.pts.length) draftUndo(); else undoLast();
+    if (draft.pts.length && !draft.movingLift) draftUndo(); else if (!draft.movingLift) undoLast();
     return;
   }
   if (e.key === ' ') spaceDown = true;
@@ -12206,7 +12285,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
-    if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
+    if (draft.movingLift) cancelLiftMove();
+    else if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
   }
   else return;
   hover.dirty = true;
@@ -13259,6 +13339,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.40', date: 'Oct 27, 2026', title: 'Move a lift', items: [
+    'Put a station in the wrong spot? Open a lift overnight and tap Move a station, then drag the top or bottom station somewhere new. The lift keeps its name, type and history.',
+    'Moving costs a quarter of what the lift cost, plus any extra length and trees cleared along the new line: far less than tearing it down and building again. Trails tied to a station you move away are flagged so you can redraw them.',
+    'Fixed: dragging a lift station or trail point left its round handle behind at the old spot.',
+  ] },
   { v: '2.39.3', date: 'Oct 27, 2026', title: 'Cafés and food trucks after dark', small: true, items: [
     'Night skiers now get cold and hungry under the lights: they stop for hot chocolate or a snack at open cafés, food trucks and lodges, on the mountain and at the base.',
     'With après on, cafés and food trucks in the base area stay open until 7 PM for guests heading home: a hot drink, or a bite for the drive.',
