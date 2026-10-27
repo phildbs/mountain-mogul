@@ -51,5 +51,5 @@ harness builds a debug copy on the fly.
 
 ## Copyright
 
-© 2026 phildbs. All rights reserved. The code is public to read, but it isn’t licensed for reuse,
+© 2026 MossQuake. All rights reserved. The code is public to read, but it isn’t licensed for reuse,
 copying or redistribution.
