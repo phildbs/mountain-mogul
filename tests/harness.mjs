@@ -54,7 +54,7 @@ export async function openGame(browser, url, { query = '', mountain, width = 128
   if (!keepStorage || mountain) {
     await page.goto(url);
     await page.evaluate(({ keepStorage, mountain }) => {
-      if (!keepStorage) { localStorage.clear(); sessionStorage.clear(); }
+      if (!keepStorage) { localStorage.clear(); sessionStorage.clear(); localStorage.setItem('mm.rpView', 'full'); } // tests read the full day report unless they pick the summary
       if (mountain) sessionStorage.setItem('skiTycoon.juniperRidge.v1.boot', JSON.stringify({ mt: mountain }));
     }, { keepStorage, mountain });
   }

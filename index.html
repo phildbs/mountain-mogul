@@ -799,6 +799,14 @@ a.vtag { text-decoration: none; }
 .tb-plan { flex: none; border: 1px solid rgba(223, 86, 44, 0.35); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 7px; font: 700 10.5px var(--ui); cursor: pointer; }
 .tb-plan:disabled { cursor: default; opacity: 0.7; }
 .tb-ev { border-color: rgba(122, 76, 196, 0.4); background: rgba(122, 76, 196, 0.12); color: #6a3fb8; }
+.rp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.rp-view { flex: none; margin-top: 4px; }
+.rp-head .eyebrow { white-space: nowrap; }
+.rp-view button { padding: 5px 10px; font-size: 12.5px; }
+.rp-short { display: grid; gap: 10px; justify-items: start; }
+.rp-short[hidden], .rp-full[hidden] { display: none; }
+.rp-money { margin: 0; font-size: 14px; color: var(--ink-2); }
+.rp-money b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .rp-ops { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 7px; }
 .rp-ops-h { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
 .rp-ops-h > span:last-child { color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -900,7 +908,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .fold-head .fold-sum { flex: 1; font-size: 12.5px; color: var(--ink-2); }
 .fold-head .chev { font-size: 16px; color: var(--ink-2); transition: transform 0.15s; }
 .fold-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
-.rp-page > .rp-notes { margin-top: 12px; }
+.rp-page > .rp-notes, .rp-full > .rp-notes { margin-top: 12px; }
 .rp-hours { display: grid; gap: 3px; margin-top: 4px; }
 .rp-page .rp-lines + .field-label { margin-top: 14px; }
 .rp-hours > div { display: grid; grid-template-columns: 52px 1fr 64px 70px; align-items: center; gap: 8px; font-size: 12.5px; }
@@ -11119,7 +11127,7 @@ function showReport(r = state.lastReport, past = false) {
     note(3, eased.length ? `High winds held ${r.holds.join(', ')} in the morning. ${eased.join(', ')} reopened when the wind eased.` : `High winds kept ${r.holds.join(', ')} on hold all day.`);
   }
   if (r.leftLines) note(4, `${r.leftLines} guests left early, fed up with lift lines.${r.lostSpend >= 100 ? ` They’d likely have spent about ${money(r.lostSpend)} more on food and shopping.` : ''}`);
-  if (r.refunded) note(4, `${r.refunded} guests never got on a lift and were refunded ${money(rv.refunds)}.`);
+  if (r.refunded) note(4, `${r.refunded} ${r.refunded === 1 ? 'guest' : 'guests'} never got on a lift and ${r.refunded === 1 ? 'was' : 'were'} refunded ${money(rv.refunds)}.`);
   if (r.turnedAway && !(r.offsite && r.offsite.full)) note(4, `The parking lot filled up and ${r.turnedAway} guests were turned away. ${offsiteSpec() ? 'More' : 'Off-site parking with a shuttle'} would let them in.`);
   if (r.busiest) note(0, `${esc(r.busiest.name)} was the busiest lift: ${r.busiest.n} rides, ${r.busiest.wait < 1 ? 'under a minute' : Math.round(r.busiest.wait) + ' min'} average wait.`);
   if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
@@ -11149,9 +11157,14 @@ function showReport(r = state.lastReport, past = false) {
   if (r.baseBare) note(4, `<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
   if (c.stranded) note(3, `${c.stranded} guests had to hike out because a lift was stopped.`);
   const notes = ranked.sort((x, y) => y[0] - x[0] || x[1] - y[1]).map((n) => n[2]);
+  // The summary skips notes that repeat what the tip already says (the same count of guests, say).
+  const tipNums = new Set((tip || '').match(/\d[\d,]{1,}/g) || []);
+  const shortNotes = notes.filter((n) => !(n.match(/\d[\d,]{1,}/g) || []).some((x) => tipNums.has(x))).slice(0, 3);
+  const extras = [r.apres && `Après ${signedMoney(r.apres.profit)}`, r.night && `Night skiing ${signedMoney(r.night.profit)}`].filter(Boolean);
   const tabs = [['day', 'Day'], ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
   $('rpBody').innerHTML = `
-    <div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
+    <div class="rp-head"><div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
+      <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
     ${tabs.length > 1 ? `<div class="tabs rp-tabs" role="tablist">${tabs.map(([k, l], i) => `<button role="tab" data-rptab="${k}" aria-pressed="${!i}">${l}</button>`).join('')}</div>` : ''}
     <div class="rp-page" data-page="day">
     <dl class="rp-hero">
@@ -11159,6 +11172,13 @@ function showReport(r = state.lastReport, past = false) {
       <div><dt>Guests</dt><dd>${r.guests.toLocaleString('en-US')}${r.turnedAway ? `<small class="away">+${r.turnedAway} turned away</small>` : ''}</dd></div>
       <div><dt>Satisfaction</dt><dd>${r.guests ? r.sat + '%' : '–'}</dd></div>
     </dl>
+    <div class="rp-short">
+      <p class="rp-money">Revenue <b>${money(revTotal)}</b> · Expenses <b>${money(exp)}</b>${extras.length ? ` · ${extras.join(' · ')}` : ''}</p>
+      ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
+      ${shortNotes.length ? `<ul class="rp-notes">${shortNotes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+      <button class="link" data-rpview="full">See the full report ›</button>
+    </div>
+    <div class="rp-full">
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
@@ -11177,8 +11197,10 @@ function showReport(r = state.lastReport, past = false) {
     ${notes.length > NOTES_SHOWN ? `<details class="rp-more"><summary>More about today (${notes.length - NOTES_SHOWN})</summary><ul class="rp-notes">${notes.slice(NOTES_SHOWN).map((n) => `<li>${n}</li>`).join('')}</ul></details>` : ''}
     <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>
     </div>
+    </div>
     ${r.apres ? `<div class="rp-page" data-page="apres" hidden>${apresPageHtml(r)}</div>` : ''}
     ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}`;
+  applyRpView();
   $('report').hidden = false;
   if ($('rpPlan')) $('rpPlan').onclick = planTomorrow;
   $('rpNext').focus({ preventScroll: true });
@@ -11187,7 +11209,32 @@ function showReport(r = state.lastReport, past = false) {
   armAuto();
 }
 
+// The day report comes in two sizes: a summary (the headline numbers and the few things that matter
+// most) and the full report. New players start on the summary, everyone else on the full report;
+// switching is remembered on this device.
+function rpView() {
+  let v = null;
+  try { v = localStorage.getItem('mm.rpView'); } catch (e) { /* ignore */ }
+  if (v === 'short' || v === 'full') return v;
+  v = state.season === 1 && (state.history || []).length <= 10 ? 'short' : 'full';
+  try { localStorage.setItem('mm.rpView', v); } catch (e) { /* ignore */ }
+  return v;
+}
+function applyRpView() {
+  const v = rpView(), body = $('rpBody');
+  for (const b of body.querySelectorAll('.rp-view button')) b.setAttribute('aria-pressed', String(b.dataset.rpview === v));
+  const short = body.querySelector('.rp-short'), full = body.querySelector('.rp-full'), tabs = body.querySelector('.rp-tabs');
+  if (short) short.hidden = v !== 'short';
+  if (full) full.hidden = v !== 'full';
+  if (tabs) tabs.hidden = v !== 'full';
+  if (v === 'short') {
+    for (const pg of body.querySelectorAll('.rp-page')) pg.hidden = pg.dataset.page !== 'day';
+    for (const t of body.querySelectorAll('[data-rptab]')) t.setAttribute('aria-pressed', String(t.dataset.rptab === 'day'));
+  }
+}
 $('rpBody').addEventListener('click', (e) => {
+  const v = e.target.closest('[data-rpview]');
+  if (v) { try { localStorage.setItem('mm.rpView', v.dataset.rpview); } catch (err) { /* ignore */ } applyRpView(); return; }
   const b = e.target.closest('[data-rptab]');
   if (!b) return;
   for (const t of $('rpBody').querySelectorAll('[data-rptab]')) t.setAttribute('aria-pressed', String(t === b));
@@ -13024,6 +13071,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.38.5', date: 'Oct 27, 2026', title: 'A shorter day report', small: true, items: [
+    'The day report has a Summary view: profit, guests and satisfaction, revenue and expenses in one line, the tip and the three things that mattered most. Switch between Summary and Full at the top of the report; your choice is remembered. New players start on Summary; everyone else keeps the full report.',
+  ] },
   { v: '2.38.4', date: 'Oct 27, 2026', title: 'A hand with the first lift', small: true, items: [
     'Until a resort has a lift from its base, the lift tool suggests a bottom station at the top of the base area (leaving the flat ground by the lot for a village), then a top station. They’re only suggestions: tap a circle to use one, or put your stations anywhere. Turn the Help bulb off in the menu to hide them.',
     'A resort’s first lift starts as a double chair, the affordable choice, instead of a quad.',
