@@ -48,3 +48,8 @@ node run.mjs loans visits         # just the scenarios whose names match
 
 Run them before publishing a change to `main`. The game file itself isn't modified: the
 harness builds a debug copy on the fly.
+
+## Copyright
+
+© 2026 phildbs. All rights reserved. The code is public to read, but it isn’t licensed for reuse,
+copying or redistribution.
