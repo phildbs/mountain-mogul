@@ -791,6 +791,10 @@ a.vtag { text-decoration: none; }
 .rsym { display: inline-flex; align-items: center; gap: 5px; }
 .rsym.big { flex: none; }
 .help { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
+.upopt { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 6px 0; display: grid; gap: 6px; background: rgba(255, 255, 255, 0.6); }
+.upopt.off { opacity: 0.6; }
+.upopt .upt { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.upopt .upt span { font-weight: 700; }
 .pnorm { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .price-group { margin: 10px 0 -2px; font-size: 13px; color: var(--ink); }
 .field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-bottom: -6px; }
@@ -4538,6 +4542,44 @@ function moveLiftDraft() {
   setTool('explore'); select({ kind: 'lift', obj: L });
   scheduleSave();
 }
+// Upgrading a lift: a faster or bigger lift on the same line, so the stations, trails and name stay.
+// It costs the difference between the two lifts' prices plus re-rigging (the same fee as a move);
+// a T-bar can become a chairlift, a magic carpet stays a carpet.
+const LIFT_LADDER = ['tbar', 'double', 'triple', 'quad', 'hsq', 'six', 'gondola'];
+let liftUpFor = null; // the lift whose upgrade choices are showing
+function liftUpgrades(L) {
+  const i = LIFT_LADDER.indexOf(L.type);
+  if (i < 0) return [];
+  const old = liftBuildCost(L.type, L.lay);
+  return LIFT_LADDER.slice(i + 1).map((type) => {
+    const info = evalLift(L.a, L.b, type, false, L);
+    const cost = Math.max(0, info.build - old) + liftMoveFee(L) + info.treeSet.size * TREE_COST;
+    return { type, cost, stats: info.stats, problems: info.problems, treeSet: info.treeSet };
+  });
+}
+// Yesterday's average wait on this lift (a day open), and about what it'd be with more capacity.
+// (Saved on the day report; a lift upgraded since then has no figure until it runs a day.)
+function liftWaitGuess(L, cap) {
+  const r = state.lastReport, w = r && r.liftWaits ? r.liftWaits[L.id] : null;
+  if (w == null || w < 1 || (r.liftTypes && r.liftTypes[L.id] !== L.type)) return null;
+  return { now: w, then: w * L.stats.cap / cap };
+}
+function upgradeLift(L, type) {
+  if (state.phase !== 'closed' || visiting) return;
+  const up = liftUpgrades(L).find((u) => u.type === type);
+  if (!up || up.problems.length || up.cost > state.cash) return;
+  pushUndo(`upgrading ${L.name}`);
+  clearTreeSet(up.treeSet);
+  const from = LIFT_TYPES[L.type].name, to = LIFT_TYPES[type].name;
+  if (L.name.endsWith(' ' + from)) L.name = L.name.slice(0, -from.length) + to; // a name that says what it is follows the upgrade
+  state.cash -= up.cost;
+  L.type = type; L.cost = (L.cost || 0) + up.cost;
+  liftUpFor = null;
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Upgraded to a ${LIFT_TYPES[type].long.toLowerCase()} · −${money(up.cost)}`);
+  renderSheet(); scheduleSave();
+}
 // Moving a building costs a fifth of what it took to build (at least $500), plus any clearing and leveling.
 const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost) * 0.2 / 100) * 100);
 function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover) {
@@ -4861,6 +4903,7 @@ function select(feat) {
   if (feat && feat.kind === 'manage') lastManage = feat.obj;
   listBack = null;
   const prev = selected;
+  if (!feat || !prev || feat.obj !== prev.obj) liftUpFor = null; // the upgrade choices close with the panel
   selected = feat;
   if (prev && prev.kind === 'trail' && world.trails.includes(prev.obj)) styleTrail(prev.obj);
   if (feat && feat.kind === 'trail') styleTrail(feat.obj);
@@ -5077,6 +5120,27 @@ function trailSheet(t) {
     ${state.phase !== 'closed' ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
 }
 
+// On the lift's panel: Upgrade, which opens the choices with what each changes and costs.
+function liftUpgradeSection(L) {
+  if (visiting) return '';
+  const ups = liftUpgrades(L);
+  if (!ups.length) return '';
+  if (state.phase !== 'closed') return '<p class="help">Lifts are upgraded overnight, while the resort is closed.</p>';
+  const ok = ups.filter((u) => !u.problems.length), from = ok.length ? Math.min(...ok.map((u) => u.cost)) : 0;
+  if (liftUpFor !== L.id) return ok.length ? `<button class="btn" data-action="liftUpOpen">Upgrade lift · from ${money(from)}</button>` : '';
+  const s = L.stats, row = (u) => {
+    const t = LIFT_TYPES[u.type], short = u.cost > state.cash, g = liftWaitGuess(L, u.stats.cap);
+    return `<div class="upopt${u.problems.length ? ' off' : ''}">
+      <div class="upt"><b>${t.long}</b><span>${u.problems.length ? '' : money(u.cost)}</span></div>
+      ${u.problems.length ? `<p class="help">${esc(u.problems[0])}</p>` : `<p class="help">${s.cap.toLocaleString('en-US')} → <b>${u.stats.cap.toLocaleString('en-US')}</b> riders/hr · ride ${fmtTime(s.ride)} → <b>${fmtTime(u.stats.ride)}</b>${g ? `<br>Yesterday’s line: ${Math.round(g.now)} min → about <b>${Math.max(1, Math.round(g.then))} min</b>` : ''}</p>
+      <button class="btn secondary" data-action="liftUp" data-v="${u.type}" ${short ? 'disabled' : ''}>${short ? `Need ${money(u.cost - state.cash)} more` : `Upgrade to ${t.long.toLowerCase()}`}</button>`}
+    </div>`;
+  };
+  return `<div class="field-label">Upgrade ${esc(L.name)}</div>
+    <p class="help">Same stations and trails, a faster or bigger lift. Costs the difference in price plus re-rigging; built overnight.</p>
+    ${ups.map(row).join('')}
+    <button class="link" data-action="liftUpClose">Not now</button>`;
+}
 function liftSheet(L) {
   const s = L.stats, type = LIFT_TYPES[L.type];
   const notes = [];
@@ -5106,6 +5170,7 @@ function liftSheet(L) {
     <p class="conn">${esc(feeders)}${departing ? '<br>' + esc(departing) : ''}</p>
     ${planLine((P) => MODE_WORD[liftModeIn(P, L)])}
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${liftUpgradeSection(L)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
@@ -5126,6 +5191,9 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
   else if (a === 'liftMoveReset' && draft.movingLift) { const L = draft.movingLift; draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }]; draft.dirty = true; syncHandles(); }
   else if (a === 'moveLift' && obj) startLiftMove(obj);
+  else if (a === 'liftUpOpen' && obj) { liftUpFor = obj.id; renderSheet(); }
+  else if (a === 'liftUpClose') { liftUpFor = null; renderSheet(); }
+  else if (a === 'liftUp' && obj) upgradeLift(obj, b.dataset.v);
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
@@ -7341,6 +7409,8 @@ function endDay() {
   for (const t of realTrails()) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     event: evToday ? evToday.type : null,
+    liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
+    liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
@@ -12059,7 +12129,7 @@ function adviceFor(r) {
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
     [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
     [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
-    [r.leftLines ? r.leftLines * 30 + (r.lostSpend || 0) : 0, r.jam ? `${r.leftLines} guests went home early, fed up with lift lines; ${r.jam.name} averaged ${Math.round(r.jam.wait)} minutes.${r.jam.slow ? ` Your plan runs it slow; full speed would help.` : ` A faster lift, a second lift beside it, or more terrain off other lifts would spread the crowd.`}` : ''],
+    [r.leftLines ? r.leftLines * 30 + (r.lostSpend || 0) : 0, r.jam ? `${r.leftLines} guests went home early, fed up with lift lines; ${r.jam.name} averaged ${Math.round(r.jam.wait)} minutes.${r.jam.slow ? ` Your plan runs it slow; full speed would help.` : ` Upgrade it to a faster lift (tap it, then Upgrade lift), build a second lift beside it, or add terrain off other lifts to spread the crowd.`}` : ''],
     [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
     [(c.boring || 0) * 10, `${c.boring} strong skiers found too little challenging terrain. A steeper trail would bring them back.`],
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
@@ -14168,6 +14238,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.45', date: 'Oct 27, 2026', title: 'Upgrade your lifts', items: [
+    'Tap a lift overnight and choose Upgrade lift: swap a double for a triple, quad, express or gondola on the same line. Stations, trails and history stay put.',
+    'You pay the difference between the two lifts plus re-rigging, far less than building new. Each choice shows the extra riders an hour, the quicker ride, and about how long yesterday’s line would have been.',
+    'A T-bar can become a chairlift. A lift named for its type (like Mesa Double) is renamed to match; a name of your own stays. Undo takes it back.',
+    'The most-wanted idea on the new Roadmap. Thanks for voting!',
+  ] },
   { v: '2.44.4', date: 'Oct 27, 2026', title: 'Roadmap card on the title screen', small: true, items: [
     'The Roadmap now has its own card on the title screen, under Buy me a coffee.',
   ] },
