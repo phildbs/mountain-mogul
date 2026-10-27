@@ -3,7 +3,12 @@
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
+  // paused for players while the terrain is fixed: greyed out, and no way to make a new one
   await g.click('[data-slot=new]'); await g.wait(100);
+  eq(await g.ev(`[!!document.querySelector('.scard.pick.off'), !!document.querySelector('[data-slot=design]'), /temporarily disabled/i.test($('titleSlots').innerText)]`), [true, false, true], 'Design your own is greyed out');
+  eq(await g.ev(`[newMountain('c:79631382621k3p'), slots.list.length]`), [false, 0], 'and no custom mountain can be started');
+  // switched back on here to make one; after the reload it's off again, and that mountain still plays
+  await g.ev(`(() => { CUSTOM_OFF = false; renderSlots(); })()`); await g.wait(100);
   await g.click('[data-slot=design]'); await g.wait(400);
   eq(await g.ev(`$('builder').hidden`), false, 'builder opens from the mountain list');
   assert(/Vertical/i.test(await g.ev(`$('mbStats').innerText`)), 'preview shows stats');

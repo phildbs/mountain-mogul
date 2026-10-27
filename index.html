@@ -707,6 +707,10 @@ body.visiting .badge { cursor: default; }
 .scard.empty.full { cursor: default; }
 .scard.empty.full:hover { border-color: rgba(20, 36, 58, 0.22); color: var(--ink); }
 .scard.ask { display: block; }
+.scard.pick.off .sc-design { filter: grayscale(1); opacity: 0.55; }
+.scard.pick.off h2 { color: var(--muted); }
+.scard.pick.off .eyebrow { color: var(--ink-2); }
+.scard.pick.off .btn:disabled { cursor: default; box-shadow: none; background: rgba(20, 36, 58, 0.08); color: var(--ink-2); opacity: 1; }
 .sc-design { display: grid; place-items: center; height: 100%; min-height: 96px; background: linear-gradient(135deg, #e9e1f6, #dfe7f0); font-size: 40px; color: #8a5cc7; }
 .tlinks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 @media (max-width: 640px) {
@@ -2753,7 +2757,12 @@ function reloadInto(then, mt) {
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then, mt })); } catch (e) { /* ignore */ }
   location.reload();
 }
+// Designing new custom mountains is switched off while their terrain is fixed (gentle settings could still
+// make cliffs). Custom mountains already made keep playing as normal.
+let CUSTOM_OFF = true;
+const CUSTOM_OFF_MSG = 'Designing custom mountains is temporarily disabled while we fix their terrain. Custom mountains you already have still play.';
 function newMountain(mt = MOUNTAIN.id) {
+  if (CUSTOM_OFF && isCustomId(mt)) { toast(CUSTOM_OFF_MSG, true); return false; }
   if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one to start another.`, true); return false; }
   if (state.started && !visiting) saveNow();
   const id = newId();
@@ -14337,6 +14346,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.46.3', date: 'Oct 28, 2026', title: 'Custom mountains paused for fixes', small: true, items: [
+    'Designing new custom mountains is temporarily disabled while their terrain is fixed: Gentle and Easy settings could still make cliffs. Custom mountains you already have keep playing as normal.',
+  ] },
   { v: '2.46.2', date: 'Oct 28, 2026', title: 'A better-looking leaderboard', small: true, items: [
     'The leaderboard has a podium for the top three, a bar on each row showing how close it is to first, chips to switch rankings, and your own resort pinned even when you’re further down.',
     'On tablets and computers, the Community card now sits at the top right of the title screen with the top three on your mountain, and the tutorial, guide and feedback cards are slimmer.',
@@ -14944,12 +14956,16 @@ function renderSlots() {
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.level)} · starts with ${money(M.cash)}</div>
           <h2>${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
           <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button><button class="btn secondary" data-slot="pick" data-mt="${M.id}" data-sandbox="1" title="Unlimited money, no goals">Sandbox</button></div></div></article>`).join('')
-      + `<article class="panel scard pick">
+      + (CUSTOM_OFF ? `<article class="panel scard pick off" aria-disabled="true">
+        <div class="sc-design" aria-hidden="true">✎</div>
+        <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:#9aa3ae"></i>Custom · temporarily disabled</div>
+          <h2>Design your own</h2><p>Temporarily disabled for fixes. Custom mountains you already have still play.</p>
+          <div class="actions"><button class="btn" disabled>Back soon</button></div></div></article>` : `<article class="panel scard pick">
         <div class="sc-design" aria-hidden="true">✎</div>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:#8a5cc7"></i>Custom · you choose</div>
           <h2>Design your own</h2><p>Set the height, steepness, snow, wind and distance from town, then shuffle until you like the land.</p>
-          <div class="actions"><button class="btn" data-slot="design">Design</button></div></div></article>
-      <button class="scard empty" data-slot="pickNo"><b>Cancel</b><span>Back to your mountains</span></button>`;
+          <div class="actions"><button class="btn" data-slot="design">Design</button></div></div></article>`)
+      + `<button class="scard empty" data-slot="pickNo"><b>Cancel</b><span>Back to your mountains</span></button>`;
     paintThumbs();
     return;
   }
@@ -15234,7 +15250,7 @@ $('titleSlots').addEventListener('click', async (e) => {
   if (act === 'tutorial') return startTutorial();
   if (act === 'board' || act === 'browse') return openCommunity(act);
   if (act === 'more') { slotMore = slotMore === id ? null : id; return renderSlots(); }
-  if (act === 'design') { openBuilder(MOUNTAIN.custom ? recipeCode(MOUNTAIN.recipe) : null); return; }
+  if (act === 'design') { if (CUSTOM_OFF) { toast(CUSTOM_OFF_MSG, true); return; } openBuilder(MOUNTAIN.custom ? recipeCode(MOUNTAIN.recipe) : null); return; }
   if (act === 'new') picking = true;
   else if (act === 'pickNo') picking = false;
   else if (act === 'del') { slotAsk = id; slotMore = null; }
