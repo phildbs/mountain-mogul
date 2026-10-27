@@ -5981,7 +5981,7 @@ function spawnCar(size, night, evening) {
   const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
   for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
   if (free.length < AGENT) {
-    if (parkOffsite(size)) return;
+    if (parkOffsite(size, night, evening)) return;
     if (!offsiteSpec() && !visiting && !practice && !(state.nudges && state.nudges.lot)) {
       state.nudges = { ...state.nudges, lot: true };
       toast('Your main lot is full and guests are being turned away. Off-site parking with a shuttle takes the overflow.', false, { label: 'Parking', fn: () => openManage('parking') });
@@ -9160,10 +9160,11 @@ function busBoard(st) {
   }
 }
 // A car the main lot couldn't take: it parks off-site and its guests wait there for a shuttle.
-function parkOffsite(size) {
+function parkOffsite(size, night, evening) {
   const spec = offsiteSpec();
   if (!offsiteRunning() || today.offUsed + 1 > spec.spaces) return false;
-  const car = { id: nextCid++, offsite: true, size, members: [], back: 0 };
+  // Night skiers and après locals keep who they are on the shuttle, as they would parking on-site.
+  const car = { id: nextCid++, offsite: true, size, members: [], back: 0, night: !!night, evening: !!evening };
   offCars.push(car); offQueue.push({ car, since: state.time });
   today.offUsed++; today.offCars++; today.offPeak = Math.max(today.offPeak, today.offUsed);
   if (state.prices.parking) { state.cash += state.prices.parking * AGENT; today.rev.parking += state.prices.parking * AGENT; }
@@ -9174,8 +9175,12 @@ function parkUnload(b, st) {
     const wait = state.time - since;
     for (let k = 0; k < car.size; k++) {
       const g = makeGuest(car, st.door.x + (Math.random() - 0.5) * 1.6, st.door.z + (Math.random() - 0.5) * 0.3);
+      if (car.night) nightGuest(g);
+      if (car.evening) eveningGuest(g);
       guests.push(g); gById.set(g.id, g); car.members.push(g.id);
-      payTicket(g); today.guests += AGENT; today.parkRiders += AGENT; today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
+      today.parkRiders += AGENT; today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
+      if (car.evening) { if (!anotherRound(g, true)) goCar(g); continue; } // here for the bar, not the lifts: no ticket
+      payTicket(g); today.guests += AGENT;
       if (wait > SHUTTLE_PATIENCE) { g.sat -= Math.min(15, (wait - SHUTTLE_PATIENCE) * 0.5); today.complaints.shuttle = (today.complaints.shuttle || 0) + 1; thought(g, `Waited ${Math.round(wait)} minutes for the parking shuttle.`); }
       else thought(g, 'Parked off-site and rode the shuttle up. Easy.');
       if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
@@ -12929,6 +12934,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.38.2', date: 'Oct 27, 2026', title: 'Fewer refunds on busy evenings', small: true, items: [
+    'Fixed: when the main lot was full, night skiers and après guests who parked off-site were sold a day ticket as they arrived at dusk, then refunded straight away. Busy resorts saw hundreds of these refunds a day. Now après guests head to the bar without a lift ticket, and night skiers pay the night price, the same as guests who park on-site.',
+  ] },
   { v: '2.38.1', date: 'Oct 27, 2026', title: 'Softer ski school snow', small: true, items: [
     'The ski school’s practice slope no longer glows bright white, most of all on grey and snowy days. It now matches the snow around it.',
   ] },
