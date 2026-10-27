@@ -93,6 +93,12 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
   .fold > summary::after { content: '▸'; margin-left: auto; color: var(--ink-2, #5b6472); transition: transform .15s; }
   .fold[open] > summary::after { transform: rotate(90deg); }
   .fold[open] > summary { margin-bottom: 8px; }
+  .cohorts { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .cohorts th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2, #5b6472); padding: 6px 8px; border-bottom: 1px solid rgba(20,36,58,.12); white-space: nowrap; }
+  .cohorts td { padding: 7px 8px; border-bottom: 1px solid rgba(20,36,58,.08); white-space: nowrap; }
+  .cohorts .num { text-align: right; }
+  .cohorts .cpct { display: inline-block; min-width: 44px; padding: 2px 6px; border-radius: 6px; font-weight: 700; background: linear-gradient(90deg, rgba(44,154,85,.22) var(--p), rgba(20,36,58,.05) var(--p)); }
+  .cohorts small { display: block; font-size: 11px; color: var(--ink-2, #5b6472); }
   .players { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .players th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2, #5b6472); padding: 6px 8px; border-bottom: 1px solid rgba(20,36,58,.12); }
   .players td { vertical-align: top; padding: 8px; border-bottom: 1px solid rgba(20,36,58,.08); }
@@ -149,8 +155,30 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
     render(data, er.error ? { missing: /admin_errors/.test(er.error.message), message: er.error.message } : er.data,
       rx.error ? { missing: /admin_reactions/.test(rx.error.message), message: rx.error.message } : rx.data,
       pl.error ? { missing: /admin_players/.test(pl.error.message), message: pl.error.message } : pl.data);
+    loadCohorts();
   }
 
+  // Of the resorts started each week (or day), how many got through each step. Shows whether a change
+  // to the first few minutes helps: compare the rows before and after it.
+  let cohortUnit = 'week';
+  async function loadCohorts() {
+    const el = $('cohorts');
+    if (!el) return;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    let res = await sb.rpc('admin_funnel', { tz, unit: cohortUnit }), byDay = true;
+    if (res.error && cohortUnit === 'week') { res = await sb.rpc('admin_funnel', { tz }); byDay = false; } // before the by-day version is set up
+    if (res.error) { el.innerHTML = `<h2>New resorts, step by step</h2><p class="note">${/admin_funnel/.test(res.error.message) ? 'Not set up yet. Run <b>supabase/funnel.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(res.error.message)}</span>`}</p>`; return; }
+    const rows = (res.data || []).slice(0, cohortUnit === 'day' ? 14 : 10);
+    const cell = (n, of) => { const p = of ? Math.round(n / of * 100) : 0; return `<td class="num"><span class="cpct" style="--p:${p}%">${p}%</span><small>${num(n)}</small></td>`; };
+    const label = (d) => { const t = new Date(d + 'T12:00:00'); return (cohortUnit === 'week' ? 'Week of ' : '') + t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+    el.innerHTML = `<div class="head"><h2>New resorts, step by step</h2>${byDay ? `<div class="range" role="group" aria-label="Group by"><button data-cunit="week" aria-pressed="${cohortUnit === 'week'}">By week</button><button data-cunit="day" aria-pressed="${cohortUnit === 'day'}">By day</button></div>` : ''}</div>
+      <p class="note">Of the resorts started each ${cohortUnit}, the share that got through each step. Compare rows from before and after a change to the first few minutes. Resorts from before Oct 27 are dated by their owner’s sign-up, so a second or third resort can land in an earlier ${cohortUnit}.</p>
+      <div class="scroll"><table class="cohorts"><thead><tr><th>Started</th><th class="num">Resorts</th><th class="num">Built a lift</th><th class="num">Built a trail</th><th class="num">Opened a day</th><th class="num">Season 2</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${label(r.since)}</td><td class="num">${num(r.started)}</td>${cell(r.lift, r.started)}${cell(r.trail, r.started)}${cell(r.opened, r.started)}${cell(r.season2, r.started)}</tr>`).join('') || '<tr><td colspan="6" class="note">No resorts yet.</td></tr>'}</tbody></table></div>`;
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cunit]');
+    if (b) { cohortUnit = b.dataset.cunit; loadCohorts(); }
+  });
   function render(d, errs, reacts, players) {
     $('when').textContent = `Updated ${new Date(d.generated).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
     $('refresh').hidden = false;
@@ -176,6 +204,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <div class="card tile"><dt>Playing</dt><dd>${num(d.played_24h)}</dd><small>saved a game in 24 h · ${num(d.played_7d)} this week</small></div>
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
+      <section class="card" style="margin-bottom:12px" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
       <section class="card" style="margin-bottom:12px">
         <div class="head"><h2>Resorts</h2><div class="range" role="group" aria-label="Which resorts">
           <button data-range="recent" aria-pressed="${range === 'recent'}">Last 48 hours <b>${num(recentRows().length)}</b></button><button data-range="all" aria-pressed="${range === 'all'}">All <b>${num(d.mountains)}</b></button></div></div>
