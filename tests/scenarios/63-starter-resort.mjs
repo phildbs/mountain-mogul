@@ -1,4 +1,4 @@
-// The welcome offers two clear ways to begin. "Build me a starter resort" builds a double chair from
+// On the beginner mountains, the welcome offers two clear ways to begin. "Build me a starter resort" builds a double chair from
 // the base, a green trail back down and a lodge, ready to open; one undo takes it all back.
 // "Build it myself" goes to the lift tool. The choice is only offered on an empty mountain.
 import { openGame, eq, assert } from '../harness.mjs';
@@ -27,4 +27,13 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[state.tool, draft.liftType, !!liftHint()]`), ['lift', 'double', true], 'Build it myself opens the lift tool with a suggestion');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+  // Raven Peak (and custom mountains) are for players who know the ropes: no starter resort, no circles
+  const r2 = await openGame(browser, url, { mountain: 'raven' });
+  await r2.click('#startBtn'); await r2.wait(2200);
+  eq(await r2.ev(`[starterOffered(), !!document.querySelector('#sheet .startpick')]`), [false, false], 'Raven Peak offers no starter resort');
+  assert(/Build a chairlift from the base/.test(await r2.ev(`$('sheet').innerText`)), 'its welcome says what to build');
+  await r2.ev(`setTool('lift')`); await r2.wait(200);
+  eq(await r2.ev(`liftHint()`), null, 'and no suggested-lift circles');
+  eq(r2.errors, [], 'no page errors on Raven Peak');
+  await r2.page.close();
 }
