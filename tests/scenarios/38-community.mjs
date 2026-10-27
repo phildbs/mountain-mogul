@@ -25,7 +25,7 @@ export default async function ({ browser, url }) {
   const st = await g.ev(`$('cmStanding').innerText`);
   assert(/#1/.test(st) && /Bluebird Bowl/.test(st) && /as a guest/.test(st), 'your standing, noting you are a guest');
   assert(/Guest/i.test(await g.ev(`$('cmBoard').innerText`)), 'the row is tagged Guest');
-  await g.ev(`(() => { const s = document.querySelector('#cmBoard .boardsel'); s.value = 'visitors'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`); await g.wait(100);
+  await g.ev(`document.querySelector('#cmBoard .metrics [data-v=visitors]').click()`); await g.wait(100);
   eq(await g.ev(`CLOUD.board`), 'visitors', 'the menu switches the ranking');
   await g.click('[data-cmtab=profile]'); await g.wait(100);
   eq(await g.ev(`$('cmProfileTab').hidden`), false, 'the Profile tab shows the form');
