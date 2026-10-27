@@ -8,11 +8,14 @@ export default async function ({ browser, url }) {
   const w = await g.ev(`$('sheet').innerText`);
   assert(/Dec 10 and the snow is in/.test(w), 'it starts in December, with snow: ' + w.slice(0, 200));
   eq(await g.ev(`[state.day, state.treeSnow, avgBase() > 0 || NS.some((v) => v >= 20)]`), [9, 1, true], 'snow on the ground and on the trees');
-  assert(/Build your first chairlift/.test(w), 'and the first step');
+  assert(/Build it myself/.test(w) && /Build me a starter resort/.test(w), 'and the two ways to start');
   eq(await g.ev(`$('tbSub').querySelector('.tb-st').textContent`), 'Not open yet · build a lift and a trail', 'the status line says what to do');
-  // the step's button takes you there
-  await g.click('#sheet [data-action=advice][data-v="0"]'); await g.wait(100);
-  eq(await g.ev(`state.tool`), 'lift', 'Build a lift picks the lift tool');
+  // building it yourself starts with the lift tool
+  await g.click('#sheet [data-action=startSelf]'); await g.wait(100);
+  eq(await g.ev(`state.tool`), 'lift', 'Build it myself picks the lift tool');
+  // and the lightbulb's list still leads with building a lift
+  await g.ev(`setTool('explore')`);
+  eq(await g.ev(`advice()[0].label`), 'Build a lift', 'the What next? list starts with Build a lift');
   await g.ev(`setTool('explore')`);
   // built: ready to open straight away
   await g.ev(SETUPS.juniperStarter); await g.ev(`state.lastReport = null; refreshTimebar(true)`);
