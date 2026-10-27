@@ -837,6 +837,13 @@ a.vtag { text-decoration: none; }
 .tb-sub { font-size: 11.5px; color: var(--ink-2); }
 .tb-sub b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .tb-clock { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: 0.01em; min-width: 92px; text-align: center; }
+.skipcard { position: absolute; left: 50%; top: calc(96px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 30; width: min(340px, calc(100vw - 32px)); padding: 12px 14px; display: grid; gap: 8px; }
+.skipcard > div:first-child { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.skipcard #skipClock { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+.skipbar { height: 6px; border-radius: 3px; background: rgba(20, 36, 58, 0.1); overflow: hidden; }
+.skipbar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; }
+.skipcard .link { justify-self: start; font-size: 13px; padding: 0; }
+@media (max-width: 640px) { .skipcard { top: calc(166px + env(safe-area-inset-top, 0px)); } }
 .tb-speed { display: flex; gap: 2px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 9px; }
 .tb-speed button { border: 0; background: none; border-radius: 7px; min-width: 30px; height: 28px; font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; font-variant-numeric: tabular-nums; }
 .tb-speed .auto { margin-left: 4px; padding: 0 8px; }
@@ -1128,11 +1135,16 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <div class="tb-when"><span class="tb-date" id="tbDate"></span><span class="tb-sub" id="tbSub"></span></div>
       <div class="tb-clock num" id="tbClock"></div>
       <div class="tb-speed" id="tbSpeed" role="group" aria-label="Game speed">
-        <button data-s="0" aria-label="Pause" title="Pause (P)">❚❚</button><button data-s="1" title="Normal speed">1×</button><button data-s="2">2×</button><button data-s="4">4×</button><button id="tbAuto" class="auto" aria-pressed="false" title="Start the next day automatically, up to 7 days in a row">Auto</button>
+        <button data-s="0" aria-label="Pause" title="Pause (P)">❚❚</button><button data-s="1" title="Normal speed">1×</button><button data-s="2">2×</button><button data-s="4">4×</button><button id="tbSkip" class="skip" title="Skip to the day report (K)" aria-label="Skip to the day report">⏭</button><button id="tbAuto" class="auto" aria-pressed="false" title="Start the next day automatically, up to 7 days in a row">Auto</button>
       </div>
       <button class="tb-wx" id="tbWx" title="Weather and snow report"></button>
       <button class="btn secondary tb-wait" id="tbWait" title="Stay closed today and skip to tomorrow">Wait a day</button>
       <button class="btn tb-go" id="tbGo">Open for the day</button>
+    </div>
+    <div class="panel skipcard" id="skipCard" role="status" hidden>
+      <div><b>Skipping to the day report</b><span id="skipClock"></span></div>
+      <div class="skipbar"><i id="skipFill"></i></div>
+      <button class="link" id="skipStop" type="button">Stop and watch</button>
     </div>
 
     <div class="panel cash" id="cashBox" role="button" tabindex="0" title="Resort finances and ticket prices">
@@ -11003,6 +11015,7 @@ function refreshTimebar(force) {
     b.disabled = slow && +b.dataset.s > 1;
     if (+b.dataset.s > 1) b.title = slow ? 'Back to fast speeds after the fireworks' : '';
   });
+  $('tbSkip').hidden = state.phase !== 'open' || visiting || practice;
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
   go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : canSkipToLastCall() ? 'Skip to last call' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
@@ -11066,6 +11079,42 @@ $('tManage').onclick = () => { if (selected && selected.kind === 'manage' && sta
 $('tbGo').onclick = () => { if (state.phase === 'open') { if (canSkipToLastCall()) skipToLastCall(); else closeEarly(); } else { autoDays = 0; openDay(); } };
 // After the lifts close (and any night skiing ends), skip the quiet evening straight to last call.
 const canSkipToLastCall = () => state.phase === 'open' && !visiting && apresOn() && state.time >= closeTime() && !nightNow() && state.time < apresEnd() - 5;
+// Skip to the day report: the rest of the day is simulated without drawing it, in short bursts so the
+// page stays responsive, with the clock racing on a small card. Nothing changes but the waiting: the
+// day plays out exactly as it would have. A torchlight parade night stops at dusk for the show.
+let skipRun = null;
+function skipToReport() {
+  if (state.phase !== 'open' || visiting || practice || skipRun) return;
+  const parade = torchTonight() && state.time < TORCH.parade[0] - 5 ? TORCH.parade[0] - 5 : Infinity;
+  skipRun = { from: state.time, to: dayHardEnd(), stopAt: parade, speed: state.speed || 1, stop: false };
+  state.speed = 0;
+  $('skipCard').hidden = false;
+  const show = () => {
+    $('skipClock').textContent = clockLabel(state.time);
+    $('skipFill').style.width = `${Math.round(clamp((state.time - skipRun.from) / Math.max(1, skipRun.to - skipRun.from), 0, 1) * 100)}%`;
+  };
+  const done = (msg) => {
+    const sp = skipRun.speed;
+    skipRun = null;
+    $('skipCard').hidden = true;
+    state.speed = sp; // back to the player's speed, for the rest of today or for tomorrow
+    if (state.phase === 'open') { refreshTimebar(true); updateCash(true); if (msg) toast(msg); }
+  };
+  const tick = () => {
+    if (!skipRun) return;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 35 && state.phase === 'open' && state.time < skipRun.stopAt && !skipRun.stop) simStep(1.5);
+    if (state.phase !== 'open') return done(); // the day ended: its report is up
+    if (skipRun.stop) return done();
+    if (state.time >= skipRun.stopAt) return done('The torchlight parade is about to start. Enjoy the show!');
+    show();
+    setTimeout(tick, 0);
+  };
+  show();
+  setTimeout(tick, 30);
+}
+$('tbSkip').onclick = skipToReport;
+$('skipStop').onclick = () => { if (skipRun) skipRun.stop = true; };
 function skipToLastCall() {
   let n = 0;
   while (state.phase === 'open' && state.time < apresEnd() && n < 200000) { simStep(1.5); n++; }
@@ -12113,6 +12162,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'o') setSlope(!overlay.slope);
   else if (k === 't') setTraffic(!overlay.traffic);
   else if (k === 'l') toast(toggleAllLabels() ? 'Map labels on' : 'Map labels hidden. Press L or use the tag button to bring them back.');
+  else if (k === 'k' && state.phase === 'open') skipToReport();
   else if (k === 'p' && state.phase === 'open') { state.speed = state.speed ? 0 : 1; refreshTimebar(true); }
   else if (k === '+' || k === '=') zoomCenter(1 / 1.35);
   else if (k === '-' || k === '_') zoomCenter(1.35);
@@ -13176,6 +13226,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.39', date: 'Oct 27, 2026', title: 'Skip to the day report', items: [
+    'A new ⏭ button beside the speeds (or press K) skips the rest of the day and goes straight to the report. The day plays out exactly as it would have; you just don’t wait for it.',
+    'A small card shows the clock racing ahead, with Stop and watch to drop back into the day. On a torchlight parade night it stops at dusk, so you don’t miss the show.',
+  ] },
   { v: '2.38.6', date: 'Oct 27, 2026', title: 'Build me a starter resort', small: true, items: [
     'On Juniper Ridge and Maple Notch, a new resort’s welcome offers two ways to begin: build it yourself, or have a starter resort built for you (a double chair, a green trail and a lodge) so you can open right away. It’s yours to change, and one undo takes it back.',
   ] },
@@ -14102,7 +14156,7 @@ function fitsWithRoom(r) {
 let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0, fitT = 0;
 function frame(now) {
   // While days are fast-forwarded, skip drawing so the simulation gets the whole processor.
-  if (simulating) { lastT = now; requestAnimationFrame(frame); return; }
+  if (simulating || skipRun) { lastT = now; requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; clock += dt;
 
