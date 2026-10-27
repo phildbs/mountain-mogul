@@ -48,7 +48,9 @@ export async function launch() {
 
 // A fresh game page. Options: query ('?dev'), mountain ('raven'), mobile, keepStorage, and render
 // (draw the 3D view, as players see it; slow on a machine without a graphics card, so off by default).
-export async function openGame(browser, url, { query = '', mountain, width = 1280, height = 900, keepStorage = false, render = false } = {}) {
+export async function openGame(browser, url, { query = '', mountain: asked, width = 1280, height = 900, keepStorage = false, render = false } = {}) {
+  // Tests build on Juniper Ridge unless they say otherwise ('fresh' is a first visit, left to pick its own).
+  const mountain = asked === 'fresh' ? undefined : asked ?? (keepStorage ? undefined : 'juniper');
   if (render) query += (query ? '&' : '?') + 'render';
   const page = await browser.newPage({ viewport: { width, height } });
   page.setDefaultNavigationTimeout(120000); // this machine can be slow to start the 3D view
