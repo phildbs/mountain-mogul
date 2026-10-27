@@ -65,6 +65,12 @@ body.ranked .card .sec { display: block; }
 .st.plan { background: var(--accent-soft); color: #b23d17; }
 .st.idea { background: #e7eefb; color: var(--blue); }
 .st.ongoing { background: #dff1e6; color: #1f7a42; }
+.st.done { background: #1f7a42; color: #fff; }
+.card.done { background: #f3faf5; }
+.card.done h3 { text-decoration: line-through; text-decoration-color: rgba(31, 122, 66, 0.5); text-decoration-thickness: 2px; }
+.card.done .vote:disabled { cursor: default; opacity: 1; }
+.card.done .vote:hover { border-color: var(--line); }
+.card .shipped { font-size: 12.5px; color: #1f7a42; font-weight: 600; margin: -4px 0 8px; }
 .recent li { display: flex; gap: 10px; align-items: baseline; }
 .recent .v { flex: none; font: 700 12px var(--ui); color: var(--muted); min-width: 52px; }
 .recent span { color: var(--ink); }
@@ -137,8 +143,16 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
+  <section id="done">
+    <h2><span class="ic">✅</span>Done</h2>
+    <p class="sub">Built and in the game, thanks to your votes.</p>
+    <div class="cards">
+      <article class="card done" data-idea="lift-upgrades"><div class="t"><h3>Lift upgrades</h3><span class="st done">Done</span></div><p>Swap an old double for a faster chair without rebuilding the line from scratch.</p><p class="shipped">Added in 2.45: tap a lift overnight, then Upgrade lift.</p></article>
+    </div>
+  </section>
+
   <section id="recent" hidden>
-    <h2><span class="ic">✅</span>Recently added</h2>
+    <h2><span class="ic">🆕</span>Recently added</h2>
     <ul class="items recent" id="recentList"></ul>
     <p class="sub">The version number on the title screen lists every change.</p>
   </section>
@@ -159,13 +173,14 @@ footer a { color: var(--ink-2); }
   const SB_KEY = 'sb_publishable_i3vLnQD9KEe1vjfXUORZdQ__M2xC90G'; // publishable key: safe to ship in the page
   const UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H4V10zM7 10l4-8a3 3 0 0 1 3 3v4h6a2 2 0 0 1 2 2.3l-1.4 8A2 2 0 0 1 18.6 21H7"/></svg>';
   const DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3h3v11zM17 14l-4 8a3 3 0 0 1-3-3v-4H4a2 2 0 0 1-2-2.3l1.4-8A2 2 0 0 1 5.4 3H17"/></svg>';
-  const cards = [...document.querySelectorAll('.card')], tally = {}, mine = {};
+  const cards = [...document.querySelectorAll('.card')], open = cards.filter((c) => !c.classList.contains('done')), tally = {}, mine = {};
   let sb = null, busy = false;
   for (const c of cards) {
     const sec = c.closest('section').querySelector('h2').textContent.replace(/^\W+/u, '');
     c.insertAdjacentHTML('afterbegin', `<div class="sec">${sec}</div>`);
     c.insertAdjacentHTML('beforeend', `<div class="votes"><button type="button" class="vote up" aria-pressed="false" aria-label="Vote up">${UP}<span>0</span></button><button type="button" class="vote down" aria-pressed="false" aria-label="Vote down">${DOWN}<span>0</span></button><span class="note"></span></div>`);
   }
+  for (const c of cards) if (c.classList.contains('done')) c.querySelectorAll('.vote').forEach((b) => { b.disabled = true; b.title = 'Voting closed: it’s built'; });
   const show = () => {
     for (const c of cards) {
       const id = c.dataset.idea, t = tally[id] || { up: 0, down: 0 }, m = mine[id] || 0;
@@ -178,7 +193,7 @@ footer a { color: var(--ink-2); }
   const score = (c) => { const t = tally[c.dataset.idea] || { up: 0, down: 0 }; return t.up - t.down; };
   function rank() { // the cards move into one list, most wanted first
     const box = document.getElementById('rankedCards');
-    cards.slice().sort((a, b) => score(b) - score(a) || cards.indexOf(a) - cards.indexOf(b)).forEach((c) => box.appendChild(c));
+    open.slice().sort((a, b) => score(b) - score(a) || cards.indexOf(a) - cards.indexOf(b)).forEach((c) => box.appendChild(c)); // done ones stay under Done
   }
   const home = new Map(cards.map((c) => [c, c.parentNode]));
   function setSort(k) {
@@ -201,7 +216,7 @@ footer a { color: var(--ink-2); }
     show();
   }
   async function vote(c, v) {
-    if (busy) return;
+    if (busy || c.classList.contains('done')) return; // votes on a finished idea are kept, not changed
     const id = c.dataset.idea, was = mine[id] || 0, now = was === v ? 0 : v, t = tally[id] || (tally[id] = { up: 0, down: 0 });
     if (!sb) { note(c, 'Voting needs a connection.'); return; }
     busy = true; note(c, '');

@@ -22,6 +22,11 @@ export default async function ({ browser, url }) {
   eq(await counts('hotels'), [[0, 'false'], [0, 'false']], 'tapping again takes it back');
   await page.click('[data-idea=multiplayer] .vote.up'); await page.click('[data-idea=condos] .vote.down'); await page.waitForTimeout(300);
 
+  // a finished idea keeps its votes but takes no more
+  const done = await ev(`document.querySelectorAll('#done .card').length`);
+  if (done) { const id = await ev(`document.querySelector('#done .card').dataset.idea`); const before = await counts(id);
+    await ev(`document.querySelector('#done .vote.up').click()`); await page.waitForTimeout(200);
+    eq(await counts(id), before, 'no voting on a finished idea'); }
   // a reload keeps your votes
   await page.reload(); await page.waitForTimeout(500);
   eq([await counts('multiplayer'), await counts('condos')], [[[1, 'true'], [0, 'false']], [[0, 'false'], [1, 'true']]], 'votes kept after a reload');
@@ -34,7 +39,8 @@ export default async function ({ browser, url }) {
   // Most wanted: one list, highest first, and back
   await page.click('.sort [data-sort=ranked]'); await page.waitForTimeout(100);
   const order = await ev(`[...document.querySelectorAll('#rankedCards .card')].map((c) => c.dataset.idea)`);
-  eq([order.length, order[0], order[order.length - 1]], [ids.length, 'multiplayer', 'condos'], 'most wanted first, least last');
+  eq([order.length, order[0], order[order.length - 1]], [ids.length - done, 'multiplayer', 'condos'], 'most wanted first, least last');
+  eq(await ev(`getComputedStyle(document.getElementById('done')).display !== 'none'`), true, 'Done stays in view, on its own');
   eq(await ev(`[...document.querySelectorAll('section.topic')].every((s) => getComputedStyle(s).display === 'none')`), true, 'topics hidden meanwhile');
   await page.click('.sort [data-sort=topic]'); await page.waitForTimeout(100);
   eq(await ev(`document.querySelector('#stay .cards').children.length`), 3, 'back under their topics');
