@@ -57,6 +57,16 @@
         d.reactions = (d.reactions || []).filter((r) => !(r.version === q.obj.version && r.user_id === me));
         d.reactions.push({ ...q.obj, user_id: me }); put(d); return { data: null, error: null };
       }
+      // roadmap votes: your own rows only; one per idea, replaced or taken back
+      if (table === 'roadmap_votes') {
+        if (!me) return { data: null, error: { code: '42501', message: 'permission denied for table roadmap_votes' } };
+        const v = d.votes || (d.votes = []);
+        if (q.op === 'upsert') { if (q.obj.user_id !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; d.votes = v.filter((r) => !(r.idea === q.obj.idea && r.user_id === me)); d.votes.push({ idea: q.obj.idea, user_id: me, vote: q.obj.vote }); put(d); return { data: null, error: null }; }
+        let rows = v.filter((r) => r.user_id === me);
+        for (const [c, val] of q.filters) rows = rows.filter((r) => r[c] === val);
+        if (q.op === 'delete') { d.votes = v.filter((r) => !rows.includes(r) && !rows.some((x) => x.idea === r.idea && x.user_id === r.user_id)); put(d); return { data: null, error: null }; }
+        return { data: rows.map((r) => ({ idea: r.idea, vote: r.vote })), error: null };
+      }
       if (table === 'featured') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
         let rows = d.featured || [];
@@ -104,6 +114,10 @@
       if (fn === 'social_counts') {
         return { data: d.rows.filter((r) => r.public || r.owner === me).map((r) => ({ mountain_id: r.id,
           likes: (d.likes || []).filter((l) => l.mountain_id === r.id).length, visits: (d.visits || []).filter((v) => v.mountain_id === r.id).length })), error: null };
+      }
+      if (fn === 'roadmap_tally') {
+        const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
+        return { data: out, error: null };
       }
       if (fn !== 'set_profile') return { data: null, error: { message: 'no function ' + fn } };
       if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };

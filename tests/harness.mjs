@@ -28,6 +28,10 @@ export async function startServer() {
   const server = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/' || path === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    if (path === '/roadmap.html') { // the roadmap's votes go to the stand-in database too
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(readFileSync(join(ROOT, 'roadmap.html'), 'utf8').replace('<script src="vendor/supabase.js"></script>', '<script src="vendor/supabase.js"></script>\n<script src="tests/fake-supabase.js"></script>')); return;
+    }
     const file = join(ROOT, path);
     if (!file.startsWith(ROOT) || !existsSync(file)) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
