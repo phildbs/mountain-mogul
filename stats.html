@@ -85,7 +85,17 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
 .err { color: #b3261e; }
   .rx { width: 100%; border-collapse: collapse; font-size: 14px; }
   .rx td { padding: 6px 8px 6px 0; border-top: 1px solid rgba(20, 36, 58, 0.08); white-space: nowrap; }
-  .rx .ver { font-weight: 700; }
+  .rx .ver { font-weight: 700; white-space: normal; min-width: 0; }
+  .rx td { vertical-align: top; }
+  .rxwhat { display: block; font-weight: 400; margin-top: 2px; max-width: 46ch; }
+  .rxwhat b { display: block; font-weight: 600; font-size: 13px; }
+  .rxwhat small { display: block; font-size: 12px; color: var(--ink-2, #5b6472); line-height: 1.35; }
+  @media (max-width: 640px) {
+    .rx tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0; border-top: 1px solid rgba(20, 36, 58, 0.08); }
+    .rx td { border: 0; padding: 0; }
+    .rx .ver { flex-basis: 100%; }
+    .rxwhat { max-width: none; }
+  }
   .rxbar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: rgba(210, 60, 90, 0.25); vertical-align: middle; overflow: hidden; }
   .rxbar i { display: block; height: 100%; background: #2c9a55; }
   .fold > summary { display: flex; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
@@ -153,7 +163,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       if (/admin_stats/.test(error.message)) return gate('<span class="err">The stats function isn’t set up yet.</span> Run <b>supabase/stats.sql</b> in the Supabase SQL Editor.');
       return gate(`<span class="err">${esc(error.message)}</span>`);
     }
-    const [er, rx, pl] = await Promise.all([sb.rpc('admin_errors'), sb.rpc('admin_reactions'), sb.rpc('admin_players')]);
+    const [er, rx, pl] = await Promise.all([sb.rpc('admin_errors'), sb.rpc('admin_reactions'), sb.rpc('admin_players'), loadChanges()]);
     render(data, er.error ? { missing: /admin_errors/.test(er.error.message), message: er.error.message } : er.data,
       rx.error ? { missing: /admin_reactions/.test(rx.error.message), message: rx.error.message } : rx.data,
       pl.error ? { missing: /admin_players/.test(pl.error.message), message: pl.error.message } : pl.data);
@@ -256,12 +266,24 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
             <span class="note">${esc(mtName(m.mt ?? ''))} · season ${m.season || 1} · ${num(m.guests || 0)} guests all time · ${m.lifts || 0} lifts, ${m.trails || 0} trails${m.stars != null ? ` · ★ ${m.stars}` : ''} · ${ago(m.updated)}</span></div>`).join('') : '<span class="note">No resort saved</span>'}</td></tr>`;
       }).join('')}</tbody></table></div></details>`;
   }
+  // What each update added, read from the game's own What's new list, so a reaction can be matched to
+  // the features it's about. Missing it just leaves the version numbers.
+  let CHANGES = {};
+  async function loadChanges() {
+    try {
+      const src = await (await fetch('./', { cache: 'no-store' })).text();
+      const re = /\{ v: '([\d.]+)',[^\n]*?title: '((?:[^'\\]|\\.)*)'[\s\S]*?items: \[\s*'((?:[^'\\]|\\.)*)'/g;
+      for (let m; (m = re.exec(src));) if (!CHANGES[m[1]]) CHANGES[m[1]] = { title: m[2].replace(/\\'/g, "'"), item: m[3].replace(/\\'/g, "'") };
+    } catch (e) { /* the version numbers will do */ }
+  }
+  const brief = (t) => (t.length > 140 ? `${t.slice(0, 137).replace(/\s+\S*$/, '')}…` : t);
   function reactionsHtml(r) {
     if (!r || r.missing) return '<h2>Update reactions</h2><p class="note">Not set up yet. Run <b>supabase/reactions.sql</b> in the Supabase SQL Editor.</p>';
     if (r.message) return `<h2>Update reactions</h2><p class="note err">${esc(r.message)}</p>`;
     if (!r.length) return '<h2>Update reactions</h2><p class="note">No reactions yet. Players see the update card the next time they play after an update.</p>';
     return `<h2>Update reactions</h2><table class="rx"><tbody>${r.map((v) => { const n = v.up + v.down, pct = n ? Math.round(v.up / n * 100) : 0;
-      return `<tr><td class="ver">v${esc(v.version)}</td><td>👍 ${num(v.up)}</td><td>👎 ${num(v.down)}</td><td><span class="rxbar"><i style="width:${pct}%"></i></span> ${pct}% liked</td><td class="note">${ago(v.latest)}</td></tr>`; }).join('')}</tbody></table>`;
+      const c = CHANGES[v.version];
+      return `<tr><td class="ver">v${esc(v.version)}${c ? `<span class="rxwhat"><b>${esc(c.title)}</b><small>${esc(brief(c.item))}</small></span>` : ''}</td><td>👍 ${num(v.up)}</td><td>👎 ${num(v.down)}</td><td><span class="rxbar"><i style="width:${pct}%"></i></span> ${pct}% liked</td><td class="note">${ago(v.latest)}</td></tr>`; }).join('')}</tbody></table>`;
   }
   // Crash reports from players' devices, grouped by version and message.
   function errorsHtml(e) {
