@@ -2707,7 +2707,7 @@ function useSlot(id, sv, then) {
 function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
-      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
+      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
@@ -2797,9 +2797,58 @@ function treesInBrush(p, r, cb) {
 function countInBrush(p, r) { let n = 0; treesInBrush(p, r, () => n++); return n; }
 
 const stroke = { active: false, trees: 0, cost: 0, broke: false, last: null };
+/* ---------- Replant: regrow the mountain's own trees where they were cleared ----------
+   Never inside a trail, a learning area, a lift line or station clearing, a building's footprint,
+   the parking lot or the road. The blocked ground is worked out once per stroke. */
+const REPLANT_COST = 150;
+let plantBlocks = null, plantSig = '';
+function replantBlocks() {
+  const sig = `${world.trails.length}:${world.buildings.length}:${world.areas.length}:${world.lifts.length}:${state.lotSections}:${terrainRev}:${world.trails.reduce((a, t) => a + t.samples.length, 0)}`;
+  if (sig !== plantSig) { plantSig = sig; plantBlocks = areaBlocks(null); }
+  return plantBlocks;
+}
+function replantable(k, blocks) {
+  const x = trees.x[k], z = trees.z[k], p = { x, z };
+  if (blocks.has(cellKey(Math.round(x), Math.round(z)))) return false;
+  if (sampleGrid(ROADD, x + HALF, z + HALF) < 3) return false;
+  return !world.lifts.some((L) => distToSeg(p, L.a, L.b) < 2.2 || distXZ(p, L.a) < 4.4 || distXZ(p, L.b) < 4.8);
+}
+function clearedInBrush(p, r, cb) {
+  const gx = p.x + HALF, gz = p.z + HALF, r2 = r * r;
+  const i0 = Math.max(LAND.i0, Math.floor(gx - r)), i1 = Math.min(LAND.i1 - 1, Math.floor(gx + r));
+  const j0 = Math.max(LAND.j0, Math.floor(gz - r)), j1 = Math.min(LAND.j1 - 1, Math.floor(gz + r));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const c = j * WN + i, s0 = trees.cellStart[c];
+    for (let k = s0; k < s0 + trees.cellCount[c]; k++) {
+      if (trees.alive[k] || !trees.play[k]) continue;
+      const dx = trees.x[k] - p.x, dz = trees.z[k] - p.z;
+      if (dx * dx + dz * dz <= r2) cb(k);
+    }
+  }
+}
+function replantAt(p) {
+  if (!inProperty(p.x, p.z)) return;
+  const r = state.brushR, blocks = replantBlocks();
+  let n = 0;
+  clearedInBrush(p, r, (k) => {
+    if (!replantable(k, blocks)) return;
+    if (state.cash < REPLANT_COST) { stroke.broke = true; return; }
+    trees.alive[k] = 1; cellTrees[trees.cell[k]]++;
+    state.cash -= REPLANT_COST; stroke.trees++; stroke.cost += REPLANT_COST; n++;
+  });
+  if (n) {
+    packTrees();
+    const gx = p.x + HALF, gz = p.z + HALF, i0 = Math.floor(gx - r) - 1, i1 = Math.ceil(gx + r) + 1, j0 = Math.floor(gz - r) - 1, j1 = Math.ceil(gz + r) + 1;
+    refreshTreeShade(i0, j0, i1, j1); recolorTerrain(i0, j0, i1, j1);
+    renderer.shadowMap.needsUpdate = true;
+    updateCash(true); scheduleSave();
+  }
+}
+function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks)) n++; }); return n; }
 function clearAt(p) {
   if (state.landMode === 'level') return levelAt(p);
   if (state.landMode === 'area') return areaPaintAt(p);
+  if (state.landMode === 'plant') return replantAt(p);
   if (!inProperty(p.x, p.z)) return;
   const r = state.brushR;
   let n = 0;
@@ -2856,8 +2905,9 @@ function endStroke() {
     scheduleSave();
     return;
   }
-  if (stroke.broke) toast('Not enough cash to clear more trees', true);
-  else if (stroke.trees) toast(`Cleared ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
+  const plant = state.landMode === 'plant';
+  if (stroke.broke) toast(`Not enough cash to ${plant ? 'replant' : 'clear'} more trees`, true);
+  else if (stroke.trees) toast(`${plant ? 'Replanted' : 'Cleared'} ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
   stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null;
 }
 
@@ -2995,6 +3045,14 @@ function showReadout(p, px, py, pinned) {
     const o = hover.doze;
     html += o ? `<br>${o.label}` : '<br><span class="muted">Tap a tree, a light or a fire pit</span>';
     if (o && o.kind === 'tree' && TREE_COST > state.cash) html += ` <span class="warn">Not enough cash</span>`;
+  }
+  else if (state.tool === 'clear' && state.landMode === 'plant') {
+    if (stroke.active && stroke.trees) html += `<br>Replanted ${stroke.trees} · −${money(stroke.cost)}`;
+    else {
+      const n = replantCount(p);
+      html += n ? `<br>${n} ${n === 1 ? 'tree' : 'trees'} to regrow · ${money(n * REPLANT_COST)}` : `<br><span class="muted">Nothing to regrow here</span>`;
+      if (n && n * REPLANT_COST > state.cash) html += ` <span class="warn">Not enough cash</span>`;
+    }
   }
   else if (state.tool === 'clear') {
     if (stroke.active && stroke.trees) html += `<br>Cleared ${stroke.trees} · −${money(stroke.cost)}`;
@@ -5174,7 +5232,9 @@ sheet.addEventListener('click', (e) => {
     const block = mainLotBlock();
     if (block) { toast(block, true); return; }
     pushUndo('the parking expansion');
-    const bb = nextLotBox();
+    const n = nextLotSlot(), bb = n.bb;
+    if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
+    state.lotLayout.push([n.row, n.col]);
     state.cash -= LOT_EXPAND_COST; state.lotSections++;
     gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
     buildLot(); updateCash(true);
@@ -5185,6 +5245,7 @@ sheet.addEventListener('click', (e) => {
     pushUndo('removing a parking section');
     const back = Math.round(LOT_EXPAND_COST * 0.25);
     state.lotSections--; state.cash += back;
+    if (state.lotLayout) state.lotLayout.length = state.lotSections; // the newest section goes
     buildLot(); styleLot(); updateCash(true);
     toast(`Removed a parking section (${SPACES_PER_SECTION} spaces) · +${money(back)} salvage`); renderSheet(); scheduleSave();
   }
@@ -5868,7 +5929,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5882,11 +5943,12 @@ const LOT_EXPAND_COST = 75000;
 // property, clear of the creek and gentle enough to level. Anything built in the way has to come out
 // first. Satellite lots go beside the road as buildings.
 const sectionBox = (k) => { const o = sectionOrigin(k); return { x0: o.x, x1: o.x + LOT.w, z0: o.z, z1: o.z + LOT.d }; };
-const nextLotBox = () => sectionBox(state.lotSections);
+const nextLotBox = () => nextLotSlot().bb;
 function lotLandBlock(bb) {
   if ([[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x0, bb.z1], [bb.x1, bb.z1]].some(([x, z]) => !inProperty(x, z))) return 'it’s reached your property line';
   const fs = footprintStats(bb);
   if (fs.creek) return 'the creek is in the way';
+  if (fs.road) return 'the access road is in the way';
   if (fs.hmax - fs.hmin > 3.2) return 'the ground past it is too steep';
   return '';
 }
@@ -5896,7 +5958,8 @@ function lotReserve() {
   const key = `${MOUNTAIN.id}:${state.lotSections}:${terrainRev}:${landSig}`; // bought land lets the lot grow further
   if (key !== reserveKey) {
     reserveKey = key; reserveBoxes = [];
-    for (let k = state.lotSections; k < state.lotSections + 30 && !lotLandBlock(sectionBox(k)); k++) reserveBoxes.push(sectionBox(k));
+    for (let c = rowLen(0); c < rowLen(0) + 30 && !lotLandBlock(slotBox(0, c)); c++) reserveBoxes.push(slotBox(0, c));
+    for (let c = rowLen(1); c < rowLen(0) && !lotLandBlock(slotBox(1, c)); c++) reserveBoxes.push(slotBox(1, c)); // under the first row, on land you hold
   }
   return reserveBoxes;
 }
@@ -5913,11 +5976,13 @@ function inLotWay(bb) {
   return '';
 }
 function mainLotBlock() {
-  const land = lotLandBlock(nextLotBox());
-  if (land) return `The main lot can’t grow any further: ${land}. Set up off-site parking with a shuttle instead (Parking › Off-site parking).`;
-  const what = inLotWay(nextLotBox());
-  if (what) return `${what} is where the main lot grows next. Remove it to grow the main lot, or set up off-site parking with a shuttle (Parking › Off-site parking).`;
-  return null;
+  const n = nextLotSlot();
+  if (!n.land && !n.what) return null;
+  if (n.what) return `${n.what} is where the main lot grows next. Remove it to grow the main lot, or set up off-site parking with a shuttle (Parking › Off-site parking).`;
+  const below = n.second || (n.row === 1 ? n : null);
+  if (below && below.what) return `The lot can’t grow along the road (${n.land}), and ${below.what} is where a second row would go. Remove it to add a second row.`;
+  if (below && /property line/.test(below.land)) return `The main lot can’t grow along the road any further: ${n.land}. Buy the land below it (Business › Land) and a second row of parking can go there.`;
+  return `The main lot can’t grow any further: ${n.land}. Set up off-site parking with a shuttle instead (Parking › Off-site parking).`;
 }
 // Building where the main lot will grow is allowed, with a heads-up.
 const LOT_WARN = 'Heads up: this is where the main lot grows. You can build here, but you’d have to remove it before adding more main-lot parking.';
@@ -6027,7 +6092,29 @@ function nearestRoad(p) {
   if ((p.x - best.q.x) * nx + (p.z - best.q.z) * nz < 0) { nx = -nx; nz = -nz; }
   return { q: best.q, nx, nz, d: best.d };
 }
-function sectionOrigin(k) { const e = roadEnd(); return { x: e.x + 0.9 + k * (LOT.w + 0.7), z: e.z - 1.2 }; }
+// Each section's place in the lot: [row, column]. The first row runs along the road; once land below it
+// is yours, a second row grows underneath, one section under each. Saves from before have one row.
+const lotSlot = (k) => (state.lotLayout && state.lotLayout[k]) || [0, k];
+const slotOrigin = (row, col) => { const e = roadEnd(); return { x: e.x + 0.9 + col * (LOT.w + 0.7), z: e.z - 1.2 + row * (LOT.d + 0.7) }; };
+function sectionOrigin(k) { const [row, col] = lotSlot(k); return slotOrigin(row, col); }
+const slotBox = (row, col) => { const o = slotOrigin(row, col); return { x0: o.x, x1: o.x + LOT.w, z0: o.z, z1: o.z + LOT.d }; };
+const rowLen = (row) => { let n = 0; for (let k = 0; k < state.lotSections; k++) if (lotSlot(k)[0] === row) n++; return n; };
+// Where the next section goes, and what (if anything) stops it: along the first row while the land
+// allows, then the second row, one section under each in the first.
+function nextLotSlot() {
+  const r0 = rowLen(0), r1 = rowLen(1);
+  const cands = [[0, r0]];
+  if (r1 < r0) cands.push([1, r1]);
+  let first = null;
+  for (const [row, col] of cands) {
+    const bb = slotBox(row, col), land = lotLandBlock(bb), what = !land && inLotWay(bb);
+    const c = { row, col, bb, land, what };
+    if (!land && !what) return c;
+    if (!first) first = c;
+    if (row === 1 && !first.second) first.second = c;
+  }
+  return first;
+}
 function sectionTrees(k) {
   const o = sectionOrigin(k), set = new Set();
   for (let z = o.z; z <= o.z + LOT.d; z += 1) for (let x = o.x; x <= o.x + LOT.w; x += 1) treesInBrush({ x, z }, 1.2, (t) => set.add(t));
@@ -6103,15 +6190,18 @@ function buildLot() {
     const o = sectionOrigin(k);
     clearTreeSet(sectionTrees(k));
     lotGroup.add(lotMesh(o));
-    if (k) {
-      const x0 = sectionOrigin(k - 1).x + LOT.w - 0.05, x1 = o.x + 0.05;
+    const [row, col] = lotSlot(k);
+    if (col) {
+      const x0 = slotOrigin(row, col - 1).x + LOT.w - 0.05, x1 = o.x + 0.05;
       for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
     }
+    if (row === 1 && col === 0) lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
         const x = o.x + 0.25 + c * 0.5;
-        stalls.push({ x, z: za + side * 0.95, aisle: { x, z: za }, entry: { x: o.x - 0.45, z: za }, heading: side < 0 ? Math.PI : 0, car: null });
+        const ex = row ? slotOrigin(1, 0).x - 0.45 : o.x - 0.45; // the second row is reached down the drive on its west side
+        stalls.push({ x, z: za + side * 0.95, aisle: { x, z: za }, entry: { x: ex, z: za }, row, heading: side < 0 ? Math.PI : 0, car: null });
       }
     }
   }
@@ -6565,6 +6655,7 @@ function makeSchedule(n) {
   return out.sort((a, b) => b.t - a.t); // popped from the end
 }
 function carPath(stall) {
+  if (stall.row) { const o = slotOrigin(0, 0); return [...ROAD_WORLD, { x: o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
@@ -7161,7 +7252,7 @@ function endDay() {
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
-    complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])),
+    complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
   guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0;
   endOps();
@@ -9447,7 +9538,7 @@ function bldStep(B) {
       q.splice(i, 1); B.qv++;
       g.sat -= 6; today.complaints.lines++;
       thought(g, `The line at ${B.name} was too long.`);
-      if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.lunchAt = state.time; } // still hungry: eat somewhere else
+      if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.lunchAt = state.time; g.foodLine = B.id; } // still hungry: eat somewhere else
       if (g.svc === 'rr') g.bl = 0.7;
       if (g.svc === 'rent') { g.needsRental = false; g.sat -= 4; thought(g, 'I gave up on the rental line and rented in town.'); }
       shopDone(g, g.svc);
@@ -9468,6 +9559,7 @@ function serve(g, B) {
     g.sat -= 4; today.complaints.price++;
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
     if (svc === 'food' || svc === 'dine') { g.ate = true; g.skipped = true; }
+    if (['food', 'dine', 'finedine', 'snack'].includes(svc) && (!g.ate || g.skipped)) g.foodPrice = B.id; // lunch, but not at that price
     if (svc === 'warm') g.warmed = true;
     if (svc === 'snack') g.snacked = true;
     if (svc === 'rent') { g.needsRental = false; g.sat -= 4; }
@@ -9514,6 +9606,7 @@ function finishVisit(g) {
   }
   g.deck = -1;
   const name = B ? B.name : 'the lodge';
+  if (['food', 'dine', 'finedine', 'snack'].includes(svc)) g.skipped = false; // ate after all
   if (svc === 'food') { g.ate = true; g.sat += 4; thought(g, `Lunch at ${name} hit the spot.`); }
   else if (svc === 'warm' && B && B.type === 'firepit') { g.warmed = true; g.fat = Math.max(0, g.fat - g.stam * 0.2); g.sat += 4; thought(g, `Warmed up by the fire. Back out there!`); }
   else if (svc === 'warm') {
@@ -9636,10 +9729,32 @@ function updateNeeds(g, dt) {
     g.sat -= dt / 60 * 0.06;
     if (!g.rrComplained) { g.rrComplained = true; today.complaints.rr++; thought(g, 'I really need a restroom.'); }
   }
-  if ((!g.ate || g.skipped) && state.time > g.lunchAt + 75) {
+  // Not hungry yet: eating, in line or on the way to eat, or in a lesson (they eat after).
+  const atLunch = g.st === 'lesson' || (['inside', 'bq', 'walk', 'glide'].includes(g.st) && ['food', 'dine', 'finedine', 'snack'].includes(g.svc));
+  if ((!g.ate || g.skipped) && !atLunch && state.time > g.lunchAt + 75) {
     g.sat -= dt / 60 * 0.06;
-    if (!g.hungry) { g.hungry = true; today.complaints.food++; thought(g, 'I’m starving and haven’t found anywhere to eat.'); }
+    if (!g.hungry) { g.hungry = true; today.complaints.food++; noteHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
   }
+}
+// Why a guest went hungry, so the report and What next? can say what would actually help: lunch
+// cost too much, the line was too long (and where), or there was nowhere to eat near where they ski.
+function noteHunger(g) {
+  const h = today.hungry || (today.hungry = { price: 0, late: 0, line: {}, nowhere: {} });
+  if (g.foodPrice != null) { h.price += AGENT; return; }
+  if (g.foodLine != null) { h.line[g.foodLine] = (h.line[g.foodLine] || 0) + AGENT; return; }
+  if (g.lunchAt > 840) { h.late += AGENT; return; } // wanted lunch as the kitchens were closing
+  const p = g.st === 'ski' && g.T ? guestPos(g) : g;
+  let best = null, bd = Infinity;
+  for (const L of world.lifts) for (const q of [L.a, L.b]) { const d = distXZ(q, p); if (d < bd) { bd = d; best = L; } }
+  const k = best && !(best.fromBase && distXZ(best.a, p) === bd) ? best.id : 'base';
+  h.nowhere[k] = (h.nowhere[k] || 0) + AGENT;
+}
+// The day's hungry guests, by reason, with names: for the report and What next?
+function hungerSummary(h) {
+  if (!h) return null;
+  const line = Object.entries(h.line).map(([id, n]) => ({ id: +id, name: (bldById(+id) || {}).name || 'a busy eatery', n })).sort((a, b) => b.n - a.n);
+  const nowhere = Object.entries(h.nowhere).map(([id, n]) => ({ id, name: id === 'base' ? null : (world.lifts.find((L) => String(L.id) === id) || {}).name, n })).sort((a, b) => b.n - a.n);
+  return { price: h.price, late: h.late, line, nowhere, lineN: line.reduce((a, x) => a + x.n, 0), nowhereN: nowhere.reduce((a, x) => a + x.n, 0) };
 }
 const hungerOf = (g) => (g.ate && !g.skipped ? 0.12 : clamp((state.time - (g.lunchAt - 160)) / 200, 0, 1));
 
@@ -10812,12 +10927,27 @@ function advice() {
     if (r.avgWait > 12) add(false, `Lift lines averaged ${Math.round(r.avgWait)} minutes last time you opened. Another lift, or a faster one, would spread guests out.`, 'Build a lift', () => setTool('lift'));
     if (r.turnedAway > 0) add(false, `${r.turnedAway} guests were turned away because the parking was full.`, 'Parking', () => openManage('blds'));
     if ((c.noRental || 0) > 0 && !world.buildings.some((B) => RENTS.includes(B.type))) add(false, `${c.noRental} guests wanted to rent skis. A rental shop at the base pays for itself.`, 'Build a rental shop', () => pickBuilding('rental'));
-    if ((c.food || 0) > 20) add(false, 'Lunch was crowded. Another place to eat, or a bigger lodge, keeps guests happy.', 'Build a café', () => pickBuilding('cafe'));
+    if ((c.food || 0) > 20) hungerAdvice(r, add);
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
   if (defaultName(state.resortName) && !practice) add(false, `Give your resort a name of its own, so it stands out on the leaderboards. Right now it’s just “${esc(state.resortName)}”.`, 'Name my resort', () => openCommunity('profile'));
   if (!out.length) add(false, 'Things are running smoothly. Read the day report each evening for ideas, and check your goals for what to aim at next.', 'Goals', () => openGoals());
   return out.sort((a, b) => b.urgent - a.urgent).slice(0, 4);
+}
+// Hungry guests: advice for the biggest reason, not always another café.
+function hungerAdvice(r, add) {
+  const h = r.hungry, n = r.complaints.food;
+  if (!h) return add(false, `${n} guests went hungry. Another place to eat, or a bigger lodge, keeps guests happy.`, 'Build a café', () => pickBuilding('cafe'));
+  const top = [['price', h.price], ['line', h.lineN], ['nowhere', h.nowhereN]].sort((a, b) => b[1] - a[1])[0];
+  if (!top[1]) return; // they only wanted lunch as the kitchens closed
+  if (top[0] === 'price') return add(false, `${h.price} of ${n} hungry guests found lunch too expensive and skipped it. Lower food prices so more of them eat.`, 'Prices', () => openManage('prices'));
+  if (top[0] === 'line') {
+    const B = bldById(h.line[0].id), up = B && BTYPES[B.type].tiers && BTYPES[B.type].tiers[B.tier + 1];
+    return add(false, `${h.lineN} hungry guests gave up on long lunch lines${B ? `, mostly at ${B.name}` : ''}. ${up ? `Upgrading ${B.name} adds seats` : 'Another place to eat nearby spreads the crowd'}${B && B.isBase ? '' : ', and one by a busy lift helps too'}.`,
+      up ? `Open ${B.name}` : 'Build a café', up ? () => { setTool('explore'); select({ kind: 'bld', obj: B }); } : () => pickBuilding('cafe'));
+  }
+  const w = h.nowhere[0], L = w && w.id !== 'base' && world.lifts.find((x) => String(x.id) === w.id);
+  return add(false, `${h.nowhereN} hungry skiers found nowhere to eat near where they were skiing${L ? `, mostly around ${L.name}` : ''}. Guests look for food at lift stations and beside trails: put a café or food truck ${L ? `by the top of ${L.name}` : 'by a busy lift'}, where they pass.`, 'Build a café', () => pickBuilding('cafe'));
 }
 function adviceSheet(mode) {
   adviceShown = advice();
@@ -11501,11 +11631,12 @@ function levelAt(p) {
   updateCash(true);
 }
 function landSheet() {
-  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze';
+  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant';
   const head = area ? `<div class="sheet-title"><h3>New learning area</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES('area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="seg" role="group" aria-label="Landscape mode">
-      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze && !plant}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="plant" aria-pressed="${plant}">Replant<small>${money(REPLANT_COST)} a tree</small></button>
       <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
       <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button></div>`;
   if (area) {
@@ -11523,7 +11654,9 @@ function landSheet() {
     <p class="help">Tap a single tree, trail light, lamp post or fire pit to remove it. Trees cost ${money(TREE_COST)} to clear; lights and fire pits you placed return a quarter of their price. Automatic trail lights along a lit trail are free to remove and stay gone; the trail stays lit.</p>
     <p class="help">Ctrl+Z puts back the last one. Bigger things (lifts, trails, buildings) are removed from their own panel.</p>`;
   return `${head}
-    <p class="help">${lvl
+    <p class="help">${plant
+      ? 'Drag over cleared ground to regrow the trees that stood there: fill in the glades between trails, or screen the parking lot. Trails, lift lines, learning areas, buildings and the lot stay clear.'
+      : lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for glades, views and building sites.'}</p>
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Learning areas for first-timers are under <button class="link" data-action="trailMode" data-v="area">Trail</button>.</p>`;
@@ -11843,6 +11976,17 @@ function adviceFor(r) {
 }
 // The day report. `past` shows an earlier day from the Money panel, just to read.
 let rpPast = false;
+// What the day report says about hungry guests: the count, then the reasons, biggest first.
+function hungryNote(r) {
+  const c = r.complaints, h = r.hungry, n = c.food;
+  if (!h) return `${n} guests went hungry without finding food.`;
+  const parts = [];
+  if (h.price) parts.push([h.price, `${h.price} found lunch too expensive and skipped it`]);
+  if (h.lineN) parts.push([h.lineN, `${h.lineN} gave up on long lines${h.line[0] ? ` (mostly at ${esc(h.line[0].name)})` : ''}`]);
+  if (h.nowhereN) parts.push([h.nowhereN, `${h.nowhereN} found nowhere to eat near where they were skiing${h.nowhere[0] && h.nowhere[0].name ? ` (mostly around ${esc(h.nowhere[0].name)})` : ''}`]);
+  if (h.late) parts.push([h.late, `${h.late} wanted lunch as the kitchens were closing`]);
+  return `${n} guests went hungry: ${parts.sort((a, b) => b[0] - a[0]).map((x) => x[1]).join('; ')}.`;
+}
 // Why the day went the way it did: guests against the last week of open days, what made the
 // difference, and the biggest thing that cost guests. One or two plain sentences at the top.
 function whyToday(r) {
@@ -11932,7 +12076,7 @@ function showReport(r = state.lastReport, past = false) {
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
   if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
-  if (c.food) note(3, `${c.food} guests went hungry without finding food.`);
+  if (c.food) note(3, hungryNote(r));
   if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
   if (c.price) note(2, `${c.price} guests decided a price was too high.`);
   if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
@@ -12749,7 +12893,7 @@ canvas.addEventListener('pointerdown', (e) => {
     const paint = state.tool === 'clear' && state.landMode !== 'doze' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
     if (paint) {
       gesture = { type: 'paint' };
-      pushUndo(state.landMode === 'level' ? 'leveling the ground' : 'clearing trees');
+      pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
       stroke.active = true;
       const p = pickTerrain(e.clientX, e.clientY);
       stroke.target = p ? trueY(p.x, p.z) : 0;
@@ -13924,6 +14068,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.44', date: 'Oct 27, 2026', title: 'Replant trees, a second row of parking, and smarter lunch advice', items: [
+    'Replant: a new Landscape brush regrows the trees that were cleared, $150 a tree. Fill in the glades between trails, or screen the parking lot; trails and lift lines stay clear.',
+    'Once the main lot can’t grow along the road, buy the land below it (Business › Land) and a second row of parking fits underneath, one section under each.',
+    'Fixed: guests sitting down to a long restaurant lunch were counted as hungry, so What next? kept asking for another café. Now the report says why guests went hungry (lunch too expensive, lines too long, or nowhere to eat nearby) and What next? suggests the fix that matches.',
+  ] },
   { v: '2.43', date: 'Oct 27, 2026', title: 'Buy more land', show: ['land', 'Open Land'], items: [
     'After your first week open, the land around your property comes up for sale: 24 parcels, priced by what they’re good for. Road frontage (shuttle stations, a transit center, a base village, and lifts seen from the highway), valley ground for a second base, or mountain for more terrain.',
     'Buy a parcel outright, or lease it for a nightly rent that shows on your day report. Deals are done overnight and permits take three days. Each parcel you take on makes the next one 15% dearer.',
