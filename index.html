@@ -5192,6 +5192,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'manage') openManage(b.dataset.v);
   else if (a === 'landSel') { landSel = landSel === b.dataset.v ? null : b.dataset.v; renderSheet(); }
+  else if (a === 'landList') { landListOpen = true; renderSheet(); }
   else if (a === 'landBuy') landTake(b.dataset.v, 'buy');
   else if (a === 'landLease') landTake(b.dataset.v, 'lease');
   else if (a === 'landCancel') landCancel(b.dataset.v);
@@ -5333,7 +5334,7 @@ function landInUse(p) {
   return world.buildings.some((B) => on(B.x, B.z)) || world.lifts.some((L) => on(L.a.x, L.a.z) || on(L.b.x, L.b.z))
     || realTrails().some((t) => t.samples.some((q) => on(q.x, q.z))) || stalls.some((st) => on(st.x, st.z)) || world.plans.some((pl) => on(pl.x ?? (pl.a || {}).x ?? 1e9, pl.z ?? (pl.a || {}).z ?? 1e9));
 }
-let landSel = null;
+let landSel = null, landListOpen = false;
 function landTake(id, how) {
   const p = PARCELS.find((q) => q.id === id);
   if (!p || landHeld(id) || state.phase !== 'closed' || visiting || !landOpen() || !landReachable(p)) return;
@@ -5407,7 +5408,12 @@ function landPanel() {
       <p class="help">${LAND_KIND[info.kind].blurb}</p>
       <dl class="kv"><div><dt>Size</dt><dd>${info.acres} acres</dd></div><div><dt>${l ? 'Paid' : 'Price'}</dt><dd>${l && l.own === 'lease' ? 'Leased' : money(price)}</dd></div></dl>${act}</div>`;
   }
+  // On a phone the map is the list: tap a tag to see one parcel; the full list is there if you want it.
+  if (isPhone() && P) return `${detail}<button class="link" data-action="landSel" data-v="${P.id}">‹ All parcels</button>`;
   const groups = ['road', 'valley', 'mountain'].map((k) => [k, PARCELS.filter((p) => parcelInfo(p).kind === k)]).filter(([, ps]) => ps.length);
+  if (isPhone() && !landListOpen) return `<dl class="kv"><div><dt>Your land</dt><dd>${ownedAcres().toLocaleString('en-US')} acres</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
+    <p class="help"><b>Tap a price tag on the map</b> to see that parcel. Each one you take on makes the next ${Math.round(LAND_STEP * 100)}% dearer.</p>
+    <button class="link" data-action="landList">Show them as a list</button>`;
   return `<dl class="kv"><div><dt>Your land</dt><dd>${ownedAcres().toLocaleString('en-US')} acres</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
     <p class="help">Tap a parcel on the map or in the list. Each one you take on makes the next ${Math.round(LAND_STEP * 100)}% dearer.</p>
     ${detail}
@@ -5415,6 +5421,36 @@ function landPanel() {
       const st = landStatus(p), info = parcelInfo(p);
       return `<li class="lrow${landSel === p.id ? ' on' : ''}" data-action="landSel" data-v="${p.id}"><div class="l1"><b>${esc(p.name)}</b><span class="pill ${st ? 'on' : ''}">${st || (landReachable(p) ? shortMoney(landPrice(p)) : 'Corner')}</span></div><div class="l2"><span>${info.acres} acres</span>${st ? '' : `<span>or ${money(leaseOf(landPrice(p)))}/day</span>`}</div></li>`;
     }).join('')}</ul>`).join('')}`;
+}
+// A phone pulls the camera back until every parcel's tag sits between the top bar and the panel. A
+// narrow screen needs to see further out than the usual zoom allows; the next pinch brings it back.
+function fitLandView(only) {
+  if (!(selected && selected.kind === 'manage' && selected.obj === 'land')) return;
+  const top = $('timebar').getBoundingClientRect().bottom + 26, bottom = sheet.getBoundingClientRect().top - 18;
+  const pts = PARCELS.filter((p) => !only || p.id === only).map((p) => { const gx = (p.i0 + p.i1) / 2, gz = (p.j0 + p.j1) / 2; return [gx - HALF, sampleGrid(HT, gx, gz) * VEX + 1.5, gz - HALF]; });
+  const keep = { x: cam.target.x, z: cam.target.z, viewH: cam.viewH, az: cam.az };
+  if (!only) cam.az = cam.azGoal = Math.round(cam.az / (Math.PI / 2)) * (Math.PI / 2); // square-on: the property at its narrowest
+  const box = () => { updateCamera(); camera.updateMatrixWorld(); let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const q of pts) { const r = project(...q); x0 = Math.min(x0, r.x); x1 = Math.max(x1, r.x); y0 = Math.min(y0, r.y); y1 = Math.max(y1, r.y); } return { x0, x1, y0, y1 }; };
+  let fit = null;
+  for (let v = only ? 150 : Math.max(cam.viewH, 240); v <= 900 && !fit; v += 10) { // one parcel: a closer look
+    cam.viewH = v;
+    for (let it = 0; it < 6; it++) { // nudge the target until the tags are centred in the free space
+      const b = box(), ex = (b.x0 + b.x1) / 2 - W / 2, ey = (b.y0 + b.y1) / 2 - (top + bottom) / 2;
+      const bx = cam.target.x, bz = cam.target.z;
+      cam.target.x = bx + 1; const dx = box(); cam.target.x = bx; cam.target.z = bz + 1; const dz = box(); cam.target.z = bz;
+      const J = [[(dx.x0 + dx.x1) / 2 - (b.x0 + b.x1) / 2, (dz.x0 + dz.x1) / 2 - (b.x0 + b.x1) / 2], [(dx.y0 + dx.y1) / 2 - (b.y0 + b.y1) / 2, (dz.y0 + dz.y1) / 2 - (b.y0 + b.y1) / 2]];
+      const det = J[0][0] * J[1][1] - J[0][1] * J[1][0];
+      if (Math.abs(det) < 1e-9) break;
+      cam.target.x = bx - (J[1][1] * ex - J[0][1] * ey) / det; cam.target.z = bz - (-J[1][0] * ex + J[0][0] * ey) / det;
+    }
+    const b = box();
+    if (b.x0 >= 36 && b.x1 <= W - 36 && b.y0 >= top && b.y1 <= bottom) fit = { x: cam.target.x, z: cam.target.z, viewH: v }; // a tag is ~64px wide
+    if (only) fit = fit || { x: cam.target.x, z: cam.target.z, viewH: v }; // just slide it into view
+  }
+  if (!fit) fit = { x: cam.target.x, z: cam.target.z, viewH: cam.viewH };
+  const az = cam.az;
+  Object.assign(cam.target, { x: keep.x, z: keep.z }); cam.viewH = keep.viewH; cam.az = keep.az; cam.viewGoal = null; updateCamera();
+  camTween = { t: 0, from: { x: keep.x, z: keep.z, az: keep.az, viewH: keep.viewH }, to: { x: fit.x, z: fit.z, az, viewH: fit.viewH } };
 }
 // On the map while the Land panel is open: each parcel's outline and a tag with its price or status.
 const landTagLayer = $('landTags'), landGroup = new THREE.Group();
@@ -5428,6 +5464,7 @@ function updateLandMarks() {
     return;
   }
   const sig = JSON.stringify(state.land) + landSel + state.phase;
+  if (!landTagsOn && isPhone()) { landListOpen = false; setTimeout(fitLandView, 60); } // once the panel has its size
   if (landMarksDirty || !landTagsOn || sig !== landMarksSig) {
     landMarksDirty = false; landTagsOn = true; landMarksSig = sig;
     landGroup.children.forEach((o) => { o.geometry.dispose(); o.material.dispose(); });
@@ -5448,13 +5485,14 @@ function updateLandMarks() {
       el.className = 'chip land' + (l ? ' pend' : '') + (landSel === p.id ? ' sel' : '') + (!l && !landReachable(p) ? ' off' : '');
       el.innerHTML = `<span>${l ? `Permits ${l.wait}d` : landReachable(p) ? shortMoney(landPrice(p)) : 'Corner'}</span>`;
       el.title = `${p.name} · ${LAND_KIND[parcelInfo(p).kind].label}`;
-      el.onclick = () => { landSel = p.id; landMarksDirty = true; renderSheet(); };
+      el.onclick = () => { landSel = p.id; landMarksDirty = true; renderSheet(); if (isPhone()) setTimeout(() => fitLandView(p.id), 60); };
       landTagLayer.appendChild(el); landTagEls.set(p.id, { el, p });
     }
   }
   for (const { el, p } of landTagEls.values()) {
     const gx = (p.i0 + p.i1) / 2, gz = (p.j0 + p.j1) / 2, q = project(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 1.5, gz - HALF);
-    const vis = q.ok && q.x > -40 && q.x < W + 40 && q.y > 20 && q.y < H + 20;
+    const under = !sheet.hidden && q.y > sheet.getBoundingClientRect().top - 8 && q.x > sheet.getBoundingClientRect().left - 8 && q.x < sheet.getBoundingClientRect().right + 8;
+    const vis = q.ok && q.x > -40 && q.x < W + 40 && q.y > 20 && q.y < H + 20 && !under;
     el.hidden = !vis;
     if (vis) el.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`;
   }

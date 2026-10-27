@@ -73,4 +73,21 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[state.land.map((l) => l.id), Math.round(state.cash)]`), [['S2'], Math.round(c1)], 'undo calls it off');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+
+  // on a phone the map is the list: a short panel, tap a tag for one parcel's card
+  const p = await openGame(browser, url, { width: 390, height: 844 });
+  await p.click('#startBtn'); await p.wait(400);
+  await p.ev(SETUPS.juniperStarter);
+  await p.ev(`(() => { state.seasonStats.days = 7; openManage('land'); })()`); await p.wait(300);
+  const short = await p.ev(`$('sheet').innerText`);
+  assert(/Tap a price tag on the map/i.test(short) && !/South 1/.test(short), 'a short panel that points at the map');
+  await p.ev(`landTagEls.get('S2').el.click()`); await p.wait(200);
+  const card = await p.ev(`$('sheet').innerText`);
+  assert(/South 3/.test(card) && /Buy/i.test(card) && !/West 1/.test(card), 'tapping a tag opens just that parcel');
+  await p.click('#sheet [data-action=landSel]'); await p.wait(100);
+  eq(await p.ev(`landSel`), null, 'and All parcels goes back');
+  await p.click('#sheet [data-action=landList]'); await p.wait(100);
+  assert(/West 1/.test(await p.ev(`$('sheet').innerText`)), 'the full list is there if wanted');
+  eq(p.errors, [], 'no page errors on the phone');
+  await p.page.close();
 }
