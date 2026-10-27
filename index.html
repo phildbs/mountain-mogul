@@ -711,10 +711,19 @@ a.vtag { text-decoration: none; }
 .chip {
   position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 10px 4px 6px; border-radius: 999px;
   border: 1px solid #e3b23c; background: #fff6dc; color: #6b4a00; font: 700 12px/1.2 var(--ui); white-space: nowrap; cursor: pointer;
-  box-shadow: 0 3px 10px rgba(20, 36, 58, 0.22); pointer-events: auto; z-index: 1;
+  box-shadow: 0 3px 10px rgba(20, 36, 58, 0.22); pointer-events: auto;
 }
 .chip i { font-style: normal; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #e3a51c; color: #fff; font-size: 10px; font-weight: 800; }
 .chip.bad { border-color: var(--steep); background: var(--steep); color: #fff; }
+.chip.land { padding: 4px 10px; border-color: #e3b23c; }
+.chip.land::after { display: none; }
+.chip.land.pend { background: #e7efff; border-color: var(--blue); color: var(--blue); }
+.chip.land.sel { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip.land.off { opacity: 0.6; }
+.land-card { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 4px 0 10px; background: #fff; display: grid; gap: 6px; }
+.land-card .l1 { display: flex; align-items: center; gap: 8px; }
+.land-card .l1 b { flex: 1; font-size: 15px; }
+.lrow.on { border-color: var(--ink); background: #fff; }
 .chip.bad i { background: #fff; color: var(--steep); }
 .chip::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; border: inherit; border-top: 0; border-left: 0; transform: rotate(45deg); }
 .flabel.sel { background: var(--ink); color: #fff; border-color: var(--ink); }
@@ -1125,6 +1134,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div id="hud" hidden>
     <div class="layer" id="labels"></div>
     <div class="layer" id="chips"></div>
+    <div class="layer" id="landTags"></div>
     <div class="layer" id="handles"></div>
     <div class="layer" id="hints"><button class="lifthint" id="liftHint" type="button" hidden><i aria-hidden="true"></i><span></span></button></div>
     <div class="top-left">
@@ -1490,7 +1500,7 @@ let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
-const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'snow', 'money', 'plans'];
+const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'snow', 'money', 'plans', 'land'];
 const isPhone = () => matchMedia('(max-width: 640px)').matches;
 const pickTool = (name) => (isPhone() ? `Tap <b>Build</b>, then <b>${name}</b>.` : `Pick <b>${name}</b>.`);
 /* ---------- Crash reports ----------
@@ -1873,11 +1883,34 @@ function sampleGrid(arr, gx, gz) {
 }
 function heightAt(x, z) { return sampleGrid(HT, x + HALF, z + HALF) * VEX; }
 function inWorld(x, z) { return x > -HALF && x < HALF && z > -HALF && z < HALF; }
-function inProperty(x, z) { const gx = x + HALF, gz = z + HALF; return gx >= PLAY0 && gx <= PLAY1 && gz >= PLAY0 && gz <= PLAY1; }
+/* ---------- Land: parcels beyond the original property, bought or leased ----------
+   A band 16 deep all round the property: five 32-wide parcels on each side and a 16 x 16 parcel at
+   each corner (the world beyond that fades into haze). Parcels you own or lease count as your
+   property; LAND is the box around everything you hold. */
+const PD = 16, PARCELS = [];
+for (let n = 0; n < 5; n++) {
+  const a = PLAY0 + n * 32, b = a + 32;
+  PARCELS.push({ id: `N${n}`, name: `North ${n + 1}`, i0: a, i1: b, j0: PLAY0 - PD, j1: PLAY0 });
+  PARCELS.push({ id: `S${n}`, name: `South ${n + 1}`, i0: a, i1: b, j0: PLAY1, j1: PLAY1 + PD });
+  PARCELS.push({ id: `W${n}`, name: `West ${n + 1}`, i0: PLAY0 - PD, i1: PLAY0, j0: a, j1: b });
+  PARCELS.push({ id: `E${n}`, name: `East ${n + 1}`, i0: PLAY1, i1: PLAY1 + PD, j0: a, j1: b });
+}
+for (const [id, name, i0, j0] of [['NW', 'Northwest corner', PLAY0 - PD, PLAY0 - PD], ['NE', 'Northeast corner', PLAY1, PLAY0 - PD], ['SW', 'Southwest corner', PLAY0 - PD, PLAY1], ['SE', 'Southeast corner', PLAY1, PLAY1]])
+  PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD });
+let landRects = []; // parcels that are yours (bought or leased, permits through)
+const LAND = { i0: PLAY0, i1: PLAY1, j0: PLAY0, j1: PLAY1 };
+const inRect = (p, gx, gz) => gx >= p.i0 && gx <= p.i1 && gz >= p.j0 && gz <= p.j1;
+const inGridLand = (gx, gz) => (gx >= PLAY0 && gx <= PLAY1 && gz >= PLAY0 && gz <= PLAY1) || landRects.some((p) => inRect(p, gx, gz));
+function inProperty(x, z) { return inGridLand(x + HALF, z + HALF); }
+// How far a grid point is from land you hold.
+function landDist(gx, gz) {
+  let d = Math.hypot(Math.max(PLAY0 - gx, gx - PLAY1, 0), Math.max(PLAY0 - gz, gz - PLAY1, 0));
+  for (const p of landRects) d = Math.min(d, Math.hypot(Math.max(p.i0 - gx, gx - p.i1, 0), Math.max(p.j0 - gz, gz - p.j1, 0)));
+  return d;
+}
 
 function hazeAt(gx, gz) {
-  const dx = Math.max(PLAY0 - gx, gx - PLAY1, 0), dz = Math.max(PLAY0 - gz, gz - PLAY1, 0);
-  const d = Math.hypot(dx, dz);
+  const d = landDist(gx, gz);
   let k = gz < PLAY0 ? sstep(12, 62, d) * 0.5 : sstep(3, 48, d) * 0.78;
   const e = Math.min(gx, WN - gx, gz, WN - gz);
   return Math.max(k, sstep(18, 1, e));
@@ -2145,7 +2178,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
-    if (overlay.slope && i >= PLAY0 && i <= PLAY1 && j >= PLAY0 && j <= PLAY1) mix(DIFF[difficulty(g)].col, 0.72);
+    if (overlay.slope && inGridLand(i, j)) mix(DIFF[difficulty(g)].col, 0.72);
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
   }
@@ -2240,17 +2273,67 @@ function buildTrees() {
   scene.add(treeMesh);
 }
 
+// The dashed line round your property: the outline of every 16-unit tile you hold.
+let boundaryLine = null;
 function buildBoundary() {
-  const pts = [];
-  const add = (gx, gz) => pts.push(new THREE.Vector3(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 0.35, gz - HALF));
-  for (let t = 0; t <= PN; t += 0.5) add(PLAY0 + t, PLAY0);
-  for (let t = 0; t <= PN; t += 0.5) add(PLAY1, PLAY0 + t);
-  for (let t = PN; t >= 0; t -= 0.5) add(PLAY0 + t, PLAY1);
-  for (let t = PN; t >= 0; t -= 0.5) add(PLAY0, PLAY0 + t);
+  if (boundaryLine) { scene.remove(boundaryLine); boundaryLine.geometry.dispose(); boundaryLine.material.dispose(); }
+  const T = PD, n = WN / T, own = (ti, tj) => ti >= 0 && tj >= 0 && ti < n && tj < n && inGridLand(ti * T + T / 2, tj * T + T / 2);
+  const pts = [], at = (gx, gz) => new THREE.Vector3(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 0.35, gz - HALF);
+  const edge = (x0, z0, x1, z1) => { for (let t = 0; t < T; t += 0.5) { pts.push(at(x0 + (x1 - x0) * t / T, z0 + (z1 - z0) * t / T), at(x0 + (x1 - x0) * (t + 0.5) / T, z0 + (z1 - z0) * (t + 0.5) / T)); } };
+  for (let tj = 0; tj < n; tj++) for (let ti = 0; ti < n; ti++) {
+    if (!own(ti, tj)) continue;
+    const x = ti * T, z = tj * T;
+    if (!own(ti, tj - 1)) edge(x, z, x + T, z);
+    if (!own(ti + 1, tj)) edge(x + T, z, x + T, z + T);
+    if (!own(ti, tj + 1)) edge(x, z + T, x + T, z + T);
+    if (!own(ti - 1, tj)) edge(x, z, x, z + T);
+  }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const line = new THREE.Line(geo, new THREE.LineDashedMaterial({ color: 0xdf562c, dashSize: 1.4, gapSize: 1.0, transparent: true, opacity: 0.75, fog: false }));
-  line.computeLineDistances();
-  scene.add(line);
+  boundaryLine = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({ color: 0xdf562c, dashSize: 1.4, gapSize: 1.0, transparent: true, opacity: 0.75, fog: false }));
+  boundaryLine.computeLineDistances();
+  scene.add(boundaryLine);
+}
+// What a parcel is good for, from the ground itself: road frontage (flat, reachable: parking and a
+// village), valley (a base area) or mountain (steep or high: terrain and vertical). Prices follow.
+const LAND_KIND = {
+  road: { label: 'Road frontage', price: 900000, blurb: 'Along the access road: room for shuttle stations, a transit center and a base village. Lifts you can see from the highway bring in a few more guests.' },
+  valley: { label: 'Valley', price: 600000, blurb: 'Gentle ground for base buildings, a learning area or a second base.' },
+  mountain: { label: 'Mountain', price: 350000, blurb: 'Steeper or higher ground: longer runs, more vertical and expert terrain.' },
+};
+function parcelInfo(p) {
+  if (p.info) return p.info;
+  let road = Infinity, h = 0, sl = 0, n = 0;
+  for (let j = p.j0; j <= p.j1; j += 2) for (let i = p.i0; i <= p.i1; i += 2) { const idx = j * NV + i; road = Math.min(road, ROADD[idx]); h += HT[idx]; sl += sampleGrid(GR, i, j); n++; }
+  const frac = (h / n - MOUNTAIN.baseH) / Math.max(1, MOUNTAIN.summitH - MOUNTAIN.baseH);
+  const kind = road < 9 ? 'road' : frac > 0.3 || sl / n > 0.32 ? 'mountain' : 'valley';
+  p.info = { kind, acres: Math.round((p.i1 - p.i0) * (p.j1 - p.j0) * ACRES_PER_CELL), base: LAND_KIND[kind].price * (p.corner ? 0.5 : 1) * MOUNTAIN.costs, frac, slope: sl / n };
+  return p.info;
+}
+// After land changes hands: what counts as yours, the haze over the rest, the trees you may clear,
+// and the boundary line. Nothing to redo when the land hasn't changed.
+let landSig = '';
+function applyLand() {
+  const active = (state.land || []).filter((l) => !l.wait);
+  const sig = active.map((l) => l.id).sort().join(',');
+  landRects = active.map((l) => PARCELS.find((p) => p.id === l.id)).filter(Boolean);
+  Object.assign(LAND, { i0: Math.min(PLAY0, ...landRects.map((p) => p.i0)), i1: Math.max(PLAY1, ...landRects.map((p) => p.i1)), j0: Math.min(PLAY0, ...landRects.map((p) => p.j0)), j1: Math.max(PLAY1, ...landRects.map((p) => p.j1)) });
+  if (sig === landSig) return;
+  landSig = sig;
+  for (const p of PARCELS) {
+    const on = landRects.includes(p) ? 1 : 0;
+    for (let cj = p.j0; cj < p.j1; cj++) for (let ci = p.i0; ci < p.i1; ci++) {
+      const c = cj * WN + ci, s0 = trees.cellStart[c];
+      for (let k = s0; k < s0 + trees.cellCount[c]; k++) trees.play[k] = on;
+    }
+  }
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) HAZEV[j * NV + i] = hazeAt(i, j);
+  if (terrainGeo) terrainGeo.attributes.haze.needsUpdate = true;
+  for (let k = 0; k < trees.n; k++) trees.haze[k] = hazeAt(trees.x[k] + HALF, trees.z[k] + HALF);
+  if (treeMesh) packTrees();
+  plantDirty = true;
+  if (typeof scene !== 'undefined' && boundaryLine) buildBoundary();
+  if (renderer) renderer.shadowMap.needsUpdate = true;
+  if (BADGE_SUB) syncBadgeSub();
 }
 
 /* ---------- Point sprites: snowfall and clearing puffs ---------- */
@@ -2426,7 +2509,7 @@ function moveTarget(dx, dz) {
     cam.target.x = x; cam.target.z = z;
     const sc = focusScore();
     // Accept moves that stay in bounds, or that head back toward the mountain.
-    return sc <= FOCUS_LIMIT || sc < before;
+    return sc <= FOCUS_LIMIT + (landRects.length ? PD : 0) || sc < before;
   };
   if (tryAt(ox + dx, oz + dz) || tryAt(ox + dx, oz) || tryAt(ox, oz + dz)) return;
   cam.target.x = ox; cam.target.z = oz;
@@ -2606,9 +2689,9 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, offsite: state.offsite, nudges: state.nudges },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, nudges: state.nudges },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -2637,8 +2720,12 @@ function applySave(sv) {
   if (!state.wx) state.wx = initWeather(ok && sv.clock && sv.clock.day != null ? sv.clock.day : PRESEASON_DAY);
   restoreTerrain(ok ? sv.terrain : '');
   satSpaces = 0;
+  // land first: what's on bought parcels has to count as being on your property
+  state.land = ok && sv.clock && Array.isArray(sv.clock.land) ? sv.clock.land : [];
+  applyLand();
   rebuildWorld(ok ? sv.world : null);
   Object.assign(state, SIM_DEFAULTS, ok && sv.clock ? sv.clock : {});
+  if (!Array.isArray(state.land)) state.land = [];
   if (ok && sv.clock && !('rebated' in sv.clock)) state.rebated = 0; // saved before 2.33.2: may be owed the grooming refund
   if (ok && !visiting) cancelStaleEvent();
   if (satSpaces) {
@@ -2675,8 +2762,8 @@ function applySave(sv) {
    ===================================================================== */
 function treesInBrush(p, r, cb) {
   const gx = p.x + HALF, gz = p.z + HALF;
-  const i0 = Math.max(PLAY0, Math.floor(gx - r)), i1 = Math.min(PLAY1 - 1, Math.floor(gx + r));
-  const j0 = Math.max(PLAY0, Math.floor(gz - r)), j1 = Math.min(PLAY1 - 1, Math.floor(gz + r));
+  const i0 = Math.max(LAND.i0, Math.floor(gx - r)), i1 = Math.min(LAND.i1 - 1, Math.floor(gx + r));
+  const j0 = Math.max(LAND.j0, Math.floor(gz - r)), j1 = Math.min(LAND.j1 - 1, Math.floor(gz + r));
   const r2 = r * r;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const c = j * WN + i, s = trees.cellStart[c], e = s + trees.cellCount[c];
@@ -4161,8 +4248,8 @@ function trailEarthwork(samples, target, hw, dry) {
   const reach = hw + TRAIL_GRADE_BANK;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const s of samples) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
-  const i0 = Math.max(PLAY0, Math.floor(x0 + HALF - reach)), i1 = Math.min(PLAY1, Math.ceil(x1 + HALF + reach));
-  const j0 = Math.max(PLAY0, Math.floor(z0 + HALF - reach)), j1 = Math.min(PLAY1, Math.ceil(z1 + HALF + reach));
+  const i0 = Math.max(LAND.i0, Math.floor(x0 + HALF - reach)), i1 = Math.min(LAND.i1, Math.ceil(x1 + HALF + reach));
+  const j0 = Math.max(LAND.j0, Math.floor(z0 + HALF - reach)), j1 = Math.min(LAND.j1, Math.ceil(z1 + HALF + reach));
   const verts = []; // [index, nearest sample, weight]
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF;
@@ -4192,8 +4279,8 @@ function bridgeEarthwork(samples, hw, dry) {
   const reach = hw + TRAIL_GRADE_BANK;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const s of samples) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
-  const i0 = Math.max(PLAY0, Math.floor(x0 + HALF - reach)), i1 = Math.min(PLAY1, Math.ceil(x1 + HALF + reach));
-  const j0 = Math.max(PLAY0, Math.floor(z0 + HALF - reach)), j1 = Math.min(PLAY1, Math.ceil(z1 + HALF + reach));
+  const i0 = Math.max(LAND.i0, Math.floor(x0 + HALF - reach)), i1 = Math.min(LAND.i1, Math.ceil(x1 + HALF + reach));
+  const j0 = Math.max(LAND.j0, Math.floor(z0 + HALF - reach)), j1 = Math.min(LAND.j1, Math.ceil(z1 + HALF + reach));
   let cost = 0;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF, idx = j * NV + i;
@@ -5090,6 +5177,11 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'manage') openManage(b.dataset.v);
+  else if (a === 'landSel') { landSel = landSel === b.dataset.v ? null : b.dataset.v; renderSheet(); }
+  else if (a === 'landBuy') landTake(b.dataset.v, 'buy');
+  else if (a === 'landLease') landTake(b.dataset.v, 'lease');
+  else if (a === 'landCancel') landCancel(b.dataset.v);
+  else if (a === 'landEnd') landEndLease(b.dataset.v);
   else if (a === 'goTo') goToFeature(b.dataset.k, +b.dataset.id);
   else if (a === 'buildDecor') pickBuilding('lamp');
   else if (a === 'listFilter') { listView[b.dataset.k].filter = b.dataset.v; renderSheet(); }
@@ -5209,6 +5301,151 @@ function openLabelPop(open) {
   pop.style.bottom = `${Math.max(8, Math.round(innerHeight - b.bottom - 4))}px`;
 }
 const toggleAllLabels = () => { const any = LABEL_KINDS.some((k) => labelsOn[k]); setLabelKinds(Object.fromEntries(LABEL_KINDS.map((k) => [k, !any]))); return !any; };
+/* ---------- Buying land: the Land panel, deals, permits and rent ----------
+   Overnight, any parcel touching your land can be bought or leased. Permits take three days; a lease
+   is paid every night from then on and can be handed back while nothing of yours stands on it. Each
+   parcel you take on makes the next one dearer. Land comes up for sale after your first week open. */
+const LAND_PERMIT_DAYS = 3, LEASE_RATE = 0.0015, LAND_STEP = 0.15, LAND_OPEN_DAYS = 7;
+const landOpen = () => state.season > 1 || ((state.seasonStats && state.seasonStats.days) || 0) >= LAND_OPEN_DAYS || (state.land || []).length > 0;
+const landHeld = (id) => (state.land || []).find((l) => l.id === id);
+const landPrice = (p) => Math.round(parcelInfo(p).base * (1 + LAND_STEP * (state.land || []).length) / 10000) * 10000;
+const leaseOf = (price) => Math.round(price * LEASE_RATE / 10) * 10;
+const shortMoney = (v) => (v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 0 : 2).replace(/\.?0+$/, '')}M` : `$${Math.round(v / 1000)}k`);
+// Every side parcel touches the property; a corner needs one of the parcels beside it first.
+const landReachable = (p) => !p.corner || landRects.some((q) => !(q.i1 < p.i0 || q.i0 > p.i1 || q.j1 < p.j0 || q.j0 > p.j1));
+// Anything of yours on a parcel: a lease can't be handed back while there is.
+function landInUse(p) {
+  const on = (x, z) => inRect(p, x + HALF, z + HALF);
+  return world.buildings.some((B) => on(B.x, B.z)) || world.lifts.some((L) => on(L.a.x, L.a.z) || on(L.b.x, L.b.z))
+    || realTrails().some((t) => t.samples.some((q) => on(q.x, q.z))) || stalls.some((st) => on(st.x, st.z)) || world.plans.some((pl) => on(pl.x ?? (pl.a || {}).x ?? 1e9, pl.z ?? (pl.a || {}).z ?? 1e9));
+}
+let landSel = null;
+function landTake(id, how) {
+  const p = PARCELS.find((q) => q.id === id);
+  if (!p || landHeld(id) || state.phase !== 'closed' || visiting || !landOpen() || !landReachable(p)) return;
+  const price = landPrice(p);
+  if (how === 'buy' && price > state.cash) return;
+  pushUndo(`${how === 'buy' ? 'buying' : 'leasing'} ${p.name}`);
+  if (how === 'buy') state.cash -= price;
+  state.land.push({ id, own: how, wait: LAND_PERMIT_DAYS, price, rent: how === 'lease' ? leaseOf(price) : 0 });
+  updateCash(true); landMarksDirty = true; renderSheet(); scheduleSave();
+  toast(`${how === 'buy' ? `Bought ${p.name} · −${money(price)}` : `Leased ${p.name} for ${money(leaseOf(price))} a day`}. Permits take ${LAND_PERMIT_DAYS} days.`);
+}
+// While the permits are pending a deal can be called off, with any money back.
+function landCancel(id) {
+  const l = landHeld(id), p = PARCELS.find((q) => q.id === id);
+  if (!l || !l.wait || state.phase !== 'closed' || visiting) return;
+  pushUndo(`the ${p.name} deal`);
+  if (l.own === 'buy') state.cash += l.price;
+  state.land = state.land.filter((x) => x !== l);
+  updateCash(true); landMarksDirty = true; renderSheet(); scheduleSave();
+  toast(`Called off ${p.name}${l.own === 'buy' ? ` · ${money(l.price)} back` : ''}`);
+}
+function landEndLease(id) {
+  const l = landHeld(id), p = PARCELS.find((q) => q.id === id);
+  if (!l || l.own !== 'lease' || l.wait || state.phase !== 'closed' || visiting || landInUse(p)) return;
+  pushUndo(`ending the ${p.name} lease`);
+  state.land = state.land.filter((x) => x !== l);
+  applyLand(); computeNetwork(); syncLabels(); landMarksDirty = true; renderSheet(); scheduleSave();
+  toast(`Handed back ${p.name}. No more rent.`);
+}
+// Each night: permits move along, and leases are paid.
+function landOvernight() {
+  let rent = 0;
+  const done = [];
+  for (const l of state.land || []) {
+    if (l.wait) { l.wait--; if (!l.wait) done.push(l); }
+    else if (l.own === 'lease') rent += l.rent;
+  }
+  if (rent) { state.cash -= rent; state.leaseAcc = (state.leaseAcc || 0) + rent; }
+  if (done.length) {
+    applyLand(); computeNetwork(); syncLabels(); landMarksDirty = true;
+    const names = done.map((l) => PARCELS.find((q) => q.id === l.id).name);
+    toast(`Permits approved: ${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} now yours to build on.`, false, { label: 'Land', fn: () => openManage('land') });
+  }
+}
+function landStatus(p) {
+  const l = landHeld(p.id);
+  if (!l) return null;
+  return l.wait ? `Permits in ${l.wait} ${l.wait === 1 ? 'day' : 'days'}` : l.own === 'lease' ? `Leased · ${money(l.rent)}/day` : 'Owned';
+}
+function landPanel() {
+  if (!landOpen()) {
+    const left = LAND_OPEN_DAYS - ((state.seasonStats && state.seasonStats.days) || 0);
+    return `<p class="help">The land around your property comes up for sale after your first week open: ${left} more open ${left === 1 ? 'day' : 'days'} to go.</p>
+      <p class="help">Then you can buy or lease parcels beside your property: road frontage for more parking and a village, valley ground for a second base, or mountain for more terrain.</p>`;
+  }
+  const held = state.land || [], rent = held.filter((l) => l.own === 'lease' && !l.wait).reduce((a, l) => a + l.rent, 0);
+  const closed = state.phase === 'closed' && !visiting;
+  let detail = '';
+  const P = landSel && PARCELS.find((q) => q.id === landSel);
+  if (P) {
+    const info = parcelInfo(P), l = landHeld(P.id), price = l ? l.price : landPrice(P), lease = l ? l.rent || leaseOf(price) : leaseOf(price);
+    const reach = landReachable(P), inUse = l && landInUse(P);
+    let act;
+    if (l && l.wait) act = `<p class="conn">${l.own === 'buy' ? `Bought for ${money(l.price)}` : `Leased for ${money(l.rent)} a day`}. Permits come through in <b>${l.wait} ${l.wait === 1 ? 'day' : 'days'}</b>.</p>${closed ? `<button class="link" data-action="landCancel" data-v="${P.id}">Call it off${l.own === 'buy' ? ` and get ${money(l.price)} back` : ''}</button>` : ''}`;
+    else if (l && l.own === 'buy') act = `<p class="conn">Yours. Build on it like the rest of your property.</p>`;
+    else if (l) act = `<p class="conn">Leased for <b>${money(l.rent)}</b> a day.</p>${closed ? (inUse ? '<p class="help">To hand it back, first remove everything you built on it.</p>' : `<button class="link" data-action="landEnd" data-v="${P.id}">End the lease</button>`) : ''}`;
+    else if (!reach) act = '<p class="help">Take on a parcel beside this corner first.</p>';
+    else act = `<div class="row"><button class="btn" data-action="landBuy" data-v="${P.id}" ${closed && price <= state.cash ? '' : 'disabled'}>${price <= state.cash ? `Buy · ${money(price)}` : `Need ${money(price - state.cash)} more`}</button><button class="btn secondary" data-action="landLease" data-v="${P.id}" ${closed ? '' : 'disabled'}>Lease · ${money(lease)}/day</button></div>
+      <p class="help">${closed ? `Permits take ${LAND_PERMIT_DAYS} days. A lease costs nothing up front and is paid every night once it starts.` : 'Land deals are done overnight, while the resort is closed.'}</p>`;
+    detail = `<div class="land-card"><div class="l1"><b>${esc(P.name)}</b><span class="pill">${LAND_KIND[info.kind].label}</span></div>
+      <p class="help">${LAND_KIND[info.kind].blurb}</p>
+      <dl class="kv"><div><dt>Size</dt><dd>${info.acres} acres</dd></div><div><dt>${l ? 'Paid' : 'Price'}</dt><dd>${l && l.own === 'lease' ? 'Leased' : money(price)}</dd></div></dl>${act}</div>`;
+  }
+  const groups = ['road', 'valley', 'mountain'].map((k) => [k, PARCELS.filter((p) => parcelInfo(p).kind === k)]).filter(([, ps]) => ps.length);
+  return `<dl class="kv"><div><dt>Your land</dt><dd>${ownedAcres().toLocaleString('en-US')} acres</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
+    <p class="help">Tap a parcel on the map or in the list. Each one you take on makes the next ${Math.round(LAND_STEP * 100)}% dearer.</p>
+    ${detail}
+    ${groups.map(([k, ps]) => `<div class="field-label">${LAND_KIND[k].label}</div><ul class="llist">${ps.map((p) => {
+      const st = landStatus(p), info = parcelInfo(p);
+      return `<li class="lrow${landSel === p.id ? ' on' : ''}" data-action="landSel" data-v="${p.id}"><div class="l1"><b>${esc(p.name)}</b><span class="pill ${st ? 'on' : ''}">${st || (landReachable(p) ? shortMoney(landPrice(p)) : 'Corner')}</span></div><div class="l2"><span>${info.acres} acres</span>${st ? '' : `<span>or ${money(leaseOf(landPrice(p)))}/day</span>`}</div></li>`;
+    }).join('')}</ul>`).join('')}`;
+}
+// On the map while the Land panel is open: each parcel's outline and a tag with its price or status.
+const landTagLayer = $('landTags'), landGroup = new THREE.Group();
+scene.add(landGroup);
+let landMarksDirty = true, landTagsOn = false, landMarksSig = '';
+const landTagEls = new Map();
+function updateLandMarks() {
+  const on = state.started && !visiting && state.tool === 'explore' && selected && selected.kind === 'manage' && selected.obj === 'land' && landOpen();
+  if (!on) {
+    if (landTagsOn) { landTagsOn = false; landTagLayer.innerHTML = ''; landTagEls.clear(); landGroup.clear(); landMarksDirty = true; }
+    return;
+  }
+  const sig = JSON.stringify(state.land) + landSel + state.phase;
+  if (landMarksDirty || !landTagsOn || sig !== landMarksSig) {
+    landMarksDirty = false; landTagsOn = true; landMarksSig = sig;
+    landGroup.children.forEach((o) => { o.geometry.dispose(); o.material.dispose(); });
+    landGroup.clear(); landTagLayer.innerHTML = ''; landTagEls.clear();
+    for (const p of PARCELS) {
+      const l = landHeld(p.id);
+      if (l && !l.wait) continue; // yours: the boundary line shows it
+      const pts = [], at = (gx, gz) => pts.push(new THREE.Vector3(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 0.3, gz - HALF));
+      const ins = 0.6;
+      for (let t = 0; t <= 1; t += 1 / 32) at(lerp(p.i0 + ins, p.i1 - ins, t), p.j0 + ins);
+      for (let t = 0; t <= 1; t += 1 / 32) at(p.i1 - ins, lerp(p.j0 + ins, p.j1 - ins, t));
+      for (let t = 0; t <= 1; t += 1 / 32) at(lerp(p.i1 - ins, p.i0 + ins, t), p.j1 - ins);
+      for (let t = 0; t <= 1; t += 1 / 32) at(p.i0 + ins, lerp(p.j1 - ins, p.j0 + ins, t));
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: l ? 0x2565d4 : landSel === p.id ? 0x14243a : 0xe3a51c, dashSize: 0.9, gapSize: 0.6, transparent: true, opacity: 0.9, depthTest: false, fog: false }));
+      line.computeLineDistances(); line.renderOrder = 15;
+      landGroup.add(line);
+      const el = document.createElement('button');
+      el.className = 'chip land' + (l ? ' pend' : '') + (landSel === p.id ? ' sel' : '') + (!l && !landReachable(p) ? ' off' : '');
+      el.innerHTML = `<span>${l ? `Permits ${l.wait}d` : landReachable(p) ? shortMoney(landPrice(p)) : 'Corner'}</span>`;
+      el.title = `${p.name} · ${LAND_KIND[parcelInfo(p).kind].label}`;
+      el.onclick = () => { landSel = p.id; landMarksDirty = true; renderSheet(); };
+      landTagLayer.appendChild(el); landTagEls.set(p.id, { el, p });
+    }
+  }
+  for (const { el, p } of landTagEls.values()) {
+    const gx = (p.i0 + p.i1) / 2, gz = (p.j0 + p.j1) / 2, q = project(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 1.5, gz - HALF);
+    const vis = q.ok && q.x > -40 && q.x < W + 40 && q.y > 20 && q.y < H + 20;
+    el.hidden = !vis;
+    if (vis) el.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`;
+  }
+}
+
 /* ---------- Status chips: problems you can see on the map while the resort is open ----------
    Long lift lines, a full parking lot and slow lines at buildings get a small marker where they
    happen; tap one to open what needs fixing. At most four, worst first. Worked out every couple of
@@ -5573,7 +5810,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, reputation: 1, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -5598,7 +5835,7 @@ function lotLandBlock(bb) {
 // Where the main lot can still grow: the run of sections past its end that the land allows.
 let reserveKey = '', reserveBoxes = [];
 function lotReserve() {
-  const key = `${MOUNTAIN.id}:${state.lotSections}:${terrainRev}`;
+  const key = `${MOUNTAIN.id}:${state.lotSections}:${terrainRev}:${landSig}`; // bought land lets the lot grow further
   if (key !== reserveKey) {
     reserveKey = key; reserveBoxes = [];
     for (let k = state.lotSections; k < state.lotSections + 30 && !lotLandBlock(sectionBox(k)); k++) reserveBoxes.push(sectionBox(k));
@@ -6234,6 +6471,7 @@ function demandForDay() {
   if (has('clinic')) amen += 0.03;
   if (has('hrest')) amen += 0.02;
   if (learningOpen()) amen += 0.04;
+  if (landRects.some((p) => parcelInfo(p).kind === 'road')) amen += 0.03; // lifts you can see from the highway
   if (world.lifts.some((L) => L.type === 'gondola' && L.fromBase)) amen += 0.05; // a base gondola is a draw in itself // families and first-timers look for a good learning area
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   const w = todayWx();
@@ -6764,6 +7002,7 @@ function openDay() {
   today.exp.snowmaking = state.smAcc || 0; today.smNights = state.smNights || 0; state.smAcc = 0; state.smNights = 0;
   today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
   today.exp.overhead = state.ohAcc || 0; state.ohAcc = 0;
+  today.exp.lease = state.leaseAcc || 0; state.leaseAcc = 0; // land rent, paid nightly
   today.wx = { ...todayWx() };
   today.holds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
   if (today.holds.length) {
@@ -6828,7 +7067,7 @@ function endDay() {
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
-  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
+  const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + (today.exp.lease || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
   // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
@@ -6856,7 +7095,7 @@ function endDay() {
   state.lastReport = {
     event: evToday ? evToday.type : null,
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
@@ -6957,6 +7196,7 @@ function nextDay() {
   chargeInterest(1);
   const oh = dailyOverhead() * (preOpening() ? OFFSEASON_RATE : 1); // until opening day, a skeleton crew
   state.cash -= oh; state.ohAcc = (state.ohAcc || 0) + oh;
+  landOvernight();
   coverOverdraft();
   updateCash(false);
   if (state.bankrupt) { refreshSnowState(todayWx()); styleSnowVisuals(); refreshTimebar(true); renderSheet(); return; }
@@ -10322,7 +10562,8 @@ function avgBase() {
 }
 function midDepth() {
   let s = 0, n = 0;
-  for (let j = PLAY0; j <= PLAY1; j += 4) for (let i = PLAY0; i <= PLAY1; i += 4) {
+  for (let j = LAND.j0; j <= LAND.j1; j += 4) for (let i = LAND.i0; i <= LAND.i1; i += 4) {
+    if (!inGridLand(i, j)) continue;
     const e = elevFrac(HT[j * NV + i]);
     if (e > 0.35 && e < 0.65) { s += NS[j * NV + i]; n++; }
   }
@@ -10330,7 +10571,8 @@ function midDepth() {
 }
 function depthAtElev(lo, hi) {
   let s = 0, n = 0;
-  for (let j = PLAY0; j <= PLAY1; j += 4) for (let i = PLAY0; i <= PLAY1; i += 4) {
+  for (let j = LAND.j0; j <= LAND.j1; j += 4) for (let i = LAND.i0; i <= LAND.i1; i += 4) {
+    if (!inGridLand(i, j)) continue;
     const e = elevFrac(HT[j * NV + i]);
     if (e >= lo && e <= hi) { s += NS[j * NV + i]; n++; }
   }
@@ -10352,7 +10594,7 @@ function baseZone() {
   for (const p of pts) {
     const ci = Math.round(p.x + HALF), cj = Math.round(p.z + HALF);
     for (let j = cj - BASE_REACH; j <= cj + BASE_REACH; j++) for (let i = ci - BASE_REACH; i <= ci + BASE_REACH; i++) {
-      if (i < PLAY0 || j < PLAY0 || i > PLAY1 || j > PLAY1 || Math.hypot(i - ci, j - cj) > BASE_REACH) continue;
+      if (!inGridLand(i, j) || Math.hypot(i - ci, j - cj) > BASE_REACH) continue;
       if (!isBase({ x: i - HALF, z: j - HALF })) continue;
       out.push(j * NV + i);
     }
@@ -11088,8 +11330,8 @@ function recomputeGrades(i0, j0, i1, j1) {
 // Smoothly pulls heights toward a target inside a circle (brush).
 function levelBrush(p, r, target, strength, dry) {
   const gx = p.x + HALF, gz = p.z + HALF;
-  const i0 = Math.max(PLAY0, Math.floor(gx - r)), i1 = Math.min(PLAY1, Math.ceil(gx + r));
-  const j0 = Math.max(PLAY0, Math.floor(gz - r)), j1 = Math.min(PLAY1, Math.ceil(gz + r));
+  const i0 = Math.max(LAND.i0, Math.floor(gx - r)), i1 = Math.min(LAND.i1, Math.ceil(gx + r));
+  const j0 = Math.max(LAND.j0, Math.floor(gz - r)), j1 = Math.min(LAND.j1, Math.ceil(gz + r));
   let cost = 0;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const d = Math.hypot(i - gx, j - gz);
@@ -11103,8 +11345,8 @@ function levelBrush(p, r, target, strength, dry) {
 }
 // Levels a rectangle flat, with banks that blend back into the slope.
 function levelRect(bb, target, margin, dry) {
-  const i0 = Math.max(PLAY0, Math.floor(bb.x0 + HALF - margin)), i1 = Math.min(PLAY1, Math.ceil(bb.x1 + HALF + margin));
-  const j0 = Math.max(PLAY0, Math.floor(bb.z0 + HALF - margin)), j1 = Math.min(PLAY1, Math.ceil(bb.z1 + HALF + margin));
+  const i0 = Math.max(LAND.i0, Math.floor(bb.x0 + HALF - margin)), i1 = Math.min(LAND.i1, Math.ceil(bb.x1 + HALF + margin));
+  const j0 = Math.max(LAND.j0, Math.floor(bb.z0 + HALF - margin)), j1 = Math.min(LAND.j1, Math.ceil(bb.z1 + HALF + margin));
   let cost = 0;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF;
@@ -11590,8 +11832,8 @@ function whyToday(r) {
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
-  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, ...r.rev };
-  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.investor + ex.apres + ex.night;
+  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, lease: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, ...r.rev };
+  const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.lease + ex.investor + ex.apres + ex.night;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
@@ -11675,7 +11917,7 @@ function showReport(r = state.lastReport, past = false) {
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
       <span>Trail grooming</span><span>${money(ex.grooming)}</span>
       <span>Staff</span><span>${money(ex.staff)}</span>
-      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Land lease', ex.lease)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${opsReportHtml(r)}
@@ -11837,7 +12079,7 @@ let resortTab = 'prices';
    Trails, Lifts and Buildings list everything with its status at a glance and quick controls;
    tapping a row flies there and opens its full panel. Operations, Prices, Snow and Money hold the rest. */
 const MANAGE = [['trails', 'Trails'], ['lifts', 'Lifts'], ['blds', 'Buildings'], ['parking', 'Parking'], ['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['evenings', 'Evenings'], ['snow', 'Snow'], ['money', 'Money'], ['plans', 'Plans']];
-const BIZ = [['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['evenings', 'Evenings']];
+const BIZ = [['ops', 'Operations'], ['prices', 'Prices'], ['events', 'Events'], ['evenings', 'Evenings'], ['land', 'Land']];
 let lastBiz = 'ops', bizOpen = false;
 // The Business flyout: shown while it's open or one of its panels is, beside the Business button.
 function syncBizFly() {
@@ -11847,12 +12089,12 @@ function syncBizFly() {
   if (BIZ.some(([k]) => k === cur)) bizOpen = true;
   f.hidden = !bizOpen || !btn || visiting;
   if (f.hidden) return;
-  if (!f.children.length) f.innerHTML = BIZ.map(([k, l]) => `<button data-m="${k}" role="menuitem">${{ ops: btn.querySelector('svg').outerHTML, prices: PRICES_ICON, events: EVENTS_ICON, evenings: EVENINGS_ICON }[k]}${l}</button>`).join('');
+  if (!f.children.length) f.innerHTML = BIZ.map(([k, l]) => `<button data-m="${k}" role="menuitem">${{ ops: btn.querySelector('svg').outerHTML, prices: PRICES_ICON, events: EVENTS_ICON, evenings: EVENINGS_ICON, land: LAND_ICON }[k]}${l}</button>`).join('');
   for (const b of f.children) b.setAttribute('aria-current', String(b.dataset.m === cur));
   const r = btn.getBoundingClientRect(), rail = $('manage').getBoundingClientRect();
   f.style.left = `${rail.right + 8}px`; f.style.top = `${r.top + r.height / 2 - f.offsetHeight / 2}px`;
 }
-const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', evenings: 'Evenings', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', more: 'More' };
+const MANAGE_TITLE = { trails: 'Trails', lifts: 'Lifts', blds: 'Buildings', parking: 'Parking & buses', ops: 'Operations', prices: 'Prices & passes', events: 'Events', evenings: 'Evenings', snow: 'Weather & snow', money: 'Money', plans: 'Blueprints', land: 'Land', more: 'More' };
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
@@ -11873,17 +12115,18 @@ function managePanel(key) {
     <div class="sheet-title"><h3>${MANAGE_TITLE[key]}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   const body = key === 'trails' ? trailsList() : key === 'lifts' ? liftsList() : key === 'blds' ? bldsList() : key === 'parking' ? parkingPanel()
     : key === 'ops' ? opsSection() : key === 'prices' ? pricesPanel() : key === 'events' ? eventsPanel() : key === 'evenings' ? eveningsPanel() : key === 'snow' ? weatherSheet(true)
-      : key === 'plans' ? plansList() : key === 'more' ? moreHub() : moneyPanel();
+      : key === 'plans' ? plansList() : key === 'more' ? moreHub() : key === 'land' ? landPanel() : moneyPanel();
   return head + body;
 }
 const PRICES_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8" r="1.5"/></svg>';
+const LAND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/></svg>';
 const EVENINGS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>';
 const EVENTS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4.5c4-2 7 2 11 0l3-1v9l-3 1c-4 2-7-2-11 0"/></svg>';
 // Phones: everything that isn't Trails, Lifts or Buildings, as tiles that say how each part is doing.
 function moreHub() {
   const nextDay = state.phase === 'open' ? state.day + 1 : state.day;
   const ev = state.event && EVENTS[state.event.type];
-  const icon = (k) => { const b = $('manage').querySelector(`[data-m=${k}] svg`) || $('manage').querySelector(`[data-m=biz] svg`); return k === 'events' ? EVENTS_ICON : k === 'evenings' ? EVENINGS_ICON : k === 'prices' ? PRICES_ICON : b ? b.outerHTML : ''; };
+  const icon = (k) => { const b = $('manage').querySelector(`[data-m=${k}] svg`) || $('manage').querySelector(`[data-m=biz] svg`); return k === 'land' ? LAND_ICON : k === 'events' ? EVENTS_ICON : k === 'evenings' ? EVENINGS_ICON : k === 'prices' ? PRICES_ICON : b ? b.outerHTML : ''; };
   const tiles = [
     ['parking', 'Parking', `Main lot ${lotCapacity()}${offsiteSpec() ? ` · off-site ${offsiteSpec().spaces}` : ''}`],
     ['ops', 'Operations', `${OPS_NAME[planFor(nextDay)]} plan ${state.phase === 'open' ? 'tomorrow' : 'next'}`],
@@ -11892,6 +12135,7 @@ function moreHub() {
     ['evenings', 'Evenings', eveningsStatus()],
     ['snow', 'Snow', `${inch(baseDepth())} base${todayWx().snow >= 1 ? ` · ${inch(todayWx().snow)} new` : ''}`],
     ['money', 'Money', `${money(state.cash)}${state.debt ? ` · loan ${money(state.debt)}` : ''}`],
+    ['land', 'Land', landOpen() ? `${ownedAcres().toLocaleString('en-US')} acres` : 'For sale after your first week'],
     ...(world.plans.length ? [['plans', 'Blueprints', `${world.plans.length} waiting`]] : []),
   ].filter(([k]) => !visiting || VISIT_MANAGE.includes(k));
   const extra = visiting ? '' : `<button class="mtile" data-action="hubGoals"><span class="ic">★</span><b>Goals</b><small>★ ${starsOf()} of ${goalList().length} goals</small></button>
@@ -13622,6 +13866,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.43', date: 'Oct 27, 2026', title: 'Buy more land', show: ['land', 'Open Land'], items: [
+    'After your first week open, the land around your property comes up for sale: 24 parcels, priced by what they’re good for. Road frontage (shuttle stations, a transit center, a base village, and lifts seen from the highway), valley ground for a second base, or mountain for more terrain.',
+    'Buy a parcel outright, or lease it for a nightly rent that shows on your day report. Deals are done overnight and permits take three days. Each parcel you take on makes the next one 15% dearer.',
+    'Find it under Business › Land (More › Land on phones). While it’s open, every parcel shows its price on the map.',
+  ] },
   { v: '2.42', date: 'Oct 27, 2026', title: 'Plant trees, add benches and picnic tables', show: ['plop', 'Open Buildings'], items: [
     'Plant trees anywhere off the trails: frame the base village, screen the lot, or soften a bare slope. Each tap plants one; keep tapping to plant a row.',
     'Benches and picnic tables go down with one tap too. Tired skiers stop for a few minutes and head back out with more energy, all day long. Put them by lifts, at the base, or beside a trail, where skiers stop as they pass.',
@@ -14094,6 +14343,9 @@ $('wnClose').onclick = () => { $('whatsNew').hidden = true; };
 $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew') $('whatsNew').hidden = true; });
 
 let titleTime = 0, BADGE_SUB = '';
+// The badge under the resort name: the mountain's level and how many acres you hold.
+const ownedAcres = () => Math.round(PN * PN * ACRES_PER_CELL) + landRects.reduce((a, p) => a + parcelInfo(p).acres, 0);
+function syncBadgeSub() { BADGE_SUB = `${MOUNTAIN.level} · ${ownedAcres().toLocaleString('en-US')} acres`; $('resortSub').textContent = BADGE_SUB; }
 function refreshTitle() { renderSlots(); }
 /* ---------- Your mountains: a shelf of cards, one per save ---------- */
 let slotAsk = null; // the mountain waiting for a delete confirmation
@@ -14658,6 +14910,7 @@ function frame(now) {
   if (plantDirty) syncPlanted();
   updateLabels();
   updateChips();
+  updateLandMarks();
   updateHandles();
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
@@ -14682,10 +14935,8 @@ function start(hot) {
   if (activeSlot() && onThisMountain() && !loadSave()) { state.resortName = activeSlot().name; $('resortName').textContent = state.resortName; } // a new mountain, made before reloading onto it
   if (activeSlot() && !activeSlot().when) saveNow(); // fills in the list entry (also for saves from before multiple mountains)
 
-  const acres = Math.round(PN * PN * ACRES_PER_CELL);
   document.querySelector('.badge .diff-dot').style.background = MOUNTAIN.dot;
-  BADGE_SUB = `${MOUNTAIN.level} · ${acres.toLocaleString('en-US')} acres`;
-  $('resortSub').textContent = BADGE_SUB;
+  syncBadgeSub();
 
   resize();
   renderer.shadowMap.needsUpdate = true;

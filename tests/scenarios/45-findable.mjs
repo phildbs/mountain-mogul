@@ -10,7 +10,7 @@ export default async function ({ browser, url }) {
   for (const k of ['parking', 'biz']) assert(await g.ev(`!!$('manage').querySelector('[data-m=${k}]')`), `the side bar has ${k}`);
   eq(await g.ev(`['ops', 'prices', 'events', 'evenings'].filter((k) => $('manage').querySelector('[data-m=' + k + ']'))`), [], 'Operations, Prices and Events share one Business button');
   await g.click('#manage [data-m=biz]'); await g.wait(100);
-  eq(await g.ev(`[$('bizFly').hidden, [...$('bizFly').querySelectorAll('[data-m]')].map((b) => b.dataset.m)]`), [false, ['ops', 'prices', 'events', 'evenings']], 'Business opens a bar of Operations, Prices, Events and Evenings beside it');
+  eq(await g.ev(`[$('bizFly').hidden, [...$('bizFly').querySelectorAll('[data-m]')].map((b) => b.dataset.m)]`), [false, ['ops', 'prices', 'events', 'evenings', 'land']], 'Business opens a bar of Operations, Prices, Events, Evenings and Land beside it');
   await g.click('#bizFly [data-m=events]'); await g.wait(100);
   eq(await g.ev(`[selected && selected.obj, $('bizFly').hidden, $('manage').querySelector('[data-m=biz]').getAttribute('aria-current')]`), ['events', false, 'true'], 'a button there opens its panel, with the bar and Business still lit');
   assert(/Torchlight|Book one/i.test(await g.ev(`$('sheet').innerText`)), 'Events lists what you can book');
