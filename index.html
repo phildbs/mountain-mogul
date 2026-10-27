@@ -649,6 +649,7 @@ body.visiting .badge { cursor: default; }
 .rmcard .rm-txt { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.3; }
 .rmcard b { font-family: var(--display); font-weight: 800; font-size: 16px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); margin-right: 6px; }
 .rmcard i { font-style: normal; font-size: 20px; color: var(--blue); font-weight: 600; }
+.rmcard .rm-new { flex: none; background: var(--accent); color: #fff; font: 700 11px var(--ui); border-radius: 999px; padding: 2px 8px; box-shadow: 0 2px 6px rgba(223, 86, 44, 0.35); }
 /* A brand-new player's mountain card already offers the tutorial; don't offer it twice. */
 #title:has(.tutbig) .tutcard { display: none; }
 .fbcard .gc-ico { background: var(--ink); }
@@ -1498,6 +1499,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <a class="panel rmcard" id="roadmapCard" href="roadmap.html">
       <span class="rm-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></span>
       <span class="rm-txt"><b>Roadmap</b>Vote on what gets built next</span>
+      <span class="rm-new" id="roadmapNew" hidden></span>
       <i aria-hidden="true">›</i>
     </a>
     </div>
@@ -14346,6 +14348,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.46.4', date: 'Oct 28, 2026', title: 'New on the roadmap', small: true, items: [
+    'The Roadmap card shows how many ideas are new or have changed since you last looked, and the roadmap tags them New or Updated. Seven player ideas were just added to vote on.',
+  ] },
   { v: '2.46.3', date: 'Oct 28, 2026', title: 'Custom mountains paused for fixes', small: true, items: [
     'Designing new custom mountains is temporarily disabled while their terrain is fixed: Gentle and Easy settings could still make cliffs. Custom mountains you already have keep playing as normal.',
   ] },
@@ -14715,7 +14720,7 @@ async function sendFeedback() {
   say('Sent. Thank you!');
 }
 $('mFeedback').onclick = () => openFeedback();
-$('mRoadmap').onclick = () => window.open('roadmap.html', '_blank', 'noopener');
+$('mRoadmap').onclick = () => { roadmapOpened(); window.open('roadmap.html', '_blank', 'noopener'); };
 $('fbLink').onclick = () => openFeedback('idea');
 if (location.hash === '#idea') { history.replaceState(null, '', location.pathname + location.search); openFeedback('idea'); } // from the roadmap page
 $('fbKind').onclick = (e) => { const b = e.target.closest('button'); if (b) setFbKind(b.dataset.k); };
@@ -14870,7 +14875,29 @@ let titleTime = 0, BADGE_SUB = '';
 // The badge under the resort name: the mountain's level and how many acres you hold.
 const ownedAcres = () => Math.round(PN * PN * ACRES_PER_CELL) + landRects.reduce((a, p) => a + parcelInfo(p).acres, 0);
 function syncBadgeSub() { BADGE_SUB = `${state.sandbox ? 'Sandbox' : MOUNTAIN.level} · ${ownedAcres().toLocaleString('en-US')} acres`; $('resortSub').textContent = BADGE_SUB; }
-function refreshTitle() { renderSlots(); }
+function refreshTitle() { renderSlots(); checkRoadmap(); }
+// The Roadmap card shows how many ideas are new or have changed status since you last opened the
+// roadmap. The roadmap page keeps what you last saw (each idea's status) in mm.roadmapSeen.
+const roadmapCards = (html) => Object.fromEntries([...html.matchAll(/data-idea="([^"]+)"><div class="t"><h3>[^<]*<\/h3><span class="st (\w+)"/g)].map((m) => [m[1], m[2]]));
+let roadmapAt = 0;
+async function checkRoadmap() {
+  if (Date.now() - roadmapAt < 60000) return; // once a minute is plenty
+  roadmapAt = Date.now();
+  try {
+    const now = roadmapCards(await (await fetch('roadmap.html', { cache: 'no-cache' })).text());
+    if (!Object.keys(now).length) return;
+    let seen = null;
+    try { seen = JSON.parse(localStorage.getItem('mm.roadmapSeen') || 'null'); } catch (e) { /* storage blocked */ }
+    if (!seen && !slots.list.length) { localStorage.setItem('mm.roadmapSeen', JSON.stringify(now)); return; } // a first visit starts from today's roadmap
+    const n = seen ? Object.keys(now).filter((id) => seen[id] !== now[id]).length : 0;
+    const el = $('roadmapNew');
+    el.textContent = !seen ? 'New ideas' : `${n} new`;
+    el.hidden = !!seen && !n;
+    $('mRoadmap').classList.toggle('isnew', !el.hidden);
+  } catch (e) { /* offline: no badge */ }
+}
+const roadmapOpened = () => { $('roadmapNew').hidden = true; $('mRoadmap').classList.remove('isnew'); roadmapAt = 0; };
+$('roadmapCard').addEventListener('click', roadmapOpened);
 /* ---------- Your mountains: a shelf of cards, one per save ---------- */
 let slotAsk = null; // the mountain waiting for a delete confirmation
 let slotMore = null; // the mountain whose ⋯ menu is open
