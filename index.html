@@ -249,6 +249,21 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .hist td { text-align: right; padding: 5px 4px; border-top: 1px solid var(--line); }
 .hist th:first-child, .hist td:first-child { text-align: left; }
 .hist tr[data-action] { cursor: pointer; }
+.rp-why { margin: 2px 0 10px; padding: 9px 12px; border-radius: 10px; background: rgba(37, 101, 212, 0.07); font-size: 13.5px; line-height: 1.45; }
+.rp-why b { color: var(--blue); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 4px; }
+.scharts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-bottom: 4px; }
+.schart { margin: 0; min-width: 0; touch-action: pan-y; }
+.schart figcaption { display: flex; align-items: baseline; gap: 6px; font-size: 11.5px; color: var(--ink-2); margin-bottom: 3px; }
+.schart figcaption span { font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 10.5px; }
+.schart figcaption b { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+.schart figcaption small { margin-left: auto; font-size: 10.5px; white-space: nowrap; }
+.schart svg { display: block; width: 100%; height: 64px; overflow: visible; cursor: crosshair; }
+.schart .bar rect { fill: var(--blue); }
+.schart .bar rect.neg { fill: var(--steep); }
+.schart .line polyline { fill: none; stroke: var(--blue); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.schart .zero { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.schart .xhair { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+.sc-ax { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-2); margin-top: 2px; }
 .hist tr[data-action]:hover td { background: rgba(20, 36, 58, 0.05); }
 .menu .confirm { padding: 8px 10px; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
 .menu .confirm-row { display: flex; gap: 6px; padding: 0 6px 6px; }
@@ -693,6 +708,15 @@ a.vtag { text-decoration: none; }
   box-shadow: 0 2px 8px rgba(20, 36, 58, 0.16); pointer-events: auto; cursor: pointer; margin-top: -4px;
 }
 .flabel:hover { border-color: rgba(20, 36, 58, 0.3); }
+.chip {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 5px; padding: 4px 10px 4px 6px; border-radius: 999px;
+  border: 1px solid #e3b23c; background: #fff6dc; color: #6b4a00; font: 700 12px/1.2 var(--ui); white-space: nowrap; cursor: pointer;
+  box-shadow: 0 3px 10px rgba(20, 36, 58, 0.22); pointer-events: auto; z-index: 1;
+}
+.chip i { font-style: normal; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #e3a51c; color: #fff; font-size: 10px; font-weight: 800; }
+.chip.bad { border-color: var(--steep); background: var(--steep); color: #fff; }
+.chip.bad i { background: #fff; color: var(--steep); }
+.chip::after { content: ''; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; margin-left: -4px; background: inherit; border: inherit; border-top: 0; border-left: 0; transform: rotate(45deg); }
 .flabel.sel { background: var(--ink); color: #fff; border-color: var(--ink); }
 .flabel em { font-style: normal; font-weight: 700; font-size: 10.5px; color: var(--steep); text-transform: uppercase; letter-spacing: 0.04em; }
 .flabel.sel em { color: #ffb59c; }
@@ -1100,6 +1124,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 
   <div id="hud" hidden>
     <div class="layer" id="labels"></div>
+    <div class="layer" id="chips"></div>
     <div class="layer" id="handles"></div>
     <div class="layer" id="hints"><button class="lifthint" id="liftHint" type="button" hidden><i aria-hidden="true"></i><span></span></button></div>
     <div class="top-left">
@@ -1265,6 +1290,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button role="menuitemcheckbox" data-lk="trail"><span>Trails and learning areas</span><i class="sw"></i></button>
       <button role="menuitemcheckbox" data-lk="lift"><span>Lifts</span><i class="sw"></i></button>
       <button role="menuitemcheckbox" data-lk="bld"><span>Buildings and parking</span><i class="sw"></i></button>
+      <button role="menuitemcheckbox" data-lk="chip"><span>Problems while open</span><i class="sw"></i></button>
       <button class="lp-all" data-lk="all"></button>
     </div>
 
@@ -4896,6 +4922,9 @@ function liftSheet(L) {
     ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
 
+sheet.addEventListener('pointermove', (e) => chartHover(e));
+sheet.addEventListener('pointerdown', (e) => chartHover(e));
+sheet.addEventListener('pointerout', (e) => { const f = e.target.closest && e.target.closest('.schart'); if (f && !f.contains(e.relatedTarget)) chartHover(e, true); });
 sheet.addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
@@ -5144,8 +5173,8 @@ function syncLabels() {
 let lotLabel = null;
 // Which kinds of map label the player wants to see; remembered on this device. The selected
 // thing's label always shows.
-const LABEL_KINDS = ['trail', 'lift', 'bld'];
-let labelsOn = { trail: true, lift: true, bld: true };
+const LABEL_KINDS = ['trail', 'lift', 'bld', 'chip'];
+let labelsOn = { trail: true, lift: true, bld: true, chip: true };
 try { const off = (localStorage.getItem('mm.labelsOff') || '').split(','); for (const k of LABEL_KINDS) labelsOn[k] = !off.includes(k); } catch (e) { /* storage blocked */ }
 function setLabelKinds(next) {
   labelsOn = { ...labelsOn, ...next };
@@ -5171,6 +5200,56 @@ function openLabelPop(open) {
   pop.style.bottom = `${Math.max(8, Math.round(innerHeight - b.bottom - 4))}px`;
 }
 const toggleAllLabels = () => { const any = LABEL_KINDS.some((k) => labelsOn[k]); setLabelKinds(Object.fromEntries(LABEL_KINDS.map((k) => [k, !any]))); return !any; };
+/* ---------- Status chips: problems you can see on the map while the resort is open ----------
+   Long lift lines, a full parking lot and slow lines at buildings get a small marker where they
+   happen; tap one to open what needs fixing. At most four, worst first. Worked out every couple of
+   game-minutes, placed every frame. */
+const CHIP_MAX = 4, chipLayer = $('chips'), chipEls = new Map();
+const CHIP_CLOCK = '<svg viewBox="0 0 16 16" width="11" height="11"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 4.5V8l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+let chipList = [], chipAt = -99;
+function computeChips() {
+  const out = [], n = (v) => Math.round(v).toLocaleString('en-US');
+  for (const L of world.lifts) {
+    if (!L.open || L.planOff || L.windHold) continue;
+    const w = liftWait(L), q = L.queue.length * AGENT;
+    if (w >= 15 && q >= 20) out.push({ key: `L${L.id}`, sev: w >= 25 ? 2 : 1, score: w, x: L.a.x, z: L.a.z, icon: CHIP_CLOCK, text: `${L.name} · ${n(w)} min line`,
+      title: `${L.name}: about ${n(w)} minutes in line, ${n(q)} waiting`, go: () => select({ kind: 'lift', obj: L }) });
+  }
+  const cap = stalls.length, used = stalls.filter((st) => st.car).length, away = (today && today.turnedAway) || 0, c = cap && lotCenter();
+  if (c && used / cap >= 0.9) out.push({ key: 'lot', sev: away ? 2 : 1, score: away ? 40 : 14, x: c.x, z: c.z, icon: 'P',
+    text: away ? `Lot full · ${n(away)} turned away` : `Lot ${Math.round(used / cap * 100)}% full`, title: 'Parking is nearly full. More spaces or off-site parking lets more guests in.', go: () => openManage('parking') });
+  for (const B of world.buildings) {
+    if (isDecor(B) || !B.q || !bldOpenNow(B)) continue;
+    let w = 0;
+    for (const svc of offers(B)) if (POOL[svc] && B.q[POOL[svc]]) w = Math.max(w, estWait(B, svc));
+    if (w >= 12) out.push({ key: `B${B.id}`, sev: w >= 20 ? 2 : 1, score: w, x: B.door.x, z: B.door.z, icon: CHIP_CLOCK, text: `${B.name} · ${n(w)} min line`,
+      title: `${B.name}: about ${n(w)} minutes in line`, go: () => select({ kind: 'bld', obj: B }) });
+  }
+  return out.sort((a, b) => b.sev - a.sev || b.score - a.score).slice(0, CHIP_MAX);
+}
+function updateChips() {
+  const on = state.started && state.phase === 'open' && labelsOn.chip && !simulating;
+  if (!on) { if (chipEls.size) { chipLayer.innerHTML = ''; chipEls.clear(); chipList = []; chipAt = -99; } return; }
+  if (Math.abs(state.time - chipAt) >= 2) {
+    chipAt = state.time; chipList = computeChips();
+    const keep = new Set(chipList.map((c) => c.key));
+    for (const [k, el] of chipEls) if (!keep.has(k)) { el.remove(); chipEls.delete(k); }
+    for (const c of chipList) {
+      let el = chipEls.get(c.key);
+      if (!el) { el = document.createElement('button'); el.className = 'chip'; chipLayer.appendChild(el); chipEls.set(c.key, el); }
+      const html = `<i aria-hidden="true">${c.icon}</i><span>${esc(c.text)}</span>`;
+      if (el._html !== html) { el.innerHTML = html; el._html = html; }
+      el.classList.toggle('bad', c.sev >= 2); el.title = c.title; el.setAttribute('aria-label', c.title);
+      el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); c.go(); };
+    }
+  }
+  for (const c of chipList) {
+    const el = chipEls.get(c.key); if (!el) continue;
+    const p = project(c.x, heightAt(c.x, c.z) + 3.2, c.z), vis = p.ok && p.x > -60 && p.x < W + 60 && p.y > 20 && p.y < H + 20;
+    el.hidden = !vis;
+    if (vis) el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+  }
+}
 // Middle of the parking lot, where its tag floats.
 function lotCenter() {
   const main = stalls.filter((s) => !s.sat);
@@ -6797,6 +6876,8 @@ function endDay() {
   if (rr.guests) { st.satSum += rr.sat; st.satN++; }
   if (!st.best || rr.profit > st.best.profit) st.best = { day: state.day, profit: rr.profit };
   if (!st.worst || rr.profit < st.worst.profit) st.worst = { day: state.day, profit: rr.profit };
+  const sd = seasonDaily(), row = { d: state.day, g: rr.guests, p: rr.profit, s: rr.guests ? rr.sat : null, c: Math.round(state.cash), t: ticketOn(state.day) };
+  if (sd.length && sd[sd.length - 1].d === state.day) sd[sd.length - 1] = row; else sd.push(row); // once per day
   endOfDaySnow();
   updateCash(true);
   showReport();
@@ -11374,6 +11455,50 @@ function adviceFor(r) {
 }
 // The day report. `past` shows an earlier day from the Money panel, just to read.
 let rpPast = false;
+// Why the day went the way it did: guests against the last week of open days, what made the
+// difference, and the biggest thing that cost guests. One or two plain sentences at the top.
+function whyToday(r) {
+  if (!r || !r.guests || (r.season || state.season) !== state.season) return '';
+  const rows = seasonDaily(), prior = rows.filter((x) => x.d < r.day && x.g > 0).slice(-7), me = rows.find((x) => x.d === r.day);
+  const d = dateOf(r.day), dow = d.getUTCDay(), hol = holidayOf(d), w = r.wx || {}, ups = [], downs = [];
+  const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0]);
+  if (hol) ups.push(hol === 'Holiday week' ? 'the holiday week' : hol);
+  else if (dow === 0 || dow === 6) ups.push('the weekend');
+  else if (dow >= 1 && dow <= 4) downs.push('a quiet weekday');
+  if (r.event && EVENTS[r.event]) ups.push(EVENTS[r.event].name);
+  if (w.snow >= 6 && w.type !== 'rain') ups.unshift(`${/^(8|11|18)\b/.test(String(Math.round(w.snow))) ? 'an' : 'a'} ${inch(w.snow)} powder day`);
+  else if (w.snow >= 2 && w.type !== 'rain') ups.push('fresh snow');
+  if (w.type === 'sunny' || w.type === 'warm') ups.push('sunshine');
+  if (w.type === 'rain' || w.type === 'ice') downs.unshift(WX[w.type].label.toLowerCase());
+  if (w.hi != null && w.hi < 10) downs.push('bitter cold');
+  if (r.holds && r.holds.length) downs.unshift(`wind holds on ${r.holds.join(', ')}`);
+  if (r.trailsTotal && r.trailsOpen / r.trailsTotal < 0.6) downs.push(`thin snow, with ${r.trailsOpen} of ${r.trailsTotal} trails open`);
+  if (r.ops && r.ops.hours === 'short') downs.push('short hours');
+  const tks = prior.map((x) => x.t).filter(Boolean), t = me && me.t;
+  if (t && tks.length) { const avgT = tks.reduce((a, b) => a + b, 0) / tks.length; if (t > avgT * 1.1) downs.push('higher ticket prices'); else if (t < avgT * 0.9) ups.push('lower ticket prices'); }
+  const n = r.guests.toLocaleString('en-US');
+  let first;
+  if (!prior.length) first = `${n} guests on your first open day of the season${ups.length ? `, helped by ${and(ups.slice(0, 2))}` : ''}.`;
+  else {
+    const avg = prior.reduce((a, x) => a + x.g, 0) / prior.length, pct = Math.round((r.guests - avg) / avg * 100);
+    if (Math.abs(pct) < 10) first = `${n} guests, about your recent average${ups.length && downs.length ? `: ${ups[0]} made up for ${downs[0]}` : ''}.`;
+    else if (pct > 0) first = `${n} guests, ${pct}% more than your recent average${ups.length ? `, thanks to ${and(ups.slice(0, 2))}` : ''}.`;
+    else first = `${n} guests, ${-pct}% fewer than your recent average${downs.length ? `: ${and(downs.slice(0, 2))}` : ''}.`;
+  }
+  // The biggest leak: guests (and their money) lost to something you can fix.
+  const c = r.complaints || {}, leaks = [];
+  if (r.turnedAway) leaks.push([r.turnedAway, `the lot filled and ${r.turnedAway.toLocaleString('en-US')} guests were turned away`]);
+  if (r.offsite && r.offsite.full) leaks.push([r.offsite.full, `off-site parking filled too, turning away ${r.offsite.full.toLocaleString('en-US')}`]);
+  if (r.leftLines) leaks.push([r.leftLines, `lift lines sent ${r.leftLines.toLocaleString('en-US')} guests home early${r.busiest && r.busiest.wait >= 10 ? ` (${r.busiest.name} averaged ${Math.round(r.busiest.wait)} min)` : ''}`]);
+  if (r.refunded) leaks.push([r.refunded, `${r.refunded.toLocaleString('en-US')} guests never got on a lift and were refunded`]);
+  if (c.food) leaks.push([c.food, `${c.food.toLocaleString('en-US')} guests went hungry`]);
+  if (c.rentOut || c.noRental) leaks.push([(c.rentOut || 0) + (c.noRental || 0), `${((c.rentOut || 0) + (c.noRental || 0)).toLocaleString('en-US')} guests couldn’t rent skis here`]);
+  const leak = leaks.sort((a, b) => b[0] - a[0])[0];
+  const leakLine = leak && leak[0] >= Math.max(10, r.guests * 0.03) ? ` Biggest leak: ${leak[1]}.` : '';
+  const passes = r.rev && r.rev.passes;
+  const passLine = passes && passes > Math.abs(r.profit) * 0.3 ? ` Season pass sales added ${money(passes)} to the day’s profit.` : '';
+  return `<p class="rp-why"><b>Why today</b> ${esc(first + leakLine + passLine)}</p>`;
+}
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
@@ -11445,6 +11570,7 @@ function showReport(r = state.lastReport, past = false) {
       <div><dt>Guests</dt><dd>${r.guests.toLocaleString('en-US')}${r.turnedAway ? `<small class="away">+${r.turnedAway} turned away</small>` : ''}</dd></div>
       <div><dt>Satisfaction</dt><dd>${r.guests ? r.sat + '%' : '–'}</dd></div>
     </dl>
+    ${whyToday(r)}
     <div class="rp-short">
       <p class="rp-money">Revenue <b>${money(revTotal)}</b> · Expenses <b>${money(exp)}</b>${extras.length ? ` · ${extras.join(' · ')}` : ''}</p>
       ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
@@ -11868,6 +11994,67 @@ function pricesPanel() {
 }
 // Money: how the resort is doing, the last two weeks, and the bank.
 const HISTORY_DAYS = 14;
+// One small row per open day of the season, for the season charts and for comparing a day with the
+// ones before it. Saves from before it existed start from whatever reports are still kept.
+function seasonDaily() {
+  const st = state.seasonStats || (state.seasonStats = newSeasonStats());
+  if (!st.daily) st.daily = (state.history || []).filter((h) => (h.season || state.season) === state.season && h.day != null)
+    .map((h) => ({ d: h.day, g: h.guests, p: h.profit, s: h.guests ? h.sat : null, c: null, t: null }));
+  return st.daily;
+}
+// The season so far as four small charts, each on its own scale: guests, profit, satisfaction and cash.
+// Hover or tap a chart to read any day.
+const CHARTS = [
+  ['g', 'Guests', 'bar', (v) => v.toLocaleString('en-US')],
+  ['p', 'Profit', 'bar', (v) => signedMoney(v)],
+  ['s', 'Satisfaction', 'line', (v) => `${v}%`],
+  ['c', 'Cash', 'line', (v) => signedMoney(v)],
+];
+function seasonChartsHtml() {
+  const rows = seasonDaily();
+  if (rows.length < 2) return '';
+  const W = 300, H = 64, n = rows.length, bw = W / n, short = (d) => dateLabel(d).replace(/^\w+, /, '');
+  const chart = ([k, label, kind, fmt]) => {
+    const pts = rows.map((r, i) => ({ i, v: r[k] })).filter((q) => q.v != null);
+    if (pts.length < 2) return '';
+    // Bars grow from zero; lines are fitted to their own range so the ups and downs show.
+    let lo = Math.min(...pts.map((q) => q.v)), hi = Math.max(...pts.map((q) => q.v));
+    if (kind === 'bar') { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+    else { const pad = Math.max((hi - lo) * 0.15, k === 's' ? 5 : 1000); lo -= pad; hi += pad; if (k === 's') { lo = Math.max(0, lo); hi = Math.min(100, hi); } }
+    if (hi === lo) hi = lo + 1;
+    const y = (v) => 4 + (H - 8) * (1 - (v - lo) / (hi - lo)), y0 = y(0), x = (i) => (i + 0.5) * bw;
+    let marks = '';
+    if (kind === 'bar') {
+      const w = Math.max(1, bw - (bw > 4 ? 2 : 1)), rx = Math.min(4, w / 2);
+      marks = pts.map((q) => { const top = Math.min(y(q.v), y0), h = Math.max(1, Math.abs(y(q.v) - y0));
+        return `<rect x="${(x(q.i) - w / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${rx.toFixed(1)}" class="${q.v < 0 ? 'neg' : ''}"/>`; }).join('');
+    } else marks = `<polyline points="${pts.map((q) => `${x(q.i).toFixed(1)},${y(q.v).toFixed(1)}`).join(' ')}"/>`;
+    const last = pts[pts.length - 1];
+    const data = JSON.stringify(rows.map((r) => (r[k] == null ? null : r[k]))).replace(/"/g, '&quot;');
+    return `<figure class="schart" data-k="${k}" data-vals="${data}" data-kind="${kind}">
+      <figcaption><span>${label}</span><b data-out>${fmt(last.v)}</b><small data-when>${esc(short(rows[last.i].d))}</small></figcaption>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${label} each open day this season">
+        ${lo < 0 ? `<line class="zero" x1="0" x2="${W}" y1="${y0.toFixed(1)}" y2="${y0.toFixed(1)}"/>` : ''}<g class="${kind}">${marks}</g>
+        <line class="xhair" x1="0" x2="0" y1="0" y2="${H}" style="display:none"/>
+      </svg>
+      <div class="sc-ax"><span>${esc(short(rows[0].d))}</span><span>${esc(short(rows[n - 1].d))}</span></div></figure>`;
+  };
+  return `<div class="field-label">Season ${state.season} by day</div><div class="scharts" data-days="${esc(JSON.stringify(rows.map((r) => short(r.d))))}">${CHARTS.map(chart).join('')}</div>`;
+}
+// Reading a day off a season chart: the crosshair follows the pointer and the heading shows that day.
+function chartHover(e, leave) {
+  const f = e.target.closest && e.target.closest('.schart');
+  if (!f) return;
+  const vals = JSON.parse(f.dataset.vals), days = JSON.parse(f.closest('.scharts').dataset.days), spec = CHARTS.find((c) => c[0] === f.dataset.k);
+  const svg = f.querySelector('svg'), xh = f.querySelector('.xhair'), n = vals.length;
+  let i = n - 1;
+  if (!leave) { const r = svg.getBoundingClientRect(); i = clamp(Math.floor((e.clientX - r.left) / r.width * n), 0, n - 1); }
+  while (i > 0 && vals[i] == null) i--;
+  const xv = ((i + 0.5) * 300 / n).toFixed(1);
+  xh.setAttribute('x1', xv); xh.setAttribute('x2', xv); xh.style.display = leave ? 'none' : '';
+  f.querySelector('[data-out]').textContent = vals[i] == null ? '–' : spec[3](vals[i]);
+  f.querySelector('[data-when]').textContent = days[i];
+}
 function moneyPanel() {
   if (visiting) return visitResortSheet().replace(/^[\s\S]*?<\/div>/, '');
   const r = state.lastReport, st = state.seasonStats;
@@ -11883,6 +12070,7 @@ function moneyPanel() {
     </dl>
     ${st && st.days ? `<div class="field-label">Season ${state.season} so far</div>
     <div class="costs"><span>Days open</span><span>${st.days}</span><span>Visitors</span><span>${st.visitors.toLocaleString('en-US')}</span><span>Revenue</span><span>${money(st.revenue)}</span><span>Expenses</span><span>${money(st.expenses)}</span><span>Profit</span><span>${signedMoney(st.profit)}</span></div>` : ''}
+    ${seasonChartsHtml()}
     ${hist.length ? `<div class="field-label">Last ${hist.length === 1 ? 'day' : `${hist.length} open days`}</div>
     <table class="hist"><thead><tr><th>Day</th><th>Guests</th><th>Happy</th><th>Profit</th></tr></thead><tbody>
       ${hist.map((h, i) => `<tr data-action="pastReport" data-i="${hist.length - 1 - i}"><td>${esc(dateLabel(h.day).replace(/^(\w+), /, '$1 '))}</td><td>${h.guests}</td><td>${h.guests ? h.sat + '%' : '–'}</td><td class="${h.profit < 0 ? 'neg' : ''}">${signedMoney(h.profit)}</td></tr>`).join('')}
@@ -13346,6 +13534,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.41', date: 'Oct 27, 2026', title: 'See how the business is doing', show: ['money', 'Open Money'], items: [
+    'Money now charts your season day by day: guests, profit, satisfaction and cash. Hover or tap a chart to read any day.',
+    'Every day report opens with why the day went the way it did: guests against your recent average, what made the difference (snow, the weekend, a holiday, weather, prices) and the biggest leak, like a full lot or long lift lines.',
+    'While you’re open, problems show up on the map where they happen: a long lift line, a full parking lot, a slow line at a building. Tap one to open it. Turn them off under Map labels.',
+  ] },
   { v: '2.40', date: 'Oct 27, 2026', title: 'Move a lift', items: [
     'Put a station in the wrong spot? Open a lift overnight and tap Move a station, then drag the top or bottom station somewhere new. The lift keeps its name, type and history.',
     'Moving costs a quarter of what the lift cost, plus any extra length and trees cleared along the new line: far less than tearing it down and building again. Trails tied to a station you move away are flagged so you can redraw them.',
@@ -14369,6 +14562,7 @@ function frame(now) {
   }
   processHover();
   updateLabels();
+  updateChips();
   updateHandles();
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);

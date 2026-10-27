@@ -21,7 +21,7 @@ export default async function ({ browser, url }) {
   // hide all, then remembered after reload
   await g.click('#labelPop [data-lk=all]'); await g.wait(300);
   eq(await trails() + await blds() + await lifts(), 0, 'all hidden');
-  eq(await g.ev(`localStorage.getItem('mm.labelsOff')`), 'trail,lift,bld', 'remembered');
+  eq(await g.ev(`localStorage.getItem('mm.labelsOff')`), 'trail,lift,bld,chip', 'remembered, problem chips included');
   await g.page.keyboard.press('Escape'); await g.wait(100);
   eq(await g.ev(`$('labelPop').hidden`), true, 'escape closes the popover');
   await g.page.keyboard.press('l'); await g.wait(300);
