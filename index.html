@@ -4394,6 +4394,18 @@ function bridgeEarthwork(samples, hw, dry) {
   }
   return { cost: Math.round(cost / 100) * 100, i0, i1, j0, j1 };
 }
+// A trail as it will be built: commitTrail grades the ground, then addTrail samples the trail
+// from its points in downhill order. Done here for real on the heights, which are then put back.
+function asBuiltAnalysis(pts, reversed, hw, earth, approach) {
+  const ordered = reversed ? [...pts].reverse() : pts;
+  if (!earth && !approach) return analyzeTrail(trailSamples(ordered, hw));
+  const keep = HT.slice();
+  try {
+    if (earth) trailEarthwork(earth.ground, earth.target, hw, false);
+    if (approach) bridgeEarthwork(approach.ground, hw, false);
+    return analyzeTrail(trailSamples(ordered, hw));
+  } finally { HT.set(keep); }
+}
 function evalTrail(pts, width, allowPlans, grade) {
   let samples = trailSamples(pts, TRAIL_WIDTHS[width].hw);
   let reversed = false;
@@ -4418,6 +4430,10 @@ function evalTrail(pts, width, allowPlans, grade) {
     const sub = samples.filter((s, i) => near.has(i) || s.bridge).map((s) => ({ ...s }));
     approach = { ground: sub, cost: bridgeEarthwork(sub, hw, true).cost };
   }
+  // The rating shown is the rating it gets: judged on the samples the built trail will have, on the
+  // ground as the grading will really leave it.
+  const built = asBuiltAnalysis(pts, reversed, hw, earth, approach);
+  for (const k of ['len', 'vert', 'maxGrade', 'avgGrade', 'rating']) an[k] = built[k];
   const treeSet = treeSetAlong(samples, hw + 0.4);
   for (const s of samples) if (s.bridge) treesInBrush(s, hw + 1.8, (k) => treeSet.add(k));
   for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, hw * 1.45 + 0.6, (k) => treeSet.add(k));
@@ -14238,6 +14254,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.45.1', date: 'Oct 27, 2026', title: 'Trail ratings you can trust', small: true, items: [
+    'Fixed: the rating shown while drawing a trail could differ from the one it got once built, mostly on trails drawn uphill-first or graded downhill. The panel now shows exactly the rating the trail will have.',
+  ] },
   { v: '2.45', date: 'Oct 27, 2026', title: 'Upgrade your lifts', items: [
     'Tap a lift overnight and choose Upgrade lift: swap a double for a triple, quad, express or gondola on the same line. Stations, trails and history stay put.',
     'You pay the difference between the two lifts plus re-rigging, far less than building new. Each choice shows the extra riders an hour, the quicker ride, and about how long yesterday’s line would have been.',
