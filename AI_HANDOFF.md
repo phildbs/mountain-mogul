@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
 - Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
 - 2.53.2: title-screen resort cards use saved scenic 3D photos instead of top-down maps; photos sync with cloud saves and older resorts refresh when opened.
 - 2.53: friend invitations with real mountain photos, 7 operating days over 3 server-UTC days, up to three $100,000 rewards per account, a saved decoration milestone, seasonal card and year-round menu.
@@ -68,7 +69,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: `player-feedback-fixes` is implementing selected changes from Phil’s Oct 28 feedback. Current candidate covers learning-area editing and night clear-out lighting; patrol transport/capacity, venue balance and popularity reporting need follow-up design.
+**Active**: the passing 2.54 feedback fixes are approved for publication. Next: patrol return travel and patrol capacity from the remaining feedback.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -82,7 +83,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| player-feedback-fixes | ChatGPT | Implemented overnight learning-area editing and lit night clear-out. Still to design: patrol return via lifts/capacity, venue service counts/balance, and day/evening popularity summary | 2026-10-28 |
+| patrol-feedback | ChatGPT | Next: return patrols via operating lifts and review hut capacity; start after release checks | 2026-10-28 |
 
 
 ## Known issues
@@ -199,6 +200,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.54 approved
+- Phil explicitly approved publication of candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f. Full GitHub Tests run 40768135148 PASSED. Main published at 7d55b699abd5de6621b91b50c62e06d2ffa68c5c. Release includes learning-area editing, night clear-out lighting, What's new, guide and this handoff. No database changes.
+- Remaining feedback: patrols currently move directly uphill to their hut after clinic drop-off; huts have two crew each and no capacity upgrades. Café visits include warming up as well as snacks, whereas the truck only serves snacks; compare service types before balancing. Also requested: trail/glade popularity split by day/evening with useful reasons. These remain unimplemented.
+- Check release deployment once. If release tests are running, notify Phil and pause without polling; he will say when to continue.
+
 
 ### 2026-10-28 · ChatGPT · Feedback candidate restored for CI
 - Candidate `b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f` on `player-feedback-fixes`: learning-area editor and night clear-out lighting, What's new 2.54 and guide. Not published.
