@@ -77,7 +77,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| (none) | | | |
+| stats-retention | ChatGPT | Retention charts + SQL ready; not published or installed | 2026-10-28 |
 
 ## Known issues
 
@@ -176,6 +176,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Player retention ready for review
+- Branch stats-retention at f511886a0709a51b83a27d4950f135fc0d1685ca: stats.html adds D1/D7/D30 exact-day return rates and daily new/returning save activity chart + counts table. No external chart library.
+- supabase/retention.sql adds private RLS-protected daily activity, save trigger and owner-only admin_retention RPC. Counts deduplicate account/day across resorts; auth account creation defines cohorts. Only new cohorts after the first full UTC tracking day are eligible; target day must be finished. No historical backfill.
+- SQL validated on actual database inside a transaction rolled back afterward; RPC empty/immature results correct. Stats inline syntax passed. Chromium unavailable, visual browser verification outstanding.
+- Not installed in live DB, not published. Install SQL before publishing stats page. Existing local-only play is not represented; guest identity resets can duplicate people. Preview on raw.githack cannot reuse production login; review through code or an authenticated deployed stats page after approval.
+
+
 
 ### 2026-10-28 · ChatGPT · Modern facilities published in 2.50
 - Published to main at 4bf7f23e2ae75c7545d183bab61954d5f126e023 on Phil's explicit "Publish" instruction. Modern now covers every non-decor type except food truck. Scandinavian extensions remain outstanding.
