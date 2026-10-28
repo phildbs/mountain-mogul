@@ -1058,6 +1058,32 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 #dsBody textarea { width: 100%; height: 90px; font: 11px ui-monospace, monospace; }
 #crBody { display: grid; gap: 10px; }
 .modal .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+.ref-dialog { gap: 14px; }
+#refBody { display: grid; gap: 14px; }
+.ref-dialog p { margin: 0; line-height: 1.5; }
+.ref-art { height: 100px; border-radius: 12px; overflow: hidden; background: var(--accent-soft); }
+.ref-art svg { display: block; width: 100%; height: 100%; }
+.ref-reward { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--accent-soft); }
+.ref-reward strong { display: block; font: 800 38px/1 var(--display); color: var(--ink); margin-bottom: 6px; }
+.ref-reward span { color: var(--ink-2); font-size: 13px; }
+.ref-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ref-step { padding: 10px 5px; text-align: center; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--ink-2); }
+.ref-step b { display: block; color: var(--ink); margin-bottom: 3px; font-size: 14px; }
+.ref-step.done { background: var(--accent-soft); border-color: var(--accent); }
+.ref-friend { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.ref-friend .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ref-friend small { color: var(--ink-2); font-size: 12px; }
+.ref-bar { width: 100%; height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.ref-bar span { display: block; height: 100%; background: var(--ink-2); border-radius: inherit; }
+.ref-unlock { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 5px; }
+.ref-unlock b { font-size: 14px; }
+#refPreviewDock { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 35; padding: 10px 12px; width: min(440px, calc(100% - 24px)); display: grid; gap: 7px; }
+#refPreviewDock label { color: var(--ink-2); font-size: 12px; font-weight: 700; }
+#refPreviewDock select { width: 100%; padding: 7px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+#referralBox { padding-bottom: 112px; }
+#referralBox .modal { max-height: calc(100% - 16px); }
+#refPreviewOpen { position: absolute; bottom: 12px; left: 12px; z-index: 31; }
+@media (max-width: 640px) { .ref-dialog { padding: 17px; gap: 12px; } .ref-art { height: 78px; } .ref-dialog h2 { font-size: 29px; } }
 .modal h2 { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; text-transform: uppercase; }
 .rp-hero { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border-block: 1px solid var(--line); padding-block: 14px; margin: 0; }
 .rp-hero dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
@@ -1451,6 +1477,21 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="toast" id="toast" hidden></div>
   </div>
 
+  <button class="btn secondary" id="refPreviewOpen" hidden>Invitations preview</button>
+  <div class="modal-bg" id="referralBox" hidden>
+    <div class="panel modal ref-dialog" role="dialog" aria-modal="true" aria-labelledby="refTitle" tabindex="-1"><div id="refBody"></div>
+  <div class="panel" id="refPreviewDock" hidden>
+    <label for="refPreviewState">Design preview · sample progress · no real rewards</label>
+    <select id="refPreviewState">
+      <option value="prompt">Invitation prompt</option>
+      <option value="empty">No friends invited yet</option>
+      <option value="progress">Friends making progress</option>
+      <option value="ready">One cash reward ready</option>
+      <option value="complete">All three friends qualified</option>
+    </select>
+  </div>
+    </div>
+  </div>
   <div class="modal-bg" id="feedbackBox" hidden>
     <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
       <div class="cm-head"><div><div class="eyebrow">Help make the game better</div><h2 id="fbTitle">Feedback &amp; ideas</h2></div><button class="x" id="fbClose" aria-label="Close">✕</button></div>
@@ -1647,6 +1688,7 @@ const MAX_MOUNTAINS = 5;
 let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
+const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPreview') === '1';
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
 const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'snow', 'money', 'plans', 'land'];
 const isPhone = () => matchMedia('(max-width: 640px)').matches;
@@ -2787,6 +2829,7 @@ function decodeCleared(b64) {
   }
 }
 function loadSave() {
+  if (REFERRAL_PREVIEW) return null;
   if (!saveKey()) return null;
   try {
     const raw = localStorage.getItem(saveKey());
@@ -2801,6 +2844,7 @@ function scheduleSave() {
   saveTimer = setTimeout(saveNow, 500);
 }
 function saveNow() {
+  if (REFERRAL_PREVIEW) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   try {
     localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
@@ -2811,8 +2855,9 @@ function saveNow() {
 const newId = () => crypto.randomUUID();
 const slotById = (id) => slots.list.find((s) => s.id === id) || null;
 const activeSlot = () => slotById(slots.active);
-function writeSlots() { try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
+function writeSlots() { if (REFERRAL_PREVIEW) return; try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
 function readSlots() {
+  if (REFERRAL_PREVIEW) { slots = { active: null, list: [] }; return; }
   try {
     const s = JSON.parse(localStorage.getItem(SLOTS_KEY));
     if (s && Array.isArray(s.list)) slots = s;
@@ -2911,7 +2956,7 @@ function saveData(withSim) {
       cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   };
 }
-function clearSave() { try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
+function clearSave() { if (REFERRAL_PREVIEW) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
   clearUndo();
@@ -15257,6 +15302,71 @@ function afterLoad() {
   refreshCommBtn();
   updateCamera();
 }
+/* ---------- Invitation design preview. Sample data only; no reward or referral RPCs. ---------- */
+let refDemo = { mode: 'prompt', claimed: 0 };
+const refArt = `<div class="ref-art" aria-hidden="true"><svg viewBox="0 0 420 100" xmlns="http://www.w3.org/2000/svg"><path fill="#dce6ec" d="M0 100V70L92 8l80 64 90-61 158 89Z"/><path fill="#f7fafe" d="m92 8-38 28 26-5 12 14 14-15 22 8Zm170 3-38 27 27-5 13 17 15-13 23 7Z"/><path fill="#f7fafe" d="M0 90q105-38 210-5t210-5v20H0Z"/><path fill="none" stroke="#f7fafe" stroke-width="8" d="m115 42 55 18-21 14 57 20"/><path fill="#719082" d="m40 62-14 22h28Zm307-12-18 30h36Zm36 16-12 20h24Z"/><path fill="#a74438" d="M235 71h26v23h-26Zm31 2h25v21h-25Z"/><path fill="#394449" d="m231 72 17-18 17 18Zm31 2 17-19 17 19Z"/><path fill="#e7d9b9" d="M245 80h7v14h-7Zm29 0h9v8h-9Z"/></svg></div>`;
+function openReferralPreview(mode = refDemo.mode) {
+  if (!REFERRAL_PREVIEW) return;
+  refDemo = { mode, claimed: mode === 'complete' ? 3 : 0 };
+  $('refPreviewState').value = mode;
+  renderReferralPreview(); $('referralBox').hidden = false;
+  $('referralBox').querySelector('.modal').focus({ preventScroll: true });
+}
+function closeReferralPreview() {
+  $('referralBox').hidden = true;
+  $('refPreviewOpen').focus({ preventScroll: true });
+}
+function renderReferralPreview() {
+  const mode = refDemo.mode, qualified = mode === 'complete' ? 3 : mode === 'ready' ? 1 : 0;
+  const head = (title, eyebrow) => `<div class="cm-head"><div><div class="eyebrow">${eyebrow}</div><h2 id="refTitle">${title}</h2></div><button class="x" data-ref="close" aria-label="Close invitations">✕</button></div>`;
+  const rules = `<p class="help">A new friend must create a resort and complete 7 operating days across at least 3 real days. Rewards are limited to 3 friends per player, for $300,000 total.</p>`;
+  const steps = `<div class="ref-steps">${[1,2,3].map(n => `<div class="ref-step ${qualified >= n ? 'done' : ''}"><b>${qualified >= n ? '✓ ' : ''}Friend ${n}</b>$100,000</div>`).join('')}</div>`;
+  const earned = `<div class="ref-unlock"><b>${qualified === 3 ? 'Special decoration earned' : 'A little something for your village'}</b><p class="help">${qualified === 3 ? 'You reached the three-friend milestone. Your decoration will arrive in a future update.' : 'When all 3 friends qualify, you also earn a special decoration. We’ll reveal it in a future update.'}</p></div>`;
+  let html = '';
+  if (mode === 'prompt') {
+    html = `${head('Your mountain is worth sharing', 'Invite friends')}${refArt}
+      <p>Invite a friend to explore <b>${esc(state.resortName)}</b> and start a mountain of their own.</p>
+      <div class="ref-reward"><strong>$100,000</strong><span>for each friend who qualifies · up to 3 friends</span></div>
+      ${rules}<button class="btn wide" data-ref="progress">Invite friends</button><button class="link" data-ref="close">Maybe later</button>`;
+  } else {
+    const rows = mode === 'empty' ? [] : mode === 'progress' ? [[1,7,2],[2,4,2]] : mode === 'ready' ? [[1,7,3],[2,4,2]] : [[1,7,3],[2,7,3],[3,7,3]];
+    const friendRows = rows.map(([n,days,real]) => {
+      const done = days >= 7 && real >= 3;
+      const paid = done && refDemo.claimed >= n;
+      return `<div class="ref-friend"><div class="top"><b>Friend ${n}</b><small>${paid ? '$100,000 received' : done ? 'Reward ready' : 'Playing their mountain'}</small></div><div class="ref-bar" role="progressbar" aria-label="Friend ${n} operating days" aria-valuemin="0" aria-valuemax="7" aria-valuenow="${days}"><span style="width:${days/7*100}%"></span></div><small>${days} of 7 operating days · ${real} of 3 real days</small>${days === 7 && !done ? '<p class="help">One more real day of play to qualify.</p>' : ''}</div>`;
+    }).join('');
+    html = `${head('Bring friends to the mountain', 'Invite friends')}
+      <div class="ref-reward"><strong>${money(refDemo.claimed * 100000)}</strong><span>earned · ${qualified} of 3 friends qualified</span></div>${steps}
+      ${mode === 'empty' ? `${refArt}<p>No friends yet. Share your mountain and give someone their first look at Mountain Mogul.</p>` : friendRows}
+      ${qualified > refDemo.claimed ? '<button class="btn wide" data-ref="claim">Claim $100,000</button>' : qualified < 3 ? '<button class="btn wide" data-ref="share">Share my mountain</button>' : '<p class="help"><b>All three cash rewards received.</b> You can keep sharing your mountain with friends.</p>'}
+      ${qualified > refDemo.claimed && qualified < 3 ? '<button class="link" data-ref="share">Share my mountain</button>' : ''}${earned}
+      <details><summary>How friends qualify</summary><div style="padding-top:8px">${rules}<p class="help">Use your invitation link. Each new player can count toward one friend’s rewards. Your friend’s email and private resort details aren’t shown here.</p></div></details><p class="help" id="refFeedback" role="status" aria-live="polite"></p>`;
+  }
+  $('refBody').innerHTML = html;
+}
+$('refPreviewState').onchange = (e) => openReferralPreview(e.target.value);
+$('refPreviewOpen').onclick = () => openReferralPreview();
+$('referralBox').addEventListener('click', (e) => {
+  if (e.target.id === 'referralBox') return closeReferralPreview();
+  const action = e.target.closest('[data-ref]')?.dataset.ref;
+  if (action === 'close') closeReferralPreview();
+  if (action === 'progress') openReferralPreview('empty');
+  if (action === 'claim') {
+    refDemo.claimed = 1; renderReferralPreview();
+    $('refFeedback').textContent = 'Preview: $100,000 received. Your actual resort cash has not changed.';
+    $('refFeedback').focus({ preventScroll: true });
+  }
+  if (action === 'share') $('refFeedback').textContent = 'Preview: this opens your device’s share menu or copies your mountain’s invitation link.';
+});
+$('referralBox').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeReferralPreview(); }
+  if (e.key !== 'Tab') return;
+  const els = [...$('referralBox').querySelectorAll('button, select, summary')].filter(el => !el.disabled && el.getClientRects().length);
+  const first = els[0], last = els[els.length - 1];
+  if (e.shiftKey && (document.activeElement === first || document.activeElement.classList.contains('ref-dialog'))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 /* ---------- Share links: mtmogul.com/?visit=<resort id> opens a visit to that resort ---------- */
 // Reloaded for an update: tidy the cache-busting tag off the address.
 if (new URLSearchParams(location.search).has('u')) { const q = new URLSearchParams(location.search); q.delete('u'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
@@ -15280,6 +15390,7 @@ async function visitFromLink(id) {
   visitResort(id, { link: true });
 }
 async function shareResort() {
+  if (REFERRAL_PREVIEW) { openReferralPreview(); return; }
   if (!CLOUD.ready) { toast('Can’t reach the server right now, so there’s no link to share.', true); return; }
   if (CLOUD.guest) { toast('Sign in on the title screen to share your resort. Guest resorts stay private.', true); return; }
   if (!isPublic()) { toast('Your resort is private. Make it public in Profile and settings to share it.', true); return; }
@@ -15412,6 +15523,7 @@ function readAuthReturn() {
 
 }
 async function initCloud() {
+  if (REFERRAL_PREVIEW) { CLOUD.status = 'offline'; return; }
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; refreshCommunity(); return; }
   try {
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -17219,6 +17331,14 @@ function start(hot) {
     else if (!document.hidden && !state.started && CLOUD.ready) refreshMine(); // back on the title: anything newer from another device?
   });
   initCloud();
+  if (REFERRAL_PREVIEW) {
+    $('title').hidden = true; $('hud').hidden = false; state.started = true;
+    state.resortName = 'Snowpine Village'; state.welcomed = true;
+    $('resortName').textContent = state.resortName;
+    winterView = false; styleSnowVisuals(); refreshTimebar(true);
+    buildStarter(); select(null);
+    $('refPreviewOpen').hidden = false; $('refPreviewDock').hidden = false; openReferralPreview('prompt');
+  }
   requestAnimationFrame((t) => { lastT = t; frame(t); });
 }
 
