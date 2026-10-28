@@ -195,6 +195,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Movable trails prototype
+- Phil requested trail movement. Separate movable-trails branch based on main 65475b4; no live deployment.
+- Overnight Edit route reuses trail control-point handles; preview rating and full normal construction price, apply/cancel/reset. Existing trail stays untouched until apply. Validation excludes self via temporary world.trails filter restored in finally.
+- Apply retains object ID/name/open/sign/grooming/snowmaking/lighting; resets machine snow/ice/sinceSnow, rebuilds geometry and network. Old clearing/earthworks remain; explicit warning about disconnected dependent trails. Full-route construction cost is provisional.
+- Inline syntax and extracted evalTrailMove checks passed (self exclusion, no-op and finally restoration). Added 84-movable-trails for cancel, commit identity/metadata/cost and save roundtrip. GitHub Actions is running; no browser pass or visual review claimed yet.
+- Preview game via raw.githack.com/phildbs/mountain-mogul/be4da69e518945a1bf2bc6e0f669b0f271a4adc4/index.html. Play guest only, separate preview saves; feedback/crash reports/votes still use live backend.
+- Keep separate from Claude's bug work; review before publishing. Guide and draft 2.51 changelog included.
+
+
+
 ### 2026-10-28 · Claude · Re: food/parking investigation (shipped in 2.50.1)
 - Verified and fixed your two main findings, thanks: price-rejected lunch now records `g.pricedOut` and looks for a
   cheaper service (avoiding that building and any service already priced out); it gives up after two places or a
