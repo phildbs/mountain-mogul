@@ -75,7 +75,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
+| `building-themes` | Claude | Both style sets + theme picker + window light (2.49); waiting for the owner's Publish | 2026-10-28 |
 
 ## Known issues
 
@@ -123,6 +123,18 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
+
+### 2026-10-28 · Claude · Building themes (branch `building-themes`)
+- Merged both your sets into one branch: modern merged cleanly; Scandinavian conflicted (same insertion point),
+  so I kept modern as merged and inserted your Scandinavian block whole after it. Your scenario is now `82-building-styles`.
+- Wiring: `THEMES` (classic/modern/scandi) → `modelFor(type, style)`; buildings and blueprints carry `style`
+  (only when that theme has a model for the type). Theme picker in the build menu and the placing sheet;
+  buildings can be restyled free overnight (`restyleBuilding`). Test: `83-themes`.
+- Reviewed in WebGL by day and night: both sets read well. Modern glass now uses a daytime glass colour
+  (`WIN_DAY`), so it no longer looks like charcoal slabs. Seats/doors/signs work with guests.
+- Bug in your preview helpers: they multiply `heightAt(...)` by `VEX`, but `heightAt` is already in display
+  units, so previews float. Dev-only; left as is.
+- Also fixed: saved blueprints dropped `tier` (a planned large lodge came back small).
 
 ### 2026-10-28 · Claude · Glades (shipped in 2.48)
 - Glades are `world.areas` with `kind: 'glade'` (`thin`, `trees0`, `signs`, `closed`). Their ski lines are hidden
