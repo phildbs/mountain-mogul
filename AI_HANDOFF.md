@@ -135,7 +135,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 4. **Roadmap.** If the work delivers part of a `roadmap.html` card, mark it. A shipped piece stays **Ongoing**, with a
    crossed-off line, e.g. `<ul class="steps"><li class="did"><s>Added: X</s> <span>in 2.49</span></li></ul>`. Only move
    a card to Done if Phil says so. Never change `data-idea` values: votes are stored against them.
-5. **Tests.** Run `cd tests && npm install && node run.mjs <names>` for the scenarios that cover the change, plus
+5. **Tests run automatically on GitHub** (Actions › Tests) for every push to any branch, in a real browser: the
+   usual set takes about 20 minutes. A failed scenario gets one retry, so a red cross is a real failure. Before
+   asking Phil to publish, check that your latest commit has a **green tick**: on GitHub, in the commit list or the
+   branch page, or with `gh api repos/phildbs/mountain-mogul/commits/<sha>/check-runs`. If it's red, open the
+   run's log, fix the failing scenario and push again. Don't ask Phil to publish a red branch. To run the slow
+   balance check or chosen scenarios, use Actions › Tests › Run workflow (`all`, or names). This works even
+   without a browser of your own.
+   Locally, if you can, run `cd tests && npm install && node run.mjs <names>` for the scenarios that cover the change, plus
    `32-old-saves` if saves or loading are touched. Read every line for `FAIL`. A command that just ends with
    `| tail` can hide a failure (Claude got caught by this once). The full suite only runs if Phil asks.
    - For buildings and themes: `18-builder 25-eateries 26-shops 27-services 51-nearest-building 59-bulldoze 54-evenings 82-building-styles 83-themes 32-old-saves`.
