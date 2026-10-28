@@ -84,6 +84,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| venue-feedback | ChatGPT | Service-count clarity, food-truck queues and full fire-pit warm-up choices from remaining feedback | 2026-10-28 |
 
 
 ## Known issues
