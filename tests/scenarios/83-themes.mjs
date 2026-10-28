@@ -12,6 +12,10 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { setBTheme('modern'); setTool('bld'); draft.btype = null; setBTab('food'); renderSheet();
     const only = [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v);
     setBTheme('classic'); setTool('explore'); return only; })()`), ['truck'], 'buildings without a modern look say “Classic look only”');
+  eq(await g.ev(`(() => { setBTheme('scandi'); setTool('bld'); draft.btype = null;
+    const out = ['food', 'shops', 'services', 'transport'].map((tab) => { setBTab(tab); renderSheet();
+      return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
+    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], []], 'only food trucks lack the Scandinavian look');
   const r = await g.ev(`(() => { state.cash = 1e8; const L = world.lifts[0], out = {};
     const put = (type, theme, dx) => { for (let k = 0; k < 60; k++) { const x = L.a.x + dx + (k % 6) * 1.5, z = L.a.z - 6 + Math.floor(k / 6) * 1.5, v = evalBuilding(type, x, z, 0, false); if (!v.problems.length) return commitBuilding(v, type, x, z, 0, theme); } };
     const a = put('cafe', 'modern', -20), b = put('truck', 'scandi', -30), c = put('bar', 'scandi', -12);
@@ -31,4 +35,11 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { const B = world.buildings.find((x) => x.type === 'cafe'); select({ kind: 'bld', obj: B }); document.querySelector('#sheet [data-action=bldTheme][data-v=scandi]').click(); return [B.style, !!B.group.parent, B.winLights.length > 0]; })()`), ['scandi', true, true], 'a building can change theme overnight');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+  const gallery = await browser.newPage(), galleryErrors = [];
+  gallery.on('pageerror', (error) => galleryErrors.push(error.message));
+  await gallery.goto(new URL('scandinavian-preview.html', url).href);
+  await gallery.waitForFunction(() => document.querySelector('#pick')?.options.length === 10);
+  eq(await gallery.locator('#pick option').count(), 10, 'gallery shows all nine new Scandinavian buildings');
+  eq(galleryErrors, [], 'gallery has no page errors');
+  await gallery.close();
 }
