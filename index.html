@@ -1148,6 +1148,8 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .bpick .have { color: #1f7a42; font-weight: 600; }
 .themes { display: flex; gap: 4px; margin: 0 0 10px; }
 .themes button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 6px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.themes button:disabled { opacity: 0.4; cursor: not-allowed; }
+.bpick .only { color: var(--ink-2); font-style: italic; }
 .themes button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 .btabs { flex: none; display: flex; gap: 2px; margin: 2px 0 10px; padding: 3px; border-radius: 10px; background: rgba(20, 36, 58, 0.06); overflow-x: auto; scrollbar-width: none; }
 .btabs button { flex: 1 1 auto; min-width: 0; min-height: 30px; border: 0; background: none; border-radius: 8px; padding: 7px 5px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
@@ -11462,9 +11464,14 @@ function hoverGhost(p) {
   showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, x, z, draft.rot, !v.problems.length, v.padY);
 }
 // The theme picker: in the build menu (for tabs with themed buildings) and while placing one.
-function themeSeg(show, act = 'bTheme', cur = bTheme()) {
+// With a `type`, themes that have no model for it can't be picked.
+const hasTheme = (type, k) => k === 'classic' || !!THEMES[k].models[type];
+function themeSeg(show, act = 'bTheme', cur = bTheme(), type = null) {
   if (!show) return '';
-  return `<div class="field-label">Theme</div><div class="themes" role="group" aria-label="Theme">${Object.entries(THEMES).map(([k, T]) => `<button data-action="${act}" data-v="${k}" aria-pressed="${cur === k}" title="${T.note}">${T.label}</button>`).join('')}</div>`;
+  return `<div class="field-label">Theme</div><div class="themes" role="group" aria-label="Theme">${Object.entries(THEMES).map(([k, T]) => {
+    const ok = !type || hasTheme(type, k);
+    return `<button data-action="${act}" data-v="${k}" aria-pressed="${ok && cur === k}" ${ok ? '' : 'disabled'} title="${ok ? T.note : `No ${T.label.toLowerCase()} version of this building yet`}">${T.label}</button>`;
+  }).join('')}</div>`;
 }
 function bldDraftSheet() {
   if (!draft.btype) {
@@ -11473,7 +11480,7 @@ function bldDraftSheet() {
       const t = BTYPES[k], sz = t.tiers ? t.tiers[tier] : null;
       const have = t.plop ? 0 : world.buildings.filter((B) => B.type === k && (!sz || (B.tier || 0) === tier)).length;
       const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : '';
-      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? `${sz.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.seats} seats</small>` : ''}</span></button>`;
+      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? `${sz.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.seats} seats</small>` : ''}</span></button>`;
     };
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
     const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
@@ -11498,7 +11505,8 @@ function bldDraftSheet() {
   }
   const plan = planning(), short = info && info.cost > state.cash && !plan;
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>${tname}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-    ${themeSeg(themed(draft.btype) && !draft.moving)}
+    ${themeSeg(themed(draft.btype) && !draft.moving, 'bTheme', bTheme(), draft.btype)}
+    ${themed(draft.btype) && !draft.moving && !hasTheme(draft.btype, bTheme()) ? `<p class="help">There’s no ${THEMES[bTheme()].label.toLowerCase()} version of this building yet, so it’s built in the classic look.</p>` : ''}
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
@@ -11667,7 +11675,7 @@ function bldSheet(B) {
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${upgrade}
-    ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic')}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
+    ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
@@ -15553,6 +15561,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.49.1', date: 'Oct 28, 2026', title: 'Clearer building themes', small: true, items: [
+    'With Modern or Scandinavian picked, buildings that only come in the classic look now say so in the build menu, and themes a building doesn’t come in can’t be chosen for it.',
+  ] },
   { v: '2.49', date: 'Oct 28, 2026', title: 'Building themes', items: [
     'Choose a theme in the build menu: Classic, Modern (flat roofs, big glass, dark metal) or Scandinavian (a painted timber village). Lodges, cafés, restaurants, fine dining, bars, rental shops, ski stores and ski schools come in all three.',
     'Themes are just the look: size, seats, service and price are the same. Mix them however you like, and change a building’s theme for free overnight from its panel.',
