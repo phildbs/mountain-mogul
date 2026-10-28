@@ -62,13 +62,15 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { if (state.phase === 'report') nextDay(); for (const k of ['weekday', 'weekend', 'quiet']) opsState().plans[k].shuttles = 'off'; openDay(); state.speed = 0; for (const s of stalls) s.car = -1; spawnCar(2); })()`);
   eq(await g.ev(`offCars.length`), 0, 'with shuttles off, cars aren’t sent off-site');
   await g.ev(`(() => { for (const s of stalls) if (s.car === -1) s.car = null; let k = 0; while (state.phase === 'open' && k < 90000) { simStep(1.5); k++; } if (state.phase === 'report') nextDay(); })()`);
-  // a shuttle station upgrades to a transit center with two bays
+  // a transit center is its own building in the build menu, beside the road; stations no longer upgrade
   const st = await g.ev(`world.buildings.find(isStation).id`);
   await g.ev(`select({ kind: 'bld', obj: bldById(${st}) })`); await g.wait(100);
-  assert(/transit center/i.test(await g.ev(`$('sheet').innerText`)), 'the station offers the transit center upgrade');
-  await g.ev(`state.cash = 5e6`); await g.click('[data-action=upgradeStation]'); await g.wait(100);
-  const up = await g.ev(`bldById(${st}).type + ' ' + $('toast').textContent`);
-  assert(/^transit/.test(up) || /Can’t upgrade/.test(up), `the upgrade runs or explains itself (${up})`);
+  assert(!/Upgrade to a transit center/i.test(await g.ev(`$('sheet').innerText`)), 'a station no longer offers an upgrade');
+  await g.ev(`(() => { select(null); setTool('bld'); draft.btype = null; renderSheet(); })()`); await g.wait(50);
+  assert(await g.ev(`!!document.querySelector('#sheet [data-action=pickB][data-v=transit]')`), 'Transit center is in the build menu');
+  const tc = await g.ev(`(() => { state.cash = 5e6; for (let i = 0; i < 30; i++) { const sn = snapToRoad('transit', { x: -40 + i * 4, z: 60 }), v = evalBuilding('transit', sn.x, sn.z, sn.rot, false); if (!v.problems.length) { commitBuilding(v, 'transit', sn.x, sn.z, sn.rot); computeNetwork(); return world.buildings[world.buildings.length - 1].type; } } return null; })()`);
+  eq(tc, 'transit', 'and it builds beside the road');
+  await g.ev(`setTool('explore')`);
   // older resorts keep a bigger main lot
   await g.ev(`(() => { select(null); state.lotSections = 6; buildLot(); saveNow(); })()`);
   await g.page.reload(); await g.reloaded();
