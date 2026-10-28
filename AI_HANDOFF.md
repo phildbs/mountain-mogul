@@ -202,7 +202,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-28 · ChatGPT · Feedback candidate restored for CI
 - Candidate `b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f` on `player-feedback-fixes`: learning-area editor and night clear-out lighting, What's new 2.54 and guide. Not published.
-- Failed run 40767385570 never ran scenarios: index.html was truncated during upload, so the harness could not locate the boot marker. Restored the full local file and verified GitHub index blob SHA exactly matches local `67aa56fbe26b68d2ea437ba9eea0c46638303627`. Original harness is valid and unchanged. All inline JavaScript syntax checks pass. New push starts full CI; pause without polling per Phil’s preference.
+- Failed run 40767385570 never ran scenarios: index.html was truncated during upload, so the harness could not locate the boot marker. Restored the full local file and verified GitHub index blob SHA exactly matches local `67aa56fbe26b68d2ea437ba9eea0c46638303627`. Original harness is valid and unchanged. All inline JavaScript syntax checks pass. Full GitHub Tests run 40768135148 completed SUCCESS on candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f (Phil reported all pass; checked once). Ready for Phil’s publication decision. Local visual browser checks were unavailable; the existing full CI suite passed. Do not publish until Phil says Publish.
 
 
 ### 2026-10-28 · ChatGPT · Invited-player stats counter published
