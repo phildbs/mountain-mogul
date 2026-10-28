@@ -14,12 +14,20 @@ export default async function ({ browser, url }) {
   const shelves = await g.ev(`[...document.querySelectorAll('#cmBrowseTab .shelf')].map((s) => [s.querySelector('h4').textContent, [...s.querySelectorAll('.bc-top b')].map((b) => b.textContent)])`);
   eq(shelves.map((s) => s[0]), ['Staff picks', 'Recently active', 'Rising stars', 'Biggest resorts'], 'four shelves');
   eq(shelves[0][1], ['Quiet Hill', 'New Kid'], 'staff picks are the picked resorts only, newest pick first (not most recently played)');
-  eq(shelves[1][1], ['Fresh Pow', 'New Kid', 'Old Giant', 'Quiet Hill'], 'recently active, newest first');
+  eq(shelves[1][1], ['Fresh Pow', 'New Kid', 'Old Giant'], 'recently active, newest first, the top three');
   eq(shelves[2][1], ['Fresh Pow', 'New Kid'], 'rising stars: first season, played this week, busiest first');
   eq(shelves[3][1][0], 'Old Giant', 'biggest first');
   assert(/2 h ago/.test(await g.ev(`$('cmBrowseTab').innerText`)), 'recent cards say when they were played');
   assert(/Guest/i.test(await g.ev(`document.querySelector('#cmBrowseTab .shelf:nth-child(2)').innerText`)), 'guest resorts are tagged');
-  eq(await g.ev(`document.querySelectorAll('#cmBrowseTab [data-action=visit]').length`), 2 + 4 + 2 + 4, 'every card can be visited');
+  eq(await g.ev(`document.querySelectorAll('#cmBrowseTab [data-action=visit]').length`), 2 + 3 + 2 + 3, 'every card can be visited');
+  // See all opens one shelf with every resort, chips switch shelves, and All shelves goes back
+  eq(await g.ev(`[...document.querySelectorAll('#cmBrowseTab .seeall')].map((b) => b.textContent)`), ['See all 4 ›', 'See all 4 ›'], 'shelves with more than three offer See all');
+  await g.click('#cmBrowseTab .seeall'); await g.wait(150);
+  eq(await g.ev(`[document.querySelector('#cmBrowseTab .shelf h4').textContent, document.querySelectorAll('#cmBrowseTab .bcard').length, document.querySelector('#cmBrowseTab .shelf-chips [aria-pressed=true]').textContent]`), ['Recently active', 4, 'Recently active'], 'See all shows the whole shelf');
+  await g.click('#cmBrowseTab .shelf-chips [data-v=big]'); await g.wait(150);
+  eq(await g.ev(`document.querySelector('#cmBrowseTab .shelf h4').textContent`), 'Biggest resorts', 'a chip switches shelves');
+  await g.click('#cmBrowseTab .shelf-chips [data-v=""]'); await g.wait(150);
+  eq(await g.ev(`document.querySelectorAll('#cmBrowseTab .shelf').length`), 4, 'All shelves goes back to the overview');
   // the in-game panel links here
   await g.ev(`$('community').hidden = true; select({ kind: 'community', obj: null })`); await g.wait(200);
   await g.click('#sheet [data-action=browse]'); await g.wait(200);
