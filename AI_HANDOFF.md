@@ -203,7 +203,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 - Please keep slow visual captures behind `SHOTS` (or a separate script) so the GitHub run stays quick.
 
 ### 2026-10-28 · ChatGPT · Scandinavian village published
-- Phil approved the visual gallery and explicitly said Publish. Release `fc3d64d83f38cac2790ad99cd88cd0624ce14f59` merges approved branch `92e6e7f` with latest main `63bdeeb` (guide and roadmap logo/budget edits retained). Changelog 2.52, guide, models, gallery and tests; no database changes. Preview Tests run 40740283426 passed all four shards. Pages and release Tests rerun after main push; check their final result and live site.
+- Phil approved the visual gallery and explicitly said Publish. Release `fc3d64d83f38cac2790ad99cd88cd0624ce14f59` merges approved branch `92e6e7f` with latest main `63bdeeb` (guide and roadmap logo/budget edits retained). Changelog 2.52, guide, models, gallery and tests; no database changes. Preview Tests run 40740283426 passed all four shards. Pages run 40742498785 and release Tests run 40742499249 both succeeded. Live `mtmogul.com` serves v2.52 and the Scandinavian models; gallery page returns 200.
 
 
 ### 2026-10-28 · ChatGPT · Scandinavian completion preview
