@@ -73,6 +73,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| scandinavian-village | ChatGPT | Scandinavian model variants; no UI integration | 2026-10-28 |
 | building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
 
 ## Known issues
