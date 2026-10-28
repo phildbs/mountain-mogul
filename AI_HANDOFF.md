@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
 - 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
 - 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
 - 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
@@ -71,7 +72,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: `unit-preferences` candidate f26a2be implements metric/imperial and Celsius/Fahrenheit toggles. 2.56 is deployed and release tests passed. Popularity reporting remains pending.
+**Active**: 2.57 approved for publication. Remaining feedback: trail/glade popularity split by day and evening, with useful explanations.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -85,7 +86,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| unit-preferences | ChatGPT | Candidate f26a2be: independent measurement and temperature toggles; awaiting full CI | 2026-10-28 |
 
 
 ## Known issues
@@ -202,6 +202,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.57 approved
+- Phil explicitly said Publish. Candidate f26a2bede4d05efeda7bfc105d60e665f8d363e9 passed full GitHub Tests run 40778774810. Release includes independent measurement/temperature toggles, What's new, guide, scenario 91 and this handoff. No database changes. Published main at 188f80e09c779eee6c1600e8c56275abe9ced12f. Main before release was ee7940ba, so no intervening game changes need merging.
+- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Popularity reporting remains unimplemented.
+
 
 ### 2026-10-28 · ChatGPT · Unit preferences candidate
 - Phil requested simple independent menu toggles for metric/imperial measurements and Fahrenheit/Celsius. Branch `unit-preferences`, candidate f26a2bede4d05efeda7bfc105d60e665f8d363e9, based on published main ee7940ba. Candidate 2.57 with What's new and guide. No matching roadmap card or database changes.
