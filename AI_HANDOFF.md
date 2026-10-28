@@ -199,7 +199,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-28 · ChatGPT · Published 2.53
 - Phil explicitly approved publication. Production migration `20261028193542_friend_referrals` installed; verified four RLS-protected private tables, four RPCs and two save triggers. Release commit `c5a54382c633e2e82e9cdbbf87042851fd7e037b` preserves newer main stats changes and includes What's new, guide, roadmap social summary and this handoff. GitHub Pages run 40755829363 succeeded; live mtmogul.com serves 2.53, Invite friends, claim logic and the updated guide/handoff. Initial error check: zero 2.53 reports.
-- Pre-release full suite: all 88 scenarios green (44 real SQL checks also passed). Release Tests run 40755830590 passed referral scenarios and old saves; known baseline flake 22-topbar failed at 900px in group 2. Rerunning that failed group only. No game-code change made for the known flake.
+- Pre-release full suite: all 88 scenarios green (44 real SQL checks also passed). Release Tests run 40755830590 is GREEN across all four groups / 88 scenarios, including referrals and all 36 old saves. Known baseline flake 22-topbar failed at 900px on the first attempt; the failed group alone was rerun and passed. No game-code change made for the known flake.
 
 
 ### 2026-10-28 · ChatGPT · Friend referrals approved for release 2.53
