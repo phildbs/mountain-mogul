@@ -28,25 +28,26 @@ export default async function ({ browser, url }) {
   assert(fork.blueFans.branch>30 && fork.blueFans.stay>30, 'equally attractive routes have a mix of choices');
   eq(fork.intermediates,{branch:100,stay:0},'skiers out of their depth can still take the easier escape');
   eq(fork.closed,{branch:0,stay:100},'closed branches are never chosen');
-  // Build an upper lift at a real gentle uphill walking site that the old six-meter gate rejected.
+  // A controlled ten-percent station approach isolates walking from the natural terrain's steeper grades.
+  // Keep the established upper-lift/return-trail layout used by scenario 30.
   const transfer=await g.ev(`(() => {
-    state.phase='closed';const L=world.lifts[0];let info;
-    for(let dx=-9;dx<=9&&!info;dx+=0.5)for(let dz=-9;dz<=9&&!info;dz+=0.5){
-      const a={x:L.b.x+dx,z:L.b.z+dz},M={a,type:'double',fromBase:false};
-      if(liftTransferMode(L,M)!=='walk')continue;
-      for(const offset of [0,6,-6]){
-        const candidate=evalLift(a,{x:a.x+offset,z:a.z-30},'double');
-        if(!candidate.problems.length){info=candidate;break;}
-      }
+    state.phase='closed';const L=world.lifts[0],y=trueY(L.b.x,L.b.z);
+    for(let j=0;j<NV;j++)for(let i=0;i<NV;i++){
+      const x=i-HALF,z=j-HALF;
+      if(x>=L.b.x-1&&x<=L.b.x+11&&Math.abs(z-L.b.z)<=2)HT[j*NV+i]=y+(x-L.b.x)*0.1;
     }
-    if(!info)throw Error('No legal gentle uphill transfer fixture');
-    const M=commitLift(info,'double');let built=false;
-    for(const offset of [6,-6,10,-10]){
-      const pts=[[M.b.x+3,M.b.z+2],[M.b.x+offset,0],[L.a.x+8,30],[L.a.x+3,L.a.z+2]].map(([x,z])=>({x,z,y:heightAt(x,z)}));
-      const t=evalTrail(pts,'medium',false,true);
-      if(!t.an.problems.length){commitTrail(t,pts,'medium');built=true;break;}
+    for(let j=1;j<WN;j++)for(let i=1;i<WN;i++){
+      const dx=(HT[j*NV+i+1]-HT[j*NV+i-1])/2,dz=(HT[(j+1)*NV+i]-HT[(j-1)*NV+i])/2;
+      GR[j*NV+i]=Math.hypot(dx,dz);
     }
-    if(!built)throw Error('No valid upper return trail');
+    const a={x:L.b.x+10,z:L.b.z};
+    const info=evalLift(a,{x:25,z:-38},'double');
+    if(info.problems.length)throw Error('Upper lift fixture: '+info.problems.join('|'));
+    const M=commitLift(info,'double');
+    const pts=[[M.b.x+3,M.b.z+2],[M.b.x+8,(M.b.z+15)/2],[23,16]].map(([x,z])=>({x,z,y:heightAt(x,z)}));
+    const t=evalTrail(pts,'medium',false,true);
+    if(t.an.problems.length)throw Error('Upper return fixture: '+t.an.problems.join('|'));
+    commitTrail(t,pts,'medium');
     computeNetwork();refreshSnowState(todayWx());
     const connected=L.transfers.includes(M)&&M.transferFrom.includes(L)&&M.reachable;
     const oldRejected=trueY(M.a.x,M.a.z)>trueY(L.b.x,L.b.z)+0.6;
