@@ -70,7 +70,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.55 approved for publication. Remaining feedback: venue service counts/balance and trail/glade popularity by day and evening.
+**Active**: 2.55 is deployed and release tests passed. Remaining feedback: venue service counts/balance and trail/glade popularity by day and evening.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -203,7 +203,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-28 · ChatGPT · Publish 2.55 approved
 - Phil explicitly said Publish. Candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 passed full GitHub Tests run 40773066187. Release includes patrol teams and lift returns, What's new, guide, test coverage and this handoff. No database changes. Published main at 8eddef0c056a90be171e6b592e888c6a7888eae7. Main before release was 7d55b699, so no intervening game changes need merging.
-- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Remaining venue balance and popularity reports are not implemented.
+- Release Tests run 40774458983 and Pages deployment 40774458265 both completed SUCCESS on published main 8eddef0c056a90be171e6b592e888c6a7888eae7. Phil reported Passed; checked once. Remaining venue balance and popularity reports are not implemented.
 
 
 ### 2026-10-28 · ChatGPT · Patrol feedback candidate
