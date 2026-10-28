@@ -179,6 +179,19 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Food / parking / usage investigation
+- Read-only investigation of main 56adb81 in response to Phil's player-feedback screenshot. No gameplay or database writes. Private save findings shared with Phil only, not included here.
+- Reproduced with extracted actual functions and stubbed dependencies: serve price rejection for food/dine sets ate=true AND skipped=true; needs only requests lunch when !ate. Rejected guests stop seeking lunch but updateNeeds still penalizes them via skipped. Fix needs/meal state deliberately with regression coverage.
+- noteHunger's nowhere classification is a fallback, not evidence of a failed food-availability search. Reproduced without any food-search context. hungerAdvice uses these tags but moneyLeaks still recommends a bigger lodge/restaurant generically.
+- lotScores sums all directly departing trail matches, gives every mismatch a positive weight, adds aggregate prior lift popularity (not personal favourites), and picks highest score with only 0–0.3 noise. Reproduced 12 expert trails beating one green for a beginner (1.21 vs 1.01, no popularity). Destination-path suitability and runnable trail status are not checked there.
+- Reproduced stale lot score after changing lift.open: cache key includes day and counts, not open flags, lift coordinates, trail signs or lot layout. This is a separate defect; not proven cause of reported lot imbalance.
+- steep counter increments at endOfTrail for every too-hard descent, so it is not a distinct-guest count. Regular too-hard trails get a soft preference penalty, not a prohibition.
+- Twin has a designed east green shoulder; trail rating uses maximum smoothed along-trail grade, while slope overlay shows terrain-gradient magnitude. Haven't reproduced a missing end-to-end green route or proved a terrain-generation defect; need browser route audit before expanding map.
+- Facility data already exists: building yday, ops.blds and ops.lifts in reports, liftRides/liftWaits and 14-day history. TrailRuns is live but not saved per-trail in reports. Building profit subtracts upkeep/COGS, not fully allocated staffing. A history UI can reuse some existing data; sustained trail histories need extra stored fields.
+- No browser simulation pass claimed (Chromium unavailable). Recommended order: meal-state bug + hunger diagnostics, ability-aware lot scoring, history UI, then terrain route audit.
+
+
+
 ### 2026-10-28 · ChatGPT · Retention dashboard published
 - Phil authorized Publish. Installed player_retention_tracking migration on iwhhoneaxmeiktqzwxjs, then fast-forwarded main to f511886a0709a51b83a27d4950f135fc0d1685ca.
 - Owner RPC verified after install: empty daily data and zero eligible cohorts as expected, first full tracking day 2026-10-29 UTC. Prior validation confirmed non-owner denial. JavaScript syntax passed; authenticated browser visual review still outstanding.
