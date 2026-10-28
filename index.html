@@ -185,6 +185,7 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .menu {
   background: rgba(250, 252, 255, 0.98);
   margin-top: 8px; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 210px;
+  max-height: calc(100vh - 100px); max-height: calc(100dvh - 100px); overflow-y: auto;
 }
 .menu button {
   border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 500;
@@ -1318,6 +1319,8 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mEdges">Trail colour edges <span class="mval" id="mEdgesV"></span></button>
           <button id="mTips">Help bulb <span class="mval" id="mTipsV"></span></button>
           <button id="mGfx">Graphics <span class="mval" id="mGfxV"></span></button>
+          <button id="mUnits" role="switch" aria-checked="false" aria-label="Metric units" title="Distances, land area, snow depth and wind speed">Units <span class="mval" id="mUnitsV">Imperial</span></button>
+          <button id="mTemp" role="switch" aria-checked="false" aria-label="Celsius temperatures">Temperature <span class="mval" id="mTempV">°F</span></button>
           <button id="mFeedback">Feedback &amp; feature ideas</button>
           <button id="mRoadmap">Roadmap: what’s coming</button>
           <button id="mSim" hidden>Simulate (dev)</button>
@@ -1704,6 +1707,9 @@ const pickTool = (name) => (isPhone() ? `Tap <b>Build</b>, then <b>${name}</b>.`
 // (or kills the page outright) is still reported on the next visit that does.
 const ERRQ_KEY = 'mm.errq', ALIVE_KEY = 'mm.alive', BOOT_MARK = 'mm.booting';
 const readJSON = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+// Display preferences belong to this device, independently of resorts and online saves.
+const savedUnits = readJSON('mm.units');
+const units = { metric: savedUnits?.metric === true, celsius: savedUnits?.celsius === true };
 const errQueue = readJSON(ERRQ_KEY) || [], errSeen = new Set(errQueue.map((r) => r.message));
 let errSent = 0;
 const storeErrs = () => { try { localStorage.setItem(ERRQ_KEY, JSON.stringify(errQueue.slice(0, 8))); } catch (e) { /* ignore */ } };
@@ -3293,7 +3299,7 @@ function showReadout(p, px, py, pinned) {
   const owned = inProperty(p.x, p.z);
   const g = sampleGrid(GR, p.x + HALF, p.z + HALF);
   const dif = DIFF[difficulty(g)];
-  let html = `<b>${ftVis(p.y).toLocaleString('en-US')} ft</b> <span class="muted">·</span> ${Math.round(g * 100)}% grade <span class="muted">·</span> <span style="color:${dif.css}">${dif.name}</span>`;
+  let html = `<b>${fmtFt(ftVis(p.y))}</b> <span class="muted">·</span> ${Math.round(g * 100)}% grade <span class="muted">·</span> <span style="color:${dif.css}">${dif.name}</span>`;
   if (!owned) html += `<br><span class="muted">Outside your property</span>`;
   else if (state.tool === 'clear' && state.landMode === 'area') {
     const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
@@ -3304,7 +3310,7 @@ function showReadout(p, px, py, pinned) {
     html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Paint the glade here';
   }
   else if (state.tool === 'clear' && state.landMode === 'level') {
-    html += stroke.active ? `<br>Leveling to ${ft(stroke.target).toLocaleString('en-US')} ft · −${money(stroke.cost)}` : `<br><span class="muted">Press here to level to ${ftVis(p.y).toLocaleString('en-US')} ft</span>`;
+    html += stroke.active ? `<br>Leveling to ${fmtFt(ft(stroke.target))} · −${money(stroke.cost)}` : `<br><span class="muted">Press here to level to ${fmtFt(ftVis(p.y))}</span>`;
   }
   else if (state.tool === 'clear' && state.landMode === 'doze') {
     const o = hover.doze;
@@ -3586,8 +3592,8 @@ function analyzeTrail(samples) {
   res.bridges = bridgeSpans(samples);
   const along = res.bridges.filter(([a, b]) => (b - a + 1) * 0.5 > BRIDGE_MAX);
   if (along.length) { res.problems.push('The trail runs along the creek. Cross it more directly.'); for (const [a, b] of along) for (let i = a; i <= b; i++) res.bad.add(i); }
-  if (res.len < 8) res.problems.push('Too short. Make the trail at least 260 ft long.');
-  else if (res.vert < 1) res.problems.push('The trail needs to drop at least 30 ft.');
+  if (res.len < 8) res.problems.push(`Too short. Make the trail at least ${units.metric ? '80 m' : '260 ft'} long.`);
+  else if (res.vert < 1) res.problems.push(`The trail needs to drop at least ${units.metric ? '10 m' : '30 ft'}.`);
   return res;
 }
 
@@ -4409,7 +4415,7 @@ function areaDraftInfo() {
   const n = areaDraft.cells.size, treeSet = new Set(), problems = [], old = areaDraft.editId == null ? null : areaById(areaDraft.editId);
   const added = old ? [...areaDraft.cells].filter((k) => !old.set.has(k)) : [...areaDraft.cells];
   for (const k of added) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
-  if (n < AREA_MIN_CELLS) problems.push('Paint a bigger area: at least about half an acre.');
+  if (n < AREA_MIN_CELLS) problems.push(`Paint a bigger area: at least about ${units.metric ? '0.2 ha' : 'half an acre'}.`);
   if (old) for (const L of areaLifts(old)) if (!nearCell({ set: areaDraft.cells }, L.a, 3) || !nearCell({ set: areaDraft.cells }, L.b, 3)) problems.push(`Keep both stations of ${L.name} inside the learning area.`);
   const lotWarn = lotReserve().some((r) => added.some((k) => boxDist({ x: keyX(k), z: keyZ(k) }, r) < 0.5));
   const prep = added.length * AREA_CELL_COST;
@@ -4572,7 +4578,7 @@ const gladeRating = (pts, G) => Math.min(3, Math.max(analyzeTrail(trailSamples(p
 function gladeDraftInfo() {
   const cells = [...areaDraft.cells], n = cells.length, th = state.gladeThin || 'classic', G = GLADE_THIN[th], problems = [];
   const trees0 = gladeTreeCount(cells);
-  if (n < AREA_MIN_CELLS) problems.push('Paint a bigger glade: at least about half an acre.');
+  if (n < AREA_MIN_CELLS) problems.push(`Paint a bigger glade: at least about ${units.metric ? '0.2 ha' : 'half an acre'}.`);
   else if (trees0 < n * GLADE_MIN_TREES) problems.push('Paint over forest: a glade is skied through the trees.');
   const A = { id: -1, kind: 'glade', cells, set: areaDraft.cells };
   const lines = n >= AREA_MIN_CELLS ? gladeLines(A) : [];
@@ -5482,7 +5488,13 @@ function select(feat) {
 const sheet = $('sheet');
 let sheetConfirm = false;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtFt = (n) => Math.round(n).toLocaleString('en-US') + ' ft';
+const fmtFt = (n) => Math.round(units.metric ? n * 0.3048 : n).toLocaleString('en-US') + (units.metric ? ' m' : ' ft');
+const fmtWind = (mph) => `${Math.round(units.metric ? mph * 1.609344 : mph)} ${units.metric ? 'km/h' : 'mph'}`;
+function fmtAcres(acres, digits = 0) {
+  const n = units.metric ? acres * 0.40468564224 : acres, dp = units.metric ? Math.max(1, digits) : digits;
+  return n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp }) + (units.metric ? ' ha' : ' acres');
+}
+const unitBlurb = (text) => units.metric ? text.replace(/\b([\d,]+) feet\b/g, (_, n) => fmtFt(Number(n.replaceAll(',', '')))) : text;
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 const trailLenFt = (an) => Math.round(an.len * FT_PER_UNIT / 10) * 10;
 const trailVertFt = (an) => Math.round(an.vert * FT_PER_UNIT / 10) * 10;
@@ -5566,7 +5578,7 @@ function trailDraftSheet() {
     <p class="help">${editing ? 'Drag points to reshape the trail. Tap + between points to add another, then drag it. Zoom in if the points are close together. New clearing and grading are charged at the normal construction price. Old clearing and earthwork remain. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
     <div class="field-label">Width</div>
     <div class="seg" role="group" aria-label="Trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
-      `<button data-action="width" data-v="${k}" aria-pressed="${draft.width === k}">${w.label}<small>${widthFt(k)} ft</small></button>`).join('')}</div>
+      `<button data-action="width" data-v="${k}" aria-pressed="${draft.width === k}">${w.label}<small>${fmtFt(widthFt(k))}</small></button>`).join('')}</div>
     ${body}
     ${editing ? `<div class="row"><button class="btn secondary" data-action="trailMoveCancel">Cancel</button><button class="btn secondary" data-action="trailMoveReset">Reset route</button></div><button class="btn wide" data-action="build" ${info && info.moved && !info.an.problems.length && info.cost <= state.cash ? '' : 'disabled'}>Apply route${info ? ' · ' + money(info.cost) : ''}</button>` : buildRow(info, info && !info.an.problems.length)}`;
 }
@@ -5599,7 +5611,7 @@ function liftDraftSheet() {
     ${LIFT_TYPES[draft.liftType].village ? '<p class="help">Links your two bases across the valley, carrying guests both ways: put one station at each base. Guests ride it to reach the other base and to get back to their car.</p>' : ''}
     ${draft.liftType === 'gondola' ? '<p class="help">Enclosed, heated cabins. Skiers prefer it on cold days, and sightseers buy a scenic ride to the top and back when it starts at the base. It stops first in high wind.</p>' : ''}
     ${draft.liftType === 'carpet' && !world.areas.length ? '<p class="help">A carpet works best inside a learning area. <button class="link" data-action="trailMode" data-v="area">Paint one first</button></p>' : ''}
-    ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
+    ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? `A covered conveyor belt for gentle slopes up to about ${units.metric ? '180 m' : '590 ft'}. Perfect for a learning area at the base.` : `Pulls skiers up on their skis, up to about ${units.metric ? '800 m' : '2,600 ft'}. Cheap to run and keeps going in wind that stops chairlifts.`}</p>` : ''}
     ${body}
     ${buildRow(info, info && !info.problems.length)}`;
 }
@@ -5650,7 +5662,7 @@ function gladeSheet(A) {
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <div class="status"><span class="pill ${A.closed ? 'off' : 'on'}">${A.closed ? 'Closed' : 'Open'}</span>
       <button class="link" data-action="gladeOpen">${A.closed ? 'Open glade' : 'Close glade'}</button></div>
-    <p class="help">Glade · ${acresOf(A.cells.length).toFixed(1)} acres of ${G.label.toLowerCase()} trees, ${Math.round(A.keepNow * 100)}% of the forest left. ${G.who}</p>
+    <p class="help">Glade · ${fmtAcres(acresOf(A.cells.length), 1)} of ${G.label.toLowerCase()} trees, ${Math.round(A.keepNow * 100)}% of the forest left. ${G.who}</p>
     ${conn}
     <dl class="kv">
       ${sign != null ? `<div><dt>Rating</dt><dd><span class="rsym">${ratingSymbol(sign)} ${RATINGS[sign].name}</span></dd></div>` : ''}
@@ -5670,7 +5682,7 @@ function areaSheet(A) {
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(0x2f9e6a)}"></span>
       <input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">Learning area · ${acresOf(A.cells.length).toFixed(1)} acres of gentle, groomed snow where first-timers find their feet.</p>
+    <p class="help">Learning area · ${fmtAcres(acresOf(A.cells.length), 1)} of gentle, groomed snow where first-timers find their feet.</p>
     ${lifts.length ? `<p class="conn">Served by ${lifts.map((L) => esc(L.name)).join(', ')}.</p>`
       : '<p class="conn warn">No lift serves it yet. Build a magic carpet or T-bar with both stations inside it.</p>'}
     <dl class="kv">
@@ -5699,7 +5711,7 @@ function trailSheet(t) {
       <div><dt>Vertical</dt><dd>${fmtFt(trailVertFt(an))}</dd></div>
       <div><dt>Average</dt><dd>${Math.round(an.avgGrade * 100)}%</dd></div>
       <div><dt>Steepest</dt><dd>${Math.round(an.maxGrade * 100)}%</dd></div>
-      <div><dt>Width</dt><dd>${TRAIL_WIDTHS[t.width].label} · ${widthFt(t.width)} ft</dd></div>
+      <div><dt>Width</dt><dd>${TRAIL_WIDTHS[t.width].label} · ${fmtFt(widthFt(t.width))}</dd></div>
       <div><dt>Terrain</dt><dd><span class="rsym">${ratingSymbol(an.rating)} ${RATINGS[an.rating].name}</span></dd></div>
     </dl>
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${guests.filter((g) => g.st === 'ski' && g.T === t).length * AGENT}</b> skiing now · <b>${(today.trailRuns[t.id] || 0) * AGENT}</b> runs so far</p>` : ''}
@@ -6143,20 +6155,20 @@ function landPanel() {
       <p class="help">${closed ? `Permits take ${LAND_PERMIT_DAYS} days. A lease costs nothing up front and is paid every night once it starts.` : 'Land deals are done overnight, while the resort is closed.'}</p>`;
     detail = `<div class="land-card"><div class="l1"><b>${esc(P.name)}</b><span class="pill">${LAND_KIND[info.kind].label}</span></div>
       <p class="help">${LAND_KIND[info.kind].blurb}</p>
-      <dl class="kv"><div><dt>Size</dt><dd>${info.acres} acres</dd></div><div><dt>${l ? 'Paid' : 'Price'}</dt><dd>${l && l.own === 'lease' ? 'Leased' : money(price)}</dd></div></dl>${act}</div>`;
+      <dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(info.acres)}</dd></div><div><dt>${l ? 'Paid' : 'Price'}</dt><dd>${l && l.own === 'lease' ? 'Leased' : money(price)}</dd></div></dl>${act}</div>`;
   }
   // On a phone the map is the list: tap a tag to see one parcel; the full list is there if you want it.
   if (isPhone() && P) return `${detail}<button class="link" data-action="landSel" data-v="${P.id}">‹ All parcels</button>`;
   const groups = ['road', 'valley', 'mountain'].map((k) => [k, PARCELS.filter((p) => parcelInfo(p).kind === k)]).filter(([, ps]) => ps.length);
-  if (isPhone() && !landListOpen) return `<dl class="kv"><div><dt>Your land</dt><dd>${ownedAcres().toLocaleString('en-US')} acres</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
+  if (isPhone() && !landListOpen) return `<dl class="kv"><div><dt>Your land</dt><dd>${fmtAcres(ownedAcres())}</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
     <p class="help"><b>Tap a price tag on the map</b> to see that parcel. Each one you take on makes the next ${Math.round(LAND_STEP * 100)}% dearer.</p>
     <button class="link" data-action="landList">Show them as a list</button>`;
-  return `<dl class="kv"><div><dt>Your land</dt><dd>${ownedAcres().toLocaleString('en-US')} acres</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
+  return `<dl class="kv"><div><dt>Your land</dt><dd>${fmtAcres(ownedAcres())}</dd></div><div><dt>Leases</dt><dd>${rent ? `${money(rent)}/day` : 'None'}</dd></div></dl>
     <p class="help">Tap a parcel on the map or in the list. Each one you take on makes the next ${Math.round(LAND_STEP * 100)}% dearer.</p>
     ${detail}
     ${groups.map(([k, ps]) => `<div class="field-label">${LAND_KIND[k].label}</div><ul class="llist">${ps.map((p) => {
       const st = landStatus(p), info = parcelInfo(p);
-      return `<li class="lrow${landSel === p.id ? ' on' : ''}" data-action="landSel" data-v="${p.id}"><div class="l1"><b>${esc(p.name)}</b><span class="pill ${st ? 'on' : ''}">${st || (landReachable(p) ? shortMoney(landPrice(p)) : 'Corner')}</span></div><div class="l2"><span>${info.acres} acres</span>${st ? '' : `<span>or ${money(leaseOf(landPrice(p)))}/day</span>`}</div></li>`;
+      return `<li class="lrow${landSel === p.id ? ' on' : ''}" data-action="landSel" data-v="${p.id}"><div class="l1"><b>${esc(p.name)}</b><span class="pill ${st ? 'on' : ''}">${st || (landReachable(p) ? shortMoney(landPrice(p)) : 'Corner')}</span></div><div class="l2"><span>${fmtAcres(info.acres)}</span>${st ? '' : `<span>or ${money(leaseOf(landPrice(p)))}/day</span>`}</div></li>`;
     }).join('')}</ul>`).join('')}`;
 }
 // A phone pulls the camera back until every parcel's tag sits between the top bar and the panel. A
@@ -12715,8 +12727,8 @@ function middayWind() {
   const reopened = world.lifts.filter((L) => L.windHold && !windHoldAt(L, pm));
   const held = world.lifts.filter((L) => !L.windHold && windHoldAt(L, pm));
   setWindHolds(pm);
-  if (reopened.length) toast(`Winds eased to ${pm} mph. ${reopened.map((L) => L.name).join(', ')} ${reopened.length === 1 ? 'is' : 'are'} spinning again.`);
-  if (held.length) toast(`Winds picked up to ${pm} mph. ${held.map((L) => L.name).join(', ')} went on wind hold.`, true);
+  if (reopened.length) toast(`Winds eased to ${fmtWind(pm)}. ${reopened.map((L) => L.name).join(', ')} ${reopened.length === 1 ? 'is' : 'are'} spinning again.`);
+  if (held.length) toast(`Winds picked up to ${fmtWind(pm)}. ${held.map((L) => L.name).join(', ')} went on wind hold.`, true);
   for (const L of held) for (const g of L.queue.splice(0)) { if (L.fromBase) baseDecision(g); else hikeOut(g); }
   today.pmHolds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
 }
@@ -12904,7 +12916,7 @@ function advice() {
   else if (!net.length) add(true, 'Cut a trail from the top of your lift back down to the base area, so guests have something to ski.', 'Build a trail', () => setTool('trail'));
   if (!state.summer && net.length && !ready && state.phase === 'closed') {
     const need = Math.min(...net.map(needOf)), have = Math.round(Math.max(...net.map((t) => t.base || 0)));
-    add(true, `Your trails need about ${need}″ of snow to open and have ${have}″ so far. ${state.day < 15 ? 'Natural snow usually builds up between late November and mid-December.' : 'The next good storm should do it.'} Keep building, then skip ahead.`, 'Stay closed for a week', () => waitWeek());
+    add(true, `Your trails need about ${inch(need)} of snow to open and have ${inch(have)} so far. ${state.day < 15 ? 'Natural snow usually builds up between late November and mid-December.' : 'The next good storm should do it.'} Keep building, then skip ahead.`, 'Stay closed for a week', () => waitWeek());
     if (!net.some((t) => t.sm)) add(false, 'In a hurry? Snowmaking on a trail opens it sooner on cold nights. Open a trail from the list and add snowmaking.', 'My trails', () => openManage('trails'));
   }
   if (!state.summer && baseLift && !world.buildings.some(isEatery)) add(net.length > 0, 'Guests need somewhere to eat and warm up. Build a lodge near the bottom of your lift.', 'Build a lodge', () => pickBuilding('lodge'));
@@ -13006,13 +13018,13 @@ function decodeSnow(b64) {
 /* =====================================================================
    WEATHER & SEASON UI
    ===================================================================== */
-const inch = (v) => `${Math.round(v)}″`;
-const tempF = (v) => `${Math.round(v)}°`;
+const inch = (v) => units.metric ? `${Math.round(v * 2.54)} cm` : `${Math.round(v)}″`;
+const tempF = (v) => `${Math.round(units.celsius ? (v - 32) * 5 / 9 : v)}°${units.celsius ? 'C' : 'F'}`;
 function wxCard(w, label) {
   const t = WX[w.type];
   return `<div class="wxday"><span class="wxd">${label}</span><span class="wxi" aria-hidden="true">${t.icon}</span><span class="wxl">${t.label}</span>
     <span class="wxt"><b>${tempF(w.hi)}</b> / ${tempF(w.lo)}</span><span class="wxs">${w.snow >= 0.5 && w.type !== 'rain' ? `${inch(w.snow)} snow` : w.type === 'rain' || w.type === 'ice' ? 'Rain' : '–'}</span>
-    <span class="wxw">${w.wind} mph</span></div>`;
+    <span class="wxw">${fmtWind(w.wind)}</span></div>`;
 }
 function weatherSheet(noHead) {
   const head = noHead ? '' : `<div class="sheet-title"><h3>Weather & snow</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
@@ -13023,13 +13035,13 @@ function weatherSheet(noHead) {
   const holds = world.lifts.filter((L) => L.windHold);
   const spring = state.day > SEASON_LAST;
   return `${head}
-    <div class="wxnow"><span class="wxbig" aria-hidden="true">${WX[w.type].icon}</span><div><b>${WX[w.type].label}</b><span>High ${tempF(w.hi)} · low ${tempF(w.lo)} at mid-mountain · wind ${w.wind} mph</span></div></div>
+    <div class="wxnow"><span class="wxbig" aria-hidden="true">${WX[w.type].icon}</span><div><b>${WX[w.type].label}</b><span>High ${tempF(w.hi)} · low ${tempF(w.lo)} at mid-mountain · wind ${fmtWind(w.wind)}</span></div></div>
     ${holds.length ? `<ul class="problems soft"><li>Wind hold today on ${holds.map((L) => esc(L.name)).join(', ')}.</li></ul>` : ''}
     <div class="field-label">Forecast</div>
     <div class="wxrow">${days.slice(0, 5).map((d, i) => wxCard(d, i === 0 ? 'Today' : DOW[dateOf(state.day + i).getUTCDay()])).join('')}</div>
     <div class="field-label">Snow report</div>
     <dl class="kv">
-      <div><dt>New snow</dt><dd>${w.snow >= 0.5 && w.type !== 'rain' ? inch(w.snow) : '0″'}</dd></div>
+      <div><dt>New snow</dt><dd>${w.snow >= 0.5 && w.type !== 'rain' ? inch(w.snow) : inch(0)}</dd></div>
       <div><dt>Avg trail base</dt><dd>${inch(avgBase())}</dd></div>
       <div><dt>Summit</dt><dd>${inch(depthAtElev(0.75, 1))}</dd></div>
       <div><dt>Base area</dt><dd>${inch(baseDepth())}</dd></div>
@@ -13037,8 +13049,8 @@ function weatherSheet(noHead) {
       <div><dt>Season snowfall</dt><dd>${inch(state.seasonStats ? state.seasonStats.snowfall : 0)}</dd></div>
     </dl>
     <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
-      Snowmaking needs about 28°F or colder. Trails need ${OPEN_NEED[0]}″ of base to open, and black diamonds need ${OPEN_NEED[2]}″.
-      ${spring ? ` Spring bonus days continue while the average trail base stays at ${SPRING_MIN_BASE}″ or more.` : ''}</p>
+      Snowmaking needs about ${tempF(28)} or colder. Trails need ${inch(OPEN_NEED[0])} of base to open, and black diamonds need ${inch(OPEN_NEED[2])}.
+      ${spring ? ` Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more.` : ''}</p>
     ${baseSnowSection()}
     ${state.phase === 'closed' && !visiting ? `<div class="field-label">Stay closed</div>
       <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
@@ -13653,7 +13665,7 @@ function landSheet() {
     <div class="seg" role="group" aria-label="Thinning">${Object.entries(GLADE_THIN).map(([k, G]) => `<button data-action="gladeThin" data-v="${k}" aria-pressed="${th === k}">${G.label}<small>keeps ${Math.round(G.keep * 100)}% of trees</small></button>`).join('')}</div>
     <p class="help">${GLADE_THIN[th].who} More trees make it harder, and accidents more likely and more serious.</p>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
-    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${acresOf(info.n).toFixed(1)} acres</dd></div><div><dt>Rating</dt><dd>${info.rating != null ? `<span class="rsym">${ratingSymbol(info.rating)} ${RATINGS[info.rating].name}</span>` : '–'}</dd></div><div><dt>Upkeep</dt><dd>None: glades aren’t groomed</dd></div></dl>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Rating</dt><dd>${info.rating != null ? `<span class="rsym">${ratingSymbol(info.rating)} ${RATINGS[info.rating].name}</span>` : '–'}</dd></div><div><dt>Upkeep</dt><dd>None: glades aren’t groomed</dd></div></dl>
     ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
     <div class="costs"><span>Marking and brushing</span><span>${money(info.prep)}</span><span>Thinning ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * GLADE_THIN_TREE)}</span></div>
     <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Cut it · ${money(info.cost)}`}</button></div>` : ''}
@@ -13664,7 +13676,7 @@ function landSheet() {
     return `${head}
     <p class="help">${editing ? 'Paint to add ground or erase to trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Keep both stations of any serving lift inside the area.' : 'Paint a gentle slope where first-timers can learn. Steep ground, trails, buildings and the road are left out. Then add a magic carpet or T-bar with both stations inside it.'}</p>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
-    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${acresOf(info.n).toFixed(1)} acres</dd></div><div><dt>Upkeep</dt><dd>${money(info.n * AREA_GROOM_CELL)}/day grooming</dd></div></dl>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Upkeep</dt><dd>${money(info.n * AREA_GROOM_CELL)}/day grooming</dd></div></dl>
     ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
     <div class="costs"><span>${editing ? 'Preparing added ground' : 'Grooming and fencing'}</span><span>${money(info.prep)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>
     <div class="row"><button class="btn secondary" data-action="areaClear">${editing ? 'Cancel' : 'Start over'}</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : editing ? `Apply changes · ${money(info.cost)}` : `Build · ${money(info.cost)}`}</button></div>` : editing ? '<button class="btn secondary" data-action="areaClear">Cancel editing</button>' : ''}
@@ -13715,7 +13727,7 @@ function preseasonLine() {
   if (!net.length) return `${state.day < 0 ? 'Pre-season' : 'Not open yet'} · build a lift and a trail`;
   if (net.some((t) => t.open && t.snowOk !== false)) return 'Ready for opening day!';
   const need = Math.min(...net.map(needOf)), have = Math.round(Math.max(...net.map((t) => t.base || 0)));
-  return `Waiting for snow · trails ${have}″ of ${need}″`;
+  return `Waiting for snow · trails ${inch(have)} of ${inch(need)}`;
 }
 function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
@@ -14364,7 +14376,7 @@ function moreHub() {
     ['evenings', 'Evenings', eveningsStatus()],
     ['snow', 'Snow', `${inch(baseDepth())} base${todayWx().snow >= 1 ? ` · ${inch(todayWx().snow)} new` : ''}`],
     ['money', 'Money', `${cashText()}${state.debt ? ` · loan ${money(state.debt)}` : ''}`],
-    ['land', 'Land', landOpen() ? `${ownedAcres().toLocaleString('en-US')} acres` : 'For sale after your first week'],
+    ['land', 'Land', landOpen() ? `${fmtAcres(ownedAcres())}` : 'For sale after your first week'],
     ...(world.plans.length ? [['plans', 'Blueprints', `${world.plans.length} waiting`]] : []),
   ].filter(([k]) => !visiting || VISIT_MANAGE.includes(k));
   const extra = visiting ? '' : `<button class="mtile" data-action="hubGoals"><span class="ic">★</span><b>Goals</b><small>★ ${starsOf()} of ${goalList().length} goals</small></button>
@@ -15160,6 +15172,26 @@ syncFullscreen();
 $('mFull').onclick = () => { closeMenu(); toggleFullscreen(); };
 $('mGfxV').textContent = GFX === 'low' ? 'Low' : 'Standard';
 $('mEdgesV').textContent = trailEdges ? 'On' : 'Off';
+function syncUnitMenu() {
+  $('mUnitsV').textContent = units.metric ? 'Metric' : 'Imperial';
+  $('mTempV').textContent = units.celsius ? '°C' : '°F';
+  $('mUnits').setAttribute('aria-checked', String(units.metric));
+  $('mTemp').setAttribute('aria-checked', String(units.celsius));
+}
+function setUnits(kind, on) {
+  if (!['metric', 'celsius'].includes(kind)) return;
+  units[kind] = !!on;
+  try { localStorage.setItem('mm.units', JSON.stringify(units)); } catch (e) { /* still works when storage is blocked */ }
+  syncUnitMenu();
+  hover.dirty = true; lastSheetHtml = ''; tbCache = '';
+  syncBadgeSub(); refreshTimebar(true);
+  if (practice) $('resortSub').textContent = 'Tutorial · practice resort';
+  if (draft.kind) recomputeDraft(); else renderSheet();
+  if (!$('title').hidden) refreshTitle();
+}
+syncUnitMenu();
+$('mUnits').onclick = () => setUnits('metric', !units.metric);
+$('mTemp').onclick = () => setUnits('celsius', !units.celsius);
 // The help bulb (What next?) can be put away, remembered on this device; the welcome card goes with it.
 let tipsOn = true;
 try { tipsOn = localStorage.getItem('mm.tips') !== 'off'; } catch (e) { /* storage blocked */ }
@@ -16459,6 +16491,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.57', date: 'Oct 28, 2026', title: 'Choose your units', items: ['Open the resort menu to switch between imperial and metric measurements, and choose Fahrenheit or Celsius separately. Metric uses meters, centimeters of snow, hectares and km/h.', 'Your choices update the game immediately and are remembered across resorts on this device.'] },
   { v: '2.56', date: 'Oct 28, 2026', title: 'Clearer venue visits and smarter queues', items: ['Venue panels split service visits into meals, snacks, hot drinks, restroom stops and breaks. These are visits, so a guest can appear more than once. Counts survive a mid-day reload and remain in last day’s venue panel.', 'Fixed: skiers look for another warm-up spot when the fire pit is full. Guests in slow snack and fine-dining queues can now try a faster food venue, as guests in other food queues already do.'] },
   { v: '2.55', date: 'Oct 28, 2026', title: 'More help from ski patrol', items: ['Expand an existing patrol team overnight from 2 to 4 or 6 patrollers, with higher upkeep. Skeleton staffing puts half the team on duty.', 'Returning patrollers take operating lifts uphill, using a seat on a real chair. If the lifts can’t reach their hut, they stay available at the aid station. The patrol panel distinguishes staff responding from staff returning.'] },
   { v: '2.54', date: 'Oct 28, 2026', title: 'Edit learning areas and safer night closing', items: ['Select a learning area overnight to repaint or trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Serving lift stations must stay inside.', 'At the end of night skiing, lit routes and lift terminals stay illuminated while the last skiers clear the mountain. The short extension is included in the day’s night-operation costs.'] },
@@ -17058,7 +17091,7 @@ $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew')
 let titleTime = 0, BADGE_SUB = '';
 // The badge under the resort name: the mountain's level and how many acres you hold.
 const ownedAcres = () => Math.round(PN * PN * ACRES_PER_CELL) + landRects.reduce((a, p) => a + parcelInfo(p).acres, 0);
-function syncBadgeSub() { BADGE_SUB = `${state.sandbox ? 'Sandbox' : MOUNTAIN.level} · ${ownedAcres().toLocaleString('en-US')} acres`; $('resortSub').textContent = BADGE_SUB; }
+function syncBadgeSub() { BADGE_SUB = `${state.sandbox ? 'Sandbox' : MOUNTAIN.level} · ${fmtAcres(ownedAcres())}`; $('resortSub').textContent = BADGE_SUB; }
 function refreshTitle() { renderSlots(); checkRoadmap(); }
 // The Roadmap card shows how many ideas are new or have changed status since you last opened the
 // roadmap. The roadmap page keeps what you last saw (each idea's status) in mm.roadmapSeen.
@@ -17199,7 +17232,7 @@ function renderSlots() {
     box.innerHTML = Object.values(MOUNTAINS).map((M) => `<article class="panel scard pick">
         <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.level)} · starts with ${money(M.cash)}</div>
-          <h2>${esc(M.name)}${newMtnOn() && M.id === NEW_MTN.id ? '<span class="newtag">New</span>' : ''}</h2><p>${esc(M.blurb)}</p>
+          <h2>${esc(M.name)}${newMtnOn() && M.id === NEW_MTN.id ? '<span class="newtag">New</span>' : ''}</h2><p>${esc(unitBlurb(M.blurb))}</p>
           <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button><button class="btn secondary" data-slot="pick" data-mt="${M.id}" data-sandbox="1" title="Unlimited money, no goals">Sandbox</button></div></div></article>`).join('')
       + (CUSTOM_OFF ? `<article class="panel scard pick off" aria-disabled="true">
         <div class="sc-design" aria-hidden="true">✎</div>
@@ -17254,9 +17287,9 @@ function freshCard() {
   return `<article class="panel scard on">
     <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
     <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i><span id="mLevel">${esc(M.level)} mountain</span></div>
-      <h2 id="mName">${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
-      <dl class="stats"><div><dt>Summit</dt><dd>${ft(M.summitH).toLocaleString('en-US')}</dd></div><div><dt>Base</dt><dd>${ft(M.baseH).toLocaleString('en-US')}</dd></div>
-        <div><dt>Vertical</dt><dd>${(ft(M.summitH) - ft(M.baseH)).toLocaleString('en-US')}</dd></div><div><dt>Acres</dt><dd>${Math.round(PN * PN * ACRES_PER_CELL).toLocaleString('en-US')}</dd></div></dl>
+      <h2 id="mName">${esc(M.name)}</h2><p>${esc(unitBlurb(M.blurb))}</p>
+      <dl class="stats"><div><dt>Summit</dt><dd>${fmtFt(ft(M.summitH))}</dd></div><div><dt>Base</dt><dd>${fmtFt(ft(M.baseH))}</dd></div>
+        <div><dt>Vertical</dt><dd>${fmtFt(ft(M.summitH) - ft(M.baseH))}</dd></div><div><dt>Area</dt><dd>${fmtAcres(Math.round(PN * PN * ACRES_PER_CELL))}</dd></div></dl>
       <div class="actions"><button class="btn" id="startBtn">Start building</button><button class="link goal-link" id="mGoals"><span class="stars">${starText(0, max)}</span> ${max} goals to earn</button></div>
       <button class="btn secondary tutbig" data-slot="tutorial"><span>🎓</span><span><b>New to tycoon games?</b><small>Take the 3-minute tutorial first</small></span></button>
       <button class="btn secondary tutbig sandbig" data-slot="sandboxStart"><span>🛠</span><span><b>Just want to build?</b><small>Sandbox: unlimited money, no goals</small></span></button></div></article>`;
@@ -17394,9 +17427,9 @@ function drawBuilder() {
   const M = makeCustom(mb), { min, max } = paintMountain($('mbCanvas'), M);
   const ft = (y) => Math.round((M.baseFt + (y - min) * FT_PER_UNIT) / 10) * 10;
   $('mbName').textContent = M.name;
-  $('mbStats').innerHTML = `<div><dt>Vertical</dt><dd>${(ft(max) - ft(min)).toLocaleString('en-US')} ft</dd></div><div><dt>Difficulty</dt><dd>${customDifficulty(mb)}</dd></div>
-    <div><dt>Summit</dt><dd>${ft(max).toLocaleString('en-US')} ft</dd></div><div><dt>Base</dt><dd>${ft(min).toLocaleString('en-US')} ft</dd></div>`;
-  const vw = $('mbW-vert'); if (vw) vw.textContent = `${(ft(max) - ft(min)).toLocaleString('en-US')} ft`;
+  $('mbStats').innerHTML = `<div><dt>Vertical</dt><dd>${fmtFt(ft(max) - ft(min))}</dd></div><div><dt>Difficulty</dt><dd>${customDifficulty(mb)}</dd></div>
+    <div><dt>Summit</dt><dd>${fmtFt(ft(max))}</dd></div><div><dt>Base</dt><dd>${fmtFt(ft(min))}</dd></div>`;
+  const vw = $('mbW-vert'); if (vw) vw.textContent = `${fmtFt(ft(max) - ft(min))}`;
 }
 // A painted view of a mountain from its valley: snow, forest, rock, shading, haze and the access road.
 // Used by the builder's preview and the title screen's cards. Returns the property's lowest and highest ground.
