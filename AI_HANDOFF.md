@@ -80,7 +80,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| friend-referrals | ChatGPT | Invitation UI with real mountain photos; four browser groups green; awaiting Phil’s review | 2026-10-28 |
+| friend-referrals | ChatGPT | Full referral backend + UI implemented; 44 SQL checks pass; browser CI pending | 2026-10-28 |
 
 
 ## Known issues
@@ -197,6 +197,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Full referrals implementation awaiting browser results
+- Branch `friend-referrals`, candidate `da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf`. Phil requested full implementation, then tests. Changelog candidate 2.53 + guide. No main merge, no production migration installed.
+- `supabase/referrals.sql` is the additive installation script, following this repo's SQL setup-file convention. INSTALL IT BEFORE publishing the game client. Private RLS-protected account codes, immutable attribution, server-UTC operating-day ledger, and account-wide reward receipts. Public RPCs are invoker wrappers; privileged implementation stays in a non-exposed schema with explicit grants and auth/ownership checks. Inviter and qualifying friend must have a confirmed, non-anonymous account. First invitation wins; self, preexisting resort owners and accounts older than 24 hours cannot newly attach. Attribution happens before first cloud upload and survives auth/reloads; a failed acceptance pauses cloud upload while local saves continue.
+- First new non-sandbox resort binds to the invitation. Each distinct season/day report with guests counts once, dated when saved by the server; qualification requires 7 such reports over 3 distinct UTC dates. Confirmation after play is supported. Client-supplied dates are ignored. This remains a client-simulated game: fabricated reports and distinct-human/fake-account detection are NOT solved by a server-authoritative simulation. Offline completed days do not backdate UTC activity.
+- Claims lock the inviter account, enforce 3 lifetime receipts across all resorts, atomically add $100k to the selected owned regular resort's cloud save, and persist the decoration-earned milestone at 3 qualified friends. No decoration asset/unlock delivered yet (Phil explicitly deferred its design). Repeated invitation receipt returns its original cumulative resort balance. Optional `clock.referralCredit` watermark + server save guard prevent stale uploads erasing a grant; client reconciliation, account guards and undo preserve it. Deleting resorts does not reset account cap.
+- Real Invite friends menu works year-round; auto card once per resort game season Dec 20–Feb 28 while overnight, without another modal/menu. Photo native share carries the real referral URL; fallback saves photo and offers Copy link. Private resorts omit visit ID. Explicit `?referralPreview=1` remains isolated sample mode, not real reward claims.
+- Validation: 44 SQL assertions PASS on actual Supabase/Postgres 17 inside one rolled-back transaction using generated test accounts only (`tests/sql/referrals.sql`), including actual authenticated-role wrapper access, private table denial, server dates/dedup, guest confirmation, attribution immutability, cash/watermark atomicity, duplicate claims, stale upload rejection, cross-resort cap, deletion and milestone. No schema or test accounts persisted. JS syntax and diff checks pass. Security advisor baseline checked; existing unrelated advisories only. Local Chromium unavailable (download archives invalid); CI handles browser verification.
+- Scenario 87 adds desktop/phone real-client flows using test-only RPC fixtures: native photo+URL, claim/retry/lost response, balance/reload, undo marker, cap/milestone, menu and incoming acceptance. Scenario 86 close selector fixed to the X icon (prompt also has Maybe later). Latest GitHub browser run pending. Do not publish until green; then ask Phil to review. Full integration still needs the migration installed as part of the eventual approved release.
+
 
 ### 2026-10-28 · ChatGPT · Seasonal invitation prompt and dropdown
 - Phil requested the referral card once per game season, late December through February, with permanent dropdown access. `friend-referrals` preview at `2845138a08bdc40ec132cd789a26299506ad35fa` now auto-prompts once from Dec 20 through Feb 28, only overnight with no other modal/menu open. Stores optional `clock.referralPromptSeason`; defaults to null for old saves. Date window uses day offset to avoid leap-year drift. Invite friends in resort dropdown opens progress outside the seasonal window too.
