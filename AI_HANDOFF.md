@@ -87,6 +87,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| night-clearout | ChatGPT | Investigating late mid-mountain boarding and clear-out lighting | 2026-10-28 |
 
 
 ## Known issues
