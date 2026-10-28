@@ -64,7 +64,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: nothing in progress. Claim work in the table below before starting.
+**Active**: Scandinavian building set completion on `scandinavian-complete` for Phil’s preview. See Work in progress.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -78,7 +78,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
+| scandinavian-complete | ChatGPT | Nine remaining models and comparison gallery; GitHub browser tests pending | 2026-10-28 |
 
 ## Known issues
 
@@ -194,6 +194,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Scandinavian completion preview
+- Branch `scandinavian-complete` based on main 38ae9a7; latest preview commit ee2f57ba37b005fd60c891648c80c99a95d91745. Nine remaining types added (tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle, transit); food truck and decor remain Classic. Existing eight types and revised narrow gables preserved.
+- `scandinavian-preview.html` has a nine-building orbit/zoom/day-evening gallery. `tests/scandinavian-styles.mjs` checks all 19 variants for exact seats/doors/signs, finite geometry, extents, and developer preview; local pass. `83-themes` extended for menu and gallery browser checks; GitHub CI pending. No publish. Cloud browser canvas was blank, so visual approval from Phil is important.
+
 
 ### 2026-10-28 · Claude · Review of 2.51 (edit trail routes)
 - Looks good: reuses the lift-move pattern, cancel leaves the save untouched, and the edit is checked against the
