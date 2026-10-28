@@ -3787,7 +3787,12 @@ function liftLayout(a, b, type) {
   const TERM_H = surf ? 1.0 : gon ? 1.5 : 0.85, TOWER_H = surf ? 1.05 : gon ? 2.0 : 1.15, CLEAR = surf ? 0.8 : gon ? 1.3 : 0.55;
   const sup = [{ s: 0, y: ya + TERM_H, term: true }, { s: 1, y: yb + TERM_H, term: true }];
   const nT = Math.max(1, Math.round(hlen / 9));
-  for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
+  if (LIFT_TYPES[type] && LIFT_TYPES[type].village) {
+    // A village gondola runs level and straight from base to base: taller towers where the ground dips (over a creek), no sag.
+    let lift = 0;
+    for (let j = 1; j < 60; j++) lift = Math.max(lift, at(j / 60) + CLEAR - lerp(ya, yb, j / 60) - TERM_H);
+    for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: lerp(ya, yb, t / nT) + TERM_H + lift });
+  } else for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
   sup.sort((p, q) => p.s - q.s);
   // Add towers wherever the cable would sag into the ground.
   for (let iter = 0; iter < 40; iter++) {
@@ -7813,6 +7818,7 @@ function endDay() {
     event: evToday ? evToday.type : null,
     liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
     lotCars: today.lotCars || null,
+    bases: lotCount() > 1 ? { lots: Array.from({ length: lotCount() }, (_, k) => (today.lotCars || {})[k] || 0), crossings: today.crossings || 0, stranded: today.crossStranded || 0, gondola: villageLifts(0, 1).length > 0, shuttle: baseShuttle(0, 1) } : null, // two bases: who parked where, and getting between them
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
@@ -11493,6 +11499,11 @@ function advice() {
     if ((c.food || 0) > 20) hungerAdvice(r, add);
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
+  if (!state.summer && lotCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
+    const zoneLifts = (z) => world.lifts.some((L) => L.fromBase && !isVillage(L) && baseOf(L.a) === z), other = lotName(1);
+    if (zoneLifts(1) && !lotSize(1)) add(false, `You have lifts at the ${esc(other.replace(/ lot$/, ''))} base but no parking there. Build the ${esc(other)} so guests can park by those lifts.`, 'Parking', () => openManage('lotgrow'));
+    else if (lotSize(1) && zoneLifts(0) && zoneLifts(1) && !villageLifts(0, 1).length && !baseShuttle(0, 1)) add(!!(r && r.bases && r.bases.stranded), `Guests can’t get between your two bases, so they only ski the lifts by where they parked${r && r.bases && r.bases.stranded ? `, and ${r.bases.stranded} ended up stuck at the wrong one` : ''}. Link them with a village gondola, or a shuttle station at each base.`, 'Build a village gondola', () => { draft.liftType = 'village'; setTool('lift'); });
+  }
   if (defaultName(state.resortName) && !practice) add(false, `Give your resort a name of its own, so it stands out on the leaderboards. Right now it’s just “${esc(state.resortName)}”.`, 'Name my resort', () => openCommunity('profile'));
   if (!out.length) add(false, 'Things are running smoothly. Read the day report each evening for ideas, and check your goals for what to aim at next.', 'Goals', () => openGoals());
   return out.sort((a, b) => b.urgent - a.urgent).slice(0, 4);
@@ -12538,6 +12549,9 @@ function adviceFor(r) {
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
     [(r.rev.refunds || 0), `${money(r.rev.refunds || 0)} in tickets was refunded to guests who never got on a lift. More lift capacity from the base would help.`],
     ...opsTips(r),
+    [r.bases ? r.bases.stranded * 60 + (!r.bases.gondola && !r.bases.shuttle && r.bases.lots[1] && r.bases.lots[0] ? 600 : 0) : 0, r.bases && r.bases.stranded
+      ? `${r.bases.stranded} guests ended up at the wrong base with no way back to their car. A village gondola between the bases, or a shuttle station at each one, gets them home.`
+      : `Guests at one base can’t reach the other’s lifts. Link the bases with a village gondola (Lifts) or a shuttle station at each base (Buildings).`],
     [r.baseBare ? (c.mud || 0) * 12 + (c.noLessons || 0) * P.lesson : 0, state.baseSm
       ? `The base area was bare. Set base snowmaking to Always on cold nights (Manage › Snow).`
       : `The base area was bare, so ${c.mud} guests slogged through mud${c.noLessons ? ` and ${c.noLessons} lessons were lost` : ''}. Base snowmaking (${money(baseSmCost())}, in Manage › Snow) keeps it white.`],
@@ -12637,6 +12651,8 @@ function showReport(r = state.lastReport, past = false) {
   if (r.sightseers) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
+  if (r.bases && (r.bases.lots[1] || r.bases.crossings)) note(1, `Guests by lot: ${r.bases.lots.map((n, k) => `${esc(lotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
+  if (r.bases && r.bases.stranded) note(4, `${r.bases.stranded} guests ended up at the wrong base with no way back to their car and waited a long time for a ride.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
   if (r.offsite && r.offsite.cars) note(r.offsite.wait > SHUTTLE_PATIENCE ? 3 : 1, `${r.offsite.cars} cars parked off-site and rode the parking shuttle${r.offsite.wait ? `, waiting ${Math.round(r.offsite.wait)} minutes on average` : ''}.${r.offsite.wait > SHUTTLE_PATIENCE ? ' Run shuttles more often, or add a station, to cut the wait.' : ''}`);
   if (r.offsite && r.offsite.full) note(3, `Off-site parking filled up too: ${r.offsite.full} guests were turned away. Upgrade it under Parking.`);
