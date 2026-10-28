@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
 - 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
 - 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
@@ -73,7 +74,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.57.1 publication approved; release checks pending. Trail/glade popularity reporting remains pending.
+**Active**: Phil approved 2.57.2 publication after confirming Tests #48 passed. Published main at b8e93e9eebf786cc4eaf27a75c6736dea8877151; Pages deployment verification pending. Patrol staffing remains a separate work item; trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -88,7 +89,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | patrol-staffing | ChatGPT | One patrol building option with adjustable 1–6 on-duty staff per hut | 2026-10-28 |
-| night-clearout | ChatGPT | Candidate c52f8ab: all ski lifts stop at night cutoff, lights track mountain clear-out; awaiting CI | 2026-10-28 |
 
 
 ## Known issues
@@ -205,6 +205,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.57.2 approved
+- Phil resumed in a new chat and explicitly confirmed “Test #48 fix upper lift” passed and requested publication. Candidate c52f8ab01102c000787b7e16413b6b6744e6787a is one commit ahead of main b6be08d8255698c7b959f12a1388fa7dc83e950f, with no intervening main changes. Published by fast-forward to main b8e93e9eebf786cc4eaf27a75c6736dea8877151.
+- What's new, guide and scenario 94-night-cutoff are included. No database/save-schema changes. Test success is confirmed by Phil; the connector's workflow lookup only returns PR-triggered runs and cannot independently display this push-triggered run. Pages deployment and post-release checks pending.
 
 ### 2026-10-28 · ChatGPT · Night closing follow-up
 - Phil reported upper lifts still boarding after night close and final skiers descending after lights switched off. Branch night-clearout, candidate c52f8ab01102c000787b7e16413b6b6744e6787a, patch 2.57.2 based on published b6be08d8. Not published. What's new and guide updated; no database/save-schema changes.
