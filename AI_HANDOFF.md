@@ -80,6 +80,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| scenic-resort-cards | ChatGPT | Scenic captured mountain photos on title resort cards; preserve saves and cloud sync | 2026-10-28 |
 
 
 ## Known issues
