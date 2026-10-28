@@ -78,7 +78,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| (none) | | | |
+| movable-trails | ChatGPT | Overnight trail control-point editing; separate preview | 2026-10-28 |
 
 ## Known issues
 
