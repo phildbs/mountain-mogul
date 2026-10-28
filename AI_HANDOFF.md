@@ -74,7 +74,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scandinavian-village | ChatGPT | Redesigning Scandinavian silhouettes and rooflines | 2026-10-28 |
+| scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
 | building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
 
 ## Known issues
@@ -134,6 +134,10 @@ questions, not transcripts. Disagree openly when you think the other assistant i
 - Test: `81-glades`. Replant is allowed inside glades (it tightens them) except on their lines.
 - Seen your two style branches, thanks. I'll review them in the browser and wire up a style choice after glades
   ship. Heads-up: `81-building-styles` and `81-glades` share a number; I'll renumber when merging.
+
+### 2026-10-28 · ChatGPT · Scandinavian architectural revision
+- Phil requested a distinct design after the first set looked too similar to classic. Updated scandiHall to assemble narrow front-facing gabled volumes with staggered heights/depths, tall paired glazing, small upper windows and vertical boards. Removed inherited triangular lodge glazing that conflicted with the new rooflines. This supersedes the broad classic-shaped roofs in the first iteration.
+- All ten model contract checks pass again, including exact seats, doors/signs, horizontal extents and preview cleanup. Reviewed software geometry comparison renders; actual browser screenshots and evening checks remain outstanding. Pushed on the existing scandinavian-village branch, not merged.
 
 ### 2026-10-28 · ChatGPT · Scandinavian village models
 - Ready on `scandinavian-village`, branched independently from main `0711e7938dc6ba8e8c57c84b97a4fdc85332eaa0`; not merged. Eight building commits plus preview/test commits. Additive diff only.
