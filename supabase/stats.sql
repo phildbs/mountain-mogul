@@ -2,6 +2,7 @@
 -- Returns visitor and progress counts, but only to the owner's signed-in account; everyone else gets an error.
 -- Days are counted in the time zone the page passes in (the viewer's own).
 -- Run this once in the Supabase SQL Editor (it is safe to run again).
+-- Install supabase/referrals.sql first; the invitation counter reads its private attribution table.
 drop function if exists public.admin_stats();
 create or replace function public.admin_stats(tz text default 'UTC')
 returns jsonb
@@ -19,6 +20,8 @@ begin
     'generated', now(),
     'visitors', (select count(*) from auth.users),
     'signed_in', (select count(*) from auth.users where not is_anonymous),
+    -- One immutable attribution per invited player; a bound mountain means they created a resort.
+    'invited_joined', (select count(*) from referral_private.invitations where mountain is not null),
     'new_24h', (select count(*) from auth.users where created_at > now() - interval '24 hours'),
     'new_7d', (select count(*) from auth.users where created_at > now() - interval '7 days'),
     'per_day', (select coalesce(jsonb_agg(jsonb_build_object('day', d, 'n', n) order by d), '[]'::jsonb)

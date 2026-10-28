@@ -81,6 +81,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| invited-player-stats | ChatGPT | Owner stats top tile for invited new players who created a resort | 2026-10-28 |
 
 
 ## Known issues
@@ -198,9 +199,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Invited-player stats counter ready for review
+- Branch `invited-player-stats`, based on main c44eee47 (scenic title-card release preserved). Adds an Invited players tile beside Players in the top stats grid. Count means new invited people who created their first resort (referral_private.invitations.mountain IS NOT NULL); one per immutable attribution, not clicks, resort count, or reward qualifications. Subtitle states joined and created a resort · all time. Missing API field displays a dash / Not available yet, never a false zero.
+- Adds `invited_joined` to existing owner-only admin_stats(text), with a fully qualified private-table aggregate. Existing owner/anonymous checks and RPC grants preserved; no player identity data returned. Source of truth supabase/stats.sql updated. No new tables, tracking, permissions or migration needed beyond replacing that function before the stats HTML is published. Keep the existing backend function's other fields intact.
+- Validation: six real Postgres checks PASS in a rolled-back transaction using synthetic fixtures only: excludes invitations without a resort; counts an unqualified join; multiple resorts do not duplicate a player; qualification does not change total; other users, anonymous and missing auth denied. Stats inline JS syntax and diff checks pass. Live function/data unchanged by tests. No gameplay changes, so no player What's new/guide bump and no full game-suite run warranted. Changed stats.html, supabase/*.sql and Markdown are excluded from automatic game CI by existing workflow.
+- Not published. On approval, replace only admin_stats(text) from supabase/stats.sql, then fast-forward main with this owner-dashboard change. If GitHub tests are running for any other work, do not poll; Phil will say when to continue.
+
+
 ### 2026-10-28 · ChatGPT · Release 2.53.2
 - Phil approved Publish. Scenic title resort photos from candidate c6374ea8c4ac39dacf20ed39725025848827c25e passed GitHub Tests run 40763110802. Release includes What's new, guide and this handoff. No database changes. Older resort slots use the scenic fallback until opened once; captured photos then follow online saves.
-- Publish main and verify deployment once; pause if GitHub release tests are still running, per Phil’s request. Do not poll. Record final deployment result when he asks to continue.
+- Main published at c44eee47fcd39becc95eb0672a2f448f119c9e51. Verify deployment once; pause if GitHub release tests are still running, per Phil’s request. Do not poll. Record final deployment result when he asks to continue.
 
 
 ### 2026-10-28 · ChatGPT · Scenic title resort cards approved for release 2.53.2
