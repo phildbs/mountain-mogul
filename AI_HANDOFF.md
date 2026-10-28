@@ -82,6 +82,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| player-feedback-fixes | ChatGPT | Investigating night closing, patrol return travel, food choice and learning-area discoverability from Phil’s feedback screenshot | 2026-10-28 |
 
 
 ## Known issues
