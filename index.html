@@ -4133,15 +4133,23 @@ function trailNear(p, exclude) {
 // Where a trail end leads when no other trail can take the skier on: a lift close by, else the base.
 function dryEnd(p) {
   let best = null, bd = TRANSFER_R;
-  for (const L of world.lifts) { const d = distXZ(p, L.a); if (d < bd) { bd = d; best = L; } }
-  if (best) return { kind: 'lift', obj: best };
+  for (const L of world.lifts) {
+    if (isVillage(L)) continue; // runs between bases, not part of the ski network
+    const da = distXZ(p, L.a), db = distXZ(p, L.b);
+    if (da < bd) { bd = da; best = { kind: 'lift', obj: L }; }
+    if (db < bd) { bd = db; best = { kind: 'top', obj: L }; } // a lift's top: ski on down its runs
+  }
+  if (best) return best;
   return isBase(p) ? { kind: 'base' } : null;
 }
 function connAt(p, self, which) {
   for (const L of world.lifts) {
+    if (isVillage(L)) continue; // the village gondola links the bases; trails near it simply end at the base
     if (which === 'start' && distXZ(p, L.b) < STATION_R) return { kind: 'lift', obj: L };
     if (which === 'end' && distXZ(p, L.a) < STATION_R) return { kind: 'lift', obj: L };
   }
+  // A trail ending at the top of a lower lift carries on down whichever of its runs the skier likes.
+  if (which === 'end') for (const L of world.lifts) if (!isVillage(L) && distXZ(p, L.b) < STATION_R) return { kind: 'top', obj: L };
   const o = trailNear(p, self);
   if (o) return { kind: 'trail', obj: o };
   if (isBase(p)) return { kind: 'base' };
@@ -4385,7 +4393,7 @@ function computeNetwork() {
   }
   for (const L of world.lifts) {
     L.fromBase = isBase(L.a);
-    L.feeders = world.trails.filter((t) => t.to && t.to.obj === L);
+    L.feeders = world.trails.filter((t) => t.to && t.to.kind === 'lift' && t.to.obj === L);
     L.departing = world.trails.filter((t) => t.from && t.from.obj === L);
   }
   // Lifts whose bottom station is a short, level or downhill glide from another lift's top: guests can cross over.
@@ -4405,6 +4413,10 @@ function computeNetwork() {
     for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
     for (const t of trailR) {
       if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
+      if (t.to && t.to.kind === 'top') {
+        for (const D of t.to.obj.departing) if (!trailR.has(D)) { trailR.add(D); changed = true; }
+        for (const M of t.to.obj.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
+      }
       if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L)) { liftR.add(L); changed = true; }
     }
   }
@@ -4414,7 +4426,7 @@ function computeNetwork() {
     changed = false;
     for (const t of world.trails) {
       if (drains.has(t) || !t.to) continue;
-      if (t.to.kind === 'lift' || t.to.kind === 'base' || (t.to.kind === 'trail' && drains.has(t.to.obj))) { drains.add(t); changed = true; }
+      if (t.to.kind === 'lift' || t.to.kind === 'base' || (t.to.kind === 'trail' && drains.has(t.to.obj)) || (t.to.kind === 'top' && (t.to.obj.departing.some((D) => drains.has(D)) || t.to.obj.transfers.length))) { drains.add(t); changed = true; }
     }
   }
   // Which trails eventually bring skiers back to the base area, directly, via other
@@ -4424,7 +4436,7 @@ function computeNetwork() {
     changed = false;
     for (const t of world.trails) {
       if (ret.has(t) || !t.to) continue;
-      if (t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || (t.to.kind === 'lift' && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
+      if (t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
     }
     for (const L of world.lifts) {
       if (!liftRet.has(L) && (L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)))) { liftRet.add(L); changed = true; }
@@ -4479,6 +4491,7 @@ function describeConn(c, which) {
   }
   if (!c) return 'Ends on an open slope with no lift.';
   if (c.kind === 'lift') return `Ends at the bottom of ${c.obj.name}.`;
+  if (c.kind === 'top') return `Ends at the top of ${c.obj.name}, joining its runs.`;
   if (c.kind === 'trail') return `Joins ${c.obj.name}.`;
   return 'Ends at the base area.';
 }
@@ -4498,7 +4511,7 @@ const planning = () => state.phase !== 'closed' || planMode;
 // While planning, a trail may start or end at things that are only planned so far.
 function nearPlan(p, which) {
   for (const pl of world.plans) {
-    if (pl.kind === 'lift' && distXZ(p, which === 'start' ? pl.b : pl.a) < STATION_R) return true;
+    if (pl.kind === 'lift' && (distXZ(p, which === 'start' ? pl.b : pl.a) < STATION_R || (which === 'end' && distXZ(p, pl.b) < STATION_R))) return true;
     if (pl.kind === 'trail' && pl.samples) {
       const r = Math.max(2.5, TRAIL_WIDTHS[pl.width].hw + 0.6);
       if (pl.samples.some((s) => distXZ(p, s) < r)) return true;
@@ -4637,13 +4650,13 @@ function evalTrail(pts, width, allowPlans, grade) {
   const blocker = buildingInTheWay(samples, hw * 0.85);
   if (blocker) problems.push(`The trail runs into ${blocker.name}.`);
   let startOk = from && (from.kind === 'lift' || from.kind === 'trail');
-  let endOk = to && (to.kind === 'base' || ((to.kind === 'trail' || to.kind === 'lift') && to.obj.returns));
+  let endOk = to && (to.kind === 'base' || ((to.kind === 'trail' || to.kind === 'lift' || to.kind === 'top') && to.obj.returns));
   if (allowPlans && !startOk && nearPlan(samples[0], 'start')) startOk = true;
   if (allowPlans && !endOk && nearPlan(last, 'end')) endOk = true;
   if (!startOk) problems.push('Start the trail in the clearing at the top of a lift, or on another trail.');
   if (!endOk) {
     if (to && to.kind === 'trail') problems.push(`${to.obj.name} doesn’t lead back to the base area, so this trail can’t end there.`);
-    else if (to && to.kind === 'lift') problems.push(`No trail from the top of ${to.obj.name} leads back to the base yet. Build one first, or end this trail elsewhere.`);
+    else if (to && (to.kind === 'lift' || to.kind === 'top')) problems.push(`No trail from the top of ${to.obj.name} leads back to the base yet. Build one first, or end this trail elsewhere.`);
     else problems.push('Finish at the base area, on a trail that leads back to the base, or at the bottom of a lift.');
   }
   // Grading can't help where a trail doubles back over itself: it would need two heights at once.
@@ -6838,6 +6851,12 @@ function vEnd(T, g, depth, memo) {
   if (!to) return -40;
   if (to.kind === 'base') return vBase(g, depth + 1, memo);
   if (to.kind === 'trail') return depth < 4 ? vTrail(to.obj, T.joinIdx, g, depth + 1, memo) : 0;
+  if (to.kind === 'top') { // the best way on from the top of that lift
+    let v = -40;
+    if (depth < 4) for (const D of to.obj.departing) if (runnable(D)) v = Math.max(v, vTrail(D, 0, g, depth + 1, memo));
+    for (const M of to.obj.transfers || []) if (canLoad(M)) v = Math.max(v, vLift(M, g, depth + 1, memo) - 0.5);
+    return v;
+  }
   return vLift(to.obj, g, depth + 1, memo);
 }
 function vLift(L, g, depth, memo) {
@@ -7142,6 +7161,7 @@ function endOfTrail(g) {
   if (!to) return hikeOut(g);
   if (to.kind === 'trail') return startSki(g, to.obj, T.joinIdx * 0.5);
   if (to.kind === 'base') return baseDecision(g);
+  if (to.kind === 'top') return topDecision(g, to.obj, true) || hikeOut(g);
   const L = to.obj;
   updateLeaving(g);
   if (L.fromBase && g.leaving) return baseDecision(g);
@@ -14790,16 +14810,19 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.47.2', date: 'Oct 29, 2026', title: 'A tidier build menu', small: true, items: [
+  { v: '2.47.3', date: 'Oct 28, 2026', title: 'Runs that end at a lift top', small: true, items: [
+    'Fixed: trails that end at the top of another lift showed as dead ends when two of them ended there. Skiers now carry on down that lift’s runs, and the trail says “Ends at the top of …, joining its runs.”',
+  ] },
+  { v: '2.47.2', date: 'Oct 28, 2026', title: 'A tidier build menu', small: true, items: [
     'The New building menu has tabs: Food, Shops, Services, Transport and Decor. It remembers the tab you used last.',
     'Each building has its own icon, a few words on what it does, and how many you already have.',
     'Off-site parking and growing your lot now sit under Transport.',
   ] },
-  { v: '2.47.1', date: 'Oct 29, 2026', title: 'Easier browsing', small: true, items: [
+  { v: '2.47.1', date: 'Oct 28, 2026', title: 'Easier browsing', small: true, items: [
     'Browse shows the top three of each shelf. Tap See all to open a shelf on its own, with buttons to jump between shelves. Creator pages show their top three resorts, with See all for the rest.',
     'Browse has a mountain filter: see resorts on one mountain, or all of them. Your choice is remembered on this device.',
   ] },
-  { v: '2.47', date: 'Oct 29, 2026', title: 'Twin Notch: two bases, one road', items: [
+  { v: '2.47', date: 'Oct 28, 2026', title: 'Twin Notch: two bases, one road', items: [
     'A new mountain, Twin Notch: two broad summits with a notch between them and a long valley road below. The east summit has a long green shoulder and blues; the west summit has blues and blacks.',
     'Two bases: you start at the main lot at the end of the road, under the east summit. Build the West lot (Parking) to open a second base under the west summit. The road crosses the creek on a bridge.',
     'Guests choose where to park by the lifts and runs that suit them, and by their favourite lifts from earlier days. When one lot is full they use the other.',
