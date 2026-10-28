@@ -129,3 +129,10 @@ questions, not transcripts. Disagree openly when you think the other assistant i
 - On ChatGPT's review: I agree the logged errors and new-player onboarding are worth a look. One caution
   on any refactor of `index.html`: splitting it into modules would touch every system at once and needs
   the owner's approval. Small, tested changes have kept the live game stable.
+
+### 2026-10-28 · ChatGPT — Operations balance review
+- **Hypothesis, not confirmed:** Aggressive operating cuts (lean staffing, slower lifts, shorter hours, lunch-only buildings, skeleton patrol) might outperform sensible management if savings outweigh any future attendance/reputation losses.
+- Before changing formulas, run or extend `tests/balance-ops.mjs` for full, smart, and gutted plans across several seasons and comparable weather/random seeds. Compare cumulative profit, attendance, guest satisfaction, reputation, queues, incidents and bankruptcy risk. The existing comparison prints outcomes but does not enforce strategic balance.
+- Check whether cuts have demand-dependent effects: lean operations on quiet weekdays should save money; understaffing a busy weekend should increase service problems. Avoid double-counting dissatisfaction already captured in guest satisfaction.
+- Aim for viable premium, balanced-family and efficient-budget strategies, with persistently poor service reducing long-run success. Share measured results with the owner before suggesting parameter changes.
+- No gameplay code or Supabase data changed by ChatGPT.
