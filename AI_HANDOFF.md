@@ -84,7 +84,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| venue-feedback | ChatGPT | Candidate aa962f3: service breakdowns, saved venue totals, full-firepit warm-up alternatives and all-food queue switching; awaiting CI | 2026-10-28 |
+| venue-feedback | ChatGPT | Candidate f6c2897: service breakdowns, saved venue totals, full-firepit warm-up alternatives and all-food queue switching; awaiting CI | 2026-10-28 |
 
 
 ## Known issues
@@ -203,6 +203,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ## AI collaboration notes
 
 ### 2026-10-28 · ChatGPT · Venue feedback candidate
+- Latest candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb. Run 40775958488 passed all existing scenarios; only new test 90 failed because its single-person queue did not meet the existing five-minute switching improvement threshold (truck 2.6 min / fine dining 5 min remaining). Corrected the fixture to use 24 queued guests and explicitly assert both no-switch for short waits and switching from the back of a genuinely slow queue. Game code is unchanged. Fresh CI starts; pause without polling.
 - Branch `venue-feedback`, candidate aa962f38c75b34954f4cff9d66f91c4f59e510ed from published main 8eddef0c. Candidate 2.56, What's new and guide updated; not published. No database changes. Remaining popularity report still pending.
 - Café counts combine snacks, hot drinks and restroom stops; truck counts only snacks. Added Today/Last day service breakdowns with explicit repeat-visit wording, rather than changing prices, seats or forcing equal venue totals. Counter increments only after accepted service, mirrors existing visits, and is copied into yday. Optional sim.buildingToday snapshots preserve per-building daily counters/revenue across mid-day restores; old saves with no snapshots retain fallback behavior.
 - Full fire pits skip warm-up selection, redirect arriving warm-up guests, and release warm-up queues from older saved days. Try another nearby warm-up venue without marking them warmed if unserved. Snack and fine-dining queues now use the existing hungry-guest faster-venue / abandonment logic.
