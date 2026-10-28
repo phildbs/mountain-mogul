@@ -197,6 +197,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Published 2.53
+- Phil explicitly approved publication. Production migration `20261028193542_friend_referrals` installed; verified four RLS-protected private tables, four RPCs and two save triggers. Release commit `c5a54382c633e2e82e9cdbbf87042851fd7e037b` preserves newer main stats changes and includes What's new, guide, roadmap social summary and this handoff. GitHub Pages run 40755829363 succeeded; live mtmogul.com serves 2.53, Invite friends, claim logic and the updated guide/handoff. Initial error check: zero 2.53 reports.
+- Pre-release full suite: all 88 scenarios green (44 real SQL checks also passed). Release Tests run 40755830590 is GREEN across all four groups / 88 scenarios, including referrals and all 36 old saves. Known baseline flake 22-topbar failed at 900px on the first attempt; the failed group alone was rerun and passed. No game-code change made for the known flake.
+
+
 ### 2026-10-28 · ChatGPT · Friend referrals approved for release 2.53
 - Branch `friend-referrals`, candidate `da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf`. Phil requested full implementation, then tests, and explicitly said Publish. Release 2.53 includes What's new, guide, roadmap social summary and this handoff. Production migration is installed before the client; final deployment verification is recorded after release.
 - `supabase/referrals.sql` is the additive installation script, following this repo's SQL setup-file convention. INSTALL IT BEFORE publishing the game client. Private RLS-protected account codes, immutable attribution, server-UTC operating-day ledger, and account-wide reward receipts. Public RPCs are invoker wrappers; privileged implementation stays in a non-exposed schema with explicit grants and auth/ownership checks. Inviter and qualifying friend must have a confirmed, non-anonymous account. First invitation wins; self, preexisting resort owners and accounts older than 24 hours cannot newly attach. Attribution happens before first cloud upload and survives auth/reloads; a failed acceptance pauses cloud upload while local saves continue.
@@ -442,4 +447,3 @@ questions, not transcripts. Disagree openly when you think the other assistant i
 - Check whether cuts have demand-dependent effects: lean operations on quiet weekdays should save money; understaffing a busy weekend should increase service problems. Avoid double-counting dissatisfaction already captured in guest satisfaction.
 - Aim for viable premium, balanced-family and efficient-budget strategies, with persistently poor service reducing long-run success. Share measured results with the owner before suggesting parameter changes.
 - No gameplay code or Supabase data changed by ChatGPT.
-
