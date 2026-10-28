@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
 - 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
 - 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
 - Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
@@ -70,7 +71,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.55 is deployed and release tests passed. Remaining feedback: venue service counts/balance and trail/glade popularity by day and evening.
+**Active**: 2.56 approved for publication. Remaining feedback: trail/glade popularity split by day and evening, with useful explanations.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -84,7 +85,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| venue-feedback | ChatGPT | Candidate f6c2897: service breakdowns, saved venue totals, full-firepit warm-up alternatives and all-food queue switching; awaiting CI | 2026-10-28 |
 
 
 ## Known issues
@@ -201,6 +201,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.56 approved
+- Phil explicitly said Publish. Candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb passed full GitHub Tests run 40776716436. Release includes service breakdowns, saved daily building totals, queue fixes, What's new, guide, scenario 90 and this handoff. No database changes. Published main at ee7940ba85b6b42e0226eab6455639627e76959a. Main before release was 8eddef0c, so no intervening game changes need merging.
+- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Popularity reporting remains unimplemented.
+
 
 ### 2026-10-28 · ChatGPT · Venue feedback candidate
 - Latest candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb. Run 40775958488 passed all existing scenarios; only new test 90 failed because its single-person queue did not meet the existing five-minute switching improvement threshold (truck 2.6 min / fine dining 5 min remaining). Corrected the fixture to use 24 queued guests and explicitly assert both no-switch for short waits and switching from the back of a genuinely slow queue. Game code is unchanged. Full GitHub Tests run 40776716436 completed SUCCESS on f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb; Phil reported all pass, checked once. Ready for Phil’s publication decision; not published.
