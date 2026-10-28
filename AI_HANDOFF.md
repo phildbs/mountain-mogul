@@ -85,6 +85,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| unit-preferences | ChatGPT | Independent metric/imperial and Celsius/Fahrenheit toggles in the menu, saved across resorts | 2026-10-28 |
 
 
 ## Known issues
