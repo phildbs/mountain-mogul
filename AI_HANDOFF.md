@@ -84,7 +84,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| venue-feedback | ChatGPT | Service-count clarity, food-truck queues and full fire-pit warm-up choices from remaining feedback | 2026-10-28 |
+| venue-feedback | ChatGPT | Candidate aa962f3: service breakdowns, saved venue totals, full-firepit warm-up alternatives and all-food queue switching; awaiting CI | 2026-10-28 |
 
 
 ## Known issues
@@ -201,6 +201,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Venue feedback candidate
+- Branch `venue-feedback`, candidate aa962f38c75b34954f4cff9d66f91c4f59e510ed from published main 8eddef0c. Candidate 2.56, What's new and guide updated; not published. No database changes. Remaining popularity report still pending.
+- Café counts combine snacks, hot drinks and restroom stops; truck counts only snacks. Added Today/Last day service breakdowns with explicit repeat-visit wording, rather than changing prices, seats or forcing equal venue totals. Counter increments only after accepted service, mirrors existing visits, and is copied into yday. Optional sim.buildingToday snapshots preserve per-building daily counters/revenue across mid-day restores; old saves with no snapshots retain fallback behavior.
+- Full fire pits skip warm-up selection, redirect arriving warm-up guests, and release warm-up queues from older saved days. Try another nearby warm-up venue without marking them warmed if unserved. Snack and fine-dining queues now use the existing hungry-guest faster-venue / abandonment logic.
+- New 90-venue-services covers service mix, total reconciliation, mid-day restore, full-fire selection/arrival alternatives and snack/fine-dining queue switching. Full CI includes 32-old-saves. Local Chromium unavailable; syntax/diff checks pass. Remote game blob matches local e5ab7b48e3262784f252f67dbbc7ef856d025253. Pause when CI runs; do not poll. Phil will report the result.
+
 
 ### 2026-10-28 · ChatGPT · Publish 2.55 approved
 - Phil explicitly said Publish. Candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 passed full GitHub Tests run 40773066187. Release includes patrol teams and lift returns, What's new, guide, test coverage and this handoff. No database changes. Published main at 8eddef0c056a90be171e6b592e888c6a7888eae7. Main before release was 7d55b699, so no intervening game changes need merging.
