@@ -842,6 +842,7 @@ a.vtag { text-decoration: none; }
   background: #fff; border: 3px solid var(--accent); box-shadow: 0 2px 6px rgba(20, 36, 58, 0.3);
   pointer-events: auto; cursor: grab; touch-action: none;
 }
+.handle.insert { width: 28px; height: 28px; margin: -14px 0 0 -14px; padding: 0; border: 1px solid var(--ink-2); color: var(--ink); background: #fff; font: 700 20px/26px var(--ui); cursor: pointer; }
 .handle.first { background: var(--accent); }
 .handle.snap { border-color: var(--green); box-shadow: 0 0 0 4px rgba(44, 154, 85, 0.25); }
 .handle.drag { cursor: grabbing; transform-origin: center; }
@@ -5441,7 +5442,7 @@ function trailDraftSheet() {
   }
   return `<div class="sheet-title"><h3>${editing ? 'Edit route' : 'New trail'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     ${n ? '' : TRAIL_MODES('trail')}
-    <p class="help">${editing ? 'Drag points to reshape the trail. New clearing and grading are charged at the normal construction price. Old clearing and earthwork remain. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
+    <p class="help">${editing ? 'Drag points to reshape the trail. Tap + between points to add another, then drag it. Zoom in if the points are close together. New clearing and grading are charged at the normal construction price. Old clearing and earthwork remain. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
     <div class="field-label">Width</div>
     <div class="seg" role="group" aria-label="Trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
       `<button data-action="width" data-v="${k}" aria-pressed="${draft.width === k}">${w.label}<small>${widthFt(k)} ft</small></button>`).join('')}</div>
@@ -6279,6 +6280,15 @@ function declutterLabels() {
   }
 }
 
+function insertTrailPoint(after) {
+  if (!draft.movingTrail || state.phase !== 'closed' || visiting || dragHandle) return false;
+  if (!Number.isInteger(after) || after < 0 || after >= draft.pts.length - 1) return false;
+  if (draft.pts.length >= 40) { toast('A trail can have up to 40 points.', true); return false; }
+  const a = draft.pts[after], b = draft.pts[after + 1];
+  draft.pts.splice(after + 1, 0, { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 });
+  draft.dirty = true; syncHandles(); renderSheet();
+  return true;
+}
 let dragHandle = null;
 function syncHandles() {
   handleLayer.innerHTML = '';
@@ -6306,8 +6316,21 @@ function syncHandles() {
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     handleLayer.appendChild(el);
+    el.title = `Point ${i + 1}`;
     pt.el = el;
   });
+  if (draft.movingTrail && draft.pts.length < 40) {
+    for (let i = 0; i < draft.pts.length - 1; i++) {
+      const el = document.createElement('button');
+      el.type = 'button'; el.className = 'handle insert'; el.textContent = '+';
+      el.dataset.after = i;
+      el.setAttribute('aria-label', `Add point between points ${i + 1} and ${i + 2}`);
+      el.title = `Add point between ${i + 1} and ${i + 2}`;
+      el.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); });
+      el.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); insertTrailPoint(i); });
+      handleLayer.appendChild(el);
+    }
+  }
 }
 // The first lift: until there's a lift from the base, the lift tool marks a good bottom station near the
 // parking lot, then a good top station for wherever the bottom went. Found by trying lifts the way a
@@ -6391,6 +6414,14 @@ function updateHandles() {
     const p = project(pt.x, y, pt.z);
     pt.el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
     pt.el.classList.toggle('snap', endpoint && snapEnd(pt).snap);
+  }
+  for (const el of handleLayer.querySelectorAll('.insert')) {
+    const i = +el.dataset.after, a = draft.pts[i], b = draft.pts[i + 1];
+    if (!a || !b) continue;
+    const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
+    const p = project(x, heightAt(x, z) + 0.3, z);
+    el.hidden = !!dragHandle || Math.hypot(project(a.x, heightAt(a.x,a.z),a.z).x - p.x, project(a.x,heightAt(a.x,a.z),a.z).y - p.y) < 26;
+    el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
   }
 }
 
