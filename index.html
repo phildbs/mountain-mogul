@@ -4394,12 +4394,12 @@ function gladeEntries(A) {
 // Where a line can finish: a lift's bottom station, a trail just below, or the base area.
 function gladeExit(p) {
   for (const L of world.lifts) {
-    if (isVillage(L) || distXZ(p, L.a) > STATION_R + 3 || heightAt(L.a.x, L.a.z) > p.y + 0.3) continue;
+    if (isVillage(L) || distXZ(p, L.a) > STATION_R + 4 || heightAt(L.a.x, L.a.z) > p.y + 0.3) continue;
     const dx = L.a.x - p.x, dz = L.a.z - p.z, d = Math.hypot(dx, dz) || 1, st = Math.max(0, d - (STATION_R - 2));
     return { x: p.x + dx / d * st, z: p.z + dz / d * st };
   }
-  let best = null, bd = 5;
-  for (const t of realTrails()) for (const sm of t.samples) { const d = distXZ(p, sm); if (d < bd && heightAt(sm.x, sm.z) < p.y - 0.05) { bd = d; best = sm; } }
+  let best = null, bd = 6; // a trail beside the bottom, level with it or lower
+  for (const t of realTrails()) for (const sm of t.samples) { const d = distXZ(p, sm); if (d < bd && heightAt(sm.x, sm.z) < p.y + 0.15) { bd = d; best = sm; } }
   if (best) return { x: best.x, z: best.z };
   return isBase(p) ? { x: p.x, z: p.z } : null;
 }
@@ -4429,18 +4429,36 @@ function gladeLinePts(A, k, entries) {
     }
     return best;
   };
+  const path = [{ p, n: pts.length }];
   for (let i = 0; i < 160; i++) {
     const q = stepFrom(i, true);
     if (!q) break;
     seen.add(cellKey(Math.round(q.x), Math.round(q.z)));
     p = q; if (i % 2) pts.push({ x: p.x, z: p.z });
+    path.push({ p, n: pts.length });
   }
   // a line has to ski a good part of the glade, not slip straight back out at the top
   let lo = Infinity, hi = -Infinity; for (const c of A.cells) { const y = heightAt(keyX(c), keyZ(c)); lo = Math.min(lo, y); hi = Math.max(hi, y); }
-  if (pts.length && (hi - p.y) < (hi - lo) * 0.45) return null;
+  const deep = (at, o) => hi - Math.min(at.y, heightAt(o.x, o.z)) >= (hi - lo) * 0.45;
   let out = gladeExit(p);
   for (let r = 0; !out && r < 4; r++) { const q = stepFrom(r, false); if (!q) break; p = q; pts.push({ x: p.x, z: p.z }); out = gladeExit(p); } // a short runout through the trees
-  if (!out) return null;
+  if (!out || !deep(p, out)) {
+    // The fall line left the paint away from the way out: from the lowest point it reached, traverse across to
+    // the nearest spot in the glade, no higher, that meets a trail, a lift or the base.
+    out = null;
+    const exits = [];
+    for (const c of A.cells) { const q = { x: keyX(c), z: keyZ(c) }; q.y = heightAt(q.x, q.z); const o = gladeExit(q); if (o && deep(q, o)) exits.push({ q, o }); }
+    for (let w = path.length - 1; w >= 0 && !out; w--) {
+      const at = path[w].p;
+      let best = null, bd = 30;
+      for (const e of exits) { const d = distXZ(e.q, at); if (d < bd && e.q.y <= at.y + 0.3) { bd = d; best = e; } }
+      if (!best) continue;
+      p = at; pts.length = path[w].n; out = best.o;
+      for (let f = 1; f * 3 < bd; f++) pts.push({ x: p.x + (best.q.x - p.x) * f * 3 / bd, z: p.z + (best.q.z - p.z) * f * 3 / bd });
+      p = best.q; pts.push({ x: p.x, z: p.z });
+    }
+  }
+  if (!out || !deep(p, out)) return null;
   pts.push(out);
   let len = 0; for (let i = 1; i < pts.length; i++) len += distXZ(pts[i - 1], pts[i]);
   return pts.length >= 4 && len >= 8 ? pts : null;
@@ -4459,7 +4477,11 @@ function gladeDraftInfo() {
   const A = { id: -1, kind: 'glade', cells, set: areaDraft.cells };
   const lines = n >= AREA_MIN_CELLS ? gladeLines(A) : [];
   if (n >= AREA_MIN_CELLS && !problems.length && !lines.length) {
-    problems.push(gladeEntries(A).length ? 'The bottom of the glade needs to run out onto a trail, a lift or the base area.' : 'Start the glade at the top of a lift or beside a trail, so skiers can drop in.');
+    const ents = gladeEntries(A);
+    let lo = Infinity, hi = -Infinity; for (const c of cells) { const y = heightAt(keyX(c), keyZ(c)); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    problems.push(!ents.length ? 'Start the glade at the top of a lift or beside a trail, so skiers can drop in.'
+      : ents.every((e) => e.y < lo + (hi - lo) * 0.55) ? 'Skiers can only reach the bottom of this glade. Start its top at a lift or beside a trail, so they can drop in from above.'
+      : 'The bottom of the glade needs to run out onto a trail, a lift or the base area.');
   }
   const treeSet = gladeThinSet(cells, G.keep);
   for (const t of gladeCorridor(lines)) treeSet.add(t);
@@ -7587,6 +7609,8 @@ function initLiftSim(L) {
 function stepLift(L, dt) {
   const riding = L.riders.some((r) => r.length);
   if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
+  // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
+  if (!riding && !L.queue.length && !L.incoming && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
   const total = L.total, gap = total / L.chairCount;
   const slow = liftMode(L) === 'slow';
   const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
@@ -15718,6 +15742,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.50.2', date: 'Oct 28, 2026', title: 'Night lift and glade fixes', small: true, items: [
+    'Fixed: upper chairlifts kept turning all evening during night skiing, even with nobody on them. After closing, a lift that doesn’t serve a lit trail now stops, and only starts again if someone still needs a ride.',
+    'Fixed: some glades said their bottom needed to run onto a trail when it already did. Ski lines now cut across the trees to where the glade meets a trail, a lift or the base area.',
+    'If skiers can only reach the bottom of a glade, the message now says to start its top at a lift or beside a trail.',
+  ] },
   { v: '2.50.1', date: 'Oct 28, 2026', title: 'Lunch and parking fixes', small: true, items: [
     'Fixed: a guest who found lunch too expensive went hungry all afternoon. Now they look for something cheaper, like a food truck or café, and only skip lunch after turning down a couple of places.',
     'Fixed: with two bases, beginners could park by a lift with lots of hard runs instead of the one with a green run. Guests now pick the lot whose lifts have runs that suit them, and notice straight away when a lift closes.',
