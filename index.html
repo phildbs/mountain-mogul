@@ -1061,8 +1061,10 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .ref-dialog { gap: 14px; }
 #refBody { display: grid; gap: 14px; }
 .ref-dialog p { margin: 0; line-height: 1.5; }
-.ref-art { height: 100px; border-radius: 12px; overflow: hidden; background: var(--accent-soft); }
-.ref-art svg { display: block; width: 100%; height: 100%; }
+.ref-photo { margin: 0; display: grid; gap: 8px; }
+.ref-photo img { display: block; width: 100%; height: auto; border-radius: 12px; background: var(--accent-soft); }
+.ref-photo figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--ink-2); font-size: 12px; }
+.ref-photo figcaption span { flex: 1; }
 .ref-reward { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--accent-soft); }
 .ref-reward strong { display: block; font: 800 38px/1 var(--display); color: var(--ink); margin-bottom: 6px; }
 .ref-reward span { color: var(--ink-2); font-size: 13px; }
@@ -1082,7 +1084,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 #refPreviewDock select { width: 100%; padding: 7px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 #referralBox .modal { max-height: calc(100% - 32px); }
 #refPreviewOpen { position: absolute; bottom: 12px; left: 12px; z-index: 31; }
-@media (max-width: 640px) { .ref-dialog { padding: 17px; gap: 12px; } .ref-art { height: 78px; } .ref-dialog h2 { font-size: 29px; } }
+@media (max-width: 640px) { .ref-dialog { padding: 17px; gap: 12px; } .ref-dialog h2 { font-size: 29px; } }
 .modal h2 { margin: 2px 0 0; font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; text-transform: uppercase; }
 .rp-hero { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; border-block: 1px solid var(--line); padding-block: 14px; margin: 0; }
 .rp-hero dt { font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-2); }
@@ -15303,9 +15305,78 @@ function afterLoad() {
 }
 /* ---------- Invitation design preview. Sample data only; no reward or referral RPCs. ---------- */
 let refDemo = { mode: 'prompt', claimed: 0 };
-const refArt = `<div class="ref-art" aria-hidden="true"><svg viewBox="0 0 420 100" xmlns="http://www.w3.org/2000/svg"><path fill="#dce6ec" d="M0 100V70L92 8l80 64 90-61 158 89Z"/><path fill="#f7fafe" d="m92 8-38 28 26-5 12 14 14-15 22 8Zm170 3-38 27 27-5 13 17 15-13 23 7Z"/><path fill="#f7fafe" d="M0 90q105-38 210-5t210-5v20H0Z"/><path fill="none" stroke="#f7fafe" stroke-width="8" d="m115 42 55 18-21 14 57 20"/><path fill="#719082" d="m40 62-14 22h28Zm307-12-18 30h36Zm36 16-12 20h24Z"/><path fill="#a74438" d="M235 71h26v23h-26Zm31 2h25v21h-25Z"/><path fill="#394449" d="m231 72 17-18 17 18Zm31 2 17-19 17 19Z"/><path fill="#e7d9b9" d="M245 80h7v14h-7Zm29 0h9v8h-9Z"/></svg></div>`;
+let refPhoto = '', refPhotoError = '', refChoosingPhoto = false;
+// Render the actual scene into a landscape card without changing the player's view or canvas size.
+function captureReferralPhoto() {
+  if (!REFERRAL_PREVIEW || glLost) return false;
+  const w = 1200, h = 540, previous = renderer.getRenderTarget();
+  let target = null;
+  try {
+    updateCamera();
+    const shot = camera.clone(), span = camera.top - camera.bottom;
+    shot.left = -span * (w / h) / 2; shot.right = span * (w / h) / 2;
+    shot.updateProjectionMatrix(); shot.updateMatrixWorld();
+    target = new THREE.WebGLRenderTarget(w, h);
+    renderer.setRenderTarget(target); renderer.render(scene, shot);
+    const pixels = new Uint8Array(w * h * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, w, h, pixels);
+    const view = document.createElement('canvas'); view.width = w; view.height = h;
+    const vc = view.getContext('2d'), data = vc.createImageData(w, h);
+    // WebGL reads from the bottom left; a shared photo must be right-side up.
+    for (let y = 0; y < h; y++) data.data.set(pixels.subarray((h - y - 1) * w * 4, (h - y) * w * 4), y * w * 4);
+    vc.putImageData(data, 0, 0);
+    const card = document.createElement('canvas'); card.width = w; card.height = 630;
+    const c = card.getContext('2d');
+    c.fillStyle = '#dce6ec'; c.fillRect(0, 0, w, 630); c.drawImage(view, 0, 0);
+    c.fillStyle = '#14243a'; c.fillRect(0, h, w, 90);
+    c.fillStyle = '#f7fafe'; c.font = '700 34px Figtree, sans-serif';
+    let name = state.resortName || 'My mountain';
+    while (name.length > 1 && c.measureText(name).width > 780) name = name.slice(0, -2) + '…';
+    c.fillText(name, 28, h + 39);
+    c.font = '18px Figtree, sans-serif'; c.fillStyle = '#dce6ec'; c.fillText('Come explore my mountain', 28, h + 68);
+    c.textAlign = 'right'; c.font = '800 27px "Big Shoulders Display", sans-serif';
+    c.fillStyle = '#f7fafe'; c.fillText('MOUNTAIN', w - 28, h + 37);
+    c.fillStyle = '#df562c'; c.fillText('MOGUL', w - 28, h + 65);
+    refPhoto = card.toDataURL('image/jpeg', 0.92); refPhotoError = '';
+    return true;
+  } catch (error) {
+    refPhotoError = 'Couldn’t take a photo. Try another view of your mountain.';
+    return false;
+  } finally {
+    renderer.setRenderTarget(previous); target?.dispose();
+  }
+}
+function referralPhotoHtml() {
+  return `<figure class="ref-photo">${refPhoto ? `<img src="${refPhoto}" alt="Snapshot of ${esc(state.resortName)}, with its trails, lifts and buildings" width="1200" height="630">` : `<p class="help">${esc(refPhotoError || 'Choose a view of your mountain for your invitation.')}</p>`}
+    <figcaption><span>Your mountain · share photo</span><button class="link" data-ref="photo">Change photo</button>${refPhoto ? '<button class="link" data-ref="download">Save photo</button>' : ''}</figcaption></figure>`;
+}
+function saveReferralPhoto() {
+  if (!refPhoto) return;
+  const link = document.createElement('a'); link.href = refPhoto;
+  link.download = (state.resortName || 'my-mountain').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 60) + '-mountain.jpg';
+  document.body.appendChild(link); link.click(); link.remove();
+}
+async function shareReferralPhoto() {
+  if (!refPhoto && !captureReferralPhoto()) return;
+  const feedback = $('refFeedback');
+  try {
+    const bytes = Uint8Array.from(atob(refPhoto.split(',')[1]), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: 'image/jpeg' });
+    const file = new File([blob], 'my-mountain.jpg', { type: 'image/jpeg' });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ title: state.resortName, text: `Come explore ${state.resortName} in Mountain Mogul!`, files: [file] });
+      if (feedback) feedback.textContent = 'Photo shared. Referral tracking is sample data in this preview.';
+    } else {
+      saveReferralPhoto();
+      if (feedback) feedback.textContent = 'Photo saved for sharing. Referral tracking is sample data in this preview.';
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError' && feedback) feedback.textContent = 'Couldn’t open sharing. Use Save photo to keep the image.';
+  }
+}
 function openReferralPreview(mode = refDemo.mode) {
   if (!REFERRAL_PREVIEW) return;
+  if (!refPhoto) captureReferralPhoto();
   refDemo = { mode, claimed: mode === 'complete' ? 3 : 0 };
   $('refPreviewState').value = mode;
   renderReferralPreview(); $('referralBox').hidden = false;
@@ -15323,7 +15394,7 @@ function renderReferralPreview() {
   const earned = `<div class="ref-unlock"><b>${qualified === 3 ? 'Special decoration earned' : 'A little something for your village'}</b><p class="help">${qualified === 3 ? 'You reached the three-friend milestone. Your decoration will arrive in a future update.' : 'When all 3 friends qualify, you also earn a special decoration. We’ll reveal it in a future update.'}</p></div>`;
   let html = '';
   if (mode === 'prompt') {
-    html = `${head('Your mountain is worth sharing', 'Invite friends')}${refArt}
+    html = `${head('Your mountain is worth sharing', 'Invite friends')}${referralPhotoHtml()}
       <p>Invite a friend to explore <b>${esc(state.resortName)}</b> and start a mountain of their own.</p>
       <div class="ref-reward"><strong>$100,000</strong><span>for each friend who qualifies · up to 3 friends</span></div>
       ${rules}<button class="btn wide" data-ref="progress">Invite friends</button><button class="link" data-ref="close">Maybe later</button>`;
@@ -15336,7 +15407,7 @@ function renderReferralPreview() {
     }).join('');
     html = `${head('Bring friends to the mountain', 'Invite friends')}
       <div class="ref-reward"><strong>${money(refDemo.claimed * 100000)}</strong><span>earned · ${qualified} of 3 friends qualified</span></div>${steps}
-      ${mode === 'empty' ? `${refArt}<p>No friends yet. Share your mountain and give someone their first look at Mountain Mogul.</p>` : friendRows}
+      ${mode === 'empty' ? `${referralPhotoHtml()}<p>No friends yet. Share your mountain and give someone their first look at Mountain Mogul.</p>` : friendRows}
       ${qualified > refDemo.claimed ? '<button class="btn wide" data-ref="claim">Claim $100,000</button>' : qualified < 3 ? '<button class="btn wide" data-ref="share">Share my mountain</button>' : '<p class="help"><b>All three cash rewards received.</b> You can keep sharing your mountain with friends.</p>'}
       ${qualified > refDemo.claimed && qualified < 3 ? '<button class="link" data-ref="share">Share my mountain</button>' : ''}${earned}
       <details><summary>How friends qualify</summary><div style="padding-top:8px">${rules}<p class="help">Use your invitation link. Each new player can count toward one friend’s rewards. Your friend’s email and private resort details aren’t shown here.</p></div></details><p class="help" id="refFeedback" role="status" aria-live="polite"></p>`;
@@ -15344,7 +15415,10 @@ function renderReferralPreview() {
   $('refBody').innerHTML = html;
 }
 $('refPreviewState').onchange = (e) => openReferralPreview(e.target.value);
-$('refPreviewOpen').onclick = () => openReferralPreview();
+$('refPreviewOpen').onclick = () => {
+  if (refChoosingPhoto) { captureReferralPhoto(); refChoosingPhoto = false; }
+  $('refPreviewOpen').textContent = 'Invitations preview'; openReferralPreview();
+};
 $('referralBox').addEventListener('click', (e) => {
   if (e.target.id === 'referralBox') return closeReferralPreview();
   const action = e.target.closest('[data-ref]')?.dataset.ref;
@@ -15355,7 +15429,13 @@ $('referralBox').addEventListener('click', (e) => {
     $('refFeedback').textContent = 'Preview: $100,000 received. Your actual resort cash has not changed.';
     $('refFeedback').focus({ preventScroll: true });
   }
-  if (action === 'share') $('refFeedback').textContent = 'Preview: this opens your device’s share menu or copies your mountain’s invitation link.';
+  if (action === 'share') shareReferralPhoto();
+  if (action === 'download') saveReferralPhoto();
+  if (action === 'photo') {
+    refChoosingPhoto = true; closeReferralPreview();
+    $('refPreviewOpen').textContent = 'Use this view for my photo';
+    toast('Move, rotate or zoom your mountain, then choose Use this view for my photo.');
+  }
 });
 $('referralBox').addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeReferralPreview(); }
@@ -17336,6 +17416,7 @@ function start(hot) {
     $('resortName').textContent = state.resortName;
     winterView = false; styleSnowVisuals(); refreshTimebar(true);
     buildStarter(); select(null);
+    camTween = null; cam.viewH = 150; cam.viewGoal = null; updateCamera();
     $('refPreviewOpen').hidden = false; $('refPreviewDock').hidden = false; openReferralPreview('prompt');
   }
   requestAnimationFrame((t) => { lastT = t; frame(t); });

@@ -11,6 +11,25 @@ export default async function ({ browser, url }) {
     };
     eq(await g.ev(`[REFERRAL_PREVIEW, CLOUD.ready, !!CLOUD.sb, $('referralBox').hidden]`), [true, false, false, false], 'preview starts without an online session');
     assert(await g.page.getByRole('heading', { name: 'Your mountain is worth sharing' }).isVisible(), 'invitation prompt opens');
+    await g.page.locator('.ref-photo img').evaluate(img => img.decode());
+    const photo = await g.page.locator('.ref-photo img').evaluate(img => {
+      const c = document.createElement('canvas'); c.width = 48; c.height = 24;
+      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, 1200, 540, 0, 0, 48, 24);
+      const px = ctx.getImageData(0, 0, 48, 24).data, colors = new Set();
+      for (let i = 0; i < px.length; i += 4) colors.add(`${px[i]},${px[i+1]},${px[i+2]}`);
+      return [img.naturalWidth, img.naturalHeight, colors.size > 20];
+    });
+    eq(photo, [1200, 630, true], 'share image includes a real rendered mountain, not just the footer or empty canvas');
+    const firstPhoto = await g.ev('refPhoto');
+    await tap('[data-ref=photo]');
+    assert(await g.page.getByRole('button', { name: 'Use this view for my photo' }).isVisible(), 'player can choose the camera view');
+    await g.ev('cam.az += 0.5; cam.azGoal = cam.az; updateCamera();');
+    await tap('#refPreviewOpen');
+    assert(await g.ev('refPhoto') !== firstPhoto, 'new camera angle produces a new photograph');
+    eq(await g.ev('renderer.getRenderTarget()'), null, 'snapshot restores the screen render target');
+    const download = g.page.waitForEvent('download');
+    await tap('[data-ref=download]');
+    assert((await download).suggestedFilename().endsWith('-mountain.jpg'), 'mountain photo can be saved for sharing');
     await tap('[data-ref=progress]');
     assert(await g.page.getByText('No friends yet.', { exact: false }).isVisible(), 'new invitation state');
     await g.page.locator('#refPreviewState').selectOption('progress');
