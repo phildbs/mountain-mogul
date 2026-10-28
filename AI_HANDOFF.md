@@ -73,7 +73,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| (none) | | | |
+| building-styles | ChatGPT | Modern building variants and dev preview; no UI integration | 2026-10-28 |
 
 ## Known issues
 
