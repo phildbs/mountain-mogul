@@ -2991,7 +2991,7 @@ const REPLANT_COST = 150;
 let plantBlocks = null, plantSig = '';
 function replantBlocks() {
   const sig = `${world.trails.length}:${world.buildings.length}:${world.areas.length}:${world.lifts.length}:${state.lotSections}:${terrainRev}:${world.trails.reduce((a, t) => a + t.samples.length, 0)}`;
-  if (sig !== plantSig) { plantSig = sig; plantBlocks = areaBlocks(null); }
+  if (sig !== plantSig) { plantSig = sig; plantBlocks = areaBlocks(null, true); }
   return plantBlocks;
 }
 function replantable(k, blocks) {
@@ -3034,7 +3034,7 @@ function replantAt(p) {
 function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks)) n++; }); return n; }
 function clearAt(p) {
   if (state.landMode === 'level') return levelAt(p);
-  if (state.landMode === 'area') return areaPaintAt(p);
+  if (paintingArea()) return areaPaintAt(p);
   if (state.landMode === 'plant') return replantAt(p);
   if (!inProperty(p.x, p.z)) return;
   const r = state.brushR;
@@ -3078,7 +3078,7 @@ function endStroke() {
   if (!stroke.active) return;
   stroke.active = false;
   if (!stroke.cost) dropUndo();
-  if (state.landMode === 'area') {
+  if (paintingArea()) {
     if (stroke.areaWhy && !(areaDraft && areaDraft.erase)) toast(`Some ground was left out: ${stroke.areaWhy}.`);
     stroke.areaWhy = ''; stroke.last = null;
     renderSheet();
@@ -3095,6 +3095,7 @@ function endStroke() {
   const plant = state.landMode === 'plant';
   if (stroke.broke) toast(`Not enough cash to ${plant ? 'replant' : 'clear'} more trees`, true);
   else if (stroke.trees) toast(`${plant ? 'Replanted' : 'Cleared'} ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
+  if (stroke.trees && world.areas.some(isGlade)) { computeNetwork(); syncLabels(); } // a glade's trees set its rating
   stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null;
 }
 
@@ -3157,7 +3158,7 @@ function toast(msg, bad, act) {
 function setTool(tool) {
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
-    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
+    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
   if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
@@ -3167,7 +3168,7 @@ function setTool(tool) {
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
-  const painting = tool === 'clear' && state.landMode === 'area';
+  const painting = tool === 'clear' && paintingArea();
   $('tTrail').setAttribute('aria-pressed', tool === 'trail' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
   $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
@@ -3236,6 +3237,10 @@ function showReadout(p, px, py, pinned) {
   else if (state.tool === 'clear' && state.landMode === 'area') {
     const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
     html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Gentle enough for a learning area';
+  }
+  else if (state.tool === 'clear' && state.landMode === 'glade') {
+    const why = gladeCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
+    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Paint the glade here';
   }
   else if (state.tool === 'clear' && state.landMode === 'level') {
     html += stroke.active ? `<br>Leveling to ${ft(stroke.target).toLocaleString('en-US')} ft · −${money(stroke.cost)}` : `<br><span class="muted">Press here to level to ${ftVis(p.y).toLocaleString('en-US')} ft</span>`;
@@ -4167,12 +4172,14 @@ const AREA_NAMES = ['Bunny Hill', 'Little Bear Slope', 'Learning Area', 'Snowfla
 const cellKey = (x, z) => x * 4096 + z, keyX = (k) => Math.round(k / 4096), keyZ = (k) => k - Math.round(k / 4096) * 4096;
 const acresOf = (n) => n * 100 / 4046.86;
 const areaAt = (x, z) => world.areas.find((a) => a.set.has(cellKey(Math.round(x), Math.round(z))));
-function nextAreaName(skip) {
+function nextAreaName(skip, kind) {
   const used = new Set(world.areas.map((a) => a.name)); if (skip) used.add(skip);
+  if (kind === 'glade') return pickFree(GLADE_NAMES, used) || `Glade ${world.areas.length + 1}`;
   return pickFree(AREA_NAMES, used) || `Learning Area ${world.areas.length + 1}`;
 }
 // Cells already taken by trails, buildings, the parking lot and other areas, and what's there.
-function areaBlocks(skip) {
+// For replanting (`plant`), a glade is open ground except right on its ski lines.
+function areaBlocks(skip, plant) {
   const m = new Map(), mark = (x, z, why) => { const k = cellKey(Math.round(x), Math.round(z)); if (!m.has(k)) m.set(k, why); };
   for (const t of realTrails()) {
     const hw = TRAIL_WIDTHS[t.width].hw + 0.3, c = Math.ceil(hw);
@@ -4181,7 +4188,8 @@ function areaBlocks(skip) {
   const box = (b, why) => { for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) mark(x, z, why); };
   for (const B of world.buildings) box(boxOf(B, 0.5), 'too close to a building');
   for (const b of lotBoxes()) box({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.z0 - 0.5, z1: b.z1 + 0.5 }, 'on the parking lot');
-  for (const a of world.areas) if (a !== skip) for (const k of a.cells) if (!m.has(k)) m.set(k, 'already part of another area');
+  for (const a of world.areas) if (a !== skip && !(plant && isGlade(a))) for (const k of a.cells) if (!m.has(k)) m.set(k, 'already part of another area');
+  if (plant) for (const t of world.trails) if (t.glade) for (const sm of t.samples) mark(sm.x, sm.z, 'on a glade line');
   return m;
 }
 // Why a cell can't be part of a learning area, or '' when it can.
@@ -4194,6 +4202,16 @@ function cellProblem(x, z, blocks) {
   if (sampleGrid(GR, x + HALF, z + HALF) > AREA_MAX_GRADE) return 'too steep for beginners';
   return '';
 }
+// Why a cell can't be part of a glade: any slope will do, but not the road, the creek or what's built.
+function gladeCellProblem(x, z, blocks) {
+  if (!inProperty(x, z)) return 'outside your property';
+  const b = blocks && blocks.get(cellKey(x, z));
+  if (b) return b;
+  if (roadDist(x, z) < 2) return 'on the road';
+  if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
+  return '';
+}
+const paintingArea = () => state.landMode === 'area' || state.landMode === 'glade';
 // A flat grid of cells draped on the ground, lit like the snow; the outer cells take the edge colour.
 function cellsGeo(cells, lift, edgeCol) {
   const pos = [], uv = [], col = [], idx = [];
@@ -4238,9 +4256,11 @@ function areaFence(a) {
   if (posts.length) g.add(new THREE.Mesh(mergeGeos(posts), FENCE_MAT));
   return g;
 }
+const GLADE_TINT = () => new THREE.MeshBasicMaterial({ color: 0x2f7d55, transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function addArea(a) {
   a.set = new Set(a.cells);
-  a.mesh = new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  a.mesh = isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  if (isGlade(a)) a.mesh.visible = false;
   a.fence = areaFence(a); areaGroup.add(a.fence);
   a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
   areaGroup.add(a.mesh);
@@ -4249,7 +4269,7 @@ function addArea(a) {
 }
 function refreshAreaMesh(a) {
   a.mesh.geometry.dispose();
-  a.mesh.geometry = cellsGeo(a.set, 0.13, edgeTint(0));
+  a.mesh.geometry = isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
   areaGroup.remove(a.fence); disposeFence(a.fence);
   a.fence = areaFence(a); areaGroup.add(a.fence);
 }
@@ -4262,6 +4282,7 @@ function removeArea(a) {
   areaSig = null;
 }
 function styleArea(a) {
+  if (isGlade(a)) { a.mesh.visible = !!(selected && selected.obj === a) || (state.tool === 'clear' && state.landMode === 'glade'); return; }
   a.mesh.material.emissive.set(selected && selected.obj === a ? 0x6a2a12 : 0x000000);
 }
 
@@ -4276,7 +4297,7 @@ function areaPaintAt(p) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
     const k = cellKey(x, z);
     if (areaDraft.erase) { areaDraft.cells.delete(k); continue; }
-    const why = cellProblem(x, z, areaDraft.blocks);
+    const why = (state.landMode === 'glade' ? gladeCellProblem : cellProblem)(x, z, areaDraft.blocks);
     if (why) stroke.areaWhy = why; else areaDraft.cells.add(k);
   }
   drawAreaDraft();
@@ -4294,6 +4315,7 @@ function clearAreaDraft() {
 }
 function areaDraftInfo() {
   if (!areaDraft || !areaDraft.cells.size) return null;
+  if (state.landMode === 'glade') return gladeDraftInfo();
   const n = areaDraft.cells.size, treeSet = new Set(), problems = [];
   for (const k of areaDraft.cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
   if (n < AREA_MIN_CELLS) problems.push('Paint a bigger area: at least about half an acre.');
@@ -4303,6 +4325,7 @@ function areaDraftInfo() {
 function commitArea() {
   const info = areaDraftInfo();
   if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  if (info.glade) return commitGlade(info);
   pushUndo('building a learning area');
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
@@ -4313,6 +4336,144 @@ function commitArea() {
   toast(`Built ${a.name} · −${money(info.cost)}. Add a magic carpet or T-bar with both stations in it.`);
   renderSheet();
 }
+
+/* ---------- Glades ----------
+   Forest thinned for skiing through the trees, painted like a learning area. The trees left standing set
+   how tight it is, and so how hard and how dangerous. Skiers drop in at the top, from a lift's clearing or a
+   trail along its edge, and weave down a few lines to a trail, a lift or the base at the bottom. */
+const GLADE_THIN = {
+  tight: { label: 'Tight', keep: 0.7, bump: 2, floor: 2, risk: 60, severe: 0.45, who: 'Experts only: the most thrilling, and the most dangerous.' },
+  classic: { label: 'Classic', keep: 0.45, bump: 1, floor: 2, risk: 30, severe: 0.3, who: 'For advanced and expert skiers.' },
+  open: { label: 'Open', keep: 0.2, bump: 0, floor: 1, risk: 12, severe: 0.18, who: 'Widely spaced: strong intermediates can enjoy it too.' },
+};
+const GLADE_CELL_COST = 90, GLADE_THIN_TREE = 120, GLADE_LINES = 4, GLADE_MIN_TREES = 0.35; // trees per cell needed to call it forest
+const GLADE_NAMES = ['Fox Glade', 'Hemlock Glade', 'The Woods', 'Spruce Trap', 'Owl Hollow', 'Timber Tumble', 'Birch Bowl', 'Deer Run Glade', 'Shadow Woods', 'Needle Drop', 'Pine Box', 'Lost Woods'];
+const isGlade = (A) => !!A && A.kind === 'glade';
+const areaById = (id) => world.areas.find((a) => a.id === id);
+function gladeTreeCount(cells) { let n = 0; for (const k of cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.5, () => n++); return n; }
+// How tight a glade is now: the trees standing against the forest it was cut from (replanting tightens it).
+function gladeLevel(A) {
+  const r = gladeTreeCount(A.cells) / Math.max(1, A.trees0);
+  A.keepNow = r;
+  return r >= 0.55 ? 'tight' : r >= 0.3 ? 'classic' : 'open';
+}
+const thinPick = (t, keep) => ((t * 2654435761) >>> 0) % 1000 / 1000 >= keep; // the same trees go every time
+function gladeThinSet(cells, keep) {
+  const set = new Set();
+  for (const k of cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.71, (t) => { if (thinPick(t, keep)) set.add(t); });
+  return set;
+}
+// Trees right on the ski lines go, so nobody skis through a trunk.
+function gladeCorridor(lines) {
+  const set = new Set();
+  for (const pts of lines) for (const sm of trailSamples(pts, TRAIL_WIDTHS.narrow.hw)) treesInBrush(sm, 0.45, (t) => set.add(t));
+  return set;
+}
+// Ways in at the top: a step into the glade from a lift's top clearing, or points on a trail along its edge.
+function gladeEntries(A) {
+  const out = [];
+  for (const L of world.lifts) {
+    if (isVillage(L) || !nearCell(A, L.b, 8)) continue;
+    let best = null, bd = Infinity;
+    for (const k of A.cells) { const d = Math.hypot(keyX(k) - L.b.x, keyZ(k) - L.b.z); if (d < bd) { bd = d; best = k; } }
+    const dx = keyX(best) - L.b.x, dz = keyZ(best) - L.b.z, d = Math.hypot(dx, dz) || 1, st = Math.min(d, 3.5);
+    out.push({ x: L.b.x + dx / d * st, z: L.b.z + dz / d * st });
+  }
+  for (const t of realTrails()) { const r = TRAIL_WIDTHS[t.width].hw + 1.8; for (let i = 0; i < t.samples.length; i += 2) { const sm = t.samples[i]; if (nearCell(A, sm, r)) out.push({ x: sm.x, z: sm.z }); } }
+  for (const q of out) q.y = heightAt(q.x, q.z);
+  out.sort((p, q) => q.y - p.y);
+  const spaced = [];
+  for (const q of out) if (spaced.every((o) => distXZ(q, o) > 4)) spaced.push(q);
+  return spaced.slice(0, 3); // the highest few: lines start at the top of the glade
+}
+// Where a line can finish: a lift's bottom station, a trail just below, or the base area.
+function gladeExit(p) {
+  for (const L of world.lifts) {
+    if (isVillage(L) || distXZ(p, L.a) > STATION_R + 3 || heightAt(L.a.x, L.a.z) > p.y + 0.3) continue;
+    const dx = L.a.x - p.x, dz = L.a.z - p.z, d = Math.hypot(dx, dz) || 1, st = Math.max(0, d - (STATION_R - 2));
+    return { x: p.x + dx / d * st, z: p.z + dz / d * st };
+  }
+  let best = null, bd = 5;
+  for (const t of realTrails()) for (const sm of t.samples) { const d = distXZ(p, sm); if (d < bd && heightAt(sm.x, sm.z) < p.y - 0.05) { bd = d; best = sm; } }
+  if (best) return { x: best.x, z: best.z };
+  return isBase(p) ? { x: p.x, z: p.z } : null;
+}
+// One weaving line down the glade: mostly down the fall line, swinging side to side, staying in the glade.
+function gladeLinePts(A, k, entries) {
+  if (!entries.length) return null;
+  const e = entries[k % entries.length], inG = (q) => A.set.has(cellKey(Math.round(q.x), Math.round(q.z)));
+  let p = { x: e.x, z: e.z, y: heightAt(e.x, e.z) };
+  const pts = [{ x: p.x, z: p.z }], seen = new Set(), STEP = 1.4;
+  // step off the trail or out of the lift's clearing into the trees (never uphill)
+  let first = null, fd = 6;
+  for (const c of A.cells) { const q = { x: keyX(c), z: keyZ(c) }, d = distXZ(q, e); if (d < fd && heightAt(q.x, q.z) <= e.y + 0.05) { fd = d; first = q; } }
+  if (!first) return null;
+  if (fd > 0.8) { p = { ...first, y: heightAt(first.x, first.z) }; pts.push({ x: p.x, z: p.z }); }
+  const stepFrom = (i, inside) => {
+    const gx = heightAt(p.x + 0.5, p.z) - heightAt(p.x - 0.5, p.z), gz = heightAt(p.x, p.z + 0.5) - heightAt(p.x, p.z - 0.5);
+    const want = Math.atan2(-gz, -gx) + 0.8 * Math.sin(i * 0.55 + k * 2.1); // the fall line, swung side to side
+    let best = null, bv = -Infinity;
+    for (let a = 0; a < 16; a++) {
+      const ang = a / 16 * Math.PI * 2, q = { x: p.x + Math.cos(ang) * STEP, z: p.z + Math.sin(ang) * STEP };
+      q.y = heightAt(q.x, q.z);
+      const drop = p.y - q.y, ck = cellKey(Math.round(q.x), Math.round(q.z));
+      if (drop < 0.02 || seen.has(ck) || (inside && !inG(q) && !nearCell(A, q, 1.2))) continue; // small gaps in the paint are fine
+      let off = Math.abs(ang - want) % (Math.PI * 2); if (off > Math.PI) off = Math.PI * 2 - off;
+      const v = drop * 3 - off * 1.2;
+      if (v > bv) { bv = v; best = q; }
+    }
+    return best;
+  };
+  for (let i = 0; i < 160; i++) {
+    const q = stepFrom(i, true);
+    if (!q) break;
+    seen.add(cellKey(Math.round(q.x), Math.round(q.z)));
+    p = q; if (i % 2) pts.push({ x: p.x, z: p.z });
+  }
+  // a line has to ski a good part of the glade, not slip straight back out at the top
+  let lo = Infinity, hi = -Infinity; for (const c of A.cells) { const y = heightAt(keyX(c), keyZ(c)); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+  if (pts.length && (hi - p.y) < (hi - lo) * 0.45) return null;
+  let out = gladeExit(p);
+  for (let r = 0; !out && r < 4; r++) { const q = stepFrom(r, false); if (!q) break; p = q; pts.push({ x: p.x, z: p.z }); out = gladeExit(p); } // a short runout through the trees
+  if (!out) return null;
+  pts.push(out);
+  let len = 0; for (let i = 1; i < pts.length; i++) len += distXZ(pts[i - 1], pts[i]);
+  return pts.length >= 4 && len >= 8 ? pts : null;
+}
+function gladeLines(A) {
+  const ents = gladeEntries(A), lines = [];
+  for (let k = 0; k < GLADE_LINES && ents.length; k++) { const pts = gladeLinePts(A, k, ents); if (pts) lines.push(pts); }
+  return lines;
+}
+const gladeRating = (pts, G) => Math.min(3, Math.max(analyzeTrail(trailSamples(pts, TRAIL_WIDTHS.narrow.hw)).rating + G.bump, G.floor));
+function gladeDraftInfo() {
+  const cells = [...areaDraft.cells], n = cells.length, th = state.gladeThin || 'classic', G = GLADE_THIN[th], problems = [];
+  const trees0 = gladeTreeCount(cells);
+  if (n < AREA_MIN_CELLS) problems.push('Paint a bigger glade: at least about half an acre.');
+  else if (trees0 < n * GLADE_MIN_TREES) problems.push('Paint over forest: a glade is skied through the trees.');
+  const A = { id: -1, kind: 'glade', cells, set: areaDraft.cells };
+  const lines = n >= AREA_MIN_CELLS ? gladeLines(A) : [];
+  if (n >= AREA_MIN_CELLS && !problems.length && !lines.length) {
+    problems.push(gladeEntries(A).length ? 'The bottom of the glade needs to run out onto a trail, a lift or the base area.' : 'Start the glade at the top of a lift or beside a trail, so skiers can drop in.');
+  }
+  const treeSet = gladeThinSet(cells, G.keep);
+  for (const t of gladeCorridor(lines)) treeSet.add(t);
+  const rating = lines.length ? Math.max(...lines.map((pts) => gladeRating(pts, G))) : null;
+  const lotWarn = lotReserve().some((r) => cells.some((k) => boxDist({ x: keyX(k), z: keyZ(k) }, r) < 0.5));
+  return { glade: true, n, th, trees0, treeSet, problems, lotWarn, rating, lines: lines.length, prep: n * GLADE_CELL_COST, cost: n * GLADE_CELL_COST + treeSet.size * GLADE_THIN_TREE };
+}
+function commitGlade(info) {
+  pushUndo('cutting a glade');
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  const a = { id: world.nextId++, name: nextAreaName(null, 'glade'), kind: 'glade', cells: [...areaDraft.cells], cost: info.cost, thin: info.th, trees0: info.trees0, signs: true };
+  addArea(a);
+  clearAreaDraft();
+  computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
+  toast(`Cut ${a.name} · −${money(info.cost)}. It opens once there’s enough natural snow.`);
+  renderSheet();
+}
+const openGladeTool = () => { if (visiting) return; if (state.phase !== 'closed') { toast('Glades are cut overnight, while the resort is closed.', true); return; } state.landMode = 'glade'; setTool('clear'); };
 
 /* Ski lines: for each lift with both stations in or beside an area, a few lines weave down it,
    two on each side of the lift. They're rebuilt only when areas or lifts change, with fixed ids,
@@ -4342,7 +4503,9 @@ function areaLinePts(A, L, k) {
 function syncAreaLines() {
   const want = [];
   for (const A of world.areas) for (const L of world.lifts) if (servesArea(A, L)) want.push([A, L]);
-  const sig = want.map(([A, L]) => `${A.id}:${L.id}:${A.cells.length}:${L.a.x},${L.a.z},${L.b.x},${L.b.z}`).join('|');
+  const glades = world.areas.filter(isGlade);
+  const sig = want.map(([A, L]) => `${A.id}:${L.id}:${A.cells.length}:${L.a.x},${L.a.z},${L.b.x},${L.b.z}`).join('|')
+    + (glades.length ? `#${glades.map((A) => `${A.id}:${A.cells.length}`).join(',')}#${realTrails().map((t) => `${t.id}:${t.samples.length}`).join(',')}#${world.lifts.map((L) => `${L.id}:${L.a.x},${L.b.x}`).join(',')}` : '');
   if (sig === areaSig) return;
   areaSig = sig;
   for (const A of world.areas) { areaGroup.remove(A.fence); disposeFence(A.fence); A.fence = areaFence(A); areaGroup.add(A.fence); }
@@ -4350,11 +4513,18 @@ function syncAreaLines() {
   for (const [A, L] of want) for (let k = 0; k < AREA_LINES; k++) {
     addTrail({ id: -(A.id * 1000 + L.id * 10 + k), name: A.name, pts: areaLinePts(A, L, k), width: 'medium', open: true, sign: 0, virtual: true, area: A.id, lift: L.id });
   }
+  for (const A of glades) {
+    const lines = gladeLines(A);
+    lines.forEach((pts, k) => addTrail({ id: -(5e6 + A.id * 10 + k), name: A.name, pts, width: 'narrow', open: !A.closed, groomed: false, virtual: true, area: A.id, glade: A.id }));
+    const corridor = gladeCorridor(lines); // lines move when trails or lifts around the glade change
+    if (corridor.size) clearTreeSet(corridor);
+  }
 }
 function computeNetwork() {
   syncAreaLines();
   for (const t of world.trails) {
-    if (t.virtual) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
+    if (t.virtual && !t.glade) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
+    if (t.glade) { const A = areaById(t.glade), G = GLADE_THIN[A ? gladeLevel(A) : 'classic']; t.sign = Math.min(3, Math.max(t.an.rating + G.bump, G.floor)); t.gladeRisk = G.risk; t.gladeSevere = G.severe; t.open = !(A && A.closed); }
     t.from = connAt(t.samples[0], t, 'start');
     t.to = connAt(t.samples[t.samples.length - 1], t, 'end');
   }
@@ -5191,7 +5361,7 @@ function buildRow(info, ok) {
 }
 
 // The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
-const TRAIL_MODES = (cur) => `<div class="seg" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button></div>`;
+const TRAIL_MODES = (cur) => `<div class="seg" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button></div>`;
 function openAreaTool() {
   if (visiting) return;
   if (state.phase !== 'closed') { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
@@ -5294,7 +5464,34 @@ function removeBlock(what, note) {
     : `<button class="link danger-link" data-action="remove">Remove ${what}</button>`;
 }
 
+// A glade: how tight it is, its rating and snow, who's in it, and the signs at the top.
+function gladeSheet(A) {
+  const lines = world.trails.filter((t) => t.glade === A.id), open = state.phase === 'open' && today, lvl = gladeLevel(A), G = GLADE_THIN[lvl];
+  const sign = lines.length ? Math.max(...lines.map(trailSign)) : null, t0 = lines[0];
+  const skiing = open ? lines.reduce((n, t) => n + (t.count || 0), 0) * AGENT : 0;
+  const runs = open ? lines.reduce((n, t) => n + ((today.trailRuns || {})[t.id] || 0), 0) * AGENT : 0;
+  const hurt = open && today.glades && today.glades[A.id];
+  const conn = !lines.length ? '<p class="conn warn">Skiers can’t get through yet. It needs a lift top or a trail at the top, and a trail, a lift or the base area at the bottom.</p>'
+    : `<p class="conn">${esc(describeConn(t0.from, 'start'))}<br>${esc(describeConn(t0.to, 'end'))}</p>`;
+  return `<div class="sheet-title">${sign != null ? `<span class="rsym big">${ratingSymbol(sign, 18)}</span>` : ''}
+      <input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Glade name">${NAME_DICE}
+      <button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <div class="status"><span class="pill ${A.closed ? 'off' : 'on'}">${A.closed ? 'Closed' : 'Open'}</span>
+      <button class="link" data-action="gladeOpen">${A.closed ? 'Open glade' : 'Close glade'}</button></div>
+    <p class="help">Glade · ${acresOf(A.cells.length).toFixed(1)} acres of ${G.label.toLowerCase()} trees, ${Math.round(A.keepNow * 100)}% of the forest left. ${G.who}</p>
+    ${conn}
+    <dl class="kv">
+      ${sign != null ? `<div><dt>Rating</dt><dd><span class="rsym">${ratingSymbol(sign)} ${RATINGS[sign].name}</span></dd></div>` : ''}
+      ${t0 ? `<div><dt>Snow</dt><dd>${t0.snowOk === false ? 'Not enough natural snow' : `${inch(t0.base || 0)} · ${SURFACE[t0.surface] || 'Ungroomed'}`}</dd></div>` : ''}
+      ${open ? `<div><dt>Skiing now</dt><dd>${skiing}</dd></div><div><dt>Runs today</dt><dd>${runs}</dd></div><div><dt>Tree collisions</dt><dd>${hurt ? `${hurt.n}${hurt.severe ? ` (${hurt.severe} serious)` : ''}` : 'None'}</dd></div>` : ''}
+    </dl>
+    <div class="toggle-row"><div><b>“Experts only” signs</b><span>${A.signs ? 'Skiers who aren’t good enough stay out' : 'Anyone can wander in, and the wrong skier in the trees is how accidents happen'}</span></div>
+      <button class="switch" role="switch" aria-checked="${!!A.signs}" data-action="gladeSigns" aria-label="Experts only signs"><i></i></button></div>
+    <p class="help">Glades aren’t groomed and can’t have snowmaking, so they open on natural snow. To change how tight it is, use Landscape: Replant inside it for tighter trees, or Clear trees to open it up.</p>
+    ${state.phase === 'closed' ? removeBlock('this glade', `Remove ${esc(A.name)}? The trees stay as they are; you get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
+}
 function areaSheet(A) {
+  if (isGlade(A)) return gladeSheet(A);
   const lifts = areaLifts(A), lines = world.trails.filter((t) => t.virtual && t.area === A.id), open = state.phase === 'open' && today;
   const skiing = open ? lines.reduce((n, t) => n + (t.count || 0), 0) * AGENT : 0;
   const runs = open ? lines.reduce((n, t) => n + ((today.trailRuns || {})[t.id] || 0), 0) * AGENT : 0;
@@ -5449,8 +5646,9 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'trailMode') { if (b.dataset.v === 'area') openAreaTool(); else setTool('trail'); }
-  else if (a === 'landMode') { state.landMode = b.dataset.v; if (b.dataset.v !== 'area') clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
+  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
+  else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
+  else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
   else if (a === 'areaClear') { clearAreaDraft(); renderSheet(); }
   else if (a === 'areaBuild') commitArea();
@@ -5542,6 +5740,8 @@ sheet.addEventListener('click', (e) => {
     toast(`Closed off-site parking · +${money(back)} back`); renderSheet(); scheduleSave();
   }
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
+  else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; computeNetwork(); scheduleSave(); renderSheet(); }
+  else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
   else if (a === 'manage') openManage(b.dataset.v);
   else if (a === 'landSel') { landSel = landSel === b.dataset.v ? null : b.dataset.v; renderSheet(); }
   else if (a === 'landList') { landListOpen = true; renderSheet(); }
@@ -5568,7 +5768,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'removeYes' && obj) {
     pushUndo(`removing ${obj.name}`);
     if (selected.kind === 'trail') removeTrail(obj);
-    else if (selected.kind === 'area') { state.cash += Math.round((obj.cost || 0) * 0.25); removeArea(obj); updateCash(true); }
+    else if (selected.kind === 'area') { state.cash += Math.round((obj.cost || 0) * 0.25); removeArea(obj); computeNetwork(); updateCash(true); }
     else if (selected.kind === 'bld') { state.cash += Math.round((obj.spent || 0) * 0.25); removeBuilding(obj); updateCash(true); }
     else { state.cash += Math.round((obj.cost || 0) * 0.25); removeLift(obj); updateCash(true); }
     toast(`Removed ${obj.name}`);
@@ -5581,7 +5781,7 @@ const NAME_DICE = '<button type="button" class="dice namedice" data-action="rero
 function suggestName(kind, o) {
   if (kind === 'trail') return trailNameFor(o.samples, trailSign(o), o.width, o.name);
   if (kind === 'lift') return liftNameFor(o.type, o.a, o.b, o.name);
-  if (kind === 'area') return nextAreaName(o.name);
+  if (kind === 'area') return nextAreaName(o.name, o.kind);
   return nextBuildingName(o.type, o.x, o.z, o.name);
 }
 sheet.addEventListener('change', (e) => {
@@ -5951,7 +6151,10 @@ function updateLabels() {
     for (const A of world.areas) {
       if (!A.labelEl) continue;
       const n = open ? world.trails.reduce((m, t) => m + (t.virtual && t.area === A.id ? t.count || 0 : 0), 0) * AGENT : 0;
-      setLabel(A.labelEl, `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`);
+      if (isGlade(A)) {
+        const signs = world.trails.filter((t) => t.glade === A.id).map(trailSign), sg = signs.length ? Math.max(...signs) : null;
+        setLabel(A.labelEl, `${sg != null ? `<span class="rsym">${ratingSymbol(sg, 12)}</span>` : '<i class="bdot" style="background:#2f7d55"></i>'}<span>${esc(A.name)}</span>${A.closed ? '<em>Closed</em>' : open ? `<span class="cnt"><b>${n}</b> in the trees</span>` : ''}`);
+      } else setLabel(A.labelEl, `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`);
       A.labelEl.classList.toggle('sel', !!(selected && selected.obj === A));
       A.labelEl._prio = 1;
     }
@@ -6142,7 +6345,7 @@ function serializeWorld() {
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined })),
-    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
@@ -6809,23 +7012,25 @@ function surfacePref(T, g) {
 // A learning area that has a lift serving it, so first-timers can use it.
 let learnCache = { at: -1, v: false }; // checked once per sim step: it's asked for every trail a guest weighs
 const learningOpen = () => {
-  if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && runnable(t) && t.reachable) };
+  if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && !t.glade && runnable(t) && t.reachable) };
   return learnCache.v;
 };
 function trailFit(T, g) {
   const r = trailSign(T);
   // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
-  if (T.virtual) {
+  if (T.virtual && !T.glade) {
     if (g.ab >= 2) return -14;
     if (g.ab === 1) return -6;
     return (g.first && g.learnLaps < 3 ? 9 : g.learnLaps < 5 ? 1.5 : -2) - (T.crowd || 0) * 2.5;
   }
+  if (T.glade && r > g.ab) { const A = areaById(T.glade); if (A && A.signs) return -60; } // "Experts only" signs turn the rest away
   let v;
   if (r > g.ab) v = -7 * (r - g.ab);
   else if (r === g.pref) v = 3;
   else if (r === g.ab) v = 2.2;
   else v = 1.2 - 0.4 * (g.ab - r - 1);
   v += Math.min(2, T.an.len / 160) + surfacePref(T, g);
+  if (T.glade) v += g.ab >= 3 ? 2.5 : g.ab === 2 ? 1.2 : 0; // the trees are the draw for strong skiers
   v -= (T.crowd || 0) * 2.5;
   if (g.first && g.learnLaps < 3 && !g.lessoned && learningOpen()) v -= 4; // not ready for real trails yet
   const seen = g.seen[T.id] || 0;
@@ -7129,7 +7334,7 @@ function endOfTrail(g) {
   g.fat += T.an.vert * PACE * FATIGUE; g.vert += T.an.vert;
   today.trailRuns[T.id] = (today.trailRuns[T.id] || 0) + 1;
   if (nightNow()) today.night.runs[T.id] = (today.night.runs[T.id] || 0) + 1;
-  if (T.virtual) {
+  if (T.virtual && !T.glade) {
     // A lap of the learning area: first-timers gain confidence fast.
     if (!g.learnLaps) today.learners += AGENT;
     g.learnLaps++;
@@ -7496,8 +7701,9 @@ function updateSki(g, dt) {
   g.s += sp * dt;
   // Falls are rare, likelier on terrain beyond the skier and on crowded trails.
   const risk = 1.6e-6 * (r > g.ab ? 4 : 1) * (1 + (T.crowd || 0)) * (g.ab === 0 && !g.lessoned ? 1.4 : 1) * (g.first && g.learnLaps < 3 && !g.lessoned && !T.virtual ? 1.5 : 1)
-    * (surf === 'icy' ? 2 : surf === 'thin' ? 1.6 : 1) * (todayWx().type === 'ice' ? 1.6 : 1);
-  if (Math.random() < risk * dt) return injure(g);
+    * (surf === 'icy' ? 2 : surf === 'thin' ? 1.6 : 1) * (todayWx().type === 'ice' ? 1.6 : 1)
+    * (T.glade ? T.gladeRisk * (surf === 'powder' ? 1.25 : 1) : 1); // trees: tighter is riskier; deep powder hides tree wells
+  if (Math.random() < risk * dt) return injure(g, T);
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 <= g.s) {
     const st = T.stops[g.ns++], n = needs(g);
     if (!n.length) continue;
@@ -7832,6 +8038,12 @@ function endDay() {
     const odds = (world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] !== 'closed') ? 0.12 : 0.25) * (hasBld('clinic') ? 0.5 : 1);
     for (let k = 0; k < today.injuries + today.unhelped; k++) if (Math.random() < odds) claims++;
   }
+  let gladeRep = 0;
+  for (const st of Object.values(today.glades || {})) {
+    for (let k = 0; k < st.severe; k++) if (Math.random() < 0.3) claims++;
+    gladeRep += st.unhelped * 0.01; // someone left hurt in the trees gets talked about
+  }
+  if (gladeRep) state.reputation = clamp(state.reputation - gladeRep, 0.5, 1.5);
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
   // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
@@ -7878,7 +8090,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
@@ -10434,14 +10646,18 @@ function hungerSummary(h) {
 const hungerOf = (g) => (g.ate && !g.skipped ? 0.12 : clamp((state.time - (g.lunchAt - 160)) / 200, 0, 1));
 
 /* ---------- Ski patrol ---------- */
-function injure(g) {
-  const p = guestPos(g);
+function injure(g, T) {
+  const p = guestPos(g), A = T && T.glade ? areaById(T.glade) : null;
   g.x = p.x; g.z = p.z; g.yaw = p.yaw;
   g.st = 'hurt'; g.hurtAt = state.time; g.T = null; g.rescuer = false;
-  g.sat = clamp(g.sat - 15, 0, 100);
+  // In a glade it's a tree, not just a fall, and the tighter the trees the likelier it's serious.
+  g.glade = A ? A.id : null; g.severe = !!A && Math.random() < T.gladeSevere;
+  g.sat = clamp(g.sat - (g.severe ? 25 : 15), 0, 100);
   today.injuries++;
-  thought(g, 'Ouch! I took a bad fall.');
+  if (A) { const st = gladeDay(A.id); st.n++; if (g.severe) st.severe++; }
+  thought(g, !A ? 'Ouch! I took a bad fall.' : g.severe ? `Hit a tree in ${A.name}. Something’s broken.` : `Clipped a tree in ${A.name}. Ouch.`);
 }
+const gladeDay = (id) => { const d = today.glades || (today.glades = {}); return d[id] || (d[id] = { n: 0, severe: 0, resp: 0, reached: 0, unhelped: 0 }); };
 function moveXZ(o, tx, tz, step) {
   const dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz);
   if (d > 1e-4) o.yaw = Math.atan2(dx, dz);
@@ -10477,6 +10693,7 @@ function patrolStep(dt) {
     if (best) { best.st = 'go'; best.target = g.id; g.rescuer = true; home.today.calls++; }
     else if (state.time - g.hurtAt > 70) {
       const clinic = openClinic(g);
+      if (g.glade != null) gladeDay(g.glade).unhelped++;
       g.sat = clamp(g.sat - (clinic ? 18 : 25), 0, 100); today.unhelped++;
       if (clinic) clinic.today.visits += AGENT;
       thought(g, clinic ? `Nobody came to help, so I limped down. At least ${clinic.name} looked after me.` : 'Nobody came to help. I had to limp down on my own.');
@@ -10489,7 +10706,10 @@ function patrolStep(dt) {
     const g = gById.get(c.target);
     if (c.st === 'go') {
       if (!g || g.st !== 'hurt') { c.st = 'back'; continue; }
-      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt)) { const cl = openClinic(g); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(g); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt; }
+      if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt * (g.glade != null ? 0.6 : 1))) { // slower going in the trees
+        const cl = openClinic(g); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(g); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt;
+        if (g.glade != null) { const st = gladeDay(g.glade); st.resp += c.resp; st.reached++; }
+      }
     } else if (c.st === 'tow') {
       const done = moveXZ(c, c.dest.x, c.dest.z, PATROL_TOW * dt);
       if (g) { g.x = c.x - Math.sin(c.yaw) * 0.55; g.z = c.z - Math.cos(c.yaw) * 0.55; g.yaw = c.yaw; }
@@ -10498,7 +10718,7 @@ function patrolStep(dt) {
         if (g) {
           today.helped++; today.respSum += c.resp; B.today.resp += c.resp;
           if (clinic) clinic.today.visits += AGENT;
-          if (clinic && Math.random() < 0.5 && state.time < closeTime() - 60) {
+          if (clinic && !g.severe && Math.random() < 0.5 && state.time < closeTime() - 60) {
             // Patched up: a sprain strapped, a bruise iced, and back out.
             g.sat = clamp(g.sat + 14, 0, 100); today.patched++;
             thought(g, `${clinic.name} patched me up. Back out there!`);
@@ -10506,7 +10726,7 @@ function patrolStep(dt) {
             baseDecision(g);
           } else {
             g.sat = clamp(g.sat + (clinic ? 12 : 8), 0, 100);
-            thought(g, clinic ? `Ski patrol and ${clinic.name} took great care of me.` : 'Ski patrol got me down safely. Thank you!');
+            thought(g, g.severe ? 'Patrol got me out of the trees. Off to the hospital.' : clinic ? `Ski patrol and ${clinic.name} took great care of me.` : 'Ski patrol got me down safely. Thank you!');
             g.leaving = true; g.onSkis = false;
             goCar(g);
           }
@@ -11347,8 +11567,8 @@ function finishNight() {
   const w = todayWx();
   let groom = 0;
   for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += Math.round(t.an.len * GROOM_PER_UNIT); t.icy = false; }
-  for (const a of world.areas) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night
-  for (const t of world.trails) if (t.virtual) t.icy = false;
+  for (const a of world.areas) if (!isGlade(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
+  for (const t of world.trails) if (t.virtual && !t.glade) t.icy = false;
   state.cash -= groom;
   state.nightCost = { ...(state.nightCost || {}), grooming: groom };
   refreshSnowState(w);
@@ -12317,14 +12537,28 @@ function levelAt(p) {
   updateCash(true);
 }
 function landSheet() {
-  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant';
-  const head = area ? `<div class="sheet-title"><h3>New learning area</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES('area')}`
+  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant', glade = state.landMode === 'glade';
+  const head = area || glade ? `<div class="sheet-title"><h3>${glade ? 'New glade' : 'New learning area'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES(glade ? 'glade' : 'area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="seg" role="group" aria-label="Landscape mode">
       <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze && !plant}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
       <button data-action="landMode" data-v="plant" aria-pressed="${plant}">Replant<small>${money(REPLANT_COST)} a tree</small></button>
       <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
       <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button></div>`;
+  if (glade) {
+    const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash, th = state.gladeThin || 'classic';
+    return `${head}
+    <p class="help">Paint over forest to thin it for skiing through the trees. Start it at the top of a lift or beside a trail, and let the bottom run out onto a trail, a lift or the base.</p>
+    <div class="field-label">Thinning</div>
+    <div class="seg" role="group" aria-label="Thinning">${Object.entries(GLADE_THIN).map(([k, G]) => `<button data-action="gladeThin" data-v="${k}" aria-pressed="${th === k}">${G.label}<small>keeps ${Math.round(G.keep * 100)}% of trees</small></button>`).join('')}</div>
+    <p class="help">${GLADE_THIN[th].who} More trees make it harder, and accidents more likely and more serious.</p>
+    <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${acresOf(info.n).toFixed(1)} acres</dd></div><div><dt>Rating</dt><dd>${info.rating != null ? `<span class="rsym">${ratingSymbol(info.rating)} ${RATINGS[info.rating].name}</span>` : '–'}</dd></div><div><dt>Upkeep</dt><dd>None: glades aren’t groomed</dd></div></dl>
+    ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
+    <div class="costs"><span>Marking and brushing</span><span>${money(info.prep)}</span><span>Thinning ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * GLADE_THIN_TREE)}</span></div>
+    <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Cut it · ${money(info.cost)}`}</button></div>` : ''}
+    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+  }
   if (area) {
     const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
     return `${head}
@@ -12341,11 +12575,11 @@ function landSheet() {
     <p class="help">Ctrl+Z puts back the last one. Bigger things (lifts, trails, buildings) are removed from their own panel.</p>`;
   return `${head}
     <p class="help">${plant
-      ? 'Drag over cleared ground to regrow the trees that stood there: fill in the glades between trails, or screen the parking lot. Trails, lift lines, learning areas, buildings and the lot stay clear.'
+      ? 'Drag over cleared ground to regrow the trees that stood there: fill in gaps between trails, tighten a glade, or screen the parking lot. Trails, lift lines, learning areas, glade lines, buildings and the lot stay clear.'
       : lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
-      : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for glades, views and building sites.'}</p>
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Learning areas for first-timers are under <button class="link" data-action="trailMode" data-v="area">Trail</button>.</p>`;
+      : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for views, building sites, or to open up a glade.'}</p>
+    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Glades and learning areas are under <button class="link" data-action="trailMode" data-v="glade">Trail</button>.</p>`;
 }
 /* ---------- Saving terrain edits ---------- */
 function encodeTerrain() {
@@ -12761,6 +12995,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.offsite && r.offsite.cars) note(r.offsite.wait > SHUTTLE_PATIENCE ? 3 : 1, `${r.offsite.cars} cars parked off-site and rode the parking shuttle${r.offsite.wait ? `, waiting ${Math.round(r.offsite.wait)} minutes on average` : ''}.${r.offsite.wait > SHUTTLE_PATIENCE ? ' Run shuttles more often, or add a station, to cut the wait.' : ''}`);
   if (r.offsite && r.offsite.full) note(3, `Off-site parking filled up too: ${r.offsite.full} guests were turned away. Upgrade it under Parking.`);
   if (r.complaints.shuttle && !(r.offsite && r.offsite.wait > SHUTTLE_PATIENCE)) note(2, `${r.complaints.shuttle} guests waited a long time for a parking shuttle.`);
+  for (const G of r.glades || []) note(G.severe || G.unhelped ? 4 : 3, `${G.n} tree ${G.n === 1 ? 'collision' : 'collisions'} in <b>${esc(G.name)}</b>${G.severe ? `, ${G.severe} serious` : ''}.${G.reached ? ` Patrol took ${Math.round(G.resp / G.reached)} min on average to reach them in the trees.` : ''}${G.unhelped ? ` ${G.unhelped} waited so long they got themselves out.` : ''}${G.severe ? ' Thinning the glade, a patrol hut nearby or closing it in thin snow lowers the risk.' : ''}`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
   if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.${past || world.areas.length ? '' : ' <button class="link" data-rp="area">Paint a learning area tonight</button>'}`);
@@ -13735,7 +13970,7 @@ $('tExplore').onclick = () => setTool('explore');
 $('tUndo').onclick = undoLast;
 // Landscape: clearing and levelling. Coming from a learning area, it starts on clearing trees.
 function openLandscape() {
-  if (state.landMode === 'area') { state.landMode = 'trees'; clearAreaDraft(); }
+  if (paintingArea()) { state.landMode = 'trees'; clearAreaDraft(); }
   setTool('clear');
 }
 $('tClear').onclick = openLandscape;
@@ -14810,6 +15045,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.48', date: 'Oct 28, 2026', title: 'Glades', items: [
+    'Ski through the trees: paint a glade over forest with Trail › Glade. Start it at the top of a lift or beside a trail, and let it run out onto a trail, a lift or the base.',
+    'Choose how much to thin: Tight (experts only), Classic (advanced and experts) or Open (strong intermediates too). More trees make it rate harder, and accidents likelier and more serious.',
+    'How tight a glade is comes from the trees standing: Replant inside it to tighten it, or clear trees to open it up.',
+    'Glades aren’t groomed and can’t have snowmaking, so they open on natural snow. Experts love them, most of all on powder days.',
+    'Tree collisions are often serious: patrol is slower to reach someone in the trees, the clinic can’t patch a serious injury, and serious ones can become injury claims. The day report lists each glade’s collisions. “Experts only” signs (on by default), a patrol hut nearby and closing a glade in thin snow all help.',
+  ] },
   { v: '2.47.3', date: 'Oct 28, 2026', title: 'Runs that end at a lift top', small: true, items: [
     'Fixed: trails that end at the top of another lift showed as dead ends when two of them ended there. Skiers now carry on down that lift’s runs, and the trail says “Ends at the top of …, joining its runs.”',
   ] },
