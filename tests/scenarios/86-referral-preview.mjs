@@ -56,6 +56,19 @@ export default async function ({ browser, url }) {
     assert(await g.page.locator('#refPreviewOpen').isVisible(), 'preview can be reopened');
     await tap('#refPreviewOpen');
     assert(await g.page.locator('#referralBox').isVisible(), 'preview reopens');
+    await tap('[data-ref=close]');
+    eq(await g.ev('state.referralPromptSeason'), 1, 'automatic prompt records the game season');
+    await g.ev('maybeReferralPrompt()');
+    eq(await g.ev("$('referralBox').hidden"), true, 'dismissed prompt stays closed this season');
+    eq(await g.ev('saveData(false).clock.referralPromptSeason'), 1, 'prompt marker is included in resort saves');
+    eq(await g.ev(`(() => { const day = state.day; const result = [18,19,61,89,90].map(n => { state.day = n; return referralWindow(); }); state.day = day; return result; })()`), [false,true,true,true,false], 'window runs from Dec 20 through end of February');
+    await g.ev("state.season = 2; state.day = 19; maybeReferralPrompt()");
+    eq(await g.ev("[state.referralPromptSeason, $('referralBox').hidden]"), [2,false], 'new season can show the prompt again');
+    await tap('[data-ref=close]');
+    await g.ev('state.day = 110;');
+    await tap('#badge');
+    await tap('#mInvite');
+    assert(await g.page.locator('#referralBox').isVisible(), 'dropdown opens invitations outside winter prompt window');
     eq(g.errors, [], 'no browser errors');
     await g.page.close();
   }
