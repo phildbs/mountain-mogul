@@ -4205,6 +4205,25 @@ function clearTreeSet(set) {
    anything is built or removed, so new construction links up on its own.
    ===================================================================== */
 const STATION_R = 6, TRANSFER_R = 22;
+// Nearby stations can also connect by a short uphill walk: at most 100 m across and 20 m up.
+function liftTransferMode(L, M) {
+  if (L === M || M.fromBase || isVillage(L) || isVillage(M)) return null;
+  const d = distXZ(L.b, M.a);
+  if (d >= TRANSFER_R) return null;
+  const y = trueY(L.b.x, L.b.z), rise = trueY(M.a.x, M.a.z) - y;
+  if (rise <= 0.6) return 'glide';
+  if (d > 10 || rise > Math.min(2, d * 0.25)) return null;
+  const n = Math.max(1, Math.ceil(d * 2));
+  let last = y;
+  for (let i = 1; i <= n; i++) {
+    const x = lerp(L.b.x, M.a.x, i / n), z = lerp(L.b.z, M.a.z, i / n), next = trueY(x, z);
+    if (!inProperty(x, z) || next > y + 2 || Math.abs(next - last) > d / n * 0.35) return null;
+    last = next;
+  }
+  return 'walk';
+}
+// The network already checked the ground profile; route scoring only needs the movement penalty.
+const liftTransferCost = (L, M) => 0.5 + distXZ(L.b, M.a) * (trueY(M.a.x, M.a.z) - trueY(L.b.x, L.b.z) > 0.6 ? 0.08 : 0.03);
 function trailNear(p, exclude) {
   let best = null, bd = Infinity;
   for (const o of world.trails) {
@@ -4699,9 +4718,9 @@ function computeNetwork() {
     L.feeders = world.trails.filter((t) => t.to && t.to.kind === 'lift' && t.to.obj === L);
     L.departing = world.trails.filter((t) => t.from && t.from.obj === L);
   }
-  // Lifts whose bottom station is a short, level or downhill glide from another lift's top: guests can cross over.
+  // Nearby loading stations: glide across level/downhill ground, or walk a short gentle rise.
   for (const L of world.lifts) {
-    L.transfers = world.lifts.filter((M) => M !== L && !M.fromBase && !isVillage(M) && !isVillage(L) && distXZ(L.b, M.a) < TRANSFER_R && trueY(M.a.x, M.a.z) <= trueY(L.b.x, L.b.z) + 0.6);
+    L.transfers = world.lifts.filter((M) => liftTransferMode(L, M));
   }
   for (const M of world.lifts) M.transferFrom = world.lifts.filter((L) => L.transfers.includes(M));
   // Which lifts and trails a guest arriving at the base can reach.
@@ -5754,7 +5773,8 @@ function liftSheet(L) {
   if (!L.departing.length && !L.transfers.length) notes.push('No trails leave the top station yet.');
   const from = [...L.feeders.map((t) => t.name), ...L.transferFrom.map((M) => `the top of ${M.name}`)];
   const feeders = L.fromBase ? 'Loads at the base area.' : from.length ? `Reached by ${from.join(', ')}.` : 'No trail reaches the bottom station.';
-  const departing = [L.departing.length ? `From the top: ${L.departing.map((t) => t.name).join(', ')}.` : '', L.transfers.length ? `Guests can glide over to ${L.transfers.map((M) => M.name).join(', ')}.` : ''].join(' ');
+  const glides = L.transfers.filter((M) => liftTransferMode(L, M) === 'glide'), walks = L.transfers.filter((M) => liftTransferMode(L, M) === 'walk');
+  const departing = [L.departing.length ? `From the top: ${L.departing.map((t) => t.name).join(', ')}.` : '', glides.length ? `Guests can glide over to ${glides.map((M) => M.name).join(', ')}.` : '', walks.length ? `Guests can walk over to ${walks.map((M) => M.name).join(', ')}.` : ''].join(' ');
   const hex = '#' + L.color.toString(16).padStart(6, '0');
   return `<div class="sheet-title">
       <span class="swatch" style="background:${hex}"></span>
@@ -7242,7 +7262,7 @@ const learningOpen = () => {
   if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && !t.glade && runnable(t) && t.reachable) };
   return learnCache.v;
 };
-function trailFit(T, g) {
+function trailFit(T, g, idx = 0) {
   const r = trailSign(T);
   // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
   if (T.virtual && !T.glade) {
@@ -7256,7 +7276,7 @@ function trailFit(T, g) {
   else if (r === g.pref) v = 3;
   else if (r === g.ab) v = 2.2;
   else v = 1.2 - 0.4 * (g.ab - r - 1);
-  v += Math.min(2, T.an.len / 160) + surfacePref(T, g);
+  v += Math.min(2, Math.max(0, T.an.len - idx * 0.5) / 160) + surfacePref(T, g);
   if (T.glade) v += g.ab >= 3 ? 2.5 : g.ab === 2 ? 1.2 : 0; // the trees are the draw for strong skiers
   v -= (T.crowd || 0) * 2.5;
   if (g.first && g.learnLaps < 3 && !g.lessoned && learningOpen()) v -= 4; // not ready for real trails yet
@@ -7269,7 +7289,7 @@ function vTrail(T, idx, g, depth, memo) {
   const key = `t${T.id}:${idx}:${depth}`;
   if (memo.has(key)) return memo.get(key);
   memo.set(key, -99);
-  const v = (runnable(T) ? trailFit(T, g) : -60) + 0.85 * vRest(T, idx, g, depth, memo);
+  const v = (runnable(T) ? trailFit(T, g, idx) : -60) + 0.85 * vRest(T, idx, g, depth, memo);
   memo.set(key, v);
   return v;
 }
@@ -7281,12 +7301,12 @@ function vRest(T, idx, g, depth, memo) {
 function vEnd(T, g, depth, memo) {
   const to = T.to;
   if (!to) return -40;
-  if (to.kind === 'base') return vBase(g, depth + 1, memo);
+  if (to.kind === 'base') return vBase(g, depth + 1, memo, T.samples[T.samples.length - 1]);
   if (to.kind === 'trail') return depth < 4 ? vTrail(to.obj, T.joinIdx, g, depth + 1, memo) : 0;
   if (to.kind === 'top') { // the best way on from the top of that lift
     let v = -40;
     if (depth < 4) for (const D of to.obj.departing) if (runnable(D)) v = Math.max(v, vTrail(D, 0, g, depth + 1, memo));
-    for (const M of to.obj.transfers || []) if (canLoad(M)) v = Math.max(v, vLift(M, g, depth + 1, memo) - 0.5);
+    for (const M of to.obj.transfers || []) if (canLoad(M)) v = Math.max(v, vLift(M, g, depth + 1, memo) - liftTransferCost(to.obj, M));
     return v;
   }
   return vLift(to.obj, g, depth + 1, memo);
@@ -7296,25 +7316,33 @@ function vLift(L, g, depth, memo) {
   if (memo.has(key)) return memo.get(key);
   memo.set(key, -99);
   let v;
-  if (!canLoad(L)) v = L.fromBase ? vBase(g, depth, memo) - 2 : -50;
-  else if (g.leaving) v = L.fromBase ? 18 : -6;
+  if (!canLoad(L)) v = L.fromBase ? vBase(g, depth, memo, L.a) - 2 : -50;
+  else if (g.leaving) v = L.fromBase ? vBase(g, depth, memo, L.a) - 7 : -6;
   else {
     v = -liftWait(L) * g.qh + (g.seenLift[L.id] ? 0 : 1.5 * g.explore);
     if (L.type === 'gondola' && todayWx().hi < 20) v += 2.5; // a warm ride on a cold day
     if (depth < 4) {
       let b = -30;
       for (const D of L.departing) if (runnable(D)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
-      for (const M of L.transfers || []) if (canLoad(M)) b = Math.max(b, vLift(M, g, depth + 1, memo) - 0.5 - distXZ(L.b, M.a) * 0.03);
+      for (const M of L.transfers || []) if (canLoad(M)) b = Math.max(b, vLift(M, g, depth + 1, memo) - liftTransferCost(L, M));
       v += 0.85 * b;
     }
   }
   memo.set(key, v);
   return v;
 }
-function vBase(g, depth, memo) {
-  if (g.leaving) return 25;
+function vBase(g, depth, memo, here = g) {
+  const zone = lotCount() > 1 ? baseOf(here) : 0;
+  if (g.leaving) {
+    const car = cars.find((c) => c.id === g.car), spot = car && stalls[car.stall];
+    const cost = spot && lotCount() > 1 && baseOf(spot) !== zone ? crossCost(zone, baseOf(spot)) : 0;
+    return cost === Infinity ? -40 : 25 - cost;
+  }
   let b = -20;
-  for (const L of world.lifts) if (L.fromBase && canLoad(L)) b = Math.max(b, vLift(L, g, depth, memo) - 0.5);
+  for (const L of world.lifts) if (L.fromBase && !isVillage(L) && canLoad(L)) {
+    const cost = lotCount() > 1 && baseOf(L.a) !== zone ? crossCost(zone, baseOf(L.a)) : 0;
+    if (cost !== Infinity) b = Math.max(b, vLift(L, g, depth, memo) - 0.5 - cost);
+  }
   return b;
 }
 const noisy = (v) => v + (Math.random() * 2 - 1) * 1.6;
@@ -7538,10 +7566,13 @@ function topDecision(g, L, skipVisit) {
   let hop = null;
   for (const M of L.transfers || []) {
     if (!canLoad(M) || g.leaving) continue;
-    const v = noisy(vLift(M, g, 1, memo) - 0.5 - distXZ(L.b, M.a) * 0.03);
+    const v = noisy(vLift(M, g, 1, memo) - liftTransferCost(L, M));
     if (v > bv) { bv = v; hop = M; }
   }
-  if (hop) { g.onSkis = true; goQueue(g, hop, 'glide'); return true; }
+  if (hop) {
+    const mode = liftTransferMode(L, hop) || 'glide';
+    g.onSkis = mode !== 'walk'; goQueue(g, hop, mode); return true;
+  }
   if (!best) return false;
   const s0 = best.samples[0];
   g.onSkis = true;
@@ -7959,7 +7990,8 @@ function updateSki(g, dt) {
     const b = T.branches[g.nb++];
     if (!runnable(b.trail)) continue;
     const memo = new Map();
-    if (noisy(vTrail(b.trail, 0, g, 0, memo)) > noisy(vRest(T, b.at + 1, g, 0, memo))) {
+    // Both choices include the skiing ahead; the current run still has value after the fork.
+    if (noisy(vTrail(b.trail, 0, g, 0, memo)) > noisy(vTrail(T, b.at + 1, g, 0, memo))) {
       g.seen[T.id] = (g.seen[T.id] || 0) + 1;
       return startSki(g, b.trail, 0);
     }
@@ -16491,6 +16523,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.57.1', date: 'Oct 28, 2026', title: 'Better lift links and trail forks', small: true, items: ['Fixed: nearby lift stations can connect across a short, gentle uphill walk. The lift panel tells you whether guests can walk or glide to the next lift.', 'Fixed: trail forks now value continuing the current run fairly. Strong skiers can stay on the black diamond while others take an easier branch.', 'Fixed: route planning at two-base mountains accounts for the actual crossing to another base and the route back to a guest’s parking lot.'] },
   { v: '2.57', date: 'Oct 28, 2026', title: 'Choose your units', items: ['Open the resort menu to switch between imperial and metric measurements, and choose Fahrenheit or Celsius separately. Metric uses meters, centimeters of snow, hectares and km/h.', 'Your choices update the game immediately and are remembered across resorts on this device.'] },
   { v: '2.56', date: 'Oct 28, 2026', title: 'Clearer venue visits and smarter queues', items: ['Venue panels split service visits into meals, snacks, hot drinks, restroom stops and breaks. These are visits, so a guest can appear more than once. Counts survive a mid-day reload and remain in last day’s venue panel.', 'Fixed: skiers look for another warm-up spot when the fire pit is full. Guests in slow snack and fine-dining queues can now try a faster food venue, as guests in other food queues already do.'] },
   { v: '2.55', date: 'Oct 28, 2026', title: 'More help from ski patrol', items: ['Expand an existing patrol team overnight from 2 to 4 or 6 patrollers, with higher upkeep. Skeleton staffing puts half the team on duty.', 'Returning patrollers take operating lifts uphill, using a seat on a real chair. If the lifts can’t reach their hut, they stay available at the aid station. The patrol panel distinguishes staff responding from staff returning.'] },
