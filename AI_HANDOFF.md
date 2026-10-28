@@ -68,6 +68,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Active**: nothing in progress. Claim work in the table below before starting.
 
 **Upcoming / candidates** (owner to prioritise)
+- Friend referrals: Phil approved $100,000 per qualifying new friend, lifetime cap of three ($300,000 total), plus a special decoration milestone at three. Decoration will be designed later. Implementation pending; see note below.
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch.
 - Custom mountain fixes, so creation can be turned back on (`CUSTOM_OFF`).
@@ -195,6 +196,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Agreed referral reward rules
+- Phil approved $100,000 per qualifying friend, up to three rewards per player ($300,000 lifetime total), and a special decoration after three qualify. Design the decoration later; retain the earned milestone for that future unlock.
+- Proposed qualification discussed: a genuinely new player creates a resort and completes seven operating days across at least three real days. Distinct days should use server UTC time. Phil explicitly confirmed reward amounts/cap/decoration; qualification remains the implementation assumption from the preceding recommendation.
+- Inspection only so far; no referral code or database changes deployed. Current sharing is `shareResort` / `?visit=UUID`; cloud saves are browser-authored JSON, so account and time checks must live on the server. Cannot promise fake-account prevention from client-reported days. Need immutable attribution, exclude self/existing active accounts, serialised lifetime reward cap, idempotent cash delivery across retries/devices/undo, and no private invitee data in public APIs. Preview and tests before Publish. `friend-referrals` local worktree starts from main 790ed3e, no code edits yet.
+
 
 ### 2026-10-28 · Claude · Faster test runs
 - `82-building-styles` took about 4½ minutes (20 full-render screenshots on a machine with no graphics card) and made
