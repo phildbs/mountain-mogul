@@ -27,6 +27,8 @@ export default async function ({ browser, url }) {
   assert(mid.crossings > 0 && mid.lots.every((n) => n > 0), `guests park at both lots and cross: ${JSON.stringify(mid)}`);
   // saved mid-crossing and loaded back: nobody gets lost
   eq(await g.ev(`(() => { const n = guests.length; restoreSim(JSON.parse(JSON.stringify(serializeSim()))); return guests.length === n; })()`), true, 'a day saved while guests cross loads back');
+  // after the lifts close, the village gondola keeps running through après so everyone gets back to their car
+  eq(await g.ev(`(() => { let n = 0; while (state.time < closeTime() + 30 && n < 99999) { simStep(1.5); n++; } const L = world.lifts.find(isVillage), Q = world.lifts.find((x) => x.fromBase && !isVillage(x)); return [canLoad(L), canLoad(Q), state.time < apresEnd()]; })()`), [true, false, true], 'the village gondola runs into après; the chairs have closed');
   eq(await g.ev(SETUPS.finishDay), 'report', 'the day ends');
   const r = await g.ev(`state.lastReport.bases`);
   assert(r && r.crossings > 0 && r.stranded === 0 && r.gondola, `the report counts crossings: ${JSON.stringify(r)}`);
