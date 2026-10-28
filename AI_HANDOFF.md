@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
 - 2.53.2: title-screen resort cards use saved scenic 3D photos instead of top-down maps; photos sync with cloud saves and older resorts refresh when opened.
 - 2.53: friend invitations with real mountain photos, 7 operating days over 3 server-UTC days, up to three $100,000 rewards per account, a saved decoration milestone, seasonal card and year-round menu.
 - 2.52: all nine remaining Scandinavian building counterparts published after Phil approved the gallery; food truck and decor remain Classic.
@@ -81,7 +82,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| invited-player-stats | ChatGPT | Owner stats top tile for invited new players who created a resort | 2026-10-28 |
 
 
 ## Known issues
@@ -199,11 +199,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
-### 2026-10-28 · ChatGPT · Invited-player stats counter ready for review
+### 2026-10-28 · ChatGPT · Invited-player stats counter published
 - Branch `invited-player-stats`, based on main c44eee47 (scenic title-card release preserved). Adds an Invited players tile beside Players in the top stats grid. Count means new invited people who created their first resort (referral_private.invitations.mountain IS NOT NULL); one per immutable attribution, not clicks, resort count, or reward qualifications. Subtitle states joined and created a resort · all time. Missing API field displays a dash / Not available yet, never a false zero.
 - Adds `invited_joined` to existing owner-only admin_stats(text), with a fully qualified private-table aggregate. Existing owner/anonymous checks and RPC grants preserved; no player identity data returned. Source of truth supabase/stats.sql updated. No new tables, tracking, permissions or migration needed beyond replacing that function before the stats HTML is published. Keep the existing backend function's other fields intact.
 - Validation: six real Postgres checks PASS in a rolled-back transaction using synthetic fixtures only: excludes invitations without a resort; counts an unqualified join; multiple resorts do not duplicate a player; qualification does not change total; other users, anonymous and missing auth denied. Stats inline JS syntax and diff checks pass. Live function/data unchanged by tests. No gameplay changes, so no player What's new/guide bump and no full game-suite run warranted. Changed stats.html, supabase/*.sql and Markdown are excluded from automatic game CI by existing workflow.
-- Not published. On approval, replace only admin_stats(text) from supabase/stats.sql, then fast-forward main with this owner-dashboard change. If GitHub tests are running for any other work, do not poll; Phil will say when to continue.
+- Phil explicitly approved Publish. Installed admin_stats_invited_players, replacing only admin_stats(text) and preserving the latest live function’s other fields and access checks. Production verification returned invited_joined=0, matching the private-table count (0). Published stats HTML + source SQL + this handoff; no game version bump for an owner-dashboard-only change. If GitHub tests are running for any other work, do not poll; Phil will say when to continue.
 
 
 ### 2026-10-28 · ChatGPT · Release 2.53.2
