@@ -195,6 +195,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Insert trail points
+- Phil liked the move prototype and requested extra shaping points. movable-trails now at 3fd73f8d70039fbd3101e2529e3a195ba94e52e3.
+- During Edit route, + buttons between existing points insert a new midpoint handle, then drag it. Up to 40 points. Hidden during drag or when screen spacing is too tight; zoom to expose. Endpoints retain order; original trail remains unchanged until Apply.
+- Syntax and extracted function tests passed: midpoint coordinates, invalid index, cap. Extended 84-movable-trails for insertion and cancel; GitHub browser CI pending. No publish.
+
+
+
 ### 2026-10-28 · ChatGPT · Movable trails prototype
 - Phil requested trail movement. Separate movable-trails branch based on main 65475b4; no live deployment.
 - Overnight Edit route reuses trail control-point handles; preview rating and full normal construction price, apply/cancel/reset. Existing trail stays untouched until apply. Validation excludes self via temporary world.trails filter restored in finally.
