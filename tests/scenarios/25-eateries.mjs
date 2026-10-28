@@ -5,9 +5,9 @@ export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(300);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
-  // the build menu lists the new places, and parking
+  // the build menu lists the new places, and parking (on the Transport tab)
   await g.ev(`setTool('bld')`); await g.wait(100);
-  const menu = await g.ev(`$('sheet').innerText`);
+  const menu = await g.ev(`$('sheet').textContent`);
   for (const w of ['Food truck', 'Café', 'Casual restaurant', 'Fine dining', 'Parking']) assert(menu.includes(w), `build menu offers ${w}`);
   await g.ev(`setTool('explore')`);
   const placed = await g.ev(`(() => { const out = [], top = world.lifts[0].b, L = world.buildings[0];

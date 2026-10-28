@@ -1133,9 +1133,22 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .prices summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); padding: 4px 0; }
 .prices[open] { display: grid; gap: 10px; }
 .bpick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.bpick[hidden] { display: none; }
+.bpick.rows { grid-template-columns: 1fr; gap: 5px; }
+.bpick.rows button { padding: 7px 10px 7px 8px; }
+.bpick.rows button > span { flex: 1; }
+.bpick.rows .bp { flex: none; text-align: right; font: 600 12.5px var(--ui); color: var(--ink); font-variant-numeric: tabular-nums; }
+.bpick.rows .bp small { display: block; font-weight: 500; }
 .bpick button { display: flex; align-items: center; gap: 8px; text-align: left; border: 1px solid var(--line); background: rgba(255,255,255,0.6); border-radius: 10px; padding: 8px; cursor: pointer; min-width: 0; }
 .bpick button:hover { border-color: rgba(20, 36, 58, 0.35); background: #fff; }
 .bpick i { width: 12px; height: 30px; border-radius: 4px; flex: none; }
+.bpick i.bi { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-style: normal; color: color-mix(in srgb, var(--c) 78%, #14243a); background: color-mix(in srgb, var(--c) 13%, #fff); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 26%, transparent); }
+.bpick i.bi svg { width: 20px; height: 20px; }
+.bpick em { font-style: normal; font-size: 11.5px; color: var(--ink); opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bpick .have { color: #1f7a42; font-weight: 600; }
+.btabs { flex: none; display: flex; gap: 2px; margin: 2px 0 10px; padding: 3px; border-radius: 10px; background: rgba(20, 36, 58, 0.06); overflow-x: auto; scrollbar-width: none; }
+.btabs button { flex: 1 1 auto; min-width: 0; min-height: 30px; border: 0; background: none; border-radius: 8px; padding: 7px 5px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.btabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.12); }
 .bpick span { display: flex; flex-direction: column; min-width: 0; }
 .bpick b { font-size: 13px; line-height: 1.2; }
 .bpick small { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
@@ -5407,7 +5420,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
-  else if (a === 'pickB') { draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); draft.moving = null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
+  else if (a === 'bTab') { setBTab(b.dataset.v); renderSheet(); }
+  else if (a === 'pickB') { if (b.dataset.v) setBTab((BGROUPS.find((g) => g[2].includes(b.dataset.v)) || [])[0]); draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); draft.moving = null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'moveBld' && obj) startMove(obj);
   else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
   else if (a === 'upgrade' && obj) upgradeTier(obj);
@@ -8932,8 +8946,47 @@ const BTYPES = {
 };
 const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit'];
 // The build menu's sections.
-const BGROUPS = [['Food and drink', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['Trees, seats and lights', ['tree', 'bench', 'picnic', 'firepit', 'lamp', 'tlight']], ['Rentals and shops', ['rental', 'tuning', 'store', 'gift']],
-  ['Guest services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['Getting here', ['shuttle', 'transit']]];
+// The build menu's tabs: [key, label, building types].
+const BGROUPS = [['food', 'Food', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['shops', 'Shops', ['rental', 'tuning', 'store', 'gift']],
+  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'firepit', 'lamp', 'tlight']]];
+// The tab you were on last, remembered on this device.
+let bTabNow = null;
+function bTab() { if (bTabNow == null) { try { bTabNow = localStorage.getItem('mm.bTab') || 'food'; } catch (e) { bTabNow = 'food'; } } return bTabNow; }
+function setBTab(k) { if (!k) return; bTabNow = k; try { localStorage.setItem('mm.bTab', k); } catch (e) { /* storage blocked */ } }
+// A picture and a few words for each, so the menu says what a building is for before you pick it.
+const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes in the building's colour
+  truck: '<path d="M2.5 6.5h11v9.5h-11z"/><path d="M13.5 9.5h4l3 3.5v3h-7"/><path d="M5 10h6"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+  cafe: '<path d="M4 9.5h12v4a5.5 5.5 0 0 1-5.5 5.5h-1A5.5 5.5 0 0 1 4 13.5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3.5c-1 1.3 1 2 0 3.5M12 3.5c-1 1.3 1 2 0 3.5"/><path d="M3 21h14"/>',
+  lodge: '<path d="M12 3L2.5 20.5h19z"/><path d="M9.5 20.5v-5h5v5"/><path d="M8 12.5h8"/><path d="M15.5 6.5V4h2.5v6.5"/>',
+  restaurant: '<path d="M6 3v6a2.5 2.5 0 0 0 5 0V3M8.5 3v18"/><path d="M18 21V3c-2.2 1.2-3.5 4-3.5 8v3H18"/>',
+  fine: '<path d="M7.5 3h9l-.6 5.5a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.5V20M8.5 20.5h7"/><path d="M7.9 6.5h8.2"/>',
+  bar: '<path d="M5 8h10v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M15 10.5h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/><path d="M8.5 12v5.5M11.5 12v5.5"/><path d="M5 8a2.5 2.5 0 0 1 3-3.4c.9-1.4 3.2-1.4 4 0A2.5 2.5 0 0 1 15 8"/>',
+  rental: '<path d="M5 20.5L18.5 4"/><path d="M19 20.5L5.5 4"/><path d="M18.5 4c.6-.9 1.9-.5 1.6.6M5.5 4c-.6-.9-1.9-.5-1.6.6"/><path d="M9 14.5l2 1.7M15 14.5l-2 1.7"/>',
+  tuning: '<path d="M2.5 18.5h15.5c1.8 0 3-.8 3.5-2.5"/><path d="M6 15.5h10l-1-4.5H8.5z"/><path d="M9.5 11V8.5h4.5V11"/><path d="M4 21.5h12"/><path d="M18.5 7c.8-1-.6-1.8.2-2.8M21 8c.8-1-.6-1.8.2-2.8"/>',
+  store: '<path d="M5 8h14l-1 13H6z"/><path d="M9 10.5V6.5a3 3 0 0 1 6 0v4"/>',
+  gift: '<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8.5h14V12M12 8v12.5"/><path d="M12 8c-1.5-3.2-5-3.6-5-1.3C7 8 9 8 12 8s5 0 5-1.3c0-2.3-3.5-1.9-5 1.3"/>',
+  school: '<path d="M2 9.5L12 4.5l10 5-10 5z"/><path d="M6 11.5v5c3.3 2.6 8.7 2.6 12 0v-5"/><path d="M22 9.5v6"/>',
+  kids: '<circle cx="12" cy="13" r="7"/><path d="M9.3 15.2c1.5 1.4 3.9 1.4 5.4 0"/><path d="M9.5 11.5h.01M14.5 11.5h.01"/><path d="M12 6c0-1.6 1-2.6 2.6-2.6"/>',
+  patrol: '<path d="M8.5 3.5L4.5 6 2.5 12.5l2.5 1V21h14v-7.5l2.5-1L19.5 6l-4-2.5"/><path d="M8.5 3.5c.8 1.5 2 2.2 3.5 2.2s2.7-.7 3.5-2.2"/><path d="M12 10v6M9 13h6"/>',
+  clinic: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4.5h6V7"/><path d="M12 10.5v6M9 13.5h6"/>',
+  restroom: '<circle cx="7" cy="4.5" r="1.5"/><path d="M5 8.5h4v6.5H8v5.5H6V15H5z"/><circle cx="17" cy="4.5" r="1.5"/><path d="M17 8.5l-2.6 7.5h5.2zM16 16v4.5M18 16v4.5"/><path d="M12 3v18"/>',
+  hrest: '<circle cx="7" cy="9.5" r="1.3"/><path d="M5.3 12.5h3.4v4.5h-.9v4H6.2v-4h-.9z"/><circle cx="17" cy="9.5" r="1.3"/><path d="M17 12.5l-2.2 5.5h4.4zM16.1 18v3M17.9 18v3"/><path d="M12 9v12"/><path d="M8 5.5c.9-1-.6-1.8.3-2.8M12 5.5c.9-1-.6-1.8.3-2.8M16 5.5c.9-1-.6-1.8.3-2.8"/>',
+  shuttle: '<rect x="4" y="3" width="16" height="15" rx="2.5"/><path d="M4 11h16M12 3v8"/><path d="M7 18v2.5M17 18v2.5"/><path d="M7.5 14.5h.01M16.5 14.5h.01"/>',
+  transit: '<rect x="2.5" y="5" width="13" height="12" rx="2"/><path d="M2.5 11h13"/><path d="M5.5 17v2.5M12.5 17v2.5"/><path d="M19.5 21V8"/><rect x="17" y="3" width="5" height="5" rx="1"/>',
+  tree: '<path d="M12 2.5L6.5 10h3l-4 6.5h13l-4-6.5h3z"/><path d="M12 16.5v5"/>',
+  bench: '<path d="M5 4.5h14M5 8h14"/><path d="M6.5 4.5v8M17.5 4.5v8"/><rect x="2.5" y="12.5" width="19" height="3" rx="1"/><path d="M5.5 15.5l-1 5M18.5 15.5l1 5"/>',
+  picnic: '<path d="M3 8h18"/><path d="M7.5 8L4.5 20M16.5 8l3 12M5.5 15h13"/>',
+  firepit: '<path d="M12 3c1 3 5 5 5 9.3a5 5 0 0 1-10 0c0-2 1-3.4 2-4.3 0 2 1 3 2 3 0-3-1-5 1-8z"/><path d="M4 21h16"/>',
+  lamp: '<path d="M12 10.5v10.5M9 21h6"/><path d="M9 4h6l1 6.5H8z"/><path d="M12 2v2"/>',
+  tlight: '<path d="M7 21V4"/><path d="M4 21h6"/><rect x="8.5" y="3" width="6" height="4.5" rx="1"/><path d="M16.5 2.5l2-1M17 5.2h2.5M16.5 8l2 1"/>',
+  parking: '<rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M10 16.5v-9h3a3 3 0 0 1 0 6h-3"/>',
+  car: '<path d="M3 13l2-5.3A2 2 0 0 1 6.9 6.5h10.2a2 2 0 0 1 1.9 1.2L21 13v4H3z"/><path d="M3 13h18"/><circle cx="7" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/>',
+};
+const bIcon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BICON[k] || BICON.lodge}</svg>`;
+const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a warm-up', lodge: 'Lunch, warm-up and restrooms', restaurant: 'Sit-down lunch', fine: 'Pricey meals, big spenders', bar: 'Drinks and après-ski',
+  rental: 'Rents skis to guests', tuning: 'Rentals plus ski tuning', store: 'Sells gear and clothing', gift: 'Souvenirs and small treats', school: 'Lessons for beginners', kids: 'Day camp for young kids',
+  patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays',
+  tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
 const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
@@ -10668,12 +10721,21 @@ function hoverGhost(p) {
 }
 function bldDraftSheet() {
   if (!draft.btype) {
+    const tab = BGROUPS.find(([k]) => k === bTab()) || BGROUPS[0];
+    const card = (k, tier) => {
+      const t = BTYPES[k], sz = t.tiers ? t.tiers[tier] : null;
+      const have = t.plop ? 0 : world.buildings.filter((B) => B.type === k && (!sz || (B.tier || 0) === tier)).length;
+      const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : '';
+      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k)}</i><span><b>${sz ? `${sz.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.seats} seats</small>` : ''}</span></button>`;
+    };
+    const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
+    const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
+      + (g[0] === 'transport' ? extra('manage', 'parking', 'parking', 'Off-site parking', 'Overflow lots, shuttled in', offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking')
+        + extra('manage', 'lotgrow', 'car', lotCount() > 1 ? 'Grow your parking' : 'Grow the main lot', 'More spaces by the road', state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces a section` : 'Add overnight', state.phase === 'closed' ? money(LOT_EXPAND_COST) : '') : '');
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
-      <p class="help">Choose what to build. Most buildings can go anywhere flat enough; some belong in the base area, and shuttle stations go beside the access road.</p>
-      ${BGROUPS.map(([label, keys]) => `<div class="field-label">${label}</div><div class="bpick">${keys.map((k) => {
-        const t = BTYPES[k];
-        return (t.tiers || [null]).map((sz, tier) => `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i style="background:${hexOf(t.accent)}"></i><span><b>${sz ? `${sz.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name}</b><small>${money(sizeCost(k, tier))}${sz ? ` · ${sz.seats} seats` : ''}${BY_ROAD.includes(k) ? ' · by the road' : t.where === 'base' ? ' · base area' : ''}</small></span></button>`).join('');
-      }).join('')}${keys.includes('shuttle') ? `<button data-action="manage" data-v="parking"><i style="background:#2565d4"></i><span><b>Off-site parking</b><small>${offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking'}</small></span></button>` : ''}${keys.includes('shuttle') ? `<button data-action="manage" data-v="lotgrow"><i style="background:#2565d4"></i><span><b>Grow the main lot</b><small>${state.phase === 'closed' ? `Choose where · +${SPACES_PER_SECTION} spaces · ${money(LOT_EXPAND_COST)}` : 'Add overnight'}</small></span></button>` : ''}</div>`).join('')}`;
+      <div class="btabs" role="tablist">${BGROUPS.map(([k, label]) => `<button role="tab" data-action="bTab" data-v="${k}" aria-selected="${k === tab[0]}">${label}</button>`).join('')}</div>
+      ${BGROUPS.map((g) => `<div class="bpick rows" data-tab="${g[0]}" ${g === tab ? '' : 'hidden'}>${cards(g)}</div>`).join('')}
+      <p class="help">${tab[0] === 'decor' ? 'Decor places with each tap; keep tapping to add more.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : t, info = draft.info, tname = t.tiers ? `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name;
@@ -14726,6 +14788,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.47.2', date: 'Oct 29, 2026', title: 'A tidier build menu', small: true, items: [
+    'The New building menu has tabs: Food, Shops, Services, Transport and Decor. It remembers the tab you used last.',
+    'Each building has its own icon, a few words on what it does, and how many you already have.',
+    'Off-site parking and growing your lot now sit under Transport.',
+  ] },
   { v: '2.47.1', date: 'Oct 29, 2026', title: 'Easier browsing', small: true, items: [
     'Browse shows the top three of each shelf. Tap See all to open a shelf on its own, with buttons to jump between shelves. Creator pages show their top three resorts, with See all for the rest.',
     'Browse has a mountain filter: see resorts on one mountain, or all of them. Your choice is remembered on this device.',
