@@ -87,6 +87,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-staffing | ChatGPT | One patrol building option with adjustable 1–6 on-duty staff per hut | 2026-10-28 |
 | night-clearout | ChatGPT | Candidate c52f8ab: all ski lifts stop at night cutoff, lights track mountain clear-out; awaiting CI | 2026-10-28 |
 
 
