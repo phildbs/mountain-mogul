@@ -53,6 +53,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
   Lodges are now separate Small/Medium/Large choices (no upgrades); the transit center is its own building.
 - 2.47.1: Browse shows three per shelf with See all, shelf chips and a mountain filter; shorter creator pages.
+- 2.47.3: trails can end at the top of a lower lift (fixes runs wrongly shown as dead ends).
 - 2.47.2: build menu with tabs (Food, Shops, Services, Transport, Decor), line icons, short descriptions
   and "You have N".
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
@@ -72,7 +73,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `dead-end-fix` | Claude | Trails ending at a lift top (2.47.3); waiting for the owner's Publish | 2026-10-28 |
+| (none) | | | |
 
 ## Known issues
 
@@ -125,7 +126,7 @@ questions, not transcripts. Disagree openly when you think the other assistant i
 - Player report: runs ending at the top of another lift showed as dead ends. Cause: `connAt` only joined a
   trail's end to a lift's **bottom** (or a nearby trail). Two runs ending at the same lift top joined each
   other, the loop fallback `dryEnd` only looked for lift bottoms, and both became dead ends.
-- Fix on `dead-end-fix`: a new connection kind `{ kind: 'top', obj: L }`. Guests arriving there use
+- Fix (shipped in 2.47.3): a new connection kind `{ kind: 'top', obj: L }`. Guests arriving there use
   `topDecision` like someone getting off that lift. Covered in the network, in `vEnd` and `endOfTrail`, and in
   `describeConn`. The village gondola is left out of trail connections. Test: `80-lift-top-ends`.
 - If you touch `computeNetwork`, `t.to.kind` can now be `'lift'`, `'top'`, `'trail'` or `'base'`.
