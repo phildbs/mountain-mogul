@@ -617,6 +617,13 @@ body.visiting .badge { cursor: default; }
 .ccard .md.m1 { background: linear-gradient(135deg, #f5c542, #c48a0c); } .ccard .md.m2 { background: linear-gradient(135deg, #c9d1db, #7d8794); } .ccard .md.m3 { background: linear-gradient(135deg, #e0a172, #a0623a); }
 #titleComm .ccard { width: 100%; margin: 0; }
 .ccard .actions .btn { flex: 1; padding: 9px 10px; font-size: 13.5px; box-shadow: none; }
+.newmtn { display: inline-flex; align-self: flex-start; width: fit-content; max-width: min(400px, 100%); flex: none; align-items: center; gap: 8px; margin: -4px 0 12px; padding: 7px 14px 7px 8px; border: 0; border-radius: 999px; cursor: pointer; font: 600 13.5px var(--ui); color: #fff; background: linear-gradient(135deg, #e0532a, #c23d1c); box-shadow: 0 4px 14px rgba(194, 61, 28, 0.35); transform: rotate(-2deg); animation: newmtn 2.4s ease-in-out infinite; }
+.newmtn b { background: #fff; color: #c23d1c; font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+.newmtn i { font-style: normal; opacity: 0.85; }
+.newmtn:hover { transform: rotate(0deg) scale(1.03); }
+@keyframes newmtn { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(-2deg) translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .newmtn { animation: none; } }
+.newtag { margin-left: 8px; vertical-align: 3px; font: 700 10px var(--ui); background: #e0532a; color: #fff; font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; }
 .newbar { display: flex; align-items: center; gap: 8px; width: min(400px, 100%); padding: 9px 12px; border: 0; cursor: pointer; font: 500 13px var(--ui); color: var(--ink); text-align: left; margin-bottom: 8px; }
 .newbar b { background: var(--accent); color: #fff; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; }
 .newbar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
@@ -1477,6 +1484,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <a class="studio" href="https://mossquake.com" target="_blank" rel="noopener">A <b>MossQuake</b> game</a>
     <h1 class="wordmark">Mountain<br><span>Mogul</span></h1>
     <p class="tagline">Start with an untouched mountain. Build it into a ski resort.</p>
+    <button class="newmtn" id="newMtn" type="button" hidden></button>
     <button class="panel newbar" id="newBar" type="button" hidden></button>
     <div class="shelf" id="titleSlots" hidden></div>
     <div id="titleComm" hidden></div>
@@ -15221,6 +15229,7 @@ $('updCard').addEventListener('click', (e) => { const b = e.target.closest('[dat
 $('updAll').onclick = () => { closeUpdateCard(); openWhatsNew(); };
 $('versionTag').onclick = openWhatsNew;
 $('newBar').onclick = openWhatsNew;
+$('newMtn').onclick = () => { picking = true; renderSlots(); const c = document.querySelector(`#titleSlots canvas[data-mt="${NEW_MTN.id}"]`); if (c) c.closest('.scard').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
 $('wnClose').onclick = () => { $('whatsNew').hidden = true; };
 $('whatsNew').addEventListener('click', (e) => { if (e.target.id === 'whatsNew') $('whatsNew').hidden = true; });
 
@@ -15255,6 +15264,9 @@ $('roadmapCard').addEventListener('click', roadmapOpened);
 let slotAsk = null; // the mountain waiting for a delete confirmation
 let slotMore = null; // the mountain whose ⋯ menu is open
 let picking = false; // choosing which mountain to start next
+// A flag on the title screen for a newly added mountain, for a few weeks after it arrives. It opens the picker.
+const NEW_MTN = { id: 'twin', until: Date.UTC(2026, 11, 15) };
+const newMtnOn = () => !!MOUNTAINS[NEW_MTN.id] && Date.now() < NEW_MTN.until;
 const WIDE_TITLE = matchMedia('(min-width: 1000px) and (min-height: 640px)'); // as the CSS that docks the community card top right
 WIDE_TITLE.addEventListener('change', () => { if (!$('title').hidden) renderSlots(); });
 function slotRows() {
@@ -15331,10 +15343,11 @@ function renderSlots() {
   box.hidden = false;
   box.classList.toggle('picking', picking && left > 0);
   if (picking && left > 0) {
+    $('newMtn').hidden = true;
     box.innerHTML = Object.values(MOUNTAINS).map((M) => `<article class="panel scard pick">
         <canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>
         <div class="sc-body"><div class="eyebrow"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.level)} · starts with ${money(M.cash)}</div>
-          <h2>${esc(M.name)}</h2><p>${esc(M.blurb)}</p>
+          <h2>${esc(M.name)}${newMtnOn() && M.id === NEW_MTN.id ? '<span class="newtag">New</span>' : ''}</h2><p>${esc(M.blurb)}</p>
           <div class="actions"><button class="btn" data-slot="pick" data-mt="${M.id}">Start here</button><button class="btn secondary" data-slot="pick" data-mt="${M.id}" data-sandbox="1" title="Unlimited money, no goals">Sandbox</button></div></div></article>`).join('')
       + (CUSTOM_OFF ? `<article class="panel scard pick off" aria-disabled="true">
         <div class="sc-design" aria-hidden="true">✎</div>
@@ -15360,6 +15373,9 @@ function renderSlots() {
   if (wide && $('titleComm').innerHTML !== comm) $('titleComm').innerHTML = comm;
   if (CLOUD.ready) loadBoard(false);
   refreshNewBar();
+  const flag = newMtnOn() && left > 0;
+  $('newMtn').hidden = !flag;
+  if (flag) { $('newMtn').innerHTML = `<b>New mountain</b><span>${esc(MOUNTAINS[NEW_MTN.id].name)}</span><i>›</i>`; $('newBar').hidden = true; }
   if (left > 0) cards.push(`<button class="scard empty" data-slot="new"><b>+ New mountain</b><span>${left} of ${MAX_MOUNTAINS} ${left === 1 ? 'slot' : 'slots'} free</span></button>`);
   else cards.push(`<div class="scard empty full"><b>All ${MAX_MOUNTAINS} slots used</b><span>Delete a mountain to start another.</span></div>`);
   box.innerHTML = cards.join('');
