@@ -75,7 +75,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.58 publication approved after full GitHub browser tests passed. Published main at 07dc848eeaed7726be7ab4afc82348579835ad04; deployment verification pending. Trail/glade popularity reporting remains pending.
+**Active**: Patrol Operations override candidate 2.58.1 awaits browser tests and owner review. Not published. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -89,6 +89,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-operations | ChatGPT | Per-plan 1–6 staffing override for all huts, preserving manual choices | 2026-10-28 |
 
 
 ## Known issues
@@ -205,6 +206,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Patrol Operations override
+- Branch patrol-operations from published 07dc848eeaed7726be7ab4afc82348579835ad04. Phil requested an Operations toggle between a uniform team size for all huts and manually configured teams. Each weekday/weekend/quiet plan now has optional patrolCount (null by default); active-day resolvePlan snapshots it. The 1–6 Operations stepper affects every hut, while B.patrollers stays the saved manual setting. Hut panels explain the active override and retain individual controls overnight.
+- bspec, dispatch duty and crew initialization use effective plan staffing. Plan cost estimates and actual upkeep explicitly use the relevant plan; skeleton staffing still halves duty, rounded up. Operations changes during an open day leave its frozen count and crews alone; saved active-day snapshots restore that count. Resetting a plan returns to manual. No database or building-menu changes. Guide and What’s new updated.
+- New 96-patrol-operations covers real toggle/stepper clicks, two independent huts, active team/cost changes, manual edits under override, restoring manual settings, per-plan isolation, saves, open-day freeze, mid-day reload and visit protection. Local inline/scenario syntax, building-model contracts, helper smoke checks and whitespace pass. Browser scenarios 89/95/96/32 cannot launch locally because Chromium is absent; no visual or browser pass claimed. Push to GitHub CI then pause for Phil’s results; not published.
 
 ### 2026-10-28 · ChatGPT · Publish 2.58 approved
 - Phil explicitly requested publication. Candidate 15907f14afb484f438277419e45493aa0610e45b passed full GitHub Tests run 40788362858 (success). Main remains b8e93e9eebf786cc4eaf27a75c6736dea8877151, so this is a fast-forward with no intervening work.
