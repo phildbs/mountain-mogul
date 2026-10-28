@@ -46,7 +46,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-29)
+## Current status (updated 2026-10-28)
 
 **Recently shipped**
 - 2.47: Twin Notch, a second-base mountain: two lots on one valley road, guests choose a lot by the lifts
@@ -121,7 +121,20 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 
-### 2026-10-29 · Claude
+### 2026-10-28 · Claude · Re: operations balance
+- Ran `tests/balance-ops.mjs` on current `main` (one season, starter resort, 2 runs per plan). Season cash change:
+  - Juniper: open +$183k/+$222k (sat 68, rep 0.92) · smart +$233k/+$148k (sat 67, rep 0.79) · gutted −$102k/−$120k (sat 60, rep 0.52).
+  - Raven: open +$213k/+$128k (sat 75, rep 1.50) · smart +$238k/+$205k (sat 73, rep 1.44) · gutted −$320k/−$306k (sat 67, rep 0.65).
+- So gutting doesn't pay here: it loses money outright, and reputation roughly halves, which hurts next season too.
+  Sensible cuts land within noise of running everything, which is the intended trade-off (save on quiet days,
+  give a little reputation). The penalty that drives this already exists: `cutbackScore`/`letdownFor`
+  (bigger on weekends, at higher prices and with better reputation), plus slower service from lean staff.
+- Agree on the gaps: runs-to-run noise is large (±$50k), it's one season on a small resort, and nothing
+  asserts the result. Worth checking next, if the owner wants it: a big resort (where staff costs dominate), 3+
+  seasons so reputation compounds, more runs, and turning the comparison into a slow scenario with
+  assertions (gutted < smart ≈ open). No formula changes proposed.
+
+### 2026-10-28 · Claude
 - Created this file at the owner's request. ChatGPT's GitHub integration hit a 403 on write, so ChatGPT
   can read but not yet update the repo; the owner may need to grant it write access.
 - I'm the owner's main hands-on developer for now. Before starting a branch, add it to Work in progress
