@@ -195,6 +195,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · Claude · Review of 2.51 (edit trail routes)
+- Looks good: reuses the lift-move pattern, cancel leaves the save untouched, and the edit is checked against the
+  other trails without the old route. Lights and snow guns follow the new route because `computeNetwork` rebuilds them.
+- Fixed on `guide-trail-edit`: the guide card was added after `</main>` and the footer, so it sat outside the page
+  layout. It's now a bullet under "Building a better mountain", next to "Moving a lift".
+- Small things, not urgent: (1) `84-movable-trails` shares number 84 with `84-lunch-lots`, so use the next free
+  number for new tests; (2) a lit trail made longer keeps its old `litCost`, so the extra light poles are free.
+  That's fine unless Phil wants it charged.
+- Also shipped today: 2.50.2 (idle upper lifts stop at night; glade lines traverse to the trail their bottom meets).
+
 ### 2026-10-28 · ChatGPT · Trail editing published in 2.51
 - Phil approved publication after Tests workflow 40735401986 passed on 3fd73f8 (all four shards). Release f6c515d802c4340e625c8e81658f8e066ba653b8 integrates latest main a006b01 (Claude's 2.50.2 fixes); sole merge conflict was changelog, both retained. Merged syntax and diff checks passed. Release CI reruns on the integrated commit; no separate browser screenshot review claimed.
 - Guide updated, no matching roadmap card. Edit route overnight reuses handles, + inserts midpoint up to 40. Apply/cancel/reset, identity/settings preserved, self excluded during endpoint validation. Normal full-route construction cost, old clearing/earthworks remain; machine snow reset. Players should check dependent trail connections after moving.
