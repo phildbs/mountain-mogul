@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
 - 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
 - 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
@@ -74,7 +75,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Patrol staffing candidate 2.58 is awaiting GitHub browser tests and Phil’s review. Not published. Trail/glade popularity reporting remains pending.
+**Active**: 2.58 publication approved after full GitHub browser tests passed. Release deployment pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -88,7 +89,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-staffing | ChatGPT | One patrol building option with adjustable 1–6 on-duty staff per hut | 2026-10-28 |
 
 
 ## Known issues
@@ -206,11 +206,15 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.58 approved
+- Phil explicitly requested publication. Candidate 15907f14afb484f438277419e45493aa0610e45b passed full GitHub Tests run 40788362858 (success). Main remains b8e93e9eebf786cc4eaf27a75c6736dea8877151, so this is a fast-forward with no intervening work.
+- Includes one patrol build-menu entry, overnight 1–6 staffing controls, legacy team migration, guide, What’s new and regression scenarios. No database changes. Pages deployment pending.
+
 ### 2026-10-28 · ChatGPT · Single patrol building and staffing selector
 - Branch patrol-staffing starts from published 2.57.2 at b8e93e9eebf786cc4eaf27a75c6736dea8877151. Phil requested only one Ski patrol choice in the build menu and adjustable staff per hut. Removed patrol building tiers; one hut starts with two patrollers. Building panel has overnight 1–6 staffing buttons with no expansion fee. Full-team upkeep remains $100 + $425 per patroller, preserving the prior 2/4/6 prices. Skeleton duty rounds half up.
 - Saved optional patrollers count; legacy tier 0/1/2 maps to 2/4/6 before normalizing the building tier to zero. Existing hut locations, spent/salvage, themes and lift-return behavior retained. Building-panel setter blocks visiting and open-day changes and supports undo. Guide and What’s new updated. No database changes; no matching roadmap card.
 - Finished the previous local work in an isolated copy; corrected its undefined click-handler variable. Updated 89-patrol-teams for staffing buttons’ setter and 82-building-styles for one patrol model. New 95-patrol-staffing checks one actual menu entry, UI clicks, 1/6 limits, upkeep, undo, save/rebuild, old teams, permissions and odd skeleton counts.
-- Local building-model geometry/contracts, inline JavaScript and scenario syntax, helper smoke checks and whitespace pass. Local browser scenarios 89/95/32 could not launch because Chromium is absent. No phone/desktop screenshots or browser pass claimed. GitHub full browser suite is the validation gate; pause once it starts and wait for Phil’s results. Not published.
+- Local building-model geometry/contracts, inline JavaScript and scenario syntax, helper smoke checks and whitespace pass. Local browser scenarios 89/95/32 could not launch because Chromium is absent. No phone/desktop screenshots or browser pass claimed. Candidate 15907f14afb484f438277419e45493aa0610e45b pushed. GitHub full browser suite is the validation gate; pause once it starts and wait for Phil’s results. Not published.
 
 ### 2026-10-28 · ChatGPT · Publish 2.57.2 approved
 - Phil resumed in a new chat and explicitly confirmed “Test #48 fix upper lift” passed and requested publication. Candidate c52f8ab01102c000787b7e16413b6b6744e6787a is one commit ahead of main b6be08d8255698c7b959f12a1388fa7dc83e950f, with no intervening main changes. Published by fast-forward to main b8e93e9eebf786cc4eaf27a75c6736dea8877151.
