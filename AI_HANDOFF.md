@@ -86,6 +86,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| routing-feedback | ChatGPT | Investigating nearby lift transfers and every skier taking a blue branch off an expert trail | 2026-10-28 |
 
 
 ## Known issues
