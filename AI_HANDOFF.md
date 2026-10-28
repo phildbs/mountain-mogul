@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
 - Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
 - 2.53.2: title-screen resort cards use saved scenic 3D photos instead of top-down maps; photos sync with cloud saves and older resorts refresh when opened.
 - 2.53: friend invitations with real mountain photos, 7 operating days over 3 server-UTC days, up to three $100,000 rewards per account, a saved decoration milestone, seasonal card and year-round menu.
@@ -68,7 +69,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: nothing in progress. Claim work in the table below before starting.
+**Active**: the passing 2.54 feedback fixes are approved for publication. Next: patrol return travel and patrol capacity from the remaining feedback.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -82,6 +83,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-feedback | ChatGPT | Next: return patrols via operating lifts and review hut capacity; start after release checks | 2026-10-28 |
 
 
 ## Known issues
@@ -198,6 +200,17 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.54 approved
+- Phil explicitly approved publication of candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f. Full GitHub Tests run 40768135148 PASSED. Release includes learning-area editing, night clear-out lighting, What's new, guide and this handoff. No database changes.
+- Remaining feedback: patrols currently move directly uphill to their hut after clinic drop-off; huts have two crew each and no capacity upgrades. Café visits include warming up as well as snacks, whereas the truck only serves snacks; compare service types before balancing. Also requested: trail/glade popularity split by day/evening with useful reasons. These remain unimplemented.
+- Check release deployment once. If release tests are running, notify Phil and pause without polling; he will say when to continue.
+
+
+### 2026-10-28 · ChatGPT · Feedback candidate restored for CI
+- Candidate `b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f` on `player-feedback-fixes`: learning-area editor and night clear-out lighting, What's new 2.54 and guide. Not published.
+- Failed run 40767385570 never ran scenarios: index.html was truncated during upload, so the harness could not locate the boot marker. Restored the full local file and verified GitHub index blob SHA exactly matches local `67aa56fbe26b68d2ea437ba9eea0c46638303627`. Original harness is valid and unchanged. All inline JavaScript syntax checks pass. Full GitHub Tests run 40768135148 completed SUCCESS on candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f (Phil reported all pass; checked once). Ready for Phil’s publication decision. Local visual browser checks were unavailable; the existing full CI suite passed. Do not publish until Phil says Publish.
+
 
 ### 2026-10-28 · ChatGPT · Invited-player stats counter published
 - Branch `invited-player-stats`, based on main c44eee47 (scenic title-card release preserved). Adds an Invited players tile beside Players in the top stats grid. Count means new invited people who created their first resort (referral_private.invitations.mountain IS NOT NULL); one per immutable attribution, not clicks, resort count, or reward qualifications. Subtitle states joined and created a resort · all time. Missing API field displays a dash / Not available yet, never a false zero.
