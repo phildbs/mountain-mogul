@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.53: friend invitations with real mountain photos, 7 operating days over 3 server-UTC days, up to three $100,000 rewards per account, a saved decoration milestone, seasonal card and year-round menu.
 - 2.52: all nine remaining Scandinavian building counterparts published after Phil approved the gallery; food truck and decor remain Classic.
 - 2.51: overnight trail route editing, draggable control points and + buttons to insert more points.
 - 2.50: completed Modern models for tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle and transit. Phil approved publication after gallery revisions.
@@ -68,7 +69,6 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Active**: nothing in progress. Claim work in the table below before starting.
 
 **Upcoming / candidates** (owner to prioritise)
-- Friend referrals: implemented on friend-referrals with 44 SQL checks and 88 browser scenarios passing; awaiting Phil’s publication approval. Install supabase/referrals.sql before the client. Decoration itself remains a later design; earned milestone is persisted.
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch.
 - Custom mountain fixes, so creation can be turned back on (`CUSTOM_OFF`).
@@ -80,7 +80,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| friend-referrals | ChatGPT | Full referral backend + UI complete; 44 SQL checks + all 88 browser scenarios green; awaiting Phil’s publication approval | 2026-10-28 |
 
 
 ## Known issues
@@ -198,14 +197,19 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
-### 2026-10-28 · ChatGPT · Full referrals implementation ready for publication review
-- Branch `friend-referrals`, candidate `da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf`. Phil requested full implementation, then tests. Changelog candidate 2.53 + guide. No main merge, no production migration installed.
+### 2026-10-28 · ChatGPT · Published 2.53
+- Phil explicitly approved publication. Production migration `20261028193542_friend_referrals` installed; verified four RLS-protected private tables, four RPCs and two save triggers. Release commit `c5a54382c633e2e82e9cdbbf87042851fd7e037b` preserves newer main stats changes and includes What's new, guide, roadmap social summary and this handoff. GitHub Pages run 40755829363 succeeded; live mtmogul.com serves 2.53, Invite friends, claim logic and the updated guide/handoff. Initial error check: zero 2.53 reports.
+- Pre-release full suite: all 88 scenarios green (44 real SQL checks also passed). Release Tests run 40755830590 passed referral scenarios and old saves; known baseline flake 22-topbar failed at 900px in group 2. Rerunning that failed group only. No game-code change made for the known flake.
+
+
+### 2026-10-28 · ChatGPT · Friend referrals approved for release 2.53
+- Branch `friend-referrals`, candidate `da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf`. Phil requested full implementation, then tests, and explicitly said Publish. Release 2.53 includes What's new, guide, roadmap social summary and this handoff. Production migration is installed before the client; final deployment verification is recorded after release.
 - `supabase/referrals.sql` is the additive installation script, following this repo's SQL setup-file convention. INSTALL IT BEFORE publishing the game client. Private RLS-protected account codes, immutable attribution, server-UTC operating-day ledger, and account-wide reward receipts. Public RPCs are invoker wrappers; privileged implementation stays in a non-exposed schema with explicit grants and auth/ownership checks. Inviter and qualifying friend must have a confirmed, non-anonymous account. First invitation wins; self, preexisting resort owners and accounts older than 24 hours cannot newly attach. Attribution happens before first cloud upload and survives auth/reloads; a failed acceptance pauses cloud upload while local saves continue.
 - First new non-sandbox resort binds to the invitation. Each distinct season/day report with guests counts once, dated when saved by the server; qualification requires 7 such reports over 3 distinct UTC dates. Confirmation after play is supported. Client-supplied dates are ignored. This remains a client-simulated game: fabricated reports and distinct-human/fake-account detection are NOT solved by a server-authoritative simulation. Offline completed days do not backdate UTC activity.
 - Claims lock the inviter account, enforce 3 lifetime receipts across all resorts, atomically add $100k to the selected owned regular resort's cloud save, and persist the decoration-earned milestone at 3 qualified friends. No decoration asset/unlock delivered yet (Phil explicitly deferred its design). Repeated invitation receipt returns its original cumulative resort balance. Optional `clock.referralCredit` watermark + server save guard prevent stale uploads erasing a grant; client reconciliation, account guards and undo preserve it. Deleting resorts does not reset account cap.
 - Real Invite friends menu works year-round; auto card once per resort game season Dec 20–Feb 28 while overnight, without another modal/menu. Photo native share carries the real referral URL; fallback saves photo and offers Copy link. Private resorts omit visit ID. Explicit `?referralPreview=1` remains isolated sample mode, not real reward claims.
 - Validation: 44 SQL assertions PASS on actual Supabase/Postgres 17 inside one rolled-back transaction using generated test accounts only (`tests/sql/referrals.sql`), including actual authenticated-role wrapper access, private table denial, server dates/dedup, guest confirmation, attribution immutability, cash/watermark atomicity, duplicate claims, stale upload rejection, cross-resort cap, deletion and milestone. No schema or test accounts persisted. JS syntax and diff checks pass. Security advisor baseline checked; existing unrelated advisories only. Local Chromium unavailable (download archives invalid); CI handles browser verification.
-- Scenario 87 adds desktop/phone real-client flows using test-only RPC fixtures: native photo+URL, claim/retry/lost response, balance/reload, undo marker, cap/milestone, menu and incoming acceptance. Scenario 86 close selector fixed to the X icon (prompt also has Maybe later). Latest GitHub Tests run 40754323959 is GREEN on da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf: all four groups, 88 scenarios passed. Scenario 86 passed in 19s; scenario 87 passed in 19s on desktop and phone; 32-old-saves passed all 36 fixtures loading and playing. No browser failures or retries in latest logs. JS syntax/diff checks pass. Full integration needs supabase/referrals.sql installed as part of the eventual approved release BEFORE main/client publication. Explicit verification after SQL tests: referral_private schema and referral_status RPC are absent from production (rollback confirmed).
+- Scenario 87 adds desktop/phone real-client flows using test-only RPC fixtures: native photo+URL, claim/retry/lost response, balance/reload, undo marker, cap/milestone, menu and incoming acceptance. Scenario 86 close selector fixed to the X icon (prompt also has Maybe later). Latest GitHub Tests run 40754323959 is GREEN on da9ed9b3c0e5247b7c58e4f7972f761e42ce83cf: all four groups, 88 scenarios passed. Scenario 86 passed in 19s; scenario 87 passed in 19s on desktop and phone; 32-old-saves passed all 36 fixtures loading and playing. No browser failures or retries in latest logs. JS syntax/diff checks pass. Release order: install supabase/referrals.sql, publish the client, verify Pages and new errors. The initial SQL tests rolled back; the approved release installs the migration separately.
 
 
 ### 2026-10-28 · ChatGPT · Seasonal invitation prompt and dropdown
