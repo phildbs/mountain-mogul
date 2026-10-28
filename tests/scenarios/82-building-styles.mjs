@@ -17,12 +17,12 @@ export default async function ({ browser, url }) {
     }
     return rows;
   })()`);
-  eq(checks.length, 21, 'all requested model variants, including expanded patrol teams');
-  eq(checks.filter((c) => c.type === 'patrol').map((c) => c.tier), [0, 1, 2], 'all three patrol team sizes honor the theme contracts');
+  eq(checks.length, 19, 'all requested model variants');
+  eq(checks.filter((c) => c.type === 'patrol').map((c) => c.tier), [0], 'one patrol building honors the theme contracts');
   assert(checks.every((c) => c.seats && (c.type === 'shuttle' ? !c.glow : c.glow)), 'exact seat contracts and shared glow');
   const before = await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`);
   const all = await g.ev('previewStyles()');
-  eq(all.length, 42, 'all classic/modern pairs');
+  eq(all.length, 38, 'all classic/modern pairs');
   eq(await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`), before, 'preview does not place or charge buildings');
   for (const { type, tier } of checks) {
     await g.ev(`previewStyles({ types: ['${type}'], tier: ${tier} })`);

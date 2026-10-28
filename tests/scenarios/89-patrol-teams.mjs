@@ -1,4 +1,4 @@
-// Patrol team upgrades and the actual lift boarding/unloading path, without guest ride-stat inflation.
+// Adjustable patrol teams and the actual lift boarding/unloading path, without guest ride-stat inflation.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -14,12 +14,12 @@ export default async function ({ browser, url }) {
     if (!B) throw Error('No patrol site');
     window.__patrolId = B.id;
     const original = B.crew.length, footprint = [bspec(B).w, bspec(B).d];
-    upgradeTier(B); const four = B.crew.length;
-    upgradeTier(B); const six = B.crew.length;
+    setPatrolStaff(B, 1); setPatrolStaff(B, 1); const four = B.crew.length;
+    setPatrolStaff(B, 1); setPatrolStaff(B, 1); const six = B.crew.length;
     const saved = serializeWorld().buildings.find(b => b.id === B.id);
-    return { original, four, six, tier: saved.tier, footprint, after: [bspec(B).w, bspec(B).d], upkeep: bspec(B).upkeep };
+    return { original, four, six, staff: saved.patrollers, footprint, after: [bspec(B).w, bspec(B).d], upkeep: bspec(B).upkeep };
   })()`);
-  eq(team, { original: 2, four: 4, six: 6, tier: 2, footprint: [2.6, 2.2], after: [2.6, 2.2], upkeep: 2650 }, 'teams expand in place and persist their size');
+  eq(team, { original: 2, four: 4, six: 6, staff: 6, footprint: [2.6, 2.2], after: [2.6, 2.2], upkeep: 2650 }, 'teams resize in place and persist their size');
   const lift = await g.ev(`(() => {
     openDay(); state.time = 600; schedule = []; guests = []; gById.clear();
     const B = bldById(window.__patrolId), L = world.lifts[0];
