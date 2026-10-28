@@ -168,6 +168,31 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       rx.error ? { missing: /admin_reactions/.test(rx.error.message), message: rx.error.message } : rx.data,
       pl.error ? { missing: /admin_players/.test(pl.error.message), message: pl.error.message } : pl.data);
     loadCohorts();
+    loadRetention();
+  }
+
+  async function loadRetention() {
+    const el = $('retention');
+    if (!el) return;
+    const { data, error } = await sb.rpc('admin_retention');
+    if (error) {
+      el.innerHTML = `<h2>Player retention</h2><p class="note">${/PGRST202|42883/.test(error.code || '') ? 'Daily activity tracking is not set up yet. Run supabase/retention.sql in the SQL Editor. Past daily activity cannot be reconstructed from the latest save.' : esc(error.message)}</p>`;
+      return;
+    }
+    el.innerHTML = retentionHtml(data);
+  }
+  function retentionHtml(d) {
+    const daily = d.daily || [], max = Math.max(1, ...daily.map(r => Number(r.active)));
+    const rates = (d.rates || []).map(r => {
+      const n = Number(r.eligible), v = Number(r.returned), p = n ? Math.round(v / n * 100) : null;
+      return `<div class="card tile"><dt>Day ${r.day} return rate</dt><dd>${p === null ? '—' : p + '%'}</dd><small>${n ? `${num(v)} returned / ${num(n)} eligible players` : 'Waiting for eligible players'}</small><div style="height:8px;background:var(--line);border-radius:4px;margin-top:10px"><div style="height:100%;width:${p || 0}%;background:#326b91;border-radius:4px"></div></div></div>`;
+    }).join('');
+    return `<h2>Player retention</h2><p class="note">Tracking from ${esc(d.since)} · UTC days. A return means an online resort save on exactly Day 1, 7 or 30 after account creation. Only accounts created after tracking began are included; each rate excludes players whose target day is still in progress.</p>
+      <dl class="grid">${rates}</dl>
+      <h3>Daily active players</h3><p class="note">Blue: new accounts that saved that day. Green: returning accounts that saved. Today is incomplete.</p>
+      ${daily.length ? `<div class="cols" role="img" aria-label="Daily active players, new and returning. Exact counts follow in the table.">${daily.map(r => `<div class="col" title="${esc(r.day)}: ${num(r.new)} new, ${num(r.returning)} returning"><b>${num(r.active)}</b><i style="height:${Number(r.active)/max*82}%;background:linear-gradient(to top,#326b91 ${r.active ? Number(r.new)/Number(r.active)*100 : 0}%,#37846b 0)"></i></div>`).join('')}</div>` : '<p class="note">The first full tracking day has not started yet.</p>'}
+      <details><summary>Daily counts</summary><div class="scroll"><table><thead><tr><th>UTC date</th><th>New</th><th>Returning</th><th>Total</th></tr></thead><tbody>${daily.map(r => `<tr><td>${esc(r.day)}</td><td>${num(r.new)}</td><td>${num(r.returning)}</td><td>${num(r.active)}</td></tr>`).join('')}</tbody></table></div></details>
+      <p class="note">Counts use account IDs, including guest accounts. Local-only play is not measured; clearing browser data or using another guest account can count someone again. These are save activity counts, not session length or all game visits.</p>`;
   }
 
   // Of the resorts started each week (or day), how many got through each step. Shows whether a change
@@ -221,6 +246,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
         <div class="card tile"><dt>Playing</dt><dd>${num(d.played_24h)}</dd><small>saved a game in 24 h · ${num(d.played_7d)} this week</small></div>
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
+      <section class="card" style="margin-bottom:12px" id="retention"><h2>Player retention</h2><p class="note">Loading…</p></section>
       <section class="card" style="margin-bottom:12px" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
       <section class="card" style="margin-bottom:12px"><details class="fold" id="resortsFold"${resortsOpen() ? ' open' : ''}>
         <summary><h2>Resorts</h2><span class="note">${num(recentRows().length)} played in 48 h · ${num(d.mountains)} in all</span></summary>
