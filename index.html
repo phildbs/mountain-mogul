@@ -368,6 +368,9 @@ body.visiting .badge { cursor: default; }
 .shelf-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .shelf-head .seeall { flex: none; border: 0; background: none; padding: 0; font: 600 13px var(--ui); color: var(--accent); cursor: pointer; }
 #cmBrowseTab { min-width: 0; }
+.tabs.bmts { flex-wrap: nowrap; overflow-x: auto; min-width: 0; max-width: 100%; scrollbar-width: none; margin-bottom: 8px; }
+.tabs.bmts button { flex: none; }
+@media (min-width: 600px) { .tabs.bmts { flex-wrap: wrap; overflow: visible; } }
 .shelf-chips { display: flex; gap: 6px; overflow-x: auto; min-width: 0; max-width: 100%; margin: 0 0 10px; padding-bottom: 2px; scrollbar-width: none; }
 .shelf-chips button { flex: none; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 11px; font: 600 12.5px var(--ui); color: var(--ink-2); cursor: pointer; }
 .shelf-chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
@@ -14425,8 +14428,15 @@ function openCreator(id) {
 }
 // Browse: each shelf shows its top few, with See all to open that shelf on its own (chips switch shelves).
 const SHELF_PEEK = 3, SHELF_MAX = 30;
+// Browse can show one mountain, or all of them (remembered on this device).
+function browseMt() {
+  if (CLOUD.browseMt === undefined) { let v = ''; try { v = localStorage.getItem('mm.browseMt') || ''; } catch (e) { /* storage blocked */ } CLOUD.browseMt = BOARD_MTS().includes(v) ? v : ''; }
+  return CLOUD.browseMt;
+}
+function setBrowseMt(v) { CLOUD.browseMt = v; try { localStorage.setItem('mm.browseMt', v); } catch (e) { /* storage blocked */ } }
 function browseShelves() {
-  const others = CLOUD.mountains.filter((m) => m.owner !== CLOUD.uid && m.id !== slots.active);
+  const mt = browseMt();
+  const others = CLOUD.mountains.filter((m) => m.owner !== CLOUD.uid && m.id !== slots.active && (!mt || boardOf(m.mt) === mt));
   const week = Date.now() - 7 * 864e5;
   return [
     ['picks', 'Staff picks', 'Hand-picked resorts worth a visit.', others.filter((m) => CLOUD.picks && CLOUD.picks.has(m.id)).sort((a, b) => CLOUD.picks.get(b.id) - CLOUD.picks.get(a.id)), null], // newest picks first
@@ -14438,16 +14448,17 @@ function browseShelves() {
 }
 function browseHtml() {
   if (CLOUD.status === 'offline') return `<p class="help">${esc(cloudNote())}</p>`;
-  const shelves = browseShelves();
-  if (!shelves.length) return '<p class="help">No other resorts to browse yet. Check back soon.</p>';
+  const shelves = browseShelves(), mt = browseMt();
+  const mts = `<div class="tabs mts bmts" aria-label="Show mountain"><button data-action="browseMt" data-v="" aria-pressed="${!mt}">All mountains</button>${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="browseMt" data-v="${M.id}" aria-pressed="${mt === M.id}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>`;
+  if (!shelves.length) return mt ? `${mts}<p class="help">No resorts on ${esc(mt === 'custom' ? 'custom mountains' : MOUNTAINS[mt].name)} to browse yet. Try All mountains.</p>` : '<p class="help">No other resorts to browse yet. Check back soon.</p>';
   const one = shelves.find(([k]) => k === CLOUD.shelf);
   const cards = (list, extra, n) => `<ul class="bcards">${list.slice(0, n).map((m) => browseCard(m, extra && extra(m))).join('')}</ul>`;
   if (one) {
     const [, title, note, list, extra] = one;
     const chips = `<div class="shelf-chips" role="group" aria-label="Shelves"><button data-action="shelf" data-v="">‹ All shelves</button>${shelves.map(([k, t]) => `<button data-action="shelf" data-v="${k}" aria-pressed="${k === one[0]}">${t}</button>`).join('')}</div>`;
-    return `${chips}<section class="shelf"><h4>${title}</h4><p class="help">${note}${list.length > SHELF_MAX ? ` The top ${SHELF_MAX} of ${list.length}.` : ''}</p>${cards(list, extra, SHELF_MAX)}</section>`;
+    return `${mts}${chips}<section class="shelf"><h4>${title}</h4><p class="help">${note}${list.length > SHELF_MAX ? ` The top ${SHELF_MAX} of ${list.length}.` : ''}</p>${cards(list, extra, SHELF_MAX)}</section>`;
   }
-  return shelves.map(([k, title, note, list, extra]) => `<section class="shelf"><div class="shelf-head"><h4>${title}</h4>${list.length > SHELF_PEEK ? `<button class="seeall" data-action="shelf" data-v="${k}">See all ${Math.min(list.length, SHELF_MAX)} ›</button>` : ''}</div><p class="help">${note}</p>
+  return mts + shelves.map(([k, title, note, list, extra]) => `<section class="shelf"><div class="shelf-head"><h4>${title}</h4>${list.length > SHELF_PEEK ? `<button class="seeall" data-action="shelf" data-v="${k}">See all ${Math.min(list.length, SHELF_MAX)} ›</button>` : ''}</div><p class="help">${note}</p>
     ${cards(list, extra, SHELF_PEEK)}</section>`).join('');
 }
 // Where your resort stands on the board you're looking at, and how far it is to the next one up.
@@ -14535,7 +14546,10 @@ function refreshCommunity() {
   const st = state.started || loadSave() ? standingHtml() : '';
   if ($('cmStanding').innerHTML !== st) $('cmStanding').innerHTML = st;
   const br = browseHtml();
-  if ($('cmBrowseTab').innerHTML !== br) $('cmBrowseTab').innerHTML = br;
+  if ($('cmBrowseTab').innerHTML !== br) {
+    $('cmBrowseTab').innerHTML = br;
+    for (const on of $('cmBrowseTab').querySelectorAll('.bmts [aria-pressed=true], .shelf-chips [aria-pressed=true]')) on.parentNode.scrollLeft = on.offsetLeft - on.parentNode.offsetLeft - 8; // keep the chosen chip in view
+  }
   const cr = CLOUD.viewCreator ? creatorHtml(CLOUD.viewCreator) : '';
   if ($('cmCreatorTab').innerHTML !== cr) $('cmCreatorTab').innerHTML = cr;
   const me = meHtml();
@@ -14568,6 +14582,7 @@ function onBoardClick(e) {
   else if (b.dataset.action === 'creator') openCreator(b.dataset.v);
   else if (b.dataset.action === 'cmBack') cmTab(cmPrev);
   else if (b.dataset.action === 'shelf') { CLOUD.shelf = b.dataset.v || null; refreshCommunity(); document.querySelector('#community .cm').scrollTop = 0; } // back to the top of the window
+  else if (b.dataset.action === 'browseMt') { setBrowseMt(b.dataset.v); refreshCommunity(); }
   else if (b.dataset.action === 'creatorAll') { CLOUD.creatorAll = true; refreshCommunity(); }
 }
 $('cmBoard').addEventListener('click', onBoardClick);
@@ -14713,6 +14728,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.47.1', date: 'Oct 29, 2026', title: 'Easier browsing', small: true, items: [
     'Browse shows the top three of each shelf. Tap See all to open a shelf on its own, with buttons to jump between shelves. Creator pages show their top three resorts, with See all for the rest.',
+    'Browse has a mountain filter: see resorts on one mountain, or all of them. Your choice is remembered on this device.',
   ] },
   { v: '2.47', date: 'Oct 29, 2026', title: 'Twin Notch: two bases, one road', items: [
     'A new mountain, Twin Notch: two broad summits with a notch between them and a long valley road below. The east summit has a long green shoulder and blues; the west summit has blues and blacks.',

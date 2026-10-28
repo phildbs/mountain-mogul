@@ -28,6 +28,14 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`document.querySelector('#cmBrowseTab .shelf h4').textContent`), 'Biggest resorts', 'a chip switches shelves');
   await g.click('#cmBrowseTab .shelf-chips [data-v=""]'); await g.wait(150);
   eq(await g.ev(`document.querySelectorAll('#cmBrowseTab .shelf').length`), 4, 'All shelves goes back to the overview');
+  // a mountain filter: one mountain or all, remembered
+  await g.click('#cmBrowseTab [data-action=browseMt][data-v=maple]'); await g.wait(150);
+  eq(await g.ev(`[...new Set([...document.querySelectorAll('#cmBrowseTab .bc-top b')].map((b) => b.textContent))].sort()`), ['Fresh Pow', 'Quiet Hill'], 'Maple Notch only');
+  await g.click('#cmBrowseTab [data-action=browseMt][data-v=twin]'); await g.wait(150);
+  assert(/No resorts on Twin Notch/.test(await g.ev(`$('cmBrowseTab').innerText`)), 'an empty mountain says so');
+  eq(await g.ev(`localStorage.getItem('mm.browseMt')`), 'twin', 'the choice is remembered');
+  await g.click('#cmBrowseTab [data-action=browseMt][data-v=""]'); await g.wait(150);
+  eq(await g.ev(`document.querySelectorAll('#cmBrowseTab .shelf').length`), 4, 'All mountains shows everything again');
   // the in-game panel links here
   await g.ev(`$('community').hidden = true; select({ kind: 'community', obj: null })`); await g.wait(200);
   await g.click('#sheet [data-action=browse]'); await g.wait(200);
