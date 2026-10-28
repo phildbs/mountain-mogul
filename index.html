@@ -7468,16 +7468,25 @@ const drawAbility = () => { const r = Math.random(), mix = MOUNTAIN.skiers; retu
 function lotCentre(lot) { const S = stalls.filter((s) => (s.lot || 0) === lot); if (!S.length) return null; let x = 0, z = 0; for (const t of S) { x += t.x; z += t.z; } return { x: x / S.length, z: z / S.length }; }
 let lotScoreCache = null;
 function lotScores(ab) {
-  const key = `${state.day}:${world.lifts.length}:${world.trails.length}:${state.lotSections}`;
+  const key = `${state.day}:${world.lifts.map((L) => `${L.id}${L.open && !L.windHold ? '' : 'x'}`).join(',')}:${world.trails.map((t) => `${t.id}${trailSign(t)}${runnable(t) ? '' : 'x'}`).join(',')}:${state.lotSections}`;
   if (!lotScoreCache || lotScoreCache.key !== key) {
     const rides = (state.lastReport && state.lastReport.liftRides) || {}, most = Math.max(1, ...Object.values(rides));
     lotScoreCache = { key, by: [0, 1, 2, 3].map((a) => Array.from({ length: lotCount() }, (_, lot) => {
       const c = lotCentre(lot); if (!c) return -1;
+      // How good the lifts you can walk to from this lot are for this skier: each lift counts for its best run
+      // they'd enjoy (runs too hard for them count for nothing, however many there are), plus how busy it was last
+      // time it ran: guests drift toward the popular lifts.
       let sc = 0.01;
       for (const L of world.lifts) {
-        if (!L.open || !L.reachable || distXZ(L.a, c) > 48) continue; // the lifts you can walk to from this lot
-        for (const t of L.departing) { const d = Math.abs(trailSign(t) - a); sc += a === 0 ? (trailSign(t) === 0 ? 1 : 0.1) : d === 0 ? 1 : d === 1 ? 0.6 : 0.2; }
-        sc += 1.5 * (rides[L.id] || 0) / most; // a favourite
+        if (!L.open || L.windHold || !L.reachable || distXZ(L.a, c) > 48 || isVillage(L)) continue;
+        let best = 0;
+        for (const t of L.departing) {
+          if (!runnable(t)) continue;
+          const r = trailSign(t);
+          best = Math.max(best, r > a ? 0 : r === a ? 1 : r === a - 1 ? 0.6 : 0.25);
+        }
+        if (!best) continue; // nothing here they'd ski
+        sc += best + Math.min(1, L.departing.filter((t) => runnable(t) && trailSign(t) <= a).length * 0.15) + 1.5 * (rides[L.id] || 0) / most;
       }
       return sc;
     })) };
@@ -10851,6 +10860,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
       const svc = svcFor(B, need);
       if (!svc || !bldOpenNow(B)) continue;
       if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
+      if (need === 'lunch' && g.pricedOut && g.pricedOut.includes(svc)) continue; // already found that too dear today
       if (svc === 'rest' && B.used.seat >= poolSlots(B, 'seat')) continue; // nobody queues for a bench
       if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
@@ -11087,10 +11097,15 @@ function serve(g, B) {
     return leaveBuilding(g, B);
   }
   if (price > 0 && Math.random() > willing(g, svc)) {
-    g.sat -= 4; today.complaints.price++;
+    if (!(g.pricedOut && g.pricedOut.length)) { g.sat -= 4; today.complaints.price++; } // one sting per lunch, not one per place they look
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
-    if (svc === 'food' || svc === 'dine') { g.ate = true; g.skipped = true; }
-    if (['food', 'dine', 'finedine', 'snack'].includes(svc) && (!g.ate || g.skipped)) g.foodPrice = B.id; // lunch, but not at that price
+    if (['food', 'dine', 'finedine', 'snack'].includes(svc) && !g.ate) {
+      // Lunch, but not at that price: look for something cheaper (every lodge charges the same, so not another
+      // one of those). Only after turning down a couple of places, or the cheapest, do they skip lunch.
+      g.foodPrice = B.id; g.pricedOut = [...(g.pricedOut || []), svc];
+      if (svc === 'snack' || g.pricedOut.length >= 2) { g.ate = true; g.skipped = true; }
+      else { g.avoidB = B.id; g.avoidUntil = state.time + 60; }
+    }
     if (svc === 'warm') g.warmed = true;
     if (svc === 'snack') g.snacked = true;
     if (svc === 'rent') { g.needsRental = false; g.sat -= 4; }
@@ -15703,6 +15718,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.50.1', date: 'Oct 28, 2026', title: 'Lunch and parking fixes', small: true, items: [
+    'Fixed: a guest who found lunch too expensive went hungry all afternoon. Now they look for something cheaper, like a food truck or café, and only skip lunch after turning down a couple of places.',
+    'Fixed: with two bases, beginners could park by a lift with lots of hard runs instead of the one with a green run. Guests now pick the lot whose lifts have runs that suit them, and notice straight away when a lift closes.',
+  ] },
   { v: '2.50', date: 'Oct 28, 2026', title: 'More Modern buildings', items: [
     'Modern styling now includes the rental and tuning center, gift kiosk, kids’ camp, ski patrol, first-aid clinic, both restroom buildings, shuttle station and transit center.',
     'Charcoal walls, practical windows and clean metal entrances give service buildings a Modern look. Shuttle shelter glass stays unlit.',
