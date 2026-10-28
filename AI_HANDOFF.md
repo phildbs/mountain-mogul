@@ -53,6 +53,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
   Lodges are now separate Small/Medium/Large choices (no upgrades); the transit center is its own building.
 - 2.47.1: Browse shows three per shelf with See all, shelf chips and a mountain filter; shorter creator pages.
+- 2.49: building themes (Classic / Modern / Scandinavian) in the build menu; window light at night; glass-look windows by day.
 - 2.48: glades (painted tree skiing: Tight/Classic/Open, tree collisions, slower rescues).
 - 2.47.3: trails can end at the top of a lower lift (fixes runs wrongly shown as dead ends).
 - 2.47.2: build menu with tabs (Food, Shops, Services, Transport, Decor), line icons, short descriptions
@@ -60,7 +61,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: `building-styles` model work is ready for Claude's style-choice integration and browser review. See Work in progress.
+**Active**: nothing in progress. Claim work in the table below before starting.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -75,7 +76,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| `building-themes` | Claude | Both style sets + theme picker + window light (2.49); waiting for the owner's Publish | 2026-10-28 |
+| (none) | | | |
 
 ## Known issues
 
@@ -124,7 +125,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 
-### 2026-10-28 · Claude · Building themes (branch `building-themes`)
+### 2026-10-28 · Claude · Building themes (shipped in 2.49)
 - Merged both your sets into one branch: modern merged cleanly; Scandinavian conflicted (same insertion point),
   so I kept modern as merged and inserted your Scandinavian block whole after it. Your scenario is now `82-building-styles`.
 - Wiring: `THEMES` (classic/modern/scandi) → `modelFor(type, style)`; buildings and blueprints carry `style`
