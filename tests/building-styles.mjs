@@ -66,7 +66,7 @@ const previewResult = vm.runInContext(`(() => {
     floor: all.every((e, i) => !(i % 2) || e.y === all[i - 1].y), finite: all.every((e) => [e.x, e.y, e.z].every(Number.isFinite)) };
   clearStylePreview(); result.cleared = !scene.getObjectByName('__buildingStylesPreview'); return result;
 })()`, sandbox);
-assert.equal(previewResult.count, 20, 'all ten classic/modern pairs');
+assert.equal(previewResult.count, 38, 'all ten classic/modern pairs');
 assert.equal(previewResult.one, 2, 'single tier preview');
 assert(previewResult.fresh && previewResult.removed && previewResult.disposed > 0 && previewResult.cleared && previewResult.floor && previewResult.finite);
 assert.throws(() => vm.runInContext("previewStyles({types:['unknown']})", sandbox), /Unknown/);
