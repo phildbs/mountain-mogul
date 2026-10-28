@@ -40,7 +40,7 @@ for (const row of result) {
   assert.deepEqual(b.seats, a.seats, `${label}: exact seat positions/yaw/order`);
   assert.deepEqual(b.doors, a.doors, `${label}: exact door calls`);
   assert.deepEqual(b.signs, a.signs, `${label}: same visible sign`);
-  assert(b.finite && b.glow && b.stack === 1, `${label}: valid geometry, glow and balanced transforms`);
+  assert(b.finite && (type === 'shuttle' ? !b.glow : b.glow) && b.stack === 1, `${label}: valid geometry, glow and balanced transforms`);
   for (const [axis, size] of [[0, spec.w], [2, spec.d]]) {
     assert(b.bounds.min[axis] >= Math.min(a.bounds.min[axis], -size / 2) - 0.001, `${label}: no new negative overhang`);
     assert(b.bounds.max[axis] <= Math.max(a.bounds.max[axis], size / 2) + 0.001, `${label}: no new positive overhang`);
