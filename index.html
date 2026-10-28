@@ -1878,6 +1878,62 @@ MOUNTAINS.raven = {
     return h;
   },
 };
+MOUNTAINS.twin = {
+  id: 'twin',
+  name: 'Twin Notch',
+  level: 'Intermediate', dot: 'var(--blue)',
+  blurb: 'Two broad summits with a notch between them and a long valley road below. The east summit has long, gentle shoulders and blues; the west summit is all blues and blacks. Room at the top, and a valley wide enough for a second base.',
+  cash: 2400000,
+  weather: { storm: 1.05, wind: 1.1, warm: 0.95 },
+  skiers: [0.28, 0.38, 0.24, 0.10], // something for everyone
+  draw: 0.95, costs: 1.05,
+  seed: 6153,
+  baseFt: 5980,
+  treeline: 40,
+  // The long valley road: in from the west, past the west base, ending at the east base where you start.
+  road: catmull([[-0.36, -0.12], [-0.1, 0.02], [0.14, 0.05], [0.36, 0.045], [0.52, 0.035], [0.62, 0.04]], 10),
+  creek: catmull([[0.5, 0.6], [0.49, 0.42], [0.47, 0.26], [0.45, 0.14], [0.43, 0.0], [0.4, -0.16], [0.34, -0.32]], 10),
+  height(u, v) {
+    const s = this.seed, U = 160; // property units per u or v
+    // Even, cone-like slopes (steepest only a quarter above the average), with a broad flat top: blue faces, not cliffs.
+    const even = (t) => 0.5 * (t + t * t * (3 - 2 * t));
+    const summit = (cu, cv, r1, r2, a, pu = u, pv = v) => a * even(clamp((r2 - Math.hypot(pu - cu, pv - cv)) / (r2 - r1), 0, 1));
+    let h = 1.6 + 0.6 * fbm(u * 3, v * 3, s + 1, 3);
+    // Two broad summits, and the notch where they meet.
+    const W = summit(0.25, 0.94, 0.07, 0.86, 36), E = summit(0.76, 0.94, 0.08, 0.86, 23); // far back, so the faces run the whole depth; the east twin is the lower, friendlier one
+    h += Math.max(W, E) + 0.3 * Math.min(W, E);
+    // East summit: a long, gentle shoulder that winds round its east side and back along the valley,
+    // falling evenly from the top to the valley floor: the green way down. Each stretch gives its own
+    // height and the highest wins, so it changes smoothly where the path doubles back.
+    // Split into many short, smoothly curving stretches so it falls evenly, with no flats at the bends.
+    if (!this.shoulder) {
+      const pts = catmull([[0.76, 0.94], [0.9, 0.88], [0.95, 0.66], [0.94, 0.44], [0.91, 0.3], [0.86, 0.2], [0.8, 0.15]], 6); // ends just above the east base
+      let along = 0; this.shoulder = pts.slice(0, -1).map((p, k) => { const len = Math.hypot(pts[k + 1][0] - p[0], pts[k + 1][1] - p[1]) * U, seg = [p, pts[k + 1], along, len]; along += len; return seg; });
+      this.shoulderLen = along;
+    }
+    const top = 1.6 + 23 + 0.3 * summit(0.25, 0.94, 0.07, 0.86, 36, 0.76, 0.94) + 1, fall = (top - 0.6) / this.shoulderLen; // from just above the east top to the valley floor, about 0.2 a unit
+    let best = 1e9, shoulder = -1e9;
+    for (const [a, b, at0] of this.shoulder) {
+      const [d, pu, pv] = distPoly(u, v, [a, b]);
+      best = Math.min(best, d);
+      shoulder = Math.max(shoulder, top - fall * (at0 + Math.hypot(pu - a[0], pv - a[1]) * U) - 0.26 * Math.max(0, d * U - 11)); // a crest ~22 units wide, then blue sides
+    }
+    h = Math.max(h, shoulder - 0.6 + 0.6 * sstep(-3, 3, shoulder - h));
+    // Gentle folds that make natural trail lines; next to none on the shoulder so it stays smooth.
+    const relief = sstep(0.1, 0.4, v) * (0.15 + 0.85 * sstep(8, 22, best * U));
+    h += relief * (0.8 * fbm(u * 5, v * 2.2, s + 5, 4) + 0.5 * ridged(u * 7, v * 2.6, s + 9, 3) - 0.3);
+    // A few short, steeper pitches high on the west summit's outer side: the blacks.
+    const pitch = sstep(0.06, 0.12, u) * (1 - sstep(0.22, 0.28, u)) * sstep(-0.15, 0.2, fbm(u * 7, v * 3, s + 31, 3) + 0.1);
+    h += pitch * 3 * sstep(0.575, 0.665, v + 0.012 * Math.sin(u * 24));
+    // A wide, flat valley floor for two bases.
+    h -= 1.6 * (1 - sstep(0.02, 0.16, v));
+    // Rolling peaks beyond the property line, and wooded hills to either side.
+    if (v > 0.92) h += 30 * Math.pow(sstep(0.94, 1.4, v), 1.25) * (0.6 + 0.6 * ridged(u * 4, v * 3, s + 11, 4));
+    const side = Math.max(0, -u, u - 1);
+    h += 9 * sstep(0, 0.25, side) * (0.6 + 0.8 * fbm(u * 4, v * 4, s + 13, 3)) * sstep(-0.1, 0.3, v);
+    return h;
+  },
+};
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
    already carries a mountain id (saves, slots, the online summary, visits, reloads) carries the recipe too. */
@@ -3286,6 +3342,7 @@ const TRAIL_PLACE = {
 };
 // Each mountain's own flavour, by rating.
 const TRAIL_LOCAL = {
+  twin: [['Easy Twin', 'Notch Road', 'Long Shoulder', 'Valley View', 'Lazy Loop'], ['Gemini', 'Saddle Run', 'Double Take', 'Notch Line', 'Sister Ridge'], ['West Wall', 'Twin Chutes', 'Headwall', 'Split Decision'], ['Notch Top Chute', 'The Gap']],
   juniper: [['Chickadee', 'Sagebrush', 'Wren', 'Juniper Way', 'Meadow Mouse'], ['Blue Jay', 'Juniper Berry', 'Piñon', 'Mesa', 'Cedar Glade'], ['Coyote', 'Hawk’s Claw', 'Juniper Ridge', 'Dust Devil'], ['Thunderhead', 'Rattlesnake Ridge', 'Badlands']],
   maple: [['Sugarbush', 'Sap Run', 'Cider Mill', 'Maple Leaf', 'Pancake'], ['Sugarhouse', 'Foliage', 'Stonewall', 'Village Green', 'Harvest Moon'], ['Nor’easter', 'Granite', 'Hardscrabble', 'Iron Horse'], ['Ice Storm', 'Rime', 'Notch Chute', 'Black Ice']],
   raven: [['Feather', 'Nestling', 'Moonbeam', 'Twilight', 'Pine Hollow'], ['Corvid', 'Black Feather', 'Moonrise', 'Nightjar', 'Shadow Run'], ['Nevermore', 'Murder of Crows', 'Raven’s Claw', 'Gloom', 'Darkside'], ['Raven’s Plunge', 'Midnight', 'Black Hole', 'Witching Hour', 'Dead Man’s Drop']],
@@ -3295,7 +3352,7 @@ const LIFT_PLACE = {
   mid: ['Ridge', 'Shoulder', 'Basin', 'Bowl', 'Saddle', 'Lookout', 'Timber', 'Outback', 'Backside', 'Hidden Valley', 'Cirque', 'Glacier'],
   top: ['Summit', 'Skyline', 'Peak', 'Pinnacle', 'Highland', 'Eagle', 'Cloud Nine', 'Top Notch', 'Sky', 'Alpine'],
 };
-const LIFT_LOCAL = { juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
+const LIFT_LOCAL = { twin: ['Twin', 'Notch', 'Saddle', 'Gemini'], juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
 const CARPET_NAMES = ['Magic Carpet', 'Bunny Belt', 'Learning Lane', 'Snowflake Carpet', 'Little Lift', 'Cub Conveyor', 'Easy Rider', 'Wonder Carpet'];
 const pickFree = (list, used) => { const free = list.filter((n) => !used.has(n)); return free.length ? free[Math.floor(Math.random() * free.length)] : null; };
 const heightFrac = (p) => clamp((trueY(p.x, p.z) - MOUNTAIN.baseH) / Math.max(1, MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -11391,6 +11448,13 @@ const GOALS = {
     { id: 'clean', title: 'No strings attached', how: 'Finish a season owing nothing and without Bucky’s help.', season: () => !state.debt && !state.investorUsed },
   ],
 };
+GOALS.twin = [ // a first set while Twin Notch is a prototype
+  { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
+  { id: 'bothPeaks', title: 'Twin summits', how: 'Run lifts to the top of both summits.', day: () => [0.25, 0.76].every((u0) => world.lifts.some((L) => L.open && heightFrac(L.b) > 0.85 && Math.abs((L.b.x + HALF - PLAY0) / PN - u0) < 0.15)) },
+  { id: 'mix', title: 'Something for everyone', how: 'Have green, blue and black trails all open on the same day.', day: () => { const s = new Set(openSigns()); return s.has(0) && s.has(1) && (s.has(2) || s.has(3)); } },
+  { id: 'crowd500', title: 'Busy valley', how: 'Welcome 500 guests in one day.', day: (r) => r.guests >= 500, prog: () => `Best so far: ${bestGuests()} of 500 guests.` },
+  { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
+];
 // Custom mountains share one set of goals.
 GOALS.custom = [
   { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
