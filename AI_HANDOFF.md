@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
 - 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
 - Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
 - 2.53.2: title-screen resort cards use saved scenic 3D photos instead of top-down maps; photos sync with cloud saves and older resorts refresh when opened.
@@ -69,7 +70,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: the passing 2.54 feedback fixes are approved for publication. Next: patrol return travel and patrol capacity from the remaining feedback.
+**Active**: 2.55 approved for publication. Remaining feedback: venue service counts/balance and trail/glade popularity by day and evening.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -83,7 +84,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-feedback | ChatGPT | Next: return patrols via operating lifts and review hut capacity; start after release checks | 2026-10-28 |
 
 
 ## Known issues
@@ -201,8 +201,21 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.55 approved
+- Phil explicitly said Publish. Candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 passed full GitHub Tests run 40773066187. Release includes patrol teams and lift returns, What's new, guide, test coverage and this handoff. No database changes. Main before release was 7d55b699, so no intervening game changes need merging.
+- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Remaining venue balance and popularity reports are not implemented.
+
+
+### 2026-10-28 · ChatGPT · Patrol feedback candidate
+- CI run 40772214251: all scenarios passed except 82-building-styles, whose fixed counts were stale after adding two patrol sizes (expected 19, actual 21). Patrol test 89 PASSED. Updated expectations to 21 variants / 42 paired previews and explicitly asserted patrol sizes [0,1,2]. New candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 changes only that test; game source is unchanged. Full GitHub Tests run 40773066187 completed SUCCESS on candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02. Phil reported Passed; checked once. Ready for his publication decision; not yet published.
+- Branch `patrol-feedback`, candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 from published main 7d55b699. Phil authorized continuing remaining feedback. 2.54 release Tests 40770080526 and Pages 40770079396 both SUCCESS, checked once after Phil said continue.
+- Candidate 2.55: patrol team sizes 2/4/6, existing tier save field, same hut footprint/models across themes. Build directly or expand overnight for $60k each step; upkeep 950/1800/2650, skeleton staffing half. UI separates responding and returning. What's new and guide updated. No database changes.
+- Return trips search downhill traverses and operating lift chains to home. Staff board/unload actual lift chairs, reserve seats before guests, use the existing passenger pose, and do not count as guest rides. Closed/unreachable lift routes leave staff idle and available at the aid station. Outbound rescue and towing still use existing direct movement. Current mid-day save behavior resets crew and requeues injured guests on restore, as before.
+- New 89-patrol-teams scenario covers expansions/save tier, boarding/unloading/guest-stat isolation, closed-lift fallback and skeleton dispatch. Full CI will run; local Chromium unavailable. Inline JS syntax and diff checks passed, remote index blob verified identical to local 103cbf107fc316046dd020fff33a4464dca05e58. Pause without polling once tests start; Phil will report completion. Remaining venue balance and popularity reports still pending.
+
+
 ### 2026-10-28 · ChatGPT · Publish 2.54 approved
-- Phil explicitly approved publication of candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f. Full GitHub Tests run 40768135148 PASSED. Release includes learning-area editing, night clear-out lighting, What's new, guide and this handoff. No database changes.
+- Phil explicitly approved publication of candidate b5a444a33b76ce220e6a8fa04ab3c800d1fbac4f. Full GitHub Tests run 40768135148 PASSED. Main published at 7d55b699abd5de6621b91b50c62e06d2ffa68c5c. Release includes learning-area editing, night clear-out lighting, What's new, guide and this handoff. No database changes.
 - Remaining feedback: patrols currently move directly uphill to their hut after clinic drop-off; huts have two crew each and no capacity upgrades. Café visits include warming up as well as snacks, whereas the truck only serves snacks; compare service types before balancing. Also requested: trail/glade popularity split by day/evening with useful reasons. These remain unimplemented.
 - Check release deployment once. If release tests are running, notify Phil and pause without polling; he will say when to continue.
 
