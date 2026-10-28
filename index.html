@@ -8177,64 +8177,8 @@ const raceToday = () => { const e = showToday(); return !!e && e.type === 'race'
 let raceCache = null;
 function raceTrail() {
   if (raceCache && raceCache.day === state.day && world.trails.includes(raceCa
-... 32818 bytes omitted ...
- c[1] * w, c[2] * w], base);
-        for (let a = 0; a < R; a++) col.array.set([0, 0, 0], base + (a + 1) * 3);
-      });
-      col.needsUpdate = true;
-    }
-  }
-  groundPools.visible = false; // the light map does this now
-  MM_LIGHT.night.value = dark;
-  if (dark > 0.02 && (lit !== lmSig)) { lmSig = lit; drawLightMap(); }
-  if ((lmSweep -= 1) <= 0) { lmSweep = 90; patchNightMaterials(); }
-  // glow points: lamps and lot poles after dark; fires always, flickering
-  const cl = decorGlow.geometry.attributes.color.array, t = performance.now() / 1000;
-  let n = 0;
-  for (const g of glowSpots) {
-    if (n >= 800) break;
-    let c = [0, 0, 0];
-    if (g.kind === 'fire') { const f = 0.75 + 0.25 * Math.sin(t * 13 + g.x) * Math.sin(t * 7.3 + g.z); c = [1 * f, 0.55 * f, 0.2 * f]; }
-    else if (dark > 0.05 && (g.kind === 'lamp' || (open && g.sec < lotsOpen()))) c = [dark, dark * 0.9, dark * 0.7];
-    cl.set(c, n * 3); n++;
-  }
-  decorGlow.geometry.setDrawRange(0, n);
-  decorGlow.geometry.attributes.color.needsUpdate = true;
-}
-
-/* ---------- Drawing guests and cars ---------- */
-const _c = new THREE.Color();
-const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _e = new THREE.Euler();
-function writeFig(n, x, y, z, yaw, sy, g, pitch = 0) {
-  _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, sy * figScale, figScale); _v.set(x, y, z);
-  _m.compose(_v, _q, _s);
-  for (const k of ['jacket', 'pants', 'head']) _m.toArray(figMeshes[k].instanceMatrix.array, n * 16);
-  figMeshes.jacket.instanceColor.setXYZ(n, ...hexRGB(g.jc));
-  figMeshes.pants.instanceColor.setXYZ(n, ...hexRGB(g.pc));
-  figMeshes.head.instanceColor.setXYZ(n, ...hexRGB(g.hc));
-}
-const rgbCache = new Map();
-function hexRGB(h) {
-  let v = rgbCache.get(h);
-  if (!v) { _c.setHex(h); v = [_c.r, _c.g, _c.b]; rgbCache.set(h, v); }
-  return v;
-}
-for (const k of ['jacket', 'pants', 'head']) {
-  const m = figMeshes[k];
-  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_G * 3), 3);
-}
-for (const k of ['body', 'cabin']) carMeshes[k].instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARS * 3).fill(1), 3);
-
-function guestPos(g) {
-  if (g.st === 'inside' && g.deck >= 0) {
-    const B = bldById(g.bid), st = B && B.seatsW[g.deck];
-    if (st) return { x: st.x, y: st.y - 0.12, z: st.z, yaw: st.yaw, sy: 0.72 };
-  }
-  if (g.st === 'lesson') {
-    const B = bldById(g.bid);
-    if (B) {
-      const t = state.time * 0.6 + g.ph * 10;
-      const p = toWorld(B, -1.25 + 2.2 * clamp(g.lx + 0.07 * Math.sin(t * 0.3), 0, 1), -0.25 + 2.1 * clamp(g.lz + 0.07 * Math.cos(t * 0.27), 0, 1));
+... 35452 bytes omitted ...
++ 0.07 * Math.cos(t * 0.27), 0, 1));
       return { x: p.x, y: B.baseY + 0.06, z: p.z, yaw: g.ph * 3 + Math.sin(t * 0.2), sy: 1 };
     }
   }
@@ -9308,6 +9252,52 @@ function modelSchoolModern() {
 }
 
 const MODELS_MODERN = { lodge: modelLodgeModern, cafe: modelCafeModern, restaurant: modelRestaurantModern, fine: modelFineModern, bar: modelBarModern, rental: modelRentalModern, store: modelStoreModern, school: modelSchoolModern };
+
+// Console-only, transient comparison. Left: classic; right: modern. Never enters world.buildings/saves.
+// Open ?dev, then previewStyles(); previewStyles({ types: ['lodge'], tier: 2 }) for one pair.
+function previewStyles({ types = Object.keys(MODELS_MODERN), tier = null, x = -28, z = 10, spacing = 7, focus = true } = {}) {
+  if (!DEV) throw new Error('Building previews require ?dev');
+  if (!Array.isArray(types) || !types.length || types.some((t) => !MODELS_MODERN[t])) throw new Error('Unknown preview building type');
+  if (![x, z, spacing].every(Number.isFinite) || spacing < 6) throw new Error('Preview spacing must be at least 6');
+  if (tier !== null && (!Number.isInteger(tier) || tier < 0 || types.some((t) => tier >= (BTYPES[t].tiers?.length || 1)))) throw new Error('Unknown preview tier');
+  clearStylePreview();
+  const root = new THREE.Group(), entries = [];
+  root.name = '__buildingStylesPreview';
+  let row = 0;
+  for (const type of types) for (const t of (tier === null ? Array.from({ length: BTYPES[type].tiers?.length || 1 }, (_, i) => i) : [tier])) {
+    const spec = BTYPES[type].tiers?.[t] || BTYPES[type], pz = z + row * spacing;
+    // Sample a common floor for the pair so slopes cannot bury one of the two models.
+    let floor = -Infinity;
+    for (let px = x - 4.5 - spec.w / 2; px <= x + 4.5 + spec.w / 2 + 0.1; px += 0.5)
+      for (const dz of [-spec.d / 2, 0, spec.d / 2]) floor = Math.max(floor, heightAt(px, pz + dz) * VEX + 0.08);
+    for (const [style, fn, dx] of [['classic', MODELS[type], -4.5], ['modern', MODELS_MODERN[type], 4.5]]) {
+      const k = fn(t), group = k.build();
+      group.position.set(x + dx, floor, pz);
+      group.name = `${type}-${t}-${style}`;
+      root.add(group); entries.push({ type, tier: t, style, x: x + dx, y: floor, z: pz, seats: k.seats.length });
+    }
+    row++;
+  }
+  root.userData.entries = entries;
+  scene.add(root);
+  if (focus) {
+    cam.target.set(x, entries.reduce((sum, e) => sum + e.y, 0) / entries.length, z + (row - 1) * spacing / 2);
+    cam.az = cam.azGoal = 0.25;
+    cam.viewH = Math.max(10, row * spacing * 0.7 + 6, 18 / (W / H)); cam.viewGoal = null;
+    updateCamera();
+  }
+  renderer.shadowMap.needsUpdate = true;
+  return entries;
+}
+function clearStylePreview() {
+  if (!DEV) return;
+  const old = scene.getObjectByName('__buildingStylesPreview');
+  if (!old) return;
+  scene.remove(old);
+  old.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); // shared materials belong to the game
+  renderer.shadowMap.needsUpdate = true;
+}
+if (DEV) { window.previewStyles = previewStyles; window.clearStylePreview = clearStylePreview; }
 
 /* =====================================================================
    BUILDINGS: placement
