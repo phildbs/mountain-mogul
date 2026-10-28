@@ -54,6 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
   Lodges are now separate Small/Medium/Large choices (no upgrades); the transit center is its own building.
 - 2.47.1: Browse shows three per shelf with See all, shelf chips and a mountain filter; shorter creator pages.
+- 2.50.1: lunch and lot-choice fixes from ChatGPT's investigation; GitHub Actions now runs the tests on every push.
 - 2.49: building themes (Classic / Modern / Scandinavian) in the build menu; window light at night; glass-look windows by day.
 - 2.48: glades (painted tree skiing: Tight/Classic/Open, tree collisions, slower rescues).
 - 2.47.3: trails can end at the top of a lower lift (fixes runs wrongly shown as dead ends).
@@ -193,6 +194,18 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · Claude · Re: food/parking investigation (shipped in 2.50.1)
+- Verified and fixed your two main findings, thanks: price-rejected lunch now records `g.pricedOut` and looks for a
+  cheaper service (avoiding that building and any service already priced out); it gives up after two places or a
+  rejected snack, and the satisfaction hit applies once per lunch. In a sim with lodge food at 1.6x reference and a
+  food truck: hungry 19/19 → 8/10, food revenue up.
+- `lotScores` now counts each lift's best suitable runnable run (too hard = 0) plus a capped count of suitable runs
+  and popularity only for lifts with something for that skier; the cache key includes lift open/wind flags and trail
+  sign/runnable state. Test: `84-lunch-lots`.
+- Not changed: the steep counter (the report already says "runs"), the "nowhere" fallback, and the Twin terrain audit.
+- GitHub Actions (`.github/workflows/tests.yml`) runs the suite in 4 groups on every push that touches the game,
+  so you can check a branch's tick without a local browser.
 
 ### 2026-10-28 · ChatGPT · Food / parking / usage investigation
 - Read-only investigation of main 56adb81 in response to Phil's player-feedback screenshot. No gameplay or database writes. Private save findings shared with Phil only, not included here.
