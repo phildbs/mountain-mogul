@@ -1,0 +1,1303 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scandinavian village preview</title><style>body{margin:0;background:#dce5ea;font:15px system-ui}header{position:absolute;z-index:1;background:#ffffffee;padding:12px;border-radius:12px;margin:12px}button,select{padding:8px}canvas{display:block}p{margin:6px 0}</style></head><body><header><b>Scandinavian village · design preview</b><p>Drag to orbit · scroll to zoom</p><select id="pick"><option value="all">All nine buildings</option></select><button id="light">Evening</button></header><script src="vendor/three.min.js"></script><script>
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));document.body.append(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdce5ea);const camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.1,200);const ambient=new THREE.HemisphereLight(0xffffff,0x647080,1);scene.add(ambient);const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(-10,25,15);scene.add(sun);
+const CORD=new THREE.Texture(), STEEL=new THREE.MeshLambertMaterial({color:0x657079});const DEV=false;function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const BTYPES = {
+  lodge: {
+    name: 'Ski lodge', where: 'any', cost: 45000, sign: 'LODGE', accent: 0xc9472a,
+    desc: 'Quick food, warming breaks and restrooms. Comes in three sizes: a bigger lodge seats more and serves faster.',
+    tiers: [
+      { label: 'Small', seats: 120, counter: 7, stalls: 6, w: 3.8, d: 2.8, upkeep: 750 },
+      { label: 'Medium', seats: 360, counter: 16, stalls: 12, w: 5.4, d: 3.8, upkeep: 1850, cost: 70000 },
+      { label: 'Large', seats: 800, counter: 32, stalls: 20, w: 7.2, d: 4.6, upkeep: 3300, cost: 150000 },
+    ],
+  },
+  truck: { name: 'Food truck', where: 'any', cost: 30000, sign: 'FOOD', accent: 0xe0702a, seats: 10, counter: 3, stalls: 0, w: 2.2, d: 1.3, upkeep: 260,
+    desc: 'Grab-and-go snacks from a window. Cheap, and handy beside a trail or at the top of a lift.' },
+  cafe: { name: 'Café', where: 'any', cost: 70000, sign: 'CAFÉ', accent: 0x8b5a3c, seats: 36, counter: 5, stalls: 2, w: 2.8, d: 2.2, upkeep: 520,
+    desc: 'Coffee, hot chocolate and pastries. A warm-up stop, best on cold days, with a few seats.' },
+  restaurant: { name: 'Casual restaurant', where: 'any', cost: 140000, sign: 'RESTAURANT', accent: 0x2a5fb8, seats: 120, stalls: 6, w: 4.2, d: 3.0, upkeep: 1450,
+    desc: 'Sit-down family meals and an après-ski bar. Guests spend more and stay longer.' },
+  fine: { name: 'Fine dining', where: 'any', cost: 260000, sign: 'FINE DINING', accent: 0x6b2b47, seats: 60, stalls: 6, w: 4.4, d: 3.2, upkeep: 1900,
+    desc: 'Long, pricey meals and après. Guests who love dining out seek it out; it pays on busy days.' },
+  bar: { name: 'Bar and pub', where: 'base', cost: 120000, sign: 'BAR', accent: 0xb8452a, seats: 90, counter: 6, stalls: 4, w: 3.6, d: 2.6, upkeep: 900,
+    desc: 'The heart of après-ski: drinks and a loud deck after the lifts close. A snack bar at lunch. Turn on après under Evenings to keep it open until 7.' },
+  tlight: { name: 'Trail light', where: 'any', cost: 4000, accent: 0x9aa3b0, w: 0.5, d: 0.5, upkeep: 10, decor: true,
+    desc: 'A tall light pole for night skiing. Place it beside a trail to fill a dark stretch; its arm turns to face the trail, and it lights up during night sessions.' },
+  lamp: { name: 'Lamp post', where: 'any', cost: 3000, accent: 0xe8b04a, w: 0.5, d: 0.5, upkeep: 15, decor: true,
+    desc: 'A warm pool of light on the snow after dark. Line a path, light up the base, mark a lift.' },
+  firepit: { name: 'Fire pit', where: 'any', cost: 12000, accent: 0xe0702a, seats: 14, w: 2.4, d: 2.4, upkeep: 110, decor: true,
+    desc: 'Benches around a fire. Tired guests stop for a rest and a free warm-up by day; after the lifts close it draws an après crowd, most of all beside a bar or lodge.' },
+  // Plopped with one tap: trees for looks, and seats where tired guests stop for a breather.
+  tree: { name: 'Tree', where: 'any', cost: 400, accent: 0x2e6b45, w: 0.8, d: 0.8, upkeep: 0, decor: true, plop: true, noPad: true,
+    desc: 'Plant a tree anywhere off the trails. Frame the base village, screen the parking lot, or soften a bare slope.' },
+  bench: { name: 'Bench', where: 'any', cost: 1500, accent: 0x8a5a36, seats: 2, w: 0.8, d: 0.5, upkeep: 5, decor: true, plop: true, noPad: true,
+    desc: 'A seat for tired skiers to catch their breath and get a little energy back. Put one by a lift or beside a trail; skiers stop as they pass.' },
+  picnic: { name: 'Picnic table', where: 'any', cost: 3500, accent: 0x9a6b3c, seats: 6, w: 1.0, d: 1.0, upkeep: 10, decor: true, plop: true, noPad: true,
+    desc: 'Room for a group to sit down and rest. Guests get a little energy back; families love them.' },
+  rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
+    desc: 'Fits guests with skis and boots when they arrive.' },
+  tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
+    desc: 'Twice the rental shop: more pairs and fitting stations, and ski tuning for strong skiers who bring their own.' },
+  store: { name: 'Ski store', where: 'base', cost: 120000, sign: 'SKI STORE', accent: 0x2c6e8f, seats: 24, counter: 4, w: 3.4, d: 2.2, upkeep: 900,
+    desc: 'Goggles, gloves and gear for guests who forgot something, especially on cold days. Souvenirs too.' },
+  gift: { name: 'Gift kiosk', where: 'any', cost: 25000, sign: 'GIFTS', accent: 0xb5487a, seats: 6, counter: 3, w: 1.5, d: 1.4, upkeep: 180,
+    desc: 'Souvenirs and hand warmers. Small, cheap and steady wherever guests pass by.' },
+  school: { name: 'Ski school', where: 'base', cost: 75000, sign: 'SKI SCHOOL', accent: 0x2f8f5e, classes: 8, w: 3.2, d: 4.6, upkeep: 1600,
+    desc: 'Beginner lessons on a practice area beside the building. Eight instructors.' },
+  patrol: { name: 'Ski patrol', where: 'any', cost: 85000, sign: 'SKI PATROL', accent: 0xc0302a, crew: 2, w: 2.6, d: 2.2, upkeep: 950,
+    desc: 'Two patrollers who ski out to injured guests. Faster when the hut is close.' },
+  restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
+    desc: 'A small block of restrooms for busy areas.' },
+  shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 500,
+    desc: 'Where buses stop: town buses bring guests with no car at all, and parking shuttles carry guests from off-site parking. Build more than one at a big resort: guests head home from the nearest. Builds beside the access road.' },
+  clinic: { name: 'First-aid clinic', where: 'base', cost: 110000, sign: 'FIRST AID', accent: 0xd23c3c, beds: 6, w: 2.8, d: 2.2, upkeep: 850,
+    desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
+  kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
+    desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer.' },
+  hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'HEATED RESTROOMS', accent: 0xc0552d, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
+    desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
+  transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
+    desc: 'A big shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests. Builds beside the access road.' },
+};
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const LOG_TEX = canvasTex(64, 64, (g, w, h) => {
+  const r = mulberry32(11), logs = 5, lh = h / logs;
+  for (let i = 0; i < logs; i++) {
+    const y = i * lh, grd = g.createLinearGradient(0, y, 0, y + lh);
+    grd.addColorStop(0, '#6e4329'); grd.addColorStop(0.3, '#a46a40'); grd.addColorStop(0.7, '#8f5a36'); grd.addColorStop(1, '#4e2f1b');
+    g.fillStyle = grd; g.fillRect(0, y, w, lh);
+    g.strokeStyle = 'rgba(55,30,16,0.28)'; g.lineWidth = 1;
+    for (let k = 0; k < 3; k++) { const yy = y + lh * (0.28 + 0.2 * k) + r() * 2; g.beginPath(); g.moveTo(0, yy); g.lineTo(w, yy + r() * 2 - 1); g.stroke(); }
+    g.fillStyle = 'rgba(35,18,8,0.75)'; g.fillRect(0, y + lh - 1.5, w, 1.5);
+  }
+});
+LOG_TEX.repeat.set(1 / 1.2, 1 / 0.5);
+const STONE_TEX = canvasTex(64, 64, (g, w, h) => {
+  const r = mulberry32(23);
+  g.fillStyle = '#5d6068'; g.fillRect(0, 0, w, h);
+  for (let row = 0; row < 4; row++) {
+    let x = -r() * 10;
+    while (x < w) {
+      const sw = 10 + r() * 12, v = 128 + Math.round(r() * 40);
+      g.fillStyle = `rgb(${v},${v + 2},${v + 8})`;
+      g.beginPath(); g.roundRect ? g.roundRect(x + 1, row * 16 + 1, sw - 2, 14, 4) : g.rect(x + 1, row * 16 + 1, sw - 2, 14); g.fill();
+      x += sw;
+    }
+  }
+});
+STONE_TEX.repeat.set(1 / 0.6, 1 / 0.6);
+const BM = {
+  log: new THREE.MeshLambertMaterial({ map: LOG_TEX }),
+  stone: new THREE.MeshLambertMaterial({ map: STONE_TEX }),
+  roof: new THREE.MeshLambertMaterial({ color: 0x4a3832 }),
+  snow: new THREE.MeshLambertMaterial({ color: 0xf2f5fa }),
+  dark: new THREE.MeshLambertMaterial({ color: 0x3a281d }),
+  wood: new THREE.MeshLambertMaterial({ color: 0x96653f }),
+  plank: new THREE.MeshLambertMaterial({ color: 0x7d5434 }),
+  glow: new THREE.MeshBasicMaterial({ color: 0xffcf7a }),
+  glass: new THREE.MeshLambertMaterial({ color: 0x2d3b4c }),
+  asphalt: new THREE.MeshLambertMaterial({ color: 0x4f545e }),
+  groomed: new THREE.MeshLambertMaterial({ map: CORD, color: 0xdbe1ea }), // toned to sit with the snow around it, not glare
+  white: new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }),
+  steel: STEEL,
+};
+const accentMats = new Map();
+function accentMat(c) { if (!accentMats.has(c)) accentMats.set(c, new THREE.MeshLambertMaterial({ color: c })); return accentMats.get(c); }
+const SKI_MATS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0xf2f2f2, 0x24272e].map(accentMat);
+
+// Painted signs: drawn on canvas, redrawn once the display font has loaded.
+const signTex = new Map();
+function drawSign(c, text, color) {
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  g.fillStyle = '#' + color.toString(16).padStart(6, '0');
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 6; g.strokeRect(8, 8, c.width - 16, c.height - 16);
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  let size = 64;
+  do { g.font = `800 ${size}px "Big Shoulders Display", "Arial Narrow", Arial, sans-serif`; size -= 2; } while (g.measureText(text).width > c.width - 40 && size > 20);
+  g.fillText(text, c.width / 2, c.height / 2 + 3);
+}
+function signMat(type) {
+  if (!signTex.has(type)) {
+    const t = BTYPES[type], c = document.createElement('canvas'); c.width = 320; c.height = 88;
+    drawSign(c, t.sign, t.accent);
+    const tex = new THREE.CanvasTexture(c);
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    signTex.set(type, { c, tex, mat: new THREE.MeshBasicMaterial({ map: tex }) });
+  }
+  return signTex.get(type).mat;
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
+  for (const [type, s] of signTex) { drawSign(s.c, BTYPES[type].sign, BTYPES[type].accent); s.tex.needsUpdate = true; }
+});
+
+// Box with texture coordinates in world units, so textures keep their scale on any size.
+function bx(w, h, d) {
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) { const i = f * 4 + v; uv.setXY(i, uv.getX(i) * dims[f][0], uv.getY(i) * dims[f][1]); }
+  return g;
+}
+const _kv = new THREE.Vector3(), _kq = new THREE.Quaternion(), _ke = new THREE.Euler(), _ks = new THREE.Vector3(1, 1, 1);
+class Kit {
+  constructor() { this.parts = []; this.stack = [new THREE.Matrix4()]; this.seats = []; }
+  top() { return this.stack[this.stack.length - 1]; }
+  push(x, y, z, ry = 0) { this.stack.push(this.top().clone().multiply(new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z))); }
+  pop() { this.stack.pop(); }
+  add(geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Matrix4().compose(_kv.set(x, y, z), _kq.setFromEuler(_ke.set(rx, ry, rz)), _ks);
+    this.parts.push([geo.clone().applyMatrix4(this.top().clone().multiply(m)), mat]);
+  }
+  seat(x, y, z, yaw) {
+    const m = this.top(), p = new THREE.Vector3(x, y, z).applyMatrix4(m), e = m.elements;
+    this.seats.push({ x: p.x, y: p.y, z: p.z, yaw: yaw + Math.atan2(e[8], e[10]) });
+  }
+  build() {
+    const byMat = new Map();
+    for (const [g, m] of this.parts) { if (!byMat.has(m)) byMat.set(m, []); byMat.get(m).push(g); }
+    const group = new THREE.Group();
+    for (const [mat, geos] of byMat) {
+      let total = 0;
+      const ng = geos.map((g) => { const n = g.index ? g.toNonIndexed() : g; total += n.attributes.position.count; return n; });
+      const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uv = new Float32Array(total * 2);
+      let o = 0;
+      for (const g of ng) {
+        const c = g.attributes.position.count;
+        pos.set(g.attributes.position.array, o * 3);
+        if (g.attributes.normal) nor.set(g.attributes.normal.array, o * 3);
+        if (g.attributes.uv) uv.set(g.attributes.uv.array, o * 2);
+        o += c;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = mat !== BM.glow; mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    return group;
+  }
+}
+
+/* ---------- Building parts. Local frame: +z is the front, y = 0 is the floor. ---------- */
+function gablePrism(depth, rise, len) {
+  const s = new THREE.Shape();
+  s.moveTo(-depth / 2, 0); s.lineTo(depth / 2, 0); s.lineTo(0, rise); s.lineTo(-depth / 2, 0);
+  return new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false }).rotateY(Math.PI / 2).translate(-len / 2, 0, 0);
+}
+// A log hall with a snowy gable roof. The ridge runs along x unless gableFront is set.
+function hall(k, o) {
+  const { x = 0, z = 0, w, d, h, rise, over = 0.24, roof = BM.roof, gableFront = false, chimney = 0, windows = true } = o;
+  k.push(x, 0, z, gableFront ? Math.PI / 2 : 0);
+  const L = gableFront ? d : w, D = gableFront ? w : d; // L: along the ridge, D: across it
+  k.add(bx(L, h, D), BM.log, 0, h / 2, 0);
+  k.add(gablePrism(D, rise, L), BM.log, 0, h, 0);
+  const run = D / 2 + over, ang = Math.atan2(rise, D / 2), slope = run / Math.cos(ang);
+  const eaveY = h + rise - run * Math.tan(ang);
+  for (const side of [1, -1]) {
+    const cz = side * run / 2, cy = (h + rise + eaveY) / 2;
+    k.add(bx(L + over * 2, 0.07, slope), roof, 0, cy + 0.04, cz, side * ang);
+    k.add(bx(L + over * 2 - 0.08, 0.06, slope - 0.1), BM.snow, 0, cy + 0.1, cz - side * 0.03, side * ang);
+  }
+  k.add(bx(L + over * 2 - 0.08, 0.06, 0.16), BM.snow, 0, h + rise + 0.1, 0);
+  k.add(bx(L + 0.04, 0.06, D + 0.04), BM.dark, 0, 0.03, 0); // sill log
+  if (windows) {
+    const n = Math.max(1, Math.floor(L / 0.75));
+    for (const side of [1, -1]) for (let i = 0; i < n; i++) {
+      const wx = -L / 2 + (i + 0.5) * L / n;
+      if (!gableFront && side === 1 && Math.abs(wx) < 0.4) continue; // leave room for the door
+      k.add(bx(0.27, 0.3, 0.04), BM.dark, wx, h * 0.55, side * (D / 2 + 0.01));
+      k.add(bx(0.19, 0.22, 0.05), BM.glow, wx, h * 0.55, side * (D / 2 + 0.015));
+    }
+    for (const side of [1, -1]) {
+      k.add(bx(0.04, 0.3, 0.27), BM.dark, side * (L / 2 + 0.01), h * 0.55, 0);
+      k.add(bx(0.05, 0.22, 0.19), BM.glow, side * (L / 2 + 0.015), h * 0.55, 0);
+    }
+  }
+  if (chimney) {
+    const cx = chimney * (L / 2 - 0.35), top = h + rise + 0.35;
+    k.add(bx(0.3, top, 0.3), BM.stone, cx, top / 2, -D * 0.18);
+    k.add(bx(0.34, 0.06, 0.34), BM.snow, cx, top + 0.03, -D * 0.18);
+  }
+  k.pop();
+}
+function door(k, x, z, h = 0.46, w = 0.3, mat = BM.wood) {
+  k.add(bx(w + 0.08, h + 0.06, 0.05), BM.dark, x, (h + 0.06) / 2, z);
+  k.add(bx(w, h, 0.06), mat, x, h / 2, z + 0.01);
+}
+function sign(k, type, x, y, z, w = 1.1) {
+  k.add(bx(w + 0.08, w * 0.3 + 0.08, 0.05), BM.dark, x, y, z);
+  k.add(new THREE.PlaneGeometry(w, w * 0.275), signMat(type), x, y, z + 0.03);
+}
+function deck(k, x, z, w, d, rails = true) {
+  k.add(bx(w, 0.1, d), BM.plank, x, 0.05, z);
+  if (!rails) return;
+  for (const sx of [-1, 1]) k.add(bx(0.05, 0.22, d), BM.wood, x + sx * (w / 2 - 0.03), 0.21, z);
+  for (const sx of [-1, 1]) k.add(bx(w / 2 - 0.45, 0.05, 0.05), BM.wood, x + sx * (w / 4 + 0.22), 0.3, z + d / 2 - 0.03);
+  for (let px = -w / 2; px <= w / 2 + 0.01; px += w / 6) if (Math.abs(px) > 0.4) k.add(bx(0.05, 0.25, 0.05), BM.wood, x + px, 0.22, z + d / 2 - 0.03);
+}
+function picnic(k, x, z, ry = 0) {
+  k.push(x, 0.1, z, ry);
+  k.add(bx(0.52, 0.04, 0.22), BM.wood, 0, 0.2, 0);
+  for (const s of [-1, 1]) {
+    k.add(bx(0.52, 0.03, 0.08), BM.wood, 0, 0.12, s * 0.2);
+    k.add(bx(0.04, 0.2, 0.36), BM.dark, s * 0.2, 0.1, 0);
+    k.seat(-0.12, 0.12, s * 0.2, s > 0 ? Math.PI : 0);
+    k.seat(0.12, 0.12, s * 0.2, s > 0 ? Math.PI : 0);
+  }
+  k.pop();
+}
+function skiRack(k, x, z, n, ry = 0) {
+  k.push(x, 0, z, ry);
+  k.add(bx(n * 0.07 + 0.1, 0.04, 0.05), BM.dark, 0, 0.32, 0);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.34, 0.04), BM.dark, s * (n * 0.035 + 0.05), 0.17, 0);
+  for (let i = 0; i < n; i++) k.add(bx(0.035, 0.52, 0.012), SKI_MATS[(i * 3 + n) % SKI_MATS.length], -n * 0.035 + i * 0.07 + 0.035, 0.26, 0.04, -0.18);
+  k.pop();
+}
+function chimneyTop(k, x, y, z) { k.add(bx(0.3, y, 0.3), BM.stone, x, y / 2, z); k.add(bx(0.34, 0.06, 0.34), BM.snow, x, y + 0.03, z); }
+
+/* ---------- Building models ---------- */
+function modelLodge(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    hall(k, { w: 3.3, d: 1.8, h: 0.62, rise: 0.62, z: -0.4, chimney: 1 });
+    door(k, 0, 0.51);
+    sign(k, 'lodge', 0, 0.82, 0.52, 0.95);
+    deck(k, 0, 0.92, 3.3, 0.86);
+    picnic(k, -1.0, 0.95); picnic(k, 1.0, 0.95);
+    skiRack(k, -1.75, 0.2, 6, Math.PI / 2);
+  } else if (tier === 1) {
+    hall(k, { w: 2.5, d: 2.5, h: 0.95, rise: 1.05, z: -0.45, gableFront: true });
+    for (const s of [-1, 1]) hall(k, { w: 1.45, d: 2.0, h: 0.62, rise: 0.55, x: s * 1.95, z: -0.55, chimney: s });
+    k.add(bx(1.3, 0.62, 0.05), BM.dark, 0, 0.62, 0.81); k.add(bx(1.2, 0.54, 0.06), BM.glow, 0, 0.62, 0.815);
+    k.add(gablePrism(0.9, 0.42, 0.05).rotateY(Math.PI / 2), BM.glow, 0, 1.1, 0.82);
+    door(k, 0, 0.84, 0.42, 0.34);
+    sign(k, 'lodge', 0, 1.32, 0.8, 0.95);
+    deck(k, 0, 1.33, 5.0, 1.0);
+    for (const px of [-1.8, -0.7, 0.7, 1.8]) picnic(k, px, 1.4);
+    skiRack(k, -2.55, 0.65, 8, Math.PI / 2); skiRack(k, 2.55, 0.65, 8, -Math.PI / 2);
+  } else {
+    hall(k, { w: 3.1, d: 3.1, h: 1.2, rise: 1.3, z: -0.5, gableFront: true });
+    for (const s of [-1, 1]) hall(k, { w: 1.9, d: 2.5, h: 0.82, rise: 0.7, x: s * 2.5, z: -0.6, chimney: s });
+    for (const yy of [0.45, 0.95]) { k.add(bx(1.7, 0.36, 0.05), BM.dark, 0, yy, 1.06); k.add(bx(1.6, 0.28, 0.06), BM.glow, 0, yy, 1.065); }
+    k.add(gablePrism(1.2, 0.55, 0.05).rotateY(Math.PI / 2), BM.glow, 0, 1.4, 1.07);
+    door(k, 0, 1.09, 0.4, 0.4);
+    sign(k, 'lodge', 0, 1.27, 1.08, 1.1);
+    deck(k, 0, 1.75, 6.8, 1.15);
+    for (const px of [-2.7, -1.6, -0.55, 0.55, 1.6, 2.7]) picnic(k, px, 1.8);
+    chimneyTop(k, -0.9, 2.9, -1.4);
+    skiRack(k, -3.4, 0.8, 9, Math.PI / 2); skiRack(k, 3.4, 0.8, 9, -Math.PI / 2);
+  }
+  return k;
+}
+function modelRestaurant() {
+  const k = new Kit();
+  hall(k, { w: 3.7, d: 1.9, h: 0.72, rise: 0.58, z: -0.45, chimney: -1, windows: false });
+  for (let i = 0; i < 6; i++) {
+    const wx = -1.55 + i * 0.62;
+    if (Math.abs(wx) < 0.3) continue;
+    k.add(bx(0.42, 0.5, 0.04), BM.dark, wx, 0.38, 0.51); k.add(bx(0.34, 0.42, 0.05), BM.glow, wx, 0.38, 0.515);
+  }
+  for (const s of [-1, 1]) { k.add(bx(0.04, 0.3, 0.3), BM.dark, s * 1.86, 0.4, -0.45); k.add(bx(0.05, 0.22, 0.22), BM.glow, s * 1.865, 0.4, -0.45); }
+  chimneyTop(k, 1.2, 1.55, -0.75);
+  door(k, 0, 0.53, 0.46, 0.32, BM.dark);
+  k.add(bx(3.7, 0.05, 0.38), accentMat(BTYPES.restaurant.accent), 0, 0.68, 0.7, -0.25);
+  sign(k, 'restaurant', 0, 0.96, 0.53, 1.15);
+  deck(k, 0, 1.03, 3.9, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.1);
+  for (let i = 0; i <= 12; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.85 + i * 0.31, 0.62 - 0.08 * Math.sin(i / 12 * Math.PI), 1.48);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
+  return k;
+}
+// The same pole as along lit trails: its arm reaches out along -x, turned to face the nearest trail.
+function modelTrailLight() {
+  const k = new Kit();
+  k.add(new THREE.CylinderGeometry(0.05, 0.06, 2.4, 6), BM.dark, 0, 1.2, 0);
+  k.add(bx(0.5, 0.06, 0.08), BM.dark, -0.22, 2.35, 0);
+  k.add(bx(0.22, 0.1, 0.18), BM.dark, -0.45, 2.3, 0);
+  k.add(bx(0.18, 0.04, 0.14), BM.glow, -0.45, 2.24, 0);
+  return k;
+}
+function modelLamp() {
+  const k = new Kit();
+  k.add(new THREE.CylinderGeometry(0.035, 0.05, 1.3, 6), BM.dark, 0, 0.65, 0);
+  k.add(bx(0.16, 0.04, 0.16), BM.dark, 0, 1.3, 0);
+  k.add(bx(0.12, 0.16, 0.12), BM.glow, 0, 1.4, 0);
+  k.add(new THREE.ConeGeometry(0.13, 0.1, 4), BM.dark, 0, 1.53, 0, 0, Math.PI / 4, 0);
+  return k;
+}
+function modelFirepit(tier, b) {
+  const k = new Kit(), y = 0; // without the stone base, the ring of stones sits right on the snow
+  k.add(new THREE.CylinderGeometry(0.42, 0.48, 0.16, 12), BM.stone, 0, 0.08, 0);
+  k.add(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 10), BM.dark, 0, 0.17, 0);
+  for (let i = 0; i < 3; i++) k.add(bx(0.06, 0.06, 0.42), BM.wood, 0, 0.21 + y, 0, 0, i * Math.PI / 3, 0); // logs
+  k.add(new THREE.ConeGeometry(0.16, 0.34, 7), BM.glow, 0, 0.36 + y, 0); // the flames
+  // log benches in a ring, with seats facing the fire
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2, r = 0.95;
+    k.push(Math.sin(a) * r, 0, Math.cos(a) * r, a);
+    k.add(bx(0.5, 0.12, 0.16), BM.wood, 0, 0.1, 0);
+    k.seat(-0.12, 0.12, 0, Math.PI); k.seat(0.12, 0.12, 0, Math.PI);
+    k.pop();
+  }
+  return k;
+}
+function modelBench() {
+  const k = new Kit();
+  k.add(bx(0.62, 0.035, 0.16), BM.wood, 0, 0.12, 0.01);
+  k.add(bx(0.62, 0.1, 0.025), BM.wood, 0, 0.21, -0.075, -0.15);
+  for (const x of [-0.26, 0.26]) { k.add(bx(0.035, 0.12, 0.14), BM.dark, x, 0.06, 0.01); k.add(bx(0.035, 0.12, 0.025), BM.dark, x, 0.19, -0.07); }
+  k.seat(-0.14, 0.13, 0.02, 0); k.seat(0.14, 0.13, 0.02, 0);
+  return k;
+}
+function modelPicnic() {
+  const k = new Kit();
+  k.add(bx(0.64, 0.035, 0.34), BM.wood, 0, 0.2, 0);
+  for (const z of [-0.31, 0.31]) k.add(bx(0.64, 0.03, 0.11), BM.wood, 0, 0.11, z);
+  for (const x of [-0.24, 0.24]) { k.add(bx(0.035, 0.03, 0.74), BM.dark, x, 0.08, 0); k.add(bx(0.035, 0.2, 0.035), BM.dark, x, 0.1, 0); }
+  for (const x of [-0.2, 0, 0.2]) { k.seat(x, 0.12, 0.31, Math.PI); k.seat(x, 0.12, -0.31, 0); }
+  return k;
+}
+// A planted tree is drawn with the forest's own tree, in one batch with every other planted tree; its
+// building only shows a stand-in while it's being placed.
+function modelTree(tier, b, ghost) {
+  const k = new Kit();
+  if (ghost) { k.add(new THREE.ConeGeometry(0.38, 0.9, 7), BM.dark, 0, 0.6, 0); k.add(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 5), BM.wood, 0, 0.15, 0); }
+  return k;
+}
+function modelBar() {
+  const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
+  hall(k, { w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
+  for (const wx of [-1.1, -0.55, 0.55, 1.1]) { k.add(bx(0.4, 0.4, 0.04), BM.dark, wx, 0.36, 0.41); k.add(bx(0.34, 0.34, 0.05), BM.glow, wx, 0.36, 0.415); }
+  door(k, 0, 0.42, 0.46, 0.34, BM.dark);
+  k.add(bx(3.2, 0.06, 0.3), acc, 0, 0.66, 0.56, -0.2); // awning
+  sign(k, 'bar', 0, 0.94, 0.42, 0.9);
+  chimneyTop(k, 1.05, 1.4, -0.85);
+  deck(k, 0, 1.1, 3.6, 1.2);
+  for (const px of [-1.2, 1.2]) picnic(k, px, 1.25);
+  // a fire pit in the middle of the deck, and string lights over it
+  k.add(new THREE.CylinderGeometry(0.22, 0.26, 0.14, 10), BM.stone, 0, 0.24, 1.2);
+  k.add(new THREE.CylinderGeometry(0.14, 0.1, 0.1, 8), BM.glow, 0, 0.33, 1.2);
+  for (let i = 0; i <= 12; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.75 + i * 0.29, 0.66 - 0.08 * Math.sin(i / 12 * Math.PI), 1.75);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
+  return k;
+}
+function modelRental() {
+  const k = new Kit();
+  hall(k, { w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
+  door(k, 0, 0.51, 0.44, 0.34, BM.dark);
+  k.add(bx(1.4, 0.05, 0.45), accentMat(BTYPES.rental.accent), 0, 0.66, 0.7, -0.3);
+  sign(k, 'rental', 0, 0.88, 0.52, 0.95);
+  skiRack(k, -0.85, 0.75, 9); skiRack(k, 0.85, 0.75, 9);
+  k.add(bx(2.8, 0.06, 1.0), BM.plank, 0, 0.03, 0.75);
+  return k;
+}
+function modelSchool() {
+  const k = new Kit();
+  hall(k, { w: 2.5, d: 1.4, h: 0.6, rise: 0.5, z: -1.4, chimney: -1 });
+  door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
+  sign(k, 'school', 0, 0.86, -0.68, 1.05);
+  k.add(bx(3.0, 0.05, 2.7), BM.groomed, 0, 0.025, 0.85);
+  k.add(bx(0.22, 0.04, 2.2), BM.asphalt, 1.25, 0.06, 0.85); // magic carpet
+  k.add(bx(0.3, 0.3, 0.25), accentMat(BTYPES.school.accent), 1.25, 0.15, 2.05);
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 6; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0xd94f2a), -1.1 + i * 0.36, 0.05, 0.2 + (i % 2) * 1.3);
+  for (const [fx, fz] of [[-1.4, -0.4], [1.4, -0.4], [-1.4, 2.1]]) { k.add(bx(0.03, 0.5, 0.03), BM.dark, fx, 0.25, fz); k.add(bx(0.18, 0.11, 0.01), accentMat(BTYPES.school.accent), fx + 0.1, 0.44, fz); }
+  return k;
+}
+function modelPatrol() {
+  const k = new Kit();
+  hall(k, { w: 2.1, d: 1.5, h: 0.6, rise: 0.5, z: -0.25, roof: accentMat(0x9e2a24), chimney: -1 });
+  door(k, 0.3, 0.51, 0.44, 0.3, accentMat(BTYPES.patrol.accent));
+  sign(k, 'patrol', -0.45, 0.82, 0.52, 0.8);
+  k.add(bx(0.3, 0.3, 0.02), BM.white, 0.3, 0.98, 0.52);
+  k.add(bx(0.07, 0.22, 0.03), accentMat(BTYPES.patrol.accent), 0.3, 0.98, 0.53); k.add(bx(0.22, 0.07, 0.03), accentMat(BTYPES.patrol.accent), 0.3, 0.98, 0.53);
+  k.push(-0.6, 0, 0.85, 0.2);
+  k.add(bx(0.32, 0.1, 0.8), accentMat(BTYPES.patrol.accent), 0, 0.08, 0);
+  k.add(bx(0.36, 0.03, 0.84), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  k.add(bx(0.03, 0.9, 0.03), BM.dark, 0.95, 0.45, 0.75); k.add(bx(0.26, 0.15, 0.01), accentMat(0xff7a1a), 1.08, 0.82, 0.75);
+  return k;
+}
+function modelTruck() {
+  const k = new Kit(), acc = accentMat(BTYPES.truck.accent);
+  const wheel = new THREE.CylinderGeometry(0.13, 0.13, 0.08, 12).rotateX(Math.PI / 2);
+  k.add(bx(1.5, 0.75, 0.9), BM.white, -0.2, 0.55, -0.1);          // the kitchen box
+  k.add(bx(1.52, 0.12, 0.92), acc, -0.2, 0.25, -0.1);              // painted skirt
+  k.add(bx(0.5, 0.55, 0.86), acc, 0.78, 0.45, -0.1);               // cab
+  k.add(bx(0.06, 0.26, 0.7), BM.glass, 1.04, 0.58, -0.1);          // windscreen
+  for (const [wx, wz] of [[-0.65, 0.36], [0.6, 0.36], [-0.65, -0.56], [0.6, -0.56]]) k.add(wheel, BM.dark, wx, 0.13, wz);
+  k.add(bx(0.9, 0.34, 0.04), BM.dark, -0.25, 0.62, 0.36); k.add(bx(0.82, 0.28, 0.05), BM.glow, -0.25, 0.62, 0.365); // serving window
+  k.add(bx(1.1, 0.04, 0.4), acc, -0.25, 0.86, 0.52, -0.35);        // awning
+  k.add(bx(0.95, 0.05, 0.18), BM.wood, -0.25, 0.45, 0.42);         // counter
+  sign(k, 'truck', -0.2, 1.08, -0.1, 0.9);
+  picnic(k, -0.75, 1.15); picnic(k, 0.45, 1.15);
+  k.add(bx(0.03, 0.55, 0.03), BM.dark, 0.95, 0.28, 0.55); k.add(bx(0.3, 0.38, 0.02), BM.dark, 0.95, 0.62, 0.56); // menu board
+  return k;
+}
+function modelCafe() {
+  const k = new Kit(), acc = accentMat(BTYPES.cafe.accent);
+  hall(k, { w: 2.4, d: 1.5, h: 0.62, rise: 0.48, z: -0.3, chimney: 1, windows: false });
+  for (const wx of [-0.75, 0.75]) { k.add(bx(0.62, 0.42, 0.04), BM.dark, wx, 0.36, 0.46); k.add(bx(0.56, 0.36, 0.05), BM.glow, wx, 0.36, 0.465); }
+  door(k, 0, 0.47, 0.44, 0.3, BM.dark);
+  for (let i = 0; i < 6; i++) k.add(bx(0.4, 0.04, 0.42), accentMat(i % 2 ? 0xf2ece4 : BTYPES.cafe.accent), -1.0 + i * 0.4, 0.7, 0.66, -0.3); // striped awning
+  sign(k, 'cafe', 0, 0.98, 0.47, 0.8);
+  chimneyTop(k, 0.85, 1.3, -0.6);
+  deck(k, 0, 1.05, 2.6, 0.9);
+  picnic(k, -0.65, 1.1); picnic(k, 0.65, 1.1);
+  k.add(bx(0.1, 0.08, 0.1), acc, -0.65, 0.33, 1.1); k.add(bx(0.1, 0.08, 0.1), acc, 0.65, 0.33, 1.1); // mugs
+  return k;
+}
+function modelFine() {
+  const k = new Kit(), acc = accentMat(BTYPES.fine.accent);
+  k.add(bx(3.9, 0.22, 2.2), BM.stone, 0, 0.11, -0.4);              // stone plinth
+  k.push(0, 0.22, 0);
+  hall(k, { w: 3.7, d: 2.0, h: 0.82, rise: 0.7, z: -0.4, roof: accentMat(0x2c2a33), chimney: -1, windows: false });
+  for (let i = 0; i < 5; i++) {
+    const wx = -1.4 + i * 0.7;
+    if (Math.abs(wx) < 0.2) continue;
+    k.add(bx(0.5, 0.62, 0.04), BM.dark, wx, 0.42, 0.61); k.add(bx(0.44, 0.56, 0.05), BM.glow, wx, 0.42, 0.615);
+  }
+  door(k, 0, 0.62, 0.56, 0.36, acc);
+  sign(k, 'fine', 0, 1.06, 0.62, 1.3);
+  chimneyTop(k, -1.2, 1.75, -0.8);
+  k.pop();
+  deck(k, 0, 1.2, 4.0, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.25);
+  for (let i = 0; i <= 14; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.95 + i * 0.28, 0.85 - 0.09 * Math.sin(i / 14 * Math.PI), 1.7); // string lights
+  for (const s of [-1, 1]) { k.add(bx(0.05, 0.85, 0.05), BM.dark, s * 2.0, 0.42, 1.7); k.add(bx(0.12, 0.14, 0.12), BM.glow, s * 2.0, 0.92, 1.7); }
+  return k;
+}
+function modelTuning() {
+  const k = new Kit(), acc = accentMat(BTYPES.tuning.accent);
+  hall(k, { w: 3.6, d: 2.0, h: 0.75, rise: 0.6, z: -0.4, chimney: 1 });
+  k.add(bx(1.1, 0.6, 0.04), BM.dark, -0.9, 0.32, 0.61);              // workshop roll-up door
+  for (let i = 0; i < 5; i++) k.add(bx(1.02, 0.03, 0.05), BM.steel, -0.9, 0.08 + i * 0.12, 0.63);
+  door(k, 0.55, 0.61, 0.46, 0.32, BM.dark);
+  k.add(bx(2.0, 0.05, 0.42), acc, 0.4, 0.78, 0.82, -0.3);
+  sign(k, 'tuning', 0.3, 1.02, 0.61, 1.25);
+  skiRack(k, -1.5, 1.0, 10); skiRack(k, 0.1, 1.0, 10); skiRack(k, 1.4, 1.0, 8);
+  k.add(bx(3.8, 0.06, 1.1), BM.plank, 0, 0.03, 0.95);
+  return k;
+}
+function modelStore() {
+  const k = new Kit(), acc = accentMat(BTYPES.store.accent);
+  hall(k, { w: 3.0, d: 1.8, h: 0.72, rise: 0.55, z: -0.35, roof: accentMat(0x2f3d4f), chimney: -1, windows: false });
+  for (const wx of [-0.95, 0.95]) { k.add(bx(0.9, 0.5, 0.04), BM.dark, wx, 0.34, 0.56); k.add(bx(0.84, 0.44, 0.05), BM.glow, wx, 0.34, 0.565); }
+  for (const [wx, c] of [[-1.15, 0xd94f2a], [-0.75, 0x2565d4], [0.75, 0x2c9a55], [1.15, 0xe0a21b]]) { k.add(bx(0.12, 0.3, 0.06), accentMat(c), wx, 0.3, 0.6); k.add(bx(0.09, 0.09, 0.06), BM.white, wx, 0.5, 0.6); } // jackets in the windows
+  door(k, 0, 0.56, 0.46, 0.34, acc);
+  k.add(bx(3.0, 0.05, 0.36), acc, 0, 0.76, 0.74, -0.25);
+  sign(k, 'store', 0, 1.0, 0.56, 1.2);
+  k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
+  return k;
+}
+function modelGift() {
+  const k = new Kit(), acc = accentMat(BTYPES.gift.accent);
+  k.add(bx(1.1, 0.62, 0.8), BM.log, 0, 0.31, -0.15);
+  k.add(bx(1.3, 0.06, 1.05), BM.roof, 0, 0.66, -0.05, -0.12); k.add(bx(1.24, 0.05, 0.98), BM.snow, 0, 0.71, -0.06, -0.12);
+  k.add(bx(0.86, 0.3, 0.04), BM.dark, 0, 0.42, 0.26); k.add(bx(0.8, 0.24, 0.05), BM.glow, 0, 0.42, 0.265);
+  k.add(bx(1.0, 0.04, 0.3), acc, 0, 0.6, 0.4, -0.35);
+  k.add(bx(0.9, 0.05, 0.16), BM.wood, 0, 0.3, 0.34);
+  sign(k, 'gift', 0, 0.86, 0.12, 0.8);
+  for (const [x, c] of [[-0.55, 0xd94f2a], [-0.45, 0x2565d4], [0.45, 0x2c9a55], [0.55, 0xe0a21b]]) k.add(bx(0.07, 0.07, 0.07), accentMat(c), x, 0.36, 0.42);
+  return k;
+}
+function modelRestroom() {
+  const k = new Kit();
+  hall(k, { w: 1.5, d: 1.05, h: 0.5, rise: 0.4, z: -0.15, windows: false });
+  door(k, -0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent)); door(k, 0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent));
+  sign(k, 'restroom', 0, 0.68, 0.4, 0.7);
+  return k;
+}
+function modelShuttle() {
+  const k = new Kit();
+  k.add(bx(3.3, 0.06, 0.95), BM.plank, 0, 0.03, -0.45); // platform
+  k.add(bx(3.4, 0.09, 0.12), BM.stone, 0, 0.045, -0.01); // curb
+  k.add(bx(2.0, 0.06, 0.75), accentMat(BTYPES.shuttle.accent), 0, 0.7, -0.45);
+  k.add(bx(2.06, 0.05, 0.79), BM.snow, 0, 0.75, -0.45);
+  for (const sx of [-0.95, 0.95]) for (const sz of [-0.75, -0.15]) k.add(bx(0.05, 0.7, 0.05), BM.dark, sx, 0.35, sz);
+  k.add(bx(1.9, 0.5, 0.03), BM.glass, 0, 0.36, -0.78);
+  k.add(bx(1.4, 0.04, 0.18), BM.wood, 0, 0.18, -0.62);
+  k.add(bx(0.04, 0.9, 0.04), BM.dark, 1.3, 0.45, -0.2);
+  sign(k, 'shuttle', 1.3, 0.92, -0.17, 0.6);
+  return k;
+}
+function modelClinic() {
+  const k = new Kit(), acc = accentMat(BTYPES.clinic.accent);
+  hall(k, { w: 2.4, d: 1.5, h: 0.62, rise: 0.42, z: -0.2, roof: accentMat(0x8a2a26), chimney: -1 });
+  door(k, 0, 0.56, 0.46, 0.4, BM.glass);
+  sign(k, 'clinic', 0, 0.86, 0.56, 0.95);
+  // a white panel with a red cross on the gable end
+  k.add(bx(0.04, 0.34, 0.34), BM.white, 1.21, 0.42, -0.2);
+  k.add(bx(0.05, 0.24, 0.07), acc, 1.22, 0.42, -0.2); k.add(bx(0.05, 0.07, 0.24), acc, 1.22, 0.42, -0.2);
+  k.add(bx(1.0, 0.04, 0.5), acc, 0, 0.66, 0.78); // ambulance canopy
+  for (const sx of [-0.46, 0.46]) k.add(bx(0.04, 0.64, 0.04), BM.dark, sx, 0.32, 1.0);
+  k.push(-0.95, 0, 0.85, 0.15); // a patrol toboggan parked out front
+  k.add(bx(0.3, 0.1, 0.78), acc, 0, 0.08, 0); k.add(bx(0.34, 0.03, 0.82), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  return k;
+}
+function modelKids() {
+  const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
+  hall(k, { w: 2.6, d: 1.3, h: 0.56, rise: 0.4, z: -1.0, roof: accentMat(0x2c7fb8), chimney: 1 });
+  door(k, 0, -0.34, 0.42, 0.3, acc);
+  sign(k, 'kids', -0.75, 0.8, -0.34, 0.85);
+  // a fenced play area out front, with a little slide and snowmen
+  for (const x of [-1.7, 1.7]) k.add(bx(0.04, 0.22, 2.0), acc, x, 0.11, 0.65);
+  k.add(bx(3.44, 0.22, 0.04), acc, 0, 0.11, 1.65);
+  for (const x of [-1.7, -0.85, 0, 0.85, 1.7]) k.add(bx(0.06, 0.3, 0.06), BM.wood, x, 0.15, 1.65);
+  k.add(bx(0.32, 0.36, 0.32), accentMat(0xd94f2a), 0.9, 0.18, 0.35);
+  k.add(bx(0.24, 0.04, 0.9), accentMat(0x2c9a55), 0.9, 0.2, 0.85, 0.42);
+  for (const [x, z] of [[-1.0, 0.6], [-0.4, 1.1]]) {
+    const sb = new THREE.SphereGeometry(0.13, 10, 8), st = new THREE.SphereGeometry(0.09, 10, 8);
+    k.add(sb, BM.white, x, 0.12, z); k.add(st, BM.white, x, 0.3, z);
+    k.add(bx(0.03, 0.03, 0.08), accentMat(0xff7a1a), x, 0.31, z + 0.1);
+  }
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 4; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0x7a4bc4), -1.3 + i * 0.3, 0.02, 1.35);
+  return k;
+}
+function modelHrest() {
+  const k = new Kit(), acc = accentMat(BTYPES.hrest.accent);
+  hall(k, { w: 2.1, d: 1.2, h: 0.55, rise: 0.42, z: -0.15, windows: false, chimney: 1 });
+  door(k, -0.5, 0.46, 0.42, 0.26, acc); door(k, 0.5, 0.46, 0.42, 0.26, acc);
+  sign(k, 'hrest', 0, 0.76, 0.46, 1.05);
+  for (const x of [-0.85, 0.85]) { k.add(bx(0.14, 0.12, 0.04), BM.dark, x, 0.42, 0.46); k.add(bx(0.1, 0.08, 0.05), BM.glow, x, 0.42, 0.465); }
+  k.add(bx(2.2, 0.05, 0.4), BM.plank, 0, 0.03, 0.66);
+  return k;
+}
+function modelTransit() {
+  const k = new Kit(), acc = accentMat(BTYPES.transit.accent);
+  k.add(bx(5.1, 0.06, 1.45), BM.plank, 0, 0.03, -0.5); // platform
+  k.add(bx(5.2, 0.09, 0.14), BM.stone, 0, 0.045, 0.16); // curb
+  hall(k, { w: 4.0, d: 1.0, h: 0.6, rise: 0.36, z: -0.75, roof: accentMat(0x4a3570), windows: false, chimney: -1 });
+  for (let i = 0; i < 5; i++) { const x = -1.6 + i * 0.8; k.add(bx(0.62, 0.42, 0.04), BM.dark, x, 0.34, -0.24); k.add(bx(0.56, 0.36, 0.05), BM.glow, x, 0.34, -0.235); }
+  k.add(bx(4.6, 0.06, 0.62), acc, 0, 0.74, 0.0); // long canopy over the platform
+  k.add(bx(4.64, 0.05, 0.66), BM.snow, 0, 0.79, 0.0);
+  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), BM.dark, x, 0.36, 0.1);
+  for (const x of [-1.5, 1.5]) k.add(bx(0.7, 0.04, 0.16), BM.wood, x, 0.18, -0.1);
+  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.05);
+  sign(k, 'transit', 0, 1.0, -0.22, 1.2);
+  return k;
+}
+const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle };
+/* ---------- Modern mountain alternatives; opt-in registry, no live style selection yet. ---------- */
+// Same Kit/box pipeline and shared wood, stone and glow as classic buildings. No new textures.
+const MODERN_METAL = accentMat(0x252b30);
+const MODERN_RAIL = BM.glass.clone();
+MODERN_RAIL.transparent = true; MODERN_RAIL.opacity = 0.32; MODERN_RAIL.depthWrite = false;
+function modernVolume(k, { x = 0, z = 0, y = 0, w, d, h, over = 0.12, shed = 0, glazing = null, wall = MODERN_METAL }) {
+  k.push(x, y, z);
+  k.add(bx(w, h, d), wall, 0, h / 2, 0);
+  k.add(bx(w, 0.09, d), glazing ? MODERN_METAL : BM.stone, 0, 0.045, 0);
+  // Explicit openings let service buildings keep solid walls and privacy.
+  if (glazing) {
+    for (const [wx, wy, ww, wh, side] of glazing) {
+      k.add(bx(ww + 0.045, wh + 0.045, 0.025), MODERN_METAL, wx, wy, side * (d / 2 + 0.008));
+      k.add(bx(ww, wh, 0.025), BM.glow, wx, wy, side * (d / 2 + 0.022));
+    }
+  } else {
+    const n = Math.max(2, Math.ceil(w / 0.65)), pane = w / n;
+    for (const side of [-1, 1]) for (let i = 0; i < n; i++) {
+      k.add(bx(pane - 0.045, h - 0.18, 0.025), BM.glow, -w / 2 + pane * (i + 0.5), h / 2, side * (d / 2 + 0.016));
+    }
+  }
+  if (glazing) {
+    // Narrow panel joints and a smooth dark base give the facade a crisp scale.
+    for (let px = -w / 2 + 0.45; px < w / 2 - 0.1; px += 0.45)
+      k.add(bx(0.008, h - 0.12, 0.008), MODERN_METAL, px, h / 2, d / 2 + 0.003);
+  }
+  // Vertical timber fins on the side walls and warm soffits beneath the sharp roof edge.
+  for (const side of [-1, 1]) for (let i = 0; i < Math.ceil(d / 0.15); i++) {
+    k.add(bx(0.035, h - 0.14, 0.075), BM.wood, side * (w / 2 + 0.018), h / 2, -d / 2 + 0.08 + i * 0.15);
+  }
+  const roofY = h + Math.abs(Math.sin(shed)) * (d / 2 + over);
+  k.add(bx(w + over * 2, 0.035, d + over * 2), BM.wood, 0, roofY, 0, shed);
+  k.add(bx(w + over * 2, 0.055, d + over * 2), MODERN_METAL, 0, roofY + 0.04, 0, shed);
+  k.add(bx(w + over * 2 - 0.06, 0.025, d + over * 2 - 0.06), BM.snow, 0, roofY + 0.08, 0, shed);
+  k.pop();
+}
+function modernDeck(k, x, z, w, d) {
+  deck(k, x, z, w, d, false); // retain the classic floor/seat height
+  k.add(bx(w - 0.12, 0.035, d - 0.12), MODERN_METAL, x, 0.005, z); // recessed cantilever beam
+  for (const side of [-1, 1]) {
+    k.add(bx(0.018, 0.24, d - 0.08), MODERN_RAIL, x + side * (w / 2 - 0.03), 0.23, z);
+    const span = w / 2 - 0.45, cx = x + side * (w / 4 + 0.21), front = z + d / 2 - 0.03;
+    k.add(bx(span, 0.24, 0.018), MODERN_RAIL, cx, 0.23, front);
+    k.add(bx(span, 0.025, 0.025), MODERN_METAL, cx, 0.36, front);
+    k.add(bx(0.025, 0.025, d), MODERN_METAL, x + side * (w / 2 - 0.03), 0.36, z);
+  }
+}
+function modelLodgeModern(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    modernVolume(k, { w: 3.3, d: 1.8, h: 1.08, z: -0.4 });
+    chimneyTop(k, 1.25, 1.55, -0.8);
+    door(k, 0, 0.51);
+    sign(k, 'lodge', 0, 0.82, 0.52, 0.95);
+    modernDeck(k, 0, 0.92, 3.3, 0.86);
+    picnic(k, -1.0, 0.95); picnic(k, 1.0, 0.95);
+    skiRack(k, -1.75, 0.2, 6, Math.PI / 2);
+  } else if (tier === 1) {
+    modernVolume(k, { w: 2.5, d: 2.5, h: 1.65, z: -0.45 });
+    for (const s of [-1, 1]) modernVolume(k, { w: 1.45, d: 2.0, h: 0.98, x: s * 1.95, z: -0.55, over: 0.05 });
+    chimneyTop(k, -2.1, 1.45, -0.95);
+    door(k, 0, 0.84, 0.42, 0.34);
+    sign(k, 'lodge', 0, 1.32, 0.8, 0.95);
+    modernDeck(k, 0, 1.33, 5.0, 1.0);
+    for (const px of [-1.8, -0.7, 0.7, 1.8]) picnic(k, px, 1.4);
+    skiRack(k, -2.55, 0.65, 8, Math.PI / 2); skiRack(k, 2.55, 0.65, 8, -Math.PI / 2);
+  } else {
+    modernVolume(k, { w: 3.1, d: 3.1, h: 1.62, z: -0.5 });
+    for (const s of [-1, 1]) modernVolume(k, { w: 1.9, d: 2.5, h: 1.12, x: s * 2.5, z: -0.6, over: 0.1 });
+    modernVolume(k, { w: 2.8, d: 1.9, h: 0.65, x: 0.25, z: -0.95, y: 1.74, over: 0.08 });
+    door(k, 0, 1.09, 0.4, 0.4);
+    sign(k, 'lodge', 0, 1.27, 1.08, 1.1);
+    modernDeck(k, 0, 1.75, 6.8, 1.15);
+    for (const px of [-2.7, -1.6, -0.55, 0.55, 1.6, 2.7]) picnic(k, px, 1.8);
+    chimneyTop(k, -0.9, 2.9, -1.4);
+    skiRack(k, -3.4, 0.8, 9, Math.PI / 2); skiRack(k, 3.4, 0.8, 9, -Math.PI / 2);
+  }
+  return k;
+}
+function modelCafeModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.cafe.accent);
+  modernVolume(k, { w: 2.4, d: 1.5, h: 1.12, z: -0.3, shed: -0.07 });
+  chimneyTop(k, 0.85, 1.45, -0.6);
+  door(k, 0, 0.47, 0.44, 0.3, BM.dark);
+  sign(k, 'cafe', 0, 0.98, 0.47, 0.8);
+  modernDeck(k, 0, 1.05, 2.6, 0.9);
+  picnic(k, -0.65, 1.1); picnic(k, 0.65, 1.1);
+  k.add(bx(0.1, 0.08, 0.1), acc, -0.65, 0.33, 1.1); k.add(bx(0.1, 0.08, 0.1), acc, 0.65, 0.33, 1.1);
+  return k;
+}
+
+function modelRestaurantModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 3.7, d: 1.9, h: 1.2, z: -0.45 });
+  // Offset, lower service block at the rear; the dining room remains open to the deck.
+  k.add(bx(1.15, 0.22, 0.7), BM.wood, -1.05, 1.35, -0.9);
+  k.add(bx(1.2, 0.04, 0.75), MODERN_METAL, -1.05, 1.48, -0.9);
+  chimneyTop(k, 1.2, 1.65, -0.75);
+  door(k, 0, 0.53, 0.46, 0.32, BM.dark);
+  sign(k, 'restaurant', 0, 0.96, 0.53, 1.15);
+  modernDeck(k, 0, 1.03, 3.9, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.1);
+  return k;
+}
+
+function modelFineModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.fine.accent);
+  k.add(bx(3.9, 0.22, 2.2), BM.stone, 0, 0.11, -0.4);
+  k.push(0, 0.22, 0);
+  modernVolume(k, { w: 3.7, d: 2.0, h: 1.3, z: -0.4, over: 0.18 });
+  // An asymmetrical timber penthouse above a glazed dining pavilion.
+  modernVolume(k, { w: 1.7, d: 1.2, h: 0.48, x: 0.8, z: -0.6, y: 1.42, over: 0.08 });
+  door(k, 0, 0.62, 0.56, 0.36, acc);
+  sign(k, 'fine', 0, 1.06, 0.62, 1.3);
+  chimneyTop(k, -1.2, 1.95, -0.8);
+  k.pop();
+  modernDeck(k, 0, 1.2, 4.0, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.25);
+  for (const s of [-1, 1]) {
+    k.add(bx(0.09, 0.4, 0.09), MODERN_METAL, s * 1.95, 0.28, 1.65);
+    k.add(bx(0.07, 0.06, 0.07), BM.glow, s * 1.95, 0.51, 1.65);
+  }
+  return k;
+}
+
+function modelBarModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 3.2, d: 1.7, h: 1.12, z: -0.45 });
+  chimneyTop(k, 1.05, 1.55, -0.85);
+  door(k, 0, 0.42, 0.46, 0.34, BM.dark);
+  sign(k, 'bar', 0, 0.94, 0.42, 0.9);
+  modernDeck(k, 0, 1.1, 3.6, 1.2);
+  for (const px of [-1.2, 1.2]) picnic(k, px, 1.25);
+  // Rectilinear outdoor hearth, with a thin timber canopy framing the terrace.
+  k.add(bx(0.48, 0.16, 0.38), BM.stone, 0, 0.23, 1.2);
+  k.add(bx(0.34, 0.07, 0.22), BM.glow, 0, 0.345, 1.2);
+  for (const sx of [-1.7, 1.7]) k.add(bx(0.035, 1.0, 0.035), MODERN_METAL, sx, 0.6, 1.6);
+  k.add(bx(3.45, 0.055, 0.18), BM.wood, 0, 1.12, 1.6);
+  k.add(bx(3.3, 0.018, 0.035), BM.glow, 0, 1.08, 1.6);
+  return k;
+}
+
+function modelRentalModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 2.6, d: 1.6, h: 1.08, z: -0.3, shed: -0.06 });
+  door(k, 0, 0.51, 0.44, 0.34, BM.dark);
+  sign(k, 'rental', 0, 0.88, 0.52, 0.95);
+  skiRack(k, -0.85, 0.75, 9); skiRack(k, 0.85, 0.75, 9);
+  k.add(bx(2.8, 0.06, 1.0), BM.plank, 0, 0.03, 0.75);
+  return k;
+}
+
+function modelStoreModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.store.accent);
+  modernVolume(k, { w: 3.0, d: 1.8, h: 1.18, z: -0.35 });
+  for (const [wx, c] of [[-1.15, 0xd94f2a], [-0.75, 0x2565d4], [0.75, 0x2c9a55], [1.15, 0xe0a21b]]) {
+    k.add(bx(0.12, 0.3, 0.06), accentMat(c), wx, 0.3, 0.6);
+    k.add(bx(0.09, 0.09, 0.06), BM.white, wx, 0.5, 0.6);
+  }
+  door(k, 0, 0.56, 0.46, 0.34, acc);
+  sign(k, 'store', 0, 1.0, 0.56, 1.2);
+  k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
+  return k;
+}
+
+function modelSchoolModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 2.5, d: 1.4, h: 1.05, z: -1.4, shed: -0.08 });
+  door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
+  sign(k, 'school', 0, 0.86, -0.68, 1.05);
+  k.add(bx(3.0, 0.05, 2.7), BM.groomed, 0, 0.025, 0.85);
+  k.add(bx(0.22, 0.04, 2.2), BM.asphalt, 1.25, 0.06, 0.85);
+  k.add(bx(0.3, 0.3, 0.25), accentMat(BTYPES.school.accent), 1.25, 0.15, 2.05);
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 6; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0xd94f2a), -1.1 + i * 0.36, 0.05, 0.2 + (i % 2) * 1.3);
+  for (const [fx, fz] of [[-1.4, -0.4], [1.4, -0.4], [-1.4, 2.1]]) {
+    k.add(bx(0.03, 0.5, 0.03), BM.dark, fx, 0.25, fz);
+    k.add(bx(0.18, 0.11, 0.01), accentMat(BTYPES.school.accent), fx + 0.1, 0.44, fz);
+  }
+  return k;
+}
+
+
+// Modern service buildings retain their classic access points and equipment.
+function modelTuningModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.tuning.accent);
+  modernVolume(k, { w: 3.6, d: 2.0, h: 1.05, rise: 0.6, z: -0.4, chimney: 1 , over: 0.06 });
+  k.add(bx(1.1, 0.6, 0.04), BM.dark, -0.9, 0.32, 0.61);              // workshop roll-up door
+  for (let i = 0; i < 5; i++) k.add(bx(1.02, 0.03, 0.05), BM.steel, -0.9, 0.08 + i * 0.12, 0.63);
+  door(k, 0.55, 0.61, 0.46, 0.32, BM.dark);
+  k.add(bx(2.0, 0.05, 0.42), acc, 0.4, 0.78, 0.82, -0.3);
+  sign(k, 'tuning', 0.3, 1.02, 0.61, 1.25);
+  skiRack(k, -1.5, 1.0, 10); skiRack(k, 0.1, 1.0, 10); skiRack(k, 1.4, 1.0, 8);
+  k.add(bx(3.8, 0.06, 1.1), BM.plank, 0, 0.03, 0.95);
+  return k;
+}
+function modelGiftModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.gift.accent);
+  k.add(bx(1.1, 0.62, 0.8), MODERN_METAL, 0, 0.31, -0.15);
+  k.add(bx(1.3, 0.06, 1.05), MODERN_METAL, 0, 0.66, -0.05, 0); k.add(bx(1.24, 0.05, 0.98), BM.snow, 0, 0.71, -0.06, 0);
+  k.add(bx(0.86, 0.3, 0.04), BM.dark, 0, 0.42, 0.26); k.add(bx(0.8, 0.24, 0.05), BM.glow, 0, 0.42, 0.265);
+  k.add(bx(1.0, 0.04, 0.3), acc, 0, 0.6, 0.4, 0);
+  k.add(bx(0.9, 0.05, 0.16), BM.wood, 0, 0.3, 0.34);
+  for (const x of [-0.5, 0.5]) k.add(bx(0.045, 0.58, 0.07), BM.wood, x, 0.3, 0.29);
+  sign(k, 'gift', 0, 0.86, 0.12, 0.8);
+  for (const [x, c] of [[-0.55, 0xd94f2a], [-0.45, 0x2565d4], [0.45, 0x2c9a55], [0.55, 0xe0a21b]]) k.add(bx(0.07, 0.07, 0.07), accentMat(c), x, 0.36, 0.42);
+  return k;
+}
+// Shallow metal entrance surround; doors and signs keep their established positions.
+function modernPortal(k, x, z, h, w, trim = MODERN_METAL) {
+  for (const side of [-1, 1]) k.add(bx(0.045, h + 0.055, 0.035), trim, x + side * (w / 2 + 0.055), (h + 0.055) / 2, z - 0.003);
+  k.add(bx(w + 0.16, 0.045, 0.09), trim, x, h + 0.055, z + 0.015);
+}
+function modelKidsModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
+  modernVolume(k, { w: 2.6, d: 1.3, h: 0.86, rise: 0.4, z: -1.0, roof: accentMat(0x2c7fb8), chimney: 1 , over: 0.06, glazing: [[-0.78,0.39,0.64,0.4,1],[0.78,0.39,0.64,0.4,1],[-0.7,0.64,0.42,0.16,-1],[0.7,0.64,0.42,0.16,-1]], wall: MODERN_METAL });
+  door(k, 0, -0.34, 0.42, 0.3, acc);
+  sign(k, 'kids', -0.75, 0.8, -0.34, 0.85);
+  // a fenced play area out front, with a little slide and snowmen
+  for (const x of [-1.7, 1.7]) k.add(bx(0.04, 0.22, 2.0), acc, x, 0.11, 0.65);
+  k.add(bx(3.44, 0.22, 0.04), acc, 0, 0.11, 1.65);
+  for (const x of [-1.7, -0.85, 0, 0.85, 1.7]) k.add(bx(0.06, 0.3, 0.06), BM.wood, x, 0.15, 1.65);
+  k.add(bx(0.32, 0.36, 0.32), accentMat(0xd94f2a), 0.9, 0.18, 0.35);
+  k.add(bx(0.24, 0.04, 0.9), accentMat(0x2c9a55), 0.9, 0.2, 0.85, 0.42);
+  for (const [x, z] of [[-1.0, 0.6], [-0.4, 1.1]]) {
+    const sb = new THREE.SphereGeometry(0.13, 10, 8), st = new THREE.SphereGeometry(0.09, 10, 8);
+    k.add(sb, BM.white, x, 0.12, z); k.add(st, BM.white, x, 0.3, z);
+    k.add(bx(0.03, 0.03, 0.08), accentMat(0xff7a1a), x, 0.31, z + 0.1);
+  }
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 4; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0x7a4bc4), -1.3 + i * 0.3, 0.02, 1.35);
+  modernPortal(k, 0, -0.34, 0.42, 0.3, acc);
+  for (const x of [-1.22, 1.22]) k.add(bx(0.1, 0.66, 0.025), acc, x, 0.36, -0.335);
+  return k;
+}
+function modelPatrolModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 2.1, d: 1.5, h: 0.9, rise: 0.5, z: -0.25, roof: accentMat(0x9e2a24), chimney: -1 , over: 0.06, glazing: [[-0.65,0.43,0.42,0.3,1],[-0.55,0.57,0.48,0.25,-1],[0.55,0.57,0.48,0.25,-1]] });
+  door(k, 0.3, 0.51, 0.44, 0.3, accentMat(BTYPES.patrol.accent));
+  sign(k, 'patrol', -0.45, 0.82, 0.52, 0.8);
+  k.add(bx(0.3, 0.3, 0.02), BM.white, 0.3, 0.98, 0.52);
+  k.add(bx(0.07, 0.22, 0.03), accentMat(BTYPES.patrol.accent), 0.3, 0.98, 0.53); k.add(bx(0.22, 0.07, 0.03), accentMat(BTYPES.patrol.accent), 0.3, 0.98, 0.53);
+  k.push(-0.6, 0, 0.85, 0.2);
+  k.add(bx(0.32, 0.1, 0.8), accentMat(BTYPES.patrol.accent), 0, 0.08, 0);
+  k.add(bx(0.36, 0.03, 0.84), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  k.add(bx(0.03, 0.9, 0.03), BM.dark, 0.95, 0.45, 0.75); k.add(bx(0.26, 0.15, 0.01), accentMat(0xff7a1a), 1.08, 0.82, 0.75);
+  modernPortal(k, 0.3, 0.51, 0.44, 0.3);
+  return k;
+}
+function modelClinicModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.clinic.accent);
+  modernVolume(k, { w: 2.4, d: 1.5, h: 0.92, rise: 0.42, z: -0.2, roof: accentMat(0x8a2a26), chimney: -1 , over: 0.06, glazing: [[-0.85,0.7,0.38,0.16,1],[0.85,0.7,0.38,0.16,1],[-0.65,0.73,0.48,0.14,-1],[0.65,0.73,0.48,0.14,-1]], wall: MODERN_METAL });
+  door(k, 0, 0.56, 0.46, 0.4, BM.glass);
+  sign(k, 'clinic', 0, 0.86, 0.56, 0.95);
+  // a white panel with a red cross on the gable end
+  k.add(bx(0.04, 0.34, 0.34), BM.white, 1.21, 0.42, -0.2);
+  k.add(bx(0.05, 0.24, 0.07), acc, 1.22, 0.42, -0.2); k.add(bx(0.05, 0.07, 0.24), acc, 1.22, 0.42, -0.2);
+  k.add(bx(1.0, 0.04, 0.5), acc, 0, 0.66, 0.78); // ambulance canopy
+  for (const sx of [-0.46, 0.46]) k.add(bx(0.04, 0.64, 0.04), BM.dark, sx, 0.32, 1.0);
+  k.push(-0.95, 0, 0.85, 0.15); // a patrol toboggan parked out front
+  k.add(bx(0.3, 0.1, 0.78), acc, 0, 0.08, 0); k.add(bx(0.34, 0.03, 0.82), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  modernPortal(k, 0, 0.56, 0.46, 0.4);
+  return k;
+}
+function modelRestroomModern() {
+  const k = new Kit();
+  modernVolume(k, { w: 1.5, d: 1.05, h: 0.8, rise: 0.4, z: -0.15, windows: false , over: 0.06, glazing: [[-0.38,0.66,0.34,0.12,-1],[0.38,0.66,0.34,0.12,-1]], wall: MODERN_METAL });
+  door(k, -0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent)); door(k, 0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent));
+  sign(k, 'restroom', 0, 0.68, 0.4, 0.7);
+  for (const x of [-0.33, 0.33]) modernPortal(k, x, 0.39, 0.4, 0.24);
+  return k;
+}
+function modelHrestModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.hrest.accent);
+  modernVolume(k, { w: 2.1, d: 1.2, h: 0.85, rise: 0.42, z: -0.15, windows: false, chimney: 1 , over: 0.06, glazing: [[-0.65,0.7,0.42,0.12,-1],[0,0.7,0.42,0.12,-1],[0.65,0.7,0.42,0.12,-1]], wall: MODERN_METAL });
+  door(k, -0.5, 0.46, 0.42, 0.26, acc); door(k, 0.5, 0.46, 0.42, 0.26, acc);
+  sign(k, 'hrest', 0, 0.76, 0.46, 1.05);
+  for (const x of [-0.85, 0.85]) { k.add(bx(0.14, 0.12, 0.04), BM.dark, x, 0.42, 0.46); k.add(bx(0.1, 0.08, 0.05), BM.glow, x, 0.42, 0.465); }
+  k.add(bx(2.2, 0.05, 0.4), BM.plank, 0, 0.03, 0.66);
+  for (const x of [-0.5, 0.5]) modernPortal(k, x, 0.46, 0.42, 0.26);
+  return k;
+}
+function modelShuttleModern() {
+  const k = new Kit();
+  k.add(bx(3.3, 0.06, 0.95), accentMat(0xc8ced0), 0, 0.03, -0.45); // platform
+  k.add(bx(3.4, 0.09, 0.12), BM.stone, 0, 0.045, -0.01); // curb
+  k.add(bx(2.0, 0.06, 0.75), MODERN_METAL, 0, 0.7, -0.45);
+  k.add(bx(2.06, 0.05, 0.79), BM.snow, 0, 0.75, -0.45);
+  for (const sx of [-0.95, 0.95]) for (const sz of [-0.75, -0.15]) k.add(bx(0.05, 0.7, 0.05), BM.dark, sx, 0.35, sz);
+  k.add(bx(1.9, 0.5, 0.03), MODERN_RAIL, 0, 0.36, -0.78);
+  k.add(bx(1.4, 0.04, 0.18), BM.wood, 0, 0.18, -0.62);
+  k.add(bx(0.04, 0.9, 0.04), BM.dark, 1.3, 0.45, -0.2);
+  sign(k, 'shuttle', 1.3, 0.92, -0.17, 0.6);
+  for (const x of [-0.85, -0.7, -0.55]) k.add(bx(0.04, 0.62, 0.04), BM.wood, x, 0.35, -0.8);
+  return k;
+}
+function modelTransitModern() {
+  const k = new Kit(), acc = accentMat(BTYPES.transit.accent);
+  k.add(bx(5.1, 0.06, 1.45), BM.plank, 0, 0.03, -0.5); // platform
+  k.add(bx(5.2, 0.09, 0.14), BM.stone, 0, 0.045, 0.16); // curb
+  modernVolume(k, { w: 4.0, d: 1.0, h: 0.9, rise: 0.36, z: -0.75, roof: accentMat(0x4a3570), windows: false, chimney: -1 , over: 0.06 });
+  for (let i = 0; i < 5; i++) { const x = -1.6 + i * 0.8; k.add(bx(0.62, 0.42, 0.04), BM.dark, x, 0.34, -0.24); k.add(bx(0.56, 0.36, 0.05), BM.glow, x, 0.34, -0.235); }
+  k.add(bx(4.6, 0.06, 0.62), acc, 0, 0.74, 0.0); // long canopy over the platform
+  k.add(bx(4.64, 0.05, 0.66), BM.snow, 0, 0.79, 0.0);
+  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), BM.dark, x, 0.36, 0.1);
+  for (const x of [-1.5, 1.5]) k.add(bx(0.7, 0.04, 0.16), BM.wood, x, 0.18, -0.1);
+  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.05);
+  sign(k, 'transit', 0, 1.0, -0.22, 1.2);
+  return k;
+}
+const MODELS_MODERN = { tuning: modelTuningModern, gift: modelGiftModern, kids: modelKidsModern, patrol: modelPatrolModern, clinic: modelClinicModern, restroom: modelRestroomModern, hrest: modelHrestModern, shuttle: modelShuttleModern, transit: modelTransitModern, lodge: modelLodgeModern, cafe: modelCafeModern, restaurant: modelRestaurantModern, fine: modelFineModern, bar: modelBarModern, rental: modelRentalModern, store: modelStoreModern, school: modelSchoolModern };
+
+// Console-only, transient comparison. Left: classic; right: modern. Never enters world.buildings/saves.
+// Open ?dev, then previewStyles(); previewStyles({ types: ['lodge'], tier: 2 }) for one pair.
+function previewStyles({ types = Object.keys(MODELS_MODERN), tier = null, x = -28, z = 10, spacing = 7, focus = true } = {}) {
+  if (!DEV) throw new Error('Building previews require ?dev');
+  if (!Array.isArray(types) || !types.length || types.some((t) => !MODELS_MODERN[t])) throw new Error('Unknown preview building type');
+  if (![x, z, spacing].every(Number.isFinite) || spacing < 6) throw new Error('Preview spacing must be at least 6');
+  if (tier !== null && (!Number.isInteger(tier) || tier < 0 || types.some((t) => tier >= (BTYPES[t].tiers?.length || 1)))) throw new Error('Unknown preview tier');
+  clearStylePreview();
+  const root = new THREE.Group(), entries = [];
+  root.name = '__buildingStylesPreview';
+  let row = 0;
+  for (const type of types) for (const t of (tier === null ? Array.from({ length: BTYPES[type].tiers?.length || 1 }, (_, i) => i) : [tier])) {
+    const spec = BTYPES[type].tiers?.[t] || BTYPES[type], pz = z + row * spacing;
+    // Sample a common floor for the pair so slopes cannot bury one of the two models.
+    let floor = -Infinity;
+    for (let px = x - 4.5 - spec.w / 2; px <= x + 4.5 + spec.w / 2 + 0.1; px += 0.5)
+      for (const dz of [-spec.d / 2, 0, spec.d / 2]) floor = Math.max(floor, heightAt(px, pz + dz) * VEX + 0.08);
+    for (const [style, fn, dx] of [['classic', MODELS[type], -4.5], ['modern', MODELS_MODERN[type], 4.5]]) {
+      const k = fn(t), group = k.build();
+      group.position.set(x + dx, floor, pz);
+      group.name = `${type}-${t}-${style}`;
+      root.add(group); entries.push({ type, tier: t, style, x: x + dx, y: floor, z: pz, seats: k.seats.length });
+    }
+    row++;
+  }
+  root.userData.entries = entries;
+  scene.add(root);
+  if (focus) {
+    cam.target.set(x, entries.reduce((sum, e) => sum + e.y, 0) / entries.length, z + (row - 1) * spacing / 2);
+    cam.az = cam.azGoal = 0.25;
+    cam.viewH = Math.max(10, row * spacing * 0.7 + 6, 18 / (W / H)); cam.viewGoal = null;
+    updateCamera();
+  }
+  renderer.shadowMap.needsUpdate = true;
+  return entries;
+}
+function clearStylePreview() {
+  if (!DEV) return;
+  const old = scene.getObjectByName('__buildingStylesPreview');
+  if (!old) return;
+  scene.remove(old);
+  old.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); // shared materials belong to the game
+  renderer.shadowMap.needsUpdate = true;
+}
+if (DEV) { window.previewStyles = previewStyles; window.clearStylePreview = clearStylePreview; }
+/* ---------- Scandinavian village alternatives ---------- */
+const SCANDI_TRIM = accentMat(0xe7d9b9);
+function scandiHall(k, o) {
+  const { x = 0, z = 0, w, d, h, color = 0xa74438, privateFront = false } = o;
+  // A row of narrow, front-facing houses instead of a single broad chalet roof.
+  const count = w >= 3 ? 3 : w >= 2.3 ? 2 : 1, bay = w / count;
+  for (let i = 0; i < count; i++) {
+    const px = x - w / 2 + bay * (i + 0.5), recess = i % 2 ? 0.12 : 0;
+    const depth = d - recess, pz = z - recess / 2;
+    const wall = Math.max(0.92, h) + (i % 2 ? 0.17 : 0), rise = bay * 0.58;
+    const front = pz + depth / 2, width = bay - 0.075;
+    const start = k.parts.length;
+    hall(k, { x: px, z: pz, w: width, d: depth, h: wall, rise, over: 0.03, gableFront: true, windows: false, roof: accentMat(0x394449) });
+    for (let j = start; j < k.parts.length; j++) {
+      if (k.parts[j][1] === BM.log) k.parts[j][1] = accentMat(color);
+      else if (k.parts[j][1] === BM.dark) k.parts[j][1] = SCANDI_TRIM;
+    }
+    // Tall paired windows with pale surrounds; upper gable light reads from a distance.
+    for (const side of privateFront ? [] : [-1, 1]) {
+      const wx = px + side * width * 0.27;
+      k.add(bx(width * 0.3, wall * 0.68, 0.035), SCANDI_TRIM, wx, wall * 0.51, front + 0.012);
+      k.add(bx(width * 0.3 - 0.045, wall * 0.68 - 0.045, 0.025), BM.glow, wx, wall * 0.51, front + 0.035);
+      k.add(bx(0.02, wall * 0.66, 0.02), SCANDI_TRIM, wx, wall * 0.51, front + 0.055);
+      k.add(bx(0.04, wall, 0.035), SCANDI_TRIM, px + side * (width / 2 - 0.025), wall / 2, front + 0.01);
+    }
+    if (!privateFront) k.add(bx(width * 0.25, rise * 0.3, 0.025), BM.glow, px, wall + rise * 0.3, front + 0.02);
+    for (let a = -width / 2 + 0.08; a < width / 2; a += 0.13)
+      k.add(bx(0.018, wall - 0.04, 0.01), accentMat(color), px + a, wall / 2, front + 0.006);
+    for (const side of [-1, 1]) for (let a = -depth / 2 + 0.08; a < depth / 2; a += 0.14)
+      k.add(bx(0.01, wall - 0.04, 0.018), accentMat(color), px + side * width / 2, wall / 2, pz + a);
+  }
+}
+function scandiDeck(k, ...args) {
+  const start = k.parts.length;
+  deck(k, ...args);
+  for (let i = start; i < k.parts.length; i++) if (k.parts[i][1] === BM.wood || k.parts[i][1] === BM.plank) k.parts[i][1] = SCANDI_TRIM;
+}
+
+function modelLodgeScandinavian(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    scandiHall(k, { color: 0xa74438, w: 3.3, d: 1.8, h: 0.62, rise: 0.62, z: -0.4, chimney: 1 });
+    door(k, 0, 0.51);
+    sign(k, 'lodge', 0, 0.82, 0.52, 0.95);
+    scandiDeck(k, 0, 0.92, 3.3, 0.86);
+    picnic(k, -1.0, 0.95); picnic(k, 1.0, 0.95);
+    skiRack(k, -1.75, 0.2, 6, Math.PI / 2);
+  } else if (tier === 1) {
+    scandiHall(k, { color: 0xa74438, w: 2.5, d: 2.5, h: 0.95, rise: 1.05, z: -0.45, gableFront: true });
+    for (const s of [-1, 1]) scandiHall(k, { color: s < 0 ? 0xd4a842 : 0x577b8e, w: 1.45, d: 2.0, h: 0.62, rise: 0.55, x: s * 1.95, z: -0.55, chimney: s });
+    door(k, 0, 0.84, 0.42, 0.34);
+    sign(k, 'lodge', 0, 1.32, 0.8, 0.95);
+    scandiDeck(k, 0, 1.33, 5.0, 1.0);
+    for (const px of [-1.8, -0.7, 0.7, 1.8]) picnic(k, px, 1.4);
+    skiRack(k, -2.55, 0.65, 8, Math.PI / 2); skiRack(k, 2.55, 0.65, 8, -Math.PI / 2);
+  } else {
+    scandiHall(k, { color: 0xa74438, w: 3.1, d: 3.1, h: 1.2, rise: 1.3, z: -0.5, gableFront: true });
+    for (const s of [-1, 1]) scandiHall(k, { color: s < 0 ? 0x577b8e : 0xd4a842, w: 1.9, d: 2.5, h: 0.82, rise: 0.7, x: s * 2.5, z: -0.6, chimney: s });
+    door(k, 0, 1.09, 0.4, 0.4);
+    sign(k, 'lodge', 0, 1.27, 1.08, 1.1);
+    scandiDeck(k, 0, 1.75, 6.8, 1.15);
+    for (const px of [-2.7, -1.6, -0.55, 0.55, 1.6, 2.7]) picnic(k, px, 1.8);
+    chimneyTop(k, -0.9, 2.9, -1.4);
+    skiRack(k, -3.4, 0.8, 9, Math.PI / 2); skiRack(k, 3.4, 0.8, 9, -Math.PI / 2);
+  }
+  return k;
+}
+function modelCafeScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.cafe.accent);
+  scandiHall(k, { color: 0xd4a842, w: 2.4, d: 1.5, h: 0.62, rise: 0.48, z: -0.3, chimney: 1, windows: false });
+  for (const wx of [-0.75, 0.75]) { k.add(bx(0.62, 0.42, 0.04), BM.dark, wx, 0.36, 0.46); k.add(bx(0.56, 0.36, 0.05), BM.glow, wx, 0.36, 0.465); }
+  door(k, 0, 0.47, 0.44, 0.3, BM.dark);
+  for (let i = 0; i < 6; i++) k.add(bx(0.4, 0.04, 0.42), accentMat(i % 2 ? 0xf2ece4 : BTYPES.cafe.accent), -1.0 + i * 0.4, 0.7, 0.66, -0.3); // striped awning
+  sign(k, 'cafe', 0, 0.98, 0.47, 0.8);
+  chimneyTop(k, 0.85, 1.3, -0.6);
+  scandiDeck(k, 0, 1.05, 2.6, 0.9);
+  picnic(k, -0.65, 1.1); picnic(k, 0.65, 1.1);
+  k.add(bx(0.1, 0.08, 0.1), acc, -0.65, 0.33, 1.1); k.add(bx(0.1, 0.08, 0.1), acc, 0.65, 0.33, 1.1); // mugs
+  return k;
+}
+function modelRestaurantScandinavian() {
+  const k = new Kit();
+  scandiHall(k, { color: 0x577b8e, w: 3.7, d: 1.9, h: 0.72, rise: 0.58, z: -0.45, chimney: -1, windows: false });
+  for (let i = 0; i < 6; i++) {
+    const wx = -1.55 + i * 0.62;
+    if (Math.abs(wx) < 0.3) continue;
+    k.add(bx(0.42, 0.5, 0.04), BM.dark, wx, 0.38, 0.51); k.add(bx(0.34, 0.42, 0.05), BM.glow, wx, 0.38, 0.515);
+  }
+  for (const s of [-1, 1]) { k.add(bx(0.04, 0.3, 0.3), BM.dark, s * 1.86, 0.4, -0.45); k.add(bx(0.05, 0.22, 0.22), BM.glow, s * 1.865, 0.4, -0.45); }
+  chimneyTop(k, 1.2, 1.55, -0.75);
+  door(k, 0, 0.53, 0.46, 0.32, BM.dark);
+  k.add(bx(3.7, 0.05, 0.38), accentMat(BTYPES.restaurant.accent), 0, 0.68, 0.7, -0.25);
+  sign(k, 'restaurant', 0, 0.96, 0.53, 1.15);
+  scandiDeck(k, 0, 1.03, 3.9, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.1);
+  for (let i = 0; i <= 12; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.85 + i * 0.31, 0.62 - 0.08 * Math.sin(i / 12 * Math.PI), 1.48);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
+  return k;
+}
+function modelFineScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.fine.accent);
+  k.add(bx(3.9, 0.22, 2.2), BM.stone, 0, 0.11, -0.4);              // stone plinth
+  k.push(0, 0.22, 0);
+  scandiHall(k, { color: 0x719082, w: 3.7, d: 2.0, h: 0.82, rise: 0.7, z: -0.4, roof: accentMat(0x2c2a33), chimney: -1, windows: false });
+  for (let i = 0; i < 5; i++) {
+    const wx = -1.4 + i * 0.7;
+    if (Math.abs(wx) < 0.2) continue;
+    k.add(bx(0.5, 0.62, 0.04), BM.dark, wx, 0.42, 0.61); k.add(bx(0.44, 0.56, 0.05), BM.glow, wx, 0.42, 0.615);
+  }
+  door(k, 0, 0.62, 0.56, 0.36, acc);
+  sign(k, 'fine', 0, 1.06, 0.62, 1.3);
+  chimneyTop(k, -1.2, 1.75, -0.8);
+  k.pop();
+  scandiDeck(k, 0, 1.2, 4.0, 1.0);
+  for (const px of [-1.3, 0, 1.3]) picnic(k, px, 1.25);
+  for (let i = 0; i <= 14; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.95 + i * 0.28, 0.85 - 0.09 * Math.sin(i / 14 * Math.PI), 1.7); // string lights
+  for (const s of [-1, 1]) { k.add(bx(0.05, 0.85, 0.05), BM.dark, s * 2.0, 0.42, 1.7); k.add(bx(0.12, 0.14, 0.12), BM.glow, s * 2.0, 0.92, 1.7); }
+  return k;
+}
+function modelBarScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
+  scandiHall(k, { color: 0xa74438, w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
+  for (const wx of [-1.1, -0.55, 0.55, 1.1]) { k.add(bx(0.4, 0.4, 0.04), BM.dark, wx, 0.36, 0.41); k.add(bx(0.34, 0.34, 0.05), BM.glow, wx, 0.36, 0.415); }
+  door(k, 0, 0.42, 0.46, 0.34, BM.dark);
+  k.add(bx(3.2, 0.06, 0.3), acc, 0, 0.66, 0.56, -0.2); // awning
+  sign(k, 'bar', 0, 0.94, 0.42, 0.9);
+  chimneyTop(k, 1.05, 1.4, -0.85);
+  scandiDeck(k, 0, 1.1, 3.6, 1.2);
+  for (const px of [-1.2, 1.2]) picnic(k, px, 1.25);
+  // a fire pit in the middle of the deck, and string lights over it
+  k.add(new THREE.CylinderGeometry(0.22, 0.26, 0.14, 10), BM.stone, 0, 0.24, 1.2);
+  k.add(new THREE.CylinderGeometry(0.14, 0.1, 0.1, 8), BM.glow, 0, 0.33, 1.2);
+  for (let i = 0; i <= 12; i++) k.add(bx(0.04, 0.04, 0.04), BM.glow, -1.75 + i * 0.29, 0.66 - 0.08 * Math.sin(i / 12 * Math.PI), 1.75);
+  for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
+  return k;
+}
+function modelRentalScandinavian() {
+  const k = new Kit();
+  scandiHall(k, { color: 0xd4a842, w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
+  door(k, 0, 0.51, 0.44, 0.34, BM.dark);
+  k.add(bx(1.4, 0.05, 0.45), accentMat(BTYPES.rental.accent), 0, 0.66, 0.7, -0.3);
+  sign(k, 'rental', 0, 0.88, 0.52, 0.95);
+  skiRack(k, -0.85, 0.75, 9); skiRack(k, 0.85, 0.75, 9);
+  k.add(bx(2.8, 0.06, 1.0), BM.plank, 0, 0.03, 0.75);
+  return k;
+}
+function modelStoreScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.store.accent);
+  scandiHall(k, { color: 0x577b8e, w: 3.0, d: 1.8, h: 0.72, rise: 0.55, z: -0.35, roof: accentMat(0x2f3d4f), chimney: -1, windows: false });
+  for (const wx of [-0.95, 0.95]) { k.add(bx(0.9, 0.5, 0.04), BM.dark, wx, 0.34, 0.56); k.add(bx(0.84, 0.44, 0.05), BM.glow, wx, 0.34, 0.565); }
+  for (const [wx, c] of [[-1.15, 0xd94f2a], [-0.75, 0x2565d4], [0.75, 0x2c9a55], [1.15, 0xe0a21b]]) { k.add(bx(0.12, 0.3, 0.06), accentMat(c), wx, 0.3, 0.6); k.add(bx(0.09, 0.09, 0.06), BM.white, wx, 0.5, 0.6); } // jackets in the windows
+  door(k, 0, 0.56, 0.46, 0.34, acc);
+  k.add(bx(3.0, 0.05, 0.36), acc, 0, 0.76, 0.74, -0.25);
+  sign(k, 'store', 0, 1.0, 0.56, 1.2);
+  k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
+  return k;
+}
+function modelSchoolScandinavian() {
+  const k = new Kit();
+  scandiHall(k, { color: 0x719082, w: 2.5, d: 1.4, h: 0.6, rise: 0.5, z: -1.4, chimney: -1 });
+  door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
+  sign(k, 'school', 0, 0.86, -0.68, 1.05);
+  k.add(bx(3.0, 0.05, 2.7), BM.groomed, 0, 0.025, 0.85);
+  k.add(bx(0.22, 0.04, 2.2), BM.asphalt, 1.25, 0.06, 0.85); // magic carpet
+  k.add(bx(0.3, 0.3, 0.25), accentMat(BTYPES.school.accent), 1.25, 0.15, 2.05);
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 6; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0xd94f2a), -1.1 + i * 0.36, 0.05, 0.2 + (i % 2) * 1.3);
+  for (const [fx, fz] of [[-1.4, -0.4], [1.4, -0.4], [-1.4, 2.1]]) { k.add(bx(0.03, 0.5, 0.03), BM.dark, fx, 0.25, fz); k.add(bx(0.18, 0.11, 0.01), accentMat(BTYPES.school.accent), fx + 0.1, 0.44, fz); }
+  return k;
+}
+function modelTuningScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.tuning.accent);
+  scandiHall(k, { color: 0xd4a842, w: 3.6, d: 2.0, h: 0.75, z: -0.4, privateFront: true });
+  k.add(bx(1.1, 0.6, 0.04), BM.dark, -0.9, 0.32, 0.61);
+  for (let i = 0; i < 5; i++) k.add(bx(1.02, 0.03, 0.05), BM.steel, -0.9, 0.08 + i * 0.12, 0.63);
+  door(k, 0.55, 0.61, 0.46, 0.32, BM.dark);
+  k.add(bx(0.34, 0.42, 0.04), SCANDI_TRIM, 1.35, 0.48, 0.62);
+  k.add(bx(0.28, 0.36, 0.05), BM.glow, 1.35, 0.48, 0.65);
+  k.add(bx(2.0, 0.05, 0.42), acc, 0.4, 0.78, 0.82, -0.3);
+  sign(k, 'tuning', 0.3, 1.02, 0.61, 1.25);
+  skiRack(k, -1.5, 1.0, 10); skiRack(k, 0.1, 1.0, 10); skiRack(k, 1.4, 1.0, 8);
+  k.add(bx(3.8, 0.06, 1.1), SCANDI_TRIM, 0, 0.03, 0.95);
+  return k;
+}
+function modelGiftScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.gift.accent);
+  scandiHall(k, { color: 0xa74438, w: 1.1, d: 0.8, h: 0.62, z: -0.15, privateFront: true });
+  k.add(bx(0.86, 0.3, 0.04), SCANDI_TRIM, 0, 0.42, 0.26);
+  k.add(bx(0.8, 0.24, 0.05), BM.glow, 0, 0.42, 0.285);
+  k.add(bx(1.0, 0.04, 0.3), acc, 0, 0.6, 0.4, -0.35);
+  k.add(bx(0.9, 0.05, 0.16), SCANDI_TRIM, 0, 0.3, 0.34);
+  sign(k, 'gift', 0, 0.86, 0.12, 0.8);
+  for (const [x, c] of [[-0.55, 0xd94f2a], [-0.45, 0x2565d4], [0.45, 0x2c9a55], [0.55, 0xe0a21b]]) k.add(bx(0.07, 0.07, 0.07), accentMat(c), x, 0.36, 0.42);
+  return k;
+}
+function modelKidsScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
+  scandiHall(k, { color: 0xd4a842, w: 2.6, d: 1.3, h: 0.56, z: -1.0 });
+  door(k, 0, -0.34, 0.42, 0.3, acc);
+  sign(k, 'kids', -0.75, 0.8, -0.34, 0.85);
+  for (const x of [-1.7, 1.7]) k.add(bx(0.04, 0.22, 2.0), acc, x, 0.11, 0.65);
+  k.add(bx(3.44, 0.22, 0.04), acc, 0, 0.11, 1.65);
+  for (const x of [-1.7, -0.85, 0, 0.85, 1.7]) k.add(bx(0.06, 0.3, 0.06), SCANDI_TRIM, x, 0.15, 1.65);
+  k.add(bx(0.32, 0.36, 0.32), accentMat(0xd94f2a), 0.9, 0.18, 0.35);
+  k.add(bx(0.24, 0.04, 0.9), accentMat(0x2c9a55), 0.9, 0.2, 0.85, 0.42);
+  for (const [x, z] of [[-1.0, 0.6], [-0.4, 1.1]]) {
+    const sb = new THREE.SphereGeometry(0.13, 10, 8), st = new THREE.SphereGeometry(0.09, 10, 8);
+    k.add(sb, BM.white, x, 0.12, z); k.add(st, BM.white, x, 0.3, z);
+    k.add(bx(0.03, 0.03, 0.08), accentMat(0xff7a1a), x, 0.31, z + 0.1);
+  }
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < 4; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0x7a4bc4), -1.3 + i * 0.3, 0.02, 1.35);
+  return k;
+}
+function modelPatrolScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.patrol.accent);
+  scandiHall(k, { color: 0xa74438, w: 2.1, d: 1.5, h: 0.6, z: -0.25, privateFront: true });
+  door(k, 0.3, 0.51, 0.44, 0.3, acc);
+  sign(k, 'patrol', -0.45, 0.82, 0.52, 0.8);
+  k.add(bx(0.3, 0.3, 0.02), BM.white, 0.3, 0.98, 0.52);
+  k.add(bx(0.07, 0.22, 0.03), acc, 0.3, 0.98, 0.53); k.add(bx(0.22, 0.07, 0.03), acc, 0.3, 0.98, 0.53);
+  k.push(-0.6, 0, 0.85, 0.2);
+  k.add(bx(0.32, 0.1, 0.8), acc, 0, 0.08, 0); k.add(bx(0.36, 0.03, 0.84), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  k.add(bx(0.03, 0.9, 0.03), BM.dark, 0.95, 0.45, 0.75); k.add(bx(0.26, 0.15, 0.01), accentMat(0xff7a1a), 1.08, 0.82, 0.75);
+  return k;
+}
+function modelClinicScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.clinic.accent);
+  scandiHall(k, { color: 0x719082, w: 2.4, d: 1.5, h: 0.62, z: -0.2, privateFront: true });
+  door(k, 0, 0.56, 0.46, 0.4, BM.glass);
+  sign(k, 'clinic', 0, 0.86, 0.56, 0.95);
+  k.add(bx(0.04, 0.34, 0.34), BM.white, 1.21, 0.42, -0.2);
+  k.add(bx(0.05, 0.24, 0.07), acc, 1.22, 0.42, -0.2); k.add(bx(0.05, 0.07, 0.24), acc, 1.22, 0.42, -0.2);
+  k.add(bx(1.0, 0.04, 0.5), acc, 0, 0.66, 0.78);
+  for (const sx of [-0.46, 0.46]) k.add(bx(0.04, 0.64, 0.04), SCANDI_TRIM, sx, 0.32, 1.0);
+  k.push(-0.95, 0, 0.85, 0.15);
+  k.add(bx(0.3, 0.1, 0.78), acc, 0, 0.08, 0); k.add(bx(0.34, 0.03, 0.82), accentMat(0xe0a21b), 0, 0.02, 0);
+  k.pop();
+  return k;
+}
+function modelRestroomScandinavian() {
+  const k = new Kit();
+  scandiHall(k, { color: 0x577b8e, w: 1.5, d: 1.05, h: 0.5, z: -0.15, privateFront: true });
+  door(k, -0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent)); door(k, 0.33, 0.39, 0.4, 0.24, accentMat(BTYPES.restroom.accent));
+  sign(k, 'restroom', 0, 0.68, 0.4, 0.7);
+  return k;
+}
+function modelHrestScandinavian() {
+  const k = new Kit(), acc = accentMat(BTYPES.hrest.accent);
+  scandiHall(k, { color: 0xa74438, w: 2.1, d: 1.2, h: 0.55, z: -0.15, privateFront: true });
+  door(k, -0.5, 0.46, 0.42, 0.26, acc); door(k, 0.5, 0.46, 0.42, 0.26, acc);
+  sign(k, 'hrest', 0, 0.76, 0.46, 1.05);
+  for (const x of [-0.85, 0.85]) { k.add(bx(0.14, 0.12, 0.04), SCANDI_TRIM, x, 0.42, 0.46); k.add(bx(0.1, 0.08, 0.05), BM.glow, x, 0.42, 0.48); }
+  k.add(bx(2.2, 0.05, 0.4), SCANDI_TRIM, 0, 0.03, 0.66);
+  return k;
+}
+function modelShuttleScandinavian() {
+  const k = new Kit();
+  k.add(bx(3.3, 0.06, 0.95), SCANDI_TRIM, 0, 0.03, -0.45);
+  k.add(bx(3.4, 0.09, 0.12), BM.stone, 0, 0.045, -0.01);
+  // An open shelter with a steep snowy gable; the bench and bus sign stay in place.
+  k.add(bx(2.0, 0.06, 0.75), accentMat(0xa74438), 0, 0.7, -0.45);
+  k.add(bx(2.06, 0.05, 0.79), BM.snow, 0, 0.75, -0.45);
+  k.add(gablePrism(0.72, 0.45, 2.0), accentMat(0x394449), 0, 0.76, -0.45);
+  for (const sx of [-0.95, 0.95]) for (const sz of [-0.75, -0.15]) k.add(bx(0.05, 0.7, 0.05), SCANDI_TRIM, sx, 0.35, sz);
+  for (const x of [-0.75, -0.25, 0.25, 0.75]) k.add(bx(0.06, 0.46, 0.04), accentMat(0x577b8e), x, 0.34, -0.78);
+  k.add(bx(1.4, 0.04, 0.18), SCANDI_TRIM, 0, 0.18, -0.62);
+  k.add(bx(0.04, 0.9, 0.04), BM.dark, 1.3, 0.45, -0.2);
+  sign(k, 'shuttle', 1.3, 0.92, -0.17, 0.6);
+  return k;
+}
+function modelTransitScandinavian() {
+  const k = new Kit();
+  k.add(bx(5.1, 0.06, 1.45), SCANDI_TRIM, 0, 0.03, -0.5);
+  k.add(bx(5.2, 0.09, 0.14), BM.stone, 0, 0.045, 0.16);
+  scandiHall(k, { color: 0x577b8e, w: 4.0, d: 1.0, h: 0.6, z: -0.75, privateFront: true });
+  for (let i = 0; i < 5; i++) { const x = -1.6 + i * 0.8; k.add(bx(0.62, 0.42, 0.04), SCANDI_TRIM, x, 0.34, -0.24); k.add(bx(0.56, 0.36, 0.05), BM.glow, x, 0.34, -0.215); }
+  k.add(bx(4.6, 0.06, 0.62), accentMat(0xa74438), 0, 0.74, 0.0);
+  k.add(bx(4.64, 0.05, 0.66), BM.snow, 0, 0.79, 0.0);
+  for (const x of [-2.2, -0.75, 0.75, 2.2]) k.add(bx(0.05, 0.72, 0.05), SCANDI_TRIM, x, 0.36, 0.1);
+  for (const x of [-1.5, 1.5]) k.add(bx(0.7, 0.04, 0.16), SCANDI_TRIM, x, 0.18, -0.1);
+  k.add(bx(0.04, 0.95, 0.04), BM.dark, 2.45, 0.47, 0.05);
+  sign(k, 'transit', 0, 1.0, -0.22, 1.2);
+  return k;
+}
+const MODELS_SCANDINAVIAN = { lodge: modelLodgeScandinavian, cafe: modelCafeScandinavian, restaurant: modelRestaurantScandinavian, fine: modelFineScandinavian, bar: modelBarScandinavian, rental: modelRentalScandinavian, store: modelStoreScandinavian, school: modelSchoolScandinavian, tuning: modelTuningScandinavian, gift: modelGiftScandinavian, kids: modelKidsScandinavian, patrol: modelPatrolScandinavian, clinic: modelClinicScandinavian, restroom: modelRestroomScandinavian, hrest: modelHrestScandinavian, shuttle: modelShuttleScandinavian, transit: modelTransitScandinavian };
+// Console-only, transient comparison. Left: classic; right: Scandinavian. Never enters world.buildings/saves.
+// Open ?dev, then previewScandinavian(); previewScandinavian({ types: ['lodge'], tier: 2 }) for one pair.
+function previewScandinavian({ types = Object.keys(MODELS_SCANDINAVIAN), tier = null, x = -28, z = 10, spacing = 7, focus = true } = {}) {
+  if (!DEV) throw new Error('Building previews require ?dev');
+  if (!Array.isArray(types) || !types.length || types.some((t) => !MODELS_SCANDINAVIAN[t])) throw new Error('Unknown preview building type');
+  if (![x, z, spacing].every(Number.isFinite) || spacing < 6) throw new Error('Preview spacing must be at least 6');
+  if (tier !== null && (!Number.isInteger(tier) || tier < 0 || types.some((t) => tier >= (BTYPES[t].tiers?.length || 1)))) throw new Error('Unknown preview tier');
+  clearScandinavianPreview();
+  const root = new THREE.Group(), entries = [];
+  root.name = '__scandinavianPreview';
+  let row = 0;
+  for (const type of types) for (const t of (tier === null ? Array.from({ length: BTYPES[type].tiers?.length || 1 }, (_, i) => i) : [tier])) {
+    const spec = BTYPES[type].tiers?.[t] || BTYPES[type], pz = z + row * spacing;
+    // Sample a common floor for the pair so slopes cannot bury one of the two models.
+    let floor = -Infinity;
+    for (let px = x - 4.5 - spec.w / 2; px <= x + 4.5 + spec.w / 2 + 0.1; px += 0.5)
+      for (const dz of [-spec.d / 2, 0, spec.d / 2]) floor = Math.max(floor, heightAt(px, pz + dz) * VEX + 0.08);
+    for (const [style, fn, dx] of [['classic', MODELS[type], -4.5], ['scandinavian', MODELS_SCANDINAVIAN[type], 4.5]]) {
+      const k = fn(t), group = k.build();
+      group.position.set(x + dx, floor, pz);
+      group.name = `${type}-${t}-${style}`;
+      root.add(group); entries.push({ type, tier: t, style, x: x + dx, y: floor, z: pz, seats: k.seats.length });
+    }
+    row++;
+  }
+  root.userData.entries = entries;
+  scene.add(root);
+  if (focus) {
+    cam.target.set(x, entries.reduce((sum, e) => sum + e.y, 0) / entries.length, z + (row - 1) * spacing / 2);
+    cam.az = cam.azGoal = 0.25;
+    cam.viewH = Math.max(10, row * spacing * 0.7 + 6, 18 / (W / H)); cam.viewGoal = null;
+    updateCamera();
+  }
+  renderer.shadowMap.needsUpdate = true;
+  return entries;
+}
+function clearScandinavianPreview() {
+  if (!DEV) return;
+  const old = scene.getObjectByName('__scandinavianPreview');
+  if (!old) return;
+  scene.remove(old);
+  old.traverse((o) => { if (o.isMesh) o.geometry.dispose(); }); // shared materials belong to the game
+  renderer.shadowMap.needsUpdate = true;
+}
+if (DEV) { window.previewScandinavian = previewScandinavian; window.clearScandinavianPreview = clearScandinavianPreview; }
+/* ---------- Building themes ----------
+   Some buildings come in more than one look. The theme is chosen in the build menu and kept with each
+   building; a type without that theme's model falls back to the classic one. Look only: size, seats,
+   doors and prices are the same in every theme. */
+const THEMES = {
+  classic: { label: 'Classic', note: 'Log lodges and chalets', models: MODELS },
+  modern: { label: 'Modern', note: 'Flat roofs, big glass, dark metal', models: MODELS_MODERN },
+  scandi: { label: 'Scandinavian', note: 'Painted timber village', models: MODELS_SCANDINAVIAN },
+};
+const themed = (type) => Object.values(THEMES).some((T) => T !== THEMES.classic && T.models[type]);
+const modelFor = (type, style) => ((THEMES[style] && THEMES[style].models[type]) || MODELS[type]);
+const styleOf = (type, style) => (style && style !== 'classic' && THEMES[style] && THEMES[style].models[type] ? style : undefined);
+let bThemeNow = null;
+function bTheme() { if (bThemeNow == null) { try { bThemeNow = localStorage.getItem('mm.bTheme') || 'classic'; } catch (e) { bThemeNow = 'classic'; } if (!THEMES[bThemeNow]) bThemeNow = 'classic'; } return bThemeNow; }
+function setBTheme(k) { if (!THEMES[k]) return; bThemeNow = k; try { localStorage.setItem('mm.bTheme', k); } catch (e) { /* storage blocked */ } }
+
+BM.glow.color.setHex(0x93b3cc);
+const types=['tuning','gift','kids','patrol','clinic','restroom','hrest','shuttle','transit'];const groups=[];for(let i=0;i<types.length;i++){const type=types[i],g=new THREE.Group();g.position.set((i%3-1)*7,0,(Math.floor(i/3)-1)*6);g.add(MODELS_SCANDINAVIAN[type]().build());const pad=new THREE.Mesh(new THREE.BoxGeometry(6,.08,5),new THREE.MeshLambertMaterial({color:0xf5f7fa}));pad.position.y=-.05;g.add(pad);const c=document.createElement('canvas');c.width=512;c.height=64;const ctx=c.getContext('2d');ctx.fillStyle='#203342';ctx.font='26px sans-serif';ctx.textAlign='center';ctx.fillText(BTYPES[type].name,256,42);const label=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));label.scale.set(5,.625,1);label.position.set(0,1.8,2);g.add(label);scene.add(g);groups.push(g);pick.add(new Option(BTYPES[type].name,String(i)));}
+let yaw=.4,pitch=.7,dist=32,target=new THREE.Vector3(),drag=false,px=0,py=0;pick.onchange=()=>{const n=Number(pick.value);groups.forEach((g,i)=>g.visible=pick.value==='all'||i===n);target.copy(pick.value==='all'?new THREE.Vector3():groups[n].position);dist=pick.value==='all'?32:11;};renderer.domElement.onpointerdown=e=>{drag=true;px=e.clientX;py=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);};renderer.domElement.onpointerup=()=>drag=false;renderer.domElement.onpointermove=e=>{if(drag){yaw-=(e.clientX-px)*.008;pitch=Math.max(.15,Math.min(1.4,pitch+(e.clientY-py)*.008));px=e.clientX;py=e.clientY;}};renderer.domElement.style.touchAction='none';renderer.domElement.onwheel=e=>{e.preventDefault();dist=Math.max(5,Math.min(60,dist+e.deltaY*.02));};let night=false;light.onclick=()=>{night=!night;BM.glow.color.setHex(night?0xffcf7a:0x93b3cc);ambient.intensity=night?.25:1;sun.intensity=night?.15:.8;scene.background.set(night?0x152739:0xdce5ea);light.textContent=night?'Day':'Evening';};onresize=()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();};function draw(){requestAnimationFrame(draw);camera.position.set(target.x+Math.sin(yaw)*Math.cos(pitch)*dist,target.y+Math.sin(pitch)*dist,target.z+Math.cos(yaw)*Math.cos(pitch)*dist);camera.lookAt(target);renderer.render(scene,camera);}draw();</script></body></html>

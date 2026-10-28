@@ -12,6 +12,10 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { setBTheme('modern'); setTool('bld'); draft.btype = null; setBTab('food'); renderSheet();
     const only = [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v);
     setBTheme('classic'); setTool('explore'); return only; })()`), ['truck'], 'buildings without a modern look say “Classic look only”');
+  eq(await g.ev(`(() => { setBTheme('scandi'); setTool('bld'); draft.btype = null;
+    const out = ['food', 'shops', 'services', 'transport'].map((tab) => { setBTab(tab); renderSheet();
+      return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
+    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], []], 'only food trucks lack the Scandinavian look');
   const r = await g.ev(`(() => { state.cash = 1e8; const L = world.lifts[0], out = {};
     const put = (type, theme, dx) => { for (let k = 0; k < 60; k++) { const x = L.a.x + dx + (k % 6) * 1.5, z = L.a.z - 6 + Math.floor(k / 6) * 1.5, v = evalBuilding(type, x, z, 0, false); if (!v.problems.length) return commitBuilding(v, type, x, z, 0, theme); } };
     const a = put('cafe', 'modern', -20), b = put('truck', 'scandi', -30), c = put('bar', 'scandi', -12);
