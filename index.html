@@ -6384,6 +6384,53 @@ function roadPath() {
   out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
   return (roadPathCache = out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1));
 }
+// Where the road crosses the creek it goes over on a bridge: the deck runs level from bank to bank
+// (any part of the road's width over the creek counts), and cars and buses drive on it.
+let roadBridges = null, roadBridgeGroup = null;
+function roadDecks() {
+  if (roadBridges) return roadBridges;
+  const P = roadPath(), over = P.map((p, k) => {
+    const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)], d = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / d, nz = (b.x - a.x) / d;
+    return [-1.4, -0.7, 0, 0.7, 1.4].some((f) => overCreek(p.x + nx * f * ROAD_HW, p.z + nz * f * ROAD_HW));
+  });
+  roadBridges = [];
+  for (let k = 0; k < P.length; k++) {
+    if (!over[k]) continue;
+    let j = k; while (j + 1 < P.length && over[j + 1]) j++;
+    const i0 = Math.max(0, k - 2), i1 = Math.min(P.length - 1, j + 2), ya = heightAt(P[i0].x, P[i0].z), yb = heightAt(P[i1].x, P[i1].z);
+    roadBridges.push({ i0, i1, pts: P.slice(i0, i1 + 1).map((p, n) => ({ x: p.x, z: p.z, y: lerp(ya, yb, n / (i1 - i0)) })) });
+    k = j;
+  }
+  return roadBridges;
+}
+// The height of the road surface: the bridge deck over the creek, the ground everywhere else.
+function roadY(x, z) {
+  for (const B of roadDecks()) for (const p of B.pts) if (Math.hypot(p.x - x, p.z - z) < ROAD_HW + 0.6) return Math.max(heightAt(x, z), p.y);
+  return heightAt(x, z);
+}
+const BRIDGE_CONCRETE = new THREE.MeshLambertMaterial({ color: 0x9aa1ab }), BRIDGE_STEEL = new THREE.MeshLambertMaterial({ color: 0x5d6673 });
+function buildRoadBridges() {
+  if (roadBridgeGroup) { scene.remove(roadBridgeGroup); roadBridgeGroup = null; }
+  const g = new THREE.Group();
+  const box = (mat, x, y, z, sx, sy, sz, yaw, pitch) => { const m = new THREE.Mesh(UNIT_BOX, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(0, yaw, 0, 'YXZ'); m.rotateX(-pitch || 0); m.castShadow = true; m.receiveShadow = true; g.add(m); };
+  for (const B of roadDecks()) {
+    const Q = B.pts;
+    for (let n = 0; n < Q.length - 1; n++) {
+      const a = Q[n], b = Q[n + 1], len = Math.hypot(b.x - a.x, b.z - a.z), mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, my = (a.y + b.y) / 2;
+      const yaw = Math.atan2(b.x - a.x, b.z - a.z), pitch = Math.atan2(b.y - a.y, len), px = Math.cos(yaw), pz = -Math.sin(yaw);
+      box(BRIDGE_CONCRETE, mx, my - 0.2, mz, 2 * ROAD_HW + 0.5, 0.36, len + 0.02, yaw, pitch); // the deck under the asphalt
+      for (const side of [-1, 1]) {
+        const ex = mx + px * side * (ROAD_HW + 0.18), ez = mz + pz * side * (ROAD_HW + 0.18);
+        box(BRIDGE_STEEL, ex, my + 0.42, ez, 0.07, 0.07, len + 0.02, yaw, pitch); // guard rail
+        box(BRIDGE_CONCRETE, ex, my + 0.06, ez, 0.16, 0.22, len + 0.02, yaw, pitch); // curb
+        if (n % 2 === 0) box(BRIDGE_STEEL, ex, my + 0.22, ez, 0.07, 0.42, 0.07, yaw, 0); // rail post
+      }
+    }
+    // a pier down to the creek bed at each end of the span over the water
+    for (const p of [Q[1], Q[Q.length - 2]]) { const bed = heightAt(p.x, p.z), h = p.y - bed + 0.2; if (h > 0.3) box(BRIDGE_CONCRETE, p.x, bed + h / 2 - 0.35, p.z, 2 * ROAD_HW + 0.3, h, 0.5, Math.atan2(Q[Q.length - 1].x - Q[0].x, Q[Q.length - 1].z - Q[0].z), 0); }
+  }
+  if (g.children.length) { roadBridgeGroup = g; scene.add(g); }
+}
 function buildRoad() {
   if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
   const P = roadPath(), pos = [], uv = [], hz = [], idx = [];
@@ -6394,7 +6441,7 @@ function buildRoad() {
     if (k) along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
     for (let s = 0; s <= 2; s++) {
       const o = (s - 1) * ROAD_HW, x = P[k].x + nx * o, z = P[k].z + nz * o;
-      pos.push(x, heightAt(x, z) + 0.05, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
+      pos.push(x, roadY(x, z) + 0.05, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
     }
     if (k) { const r = (k - 1) * 3; for (const c of [0, 1]) idx.push(r + c, r + c + 1, r + c + 3, r + c + 1, r + c + 4, r + c + 3); }
   }
@@ -6407,6 +6454,7 @@ function buildRoad() {
   roadMesh = new THREE.Mesh(geo, ROAD_MAT);
   roadMesh.receiveShadow = true; roadMesh.renderOrder = 1;
   scene.add(roadMesh);
+  buildRoadBridges();
 }
 // How far a point is from the road's centre line, in world units.
 const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
@@ -8525,7 +8573,7 @@ function drawPeople() {
       const a = car.path[i], b = car.path[i + 1], sl = Math.hypot(b.x - a.x, b.z - a.z) || 1, t = Math.min(1, d / sl);
       x = lerp(a.x, b.x, t); z = lerp(a.z, b.z, t); yaw = Math.atan2(b.x - a.x, b.z - a.z);
     }
-    _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(x, heightAt(x, z) + 0.1, z);
+    _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(x, roadY(x, z) + 0.1, z);
     _m.compose(_v, _q, _s);
     _m.toArray(carMeshes.body.instanceMatrix.array, c * 16);
     _m.toArray(carMeshes.cabin.instanceMatrix.array, c * 16);
@@ -10647,7 +10695,7 @@ function drawBuses() {
     while (k < b.path.length - 2) { const sl = Math.hypot(b.path[k + 1].x - b.path[k].x, b.path[k + 1].z - b.path[k].z); if (d <= sl) break; d -= sl; k++; }
     const a = b.path[k], c = b.path[k + 1], sl = Math.hypot(c.x - a.x, c.z - a.z) || 1, t = Math.min(1, d / sl);
     const x = lerp(a.x, c.x, t), z = lerp(a.z, c.z, t);
-    m.position.set(x, heightAt(x, z) + 0.06, z);
+    m.position.set(x, roadY(x, z) + 0.06, z);
     m.rotation.y = Math.atan2(c.x - a.x, c.z - a.z);
   });
 }
