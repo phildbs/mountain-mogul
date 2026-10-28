@@ -1,9 +1,10 @@
 # Runs the game's test scenarios on GitHub's servers whenever anyone pushes, so every branch and commit
 # shows a green tick or a red cross. Nothing touches the real database: the tests use tests/fake-supabase.js.
-# Run it by hand (Actions › Tests › Run workflow) with "all" to include the slow season balance check.
+# Pages that aren't the game (docs, roadmap, guide, stats) don't trigger it. Run it by hand (Actions › Tests › Run workflow) with "all" to include the slow season balance check.
 name: Tests
 on:
   push:
+    paths-ignore: ['**.md', 'roadmap.html', 'guide.html', 'privacy.html', 'stats.html', 'supabase/**']
   workflow_dispatch:
     inputs:
       which:
@@ -16,7 +17,11 @@ concurrency:
 jobs:
   scenarios:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4] # four groups side by side: about a quarter of the time
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,4 +36,5 @@ jobs:
         working-directory: tests
         env:
           WHICH: ${{ github.event.inputs.which }}
+          SHARD: ${{ matrix.shard }}/4
         run: node run.mjs $WHICH

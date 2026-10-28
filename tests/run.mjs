@@ -12,6 +12,9 @@ import { startServer, launch } from './harness.mjs';
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'scenarios');
 const args = process.argv.slice(2), all = args.includes('all'), only = args.filter((a) => a !== 'all');
 const files = readdirSync(dir).filter((f) => f.endsWith('.mjs') && (!only.length || only.some((o) => f.includes(o)))).sort();
+// SHARD=2/4 runs every fourth scenario starting with the second: GitHub runs the four groups side by side.
+const shard = (process.env.SHARD || '').match(/^(\d+)\/(\d+)$/);
+if (shard) { const k = +shard[1] - 1, n = +shard[2]; files.splice(0, files.length, ...files.filter((_, i) => i % n === k)); }
 
 const server = await startServer();
 const browser = await launch();
