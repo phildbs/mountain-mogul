@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
 - 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
 - 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
@@ -73,7 +74,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.57.1 publication approved; release checks pending. Trail/glade popularity reporting remains pending.
+**Active**: Phil approved 2.57.2 publication after confirming Tests #48 passed. Release deployment pending. Patrol staffing remains a separate work item; trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -87,6 +88,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-staffing | ChatGPT | One patrol building option with adjustable 1–6 on-duty staff per hut | 2026-10-28 |
 
 
 ## Known issues
@@ -204,8 +206,18 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.57.2 approved
+- Phil resumed in a new chat and explicitly confirmed “Test #48 fix upper lift” passed and requested publication. Candidate c52f8ab01102c000787b7e16413b6b6744e6787a is one commit ahead of main b6be08d8255698c7b959f12a1388fa7dc83e950f, with no intervening main changes. Publish by fast-forward after this documentation-only handoff update.
+- What's new, guide and scenario 94-night-cutoff are included. No database/save-schema changes. Test success is confirmed by Phil; the connector's workflow lookup only returns PR-triggered runs and cannot independently display this push-triggered run. Pages deployment and post-release checks pending.
+
+### 2026-10-28 · ChatGPT · Night closing follow-up
+- Phil reported upper lifts still boarding after night close and final skiers descending after lights switched off. Branch night-clearout, candidate c52f8ab01102c000787b7e16413b6b6744e6787a, patch 2.57.2 based on published b6be08d8. Not published. What's new and guide updated; no database/save-schema changes.
+- canLoad previously allowed every non-base lift indefinitely for daytime egress. A night plan now restricts all ski lifts to active night hours and lit departures; village gondola retains its separate car-return schedule, daytime-only upper egress is preserved. Night close sweeps all ski queues, sending upper guests home without a stranded penalty. Existing riders finish via normal lift movement/unloading; incoming arrivals already recheck canLoad.
+- nightClearout now derives directly from closing time and actual mountain occupancy (night guests skiing/away from base, or non-village lift riders), rather than nightClosed flag plus a 30-minute cap. Base-only visitors do not extend mountain lights. dayHardEnd allows actual final descents to finish; night costs include all measured clear-out minutes. Closing message no longer announces lights out while lights remain on.
+- New 94-night-cutoff covers lit/unlit upper boarding, cutoff at loadBottom, all-queue sweep, occupied-lift movement and disembarkation, lights beyond 30 minutes, extra costs and empty/base-only shutoff. JS/module syntax and diff checks pass. Remote index blob abcce191fe1762d9da06fc3a3d5c659d74a3b03d matches local exactly. Local Chromium remains unavailable; actual browser validation is GitHub CI. Notify when run starts and pause without polling.
+
 ### 2026-10-28 · ChatGPT · Publish 2.57.1 approved
-- Phil explicitly said Publish. Candidate 086f91646dece9c345e604a71847f44b452314bd passed full GitHub Tests run 40785122583. Release includes routing fixes, What's new, guide, scenarios 92/93 and this handoff. No database or save-schema changes. Main before release was 188f80e09c779eee6c1600e8c56275abe9ced12f; no intervening changes need merging. Release Tests and Pages pending.
+- Phil explicitly said Publish. Candidate 086f91646dece9c345e604a71847f44b452314bd passed full GitHub Tests run 40785122583. Release includes routing fixes, What's new, guide, scenarios 92/93 and this handoff. No database or save-schema changes. Main before release was 188f80e09c779eee6c1600e8c56275abe9ced12f; no intervening changes need merging. Published main at b6be08d8255698c7b959f12a1388fa7dc83e950f. Release Tests and Pages pending.
 
 ### 2026-10-28 · ChatGPT · Routing feedback candidate
 - Branch `routing-feedback`, candidate 086f916f53d36b6b94096b1ce68eef2f9b210fbb, based on published main 188f80e0. Patch 2.57.1, What's new + guide updated. No database or save-schema changes; transfers rebuild from geometry on loading existing saves. Not published.
