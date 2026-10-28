@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
 - 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
 - 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
 - 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
@@ -75,7 +76,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Patrol Operations override candidate 2.58.1 awaits browser tests and owner review. Not published. Trail/glade popularity reporting remains pending.
+**Active**: 2.58.1 publication approved after full GitHub browser tests passed. Deployment pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -89,7 +90,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-operations | ChatGPT | Per-plan 1–6 staffing override for all huts, preserving manual choices | 2026-10-28 |
 
 
 ## Known issues
@@ -207,9 +207,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.58.1 approved
+- Phil explicitly requested publication. Candidate 328c668faf0cd577392fbc27da05d5da278552a3 passed full GitHub Tests run 40790227508 (success). Main remains 07dc848eeaed7726be7ab4afc82348579835ad04, so publication is a fast-forward without intervening work.
+- Includes per-plan patrol staffing override, retained individual hut settings, correct active staffing and upkeep, guide, What’s new and scenario 96. No database changes. Pages deployment pending.
+
 ### 2026-10-28 · ChatGPT · Patrol Operations override
 - Branch patrol-operations from published 07dc848eeaed7726be7ab4afc82348579835ad04. Phil requested an Operations toggle between a uniform team size for all huts and manually configured teams. Each weekday/weekend/quiet plan now has optional patrolCount (null by default); active-day resolvePlan snapshots it. The 1–6 Operations stepper affects every hut, while B.patrollers stays the saved manual setting. Hut panels explain the active override and retain individual controls overnight.
 - bspec, dispatch duty and crew initialization use effective plan staffing. Plan cost estimates and actual upkeep explicitly use the relevant plan; skeleton staffing still halves duty, rounded up. Operations changes during an open day leave its frozen count and crews alone; saved active-day snapshots restore that count. Resetting a plan returns to manual. No database or building-menu changes. Guide and What’s new updated.
+- Candidate 328c668faf0cd577392fbc27da05d5da278552a3 pushed for GitHub CI.
 - New 96-patrol-operations covers real toggle/stepper clicks, two independent huts, active team/cost changes, manual edits under override, restoring manual settings, per-plan isolation, saves, open-day freeze, mid-day reload and visit protection. Local inline/scenario syntax, building-model contracts, helper smoke checks and whitespace pass. Browser scenarios 89/95/96/32 cannot launch locally because Chromium is absent; no visual or browser pass claimed. Push to GitHub CI then pause for Phil’s results; not published.
 
 ### 2026-10-28 · ChatGPT · Publish 2.58 approved
