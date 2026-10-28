@@ -35,4 +35,11 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { const B = world.buildings.find((x) => x.type === 'cafe'); select({ kind: 'bld', obj: B }); document.querySelector('#sheet [data-action=bldTheme][data-v=scandi]').click(); return [B.style, !!B.group.parent, B.winLights.length > 0]; })()`), ['scandi', true, true], 'a building can change theme overnight');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+  const gallery = await browser.newPage(), galleryErrors = [];
+  gallery.on('pageerror', (error) => galleryErrors.push(error.message));
+  await gallery.goto(new URL('scandinavian-preview.html', url).href);
+  await gallery.waitForFunction(() => document.querySelector('#pick')?.options.length === 10);
+  eq(await gallery.locator('#pick option').count(), 10, 'gallery shows all nine new Scandinavian buildings');
+  eq(galleryErrors, [], 'gallery has no page errors');
+  await gallery.close();
 }
