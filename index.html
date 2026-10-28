@@ -1891,8 +1891,8 @@ MOUNTAINS.twin = {
   baseFt: 5980,
   treeline: 40,
   // The long valley road: in from the west, past the west base, ending at the east base where you start.
-  road: catmull([[-0.36, -0.12], [-0.1, 0.02], [0.14, 0.05], [0.36, 0.05], [0.52, 0.055], [0.62, 0.06]], 10),
-  lots: [[0.17, 0.05, 'West lot']], // the west base: a second lot beside the road, below the west summit
+  road: catmull([[-0.36, -0.08], [-0.1, 0.07], [0.14, 0.09], [0.36, 0.085], [0.52, 0.07], [0.62, 0.06]], 10),
+  lots: [[0.17, 0.09, 'West lot', 'south']], // the west base: a second lot on the valley side of the road, below the west summit
   creek: catmull([[0.5, 0.6], [0.49, 0.42], [0.47, 0.26], [0.45, 0.14], [0.43, 0.0], [0.4, -0.16], [0.34, -0.32]], 10),
   height(u, v) {
     const s = this.seed, U = 160; // property units per u or v
@@ -6279,8 +6279,8 @@ function updateLotMarks() {
         line.computeLineDistances(); line.renderOrder = 15; lotPickGroup.add(line);
         const el = document.createElement('button');
         el.className = 'mapchip land' + (ok ? '' : ' off');
-        const label = fresh ? `+ ${lotName(lot)}` : `+ ${lot ? `${lotName(lot)}: ` : ''}${row ? (lot ? 'Behind' : 'Below') : 'Along the road'}`;
-        el.innerHTML = `<span>${ok ? `${label} · ${shortMoney(LOT_EXPAND_COST)}` : /Buy the land/.test(why || '') ? 'Buy the land below first' : fresh ? `No room for the ${lotName(lot).toLowerCase()}` : row ? `No room ${lot ? 'behind' : 'below'}` : 'No room along the road'}</span>`;
+        const label = fresh ? `+ ${lotName(lot)}` : `+ ${lot ? `${lotName(lot)}: ` : ''}${row ? (rowDir(lot) === 'behind' ? 'Behind' : 'Below') : 'Along the road'}`;
+        el.innerHTML = `<span>${ok ? `${label} · ${shortMoney(LOT_EXPAND_COST)}` : /Buy the land/.test(why || '') ? 'Buy the land below first' : fresh ? `No room for the ${lotName(lot).toLowerCase()}` : row ? `No room ${rowDir(lot)}` : 'No room along the road'}</span>`;
         el.title = why || `Add ${SPACES_PER_SECTION} spaces here`;
         el.onclick = () => (ok ? growLot(row, lot) : toast(why || 'Parking is added overnight.', true));
         lotTagLayer.appendChild(el); lotTagEls.push({ el, x: (bb.x0 + bb.x1) / 2, z: (bb.z0 + bb.z1) / 2 });
@@ -6321,10 +6321,11 @@ function fitLotView() {
 // under each in the first row). Returns what stops it, or null.
 function lotGrowBlock(row, lot = 0) {
   const r0 = rowLen(0, lot), r1 = rowLen(1, lot);
-  if (row === 1 && r1 >= r0) return lot ? `The row behind is as long as the first. Add along the road first.` : 'The row below is as long as the first. Add along the road first.';
+  if (row === 1 && r1 >= r0) return `The row ${rowDir(lot)} is as long as the first. Add along the road first.`;
   const bb = slotBox(row, row ? r1 : r0, lot), land = lotLandBlock(bb), what = !land && inLotWay(bb);
   if (lot) { // another lot: its first section, then along the road or a row behind
-    const where = !r0 ? `The ${lotName(lot).toLowerCase()} can’t go in` : row ? 'No row behind' : 'It can’t grow along the road';
+    const where = !r0 ? `The ${lotName(lot).toLowerCase()} can’t go in` : row ? `No row ${rowDir(lot)}` : 'It can’t grow along the road';
+    if (row && /property line/.test(land) && !lotSite(lot).up) return `Buy the land below the ${lotName(lot).toLowerCase()} (Business › Land) to add a row below.`;
     return land ? `${where}: ${land}.` : what ? `${what} is in the way of the ${lotName(lot).toLowerCase()}.` : null;
   }
   if (row === 0) return land ? `It can’t grow along the road: ${land}.` : what ? `${what} is in the way along the road.` : null;
@@ -6498,10 +6499,10 @@ let lotSitesCache = null;
 function lotSite(lot) {
   if (!lotSitesCache) {
     const e = roadEnd();
-    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, up: false }, ...(MOUNTAIN.lots || []).map(([u, v]) => {
+    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, up: false }, ...(MOUNTAIN.lots || []).map(([u, v, , side]) => {
       const p = { x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF };
       let road = 0, bd = Infinity; ROAD_WORLD.forEach((q, k) => { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; road = k; } });
-      return { x: ROAD_WORLD[road].x, z: ROAD_WORLD[road].z, road: road + 1, up: true };
+      return { x: ROAD_WORLD[road].x, z: ROAD_WORLD[road].z, road: road + 1, up: side !== 'south', south: side === 'south' };
     })];
   }
   return lotSitesCache[lot] || lotSitesCache[0];
@@ -6509,10 +6510,12 @@ function lotSite(lot) {
 const lotCount = () => 1 + (MOUNTAIN.lots || []).length;
 const lotName = (lot) => (lot ? (MOUNTAIN.lots[lot - 1] || [])[2] || `Lot ${lot + 1}` : 'Main lot');
 // Which way a lot's second row goes: below the main lot (toward the valley), behind the others (up the mountain).
-const rowWord = (lot) => (lot ? 'A row behind' : 'A row below');
+const rowWord = (lot) => (lot && lotSite(lot).up ? 'A row behind' : 'A row below');
+const rowDir = (lot) => (lot && lotSite(lot).up ? 'behind' : 'below');
 const slotOrigin = (row, col, lot = 0) => {
   const e = lotSite(lot);
-  return { x: e.x + 0.9 + col * (LOT.w + 0.7), z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
+  // up the mountain side of the road, on the valley side of it (south), or at the end of the road (the main lot)
+  return { x: e.x + 0.9 + col * (LOT.w + 0.7), z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
 };
 function sectionOrigin(k) { const [row, col, lot] = lotSlot(k); return slotOrigin(row, col, lot); }
 const slotBox = (row, col, lot = 0) => { const o = slotOrigin(row, col, lot); return { x0: o.x, x1: o.x + LOT.w, z0: o.z, z1: o.z + LOT.d }; };
@@ -6618,7 +6621,7 @@ function buildLot() {
       for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
     }
     if (row === 1 && col === 0 && !lot) lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
-    if (lot && col === 0) { const s = lotSite(lot); lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, o.z + 1.4, s.z)); } // the drive in from the road
+    if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4; lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
