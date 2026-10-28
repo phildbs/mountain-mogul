@@ -8062,7 +8062,7 @@ const STAFF_LEVELS = {
   extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
 };
 const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
-const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', shuttles: 'normal', townBus: 'on', apres: 'off', night: 0, lastCall: APRES_END, security: 'full' });
+const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full', patrolCount: null, shuttles: 'normal', townBus: 'on', apres: 'off', night: 0, lastCall: APRES_END, security: 'full' });
 function opsState() {
   if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
   for (const [k] of OPS_KINDS) state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) };
@@ -8104,7 +8104,7 @@ function bldOpenNow(B) {
 // A snapshot of today's plan, so changes you make during the day apply from tomorrow.
 function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
-  const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', off: [],
+  const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), hours: P.hours, staff: P.staff, patrol: hasBld('patrol') ? P.patrol : 'full', patrolCount: patrolOverride(P), off: [],
     shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on',
     apres: P.apres === 'on' && world.buildings.some(apresType) ? 'on' : 'off', night: nightOk(P),
     lastCall: P.lastCall || APRES_END, security: P.security || 'full' };
@@ -8164,7 +8164,7 @@ function planRunCost(P) {
   for (const B of world.buildings) {
     const m = bldModeIn(P, B);
     if (!isDecor(B)) staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1); // lights and fire pits need no crew
-    upkeep += bldUpkeep(B, m, B.type === 'patrol' && P.patrol === 'skeleton');
+    upkeep += bldUpkeep(B, m, B.type === 'patrol' && P.patrol === 'skeleton', P);
   }
   return Math.round(staff * c * lv.cost * (short ? 0.94 : 1) + lifts + upkeep + lotsIn(P) * LOT_RUN_DAY * c + busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)));
 }
@@ -8176,8 +8176,8 @@ function busCost(shuttles, townBus, modeOf) {
   if (townBus !== 'off') c += open.reduce((a, B) => a + TOWN_BUS_DAY[B.type], 0);
   return Math.round(c * MOUNTAIN.costs);
 }
-function bldUpkeep(B, mode, skeleton) {
-  const u = bspec(B).upkeep;
+function bldUpkeep(B, mode, skeleton, P = patrolPlan()) {
+  const u = bspec(B, P).upkeep;
   const run = mode === 'closed' ? 0 : mode === 'lunch' ? LUNCH_RUN : skeleton ? 0.55 : 1;
   return u * (BLD_FIXED + (1 - BLD_FIXED) * run);
 }
@@ -8298,7 +8298,7 @@ function endDay() {
   const ops = today.ops || startOps(state.day), lv = STAFF_LEVELS[ops.staff] || STAFF_LEVELS.normal, short = ops.hours === 'short';
   const bStaff = realBlds().reduce((a, B) => a + ({ closed: 0, lunch: 0.5 }[ops.bld[B.id]] ?? 1), 0);
   today.exp.staff = Math.round((STAFF_DAY + STAFF_PER_LIFT * world.lifts.filter((L) => L.open).length + STAFF_PER_BUILDING * bStaff + STAFF_PER_GUEST * today.guests) * MOUNTAIN.costs * lv.cost * (short ? 0.94 : 1));
-  const upk = (B) => bldUpkeep(B, ops.bld[B.id] || 'open', B.type === 'patrol' && ops.patrol === 'skeleton');
+  const upk = (B) => bldUpkeep(B, ops.bld[B.id] || 'open', B.type === 'patrol' && ops.patrol === 'skeleton', ops);
   today.exp.upkeep = Math.round(world.buildings.reduce((a, B) => a + upk(B), 0));
   today.exp.parking = Math.round(ops.lots * LOT_RUN_DAY * MOUNTAIN.costs);
   today.exp.shuttles = busCost(ops.shuttles || 'off', ops.townBus || 'on', (B) => ops.bld[B.id] || 'open');
@@ -9641,8 +9641,12 @@ const isDecor = (B) => !!BTYPES[B.type].decor;
 const realBlds = () => world.buildings.filter((B) => !isDecor(B));
 // Old saves used tiers 0/1/2 for two-, four- and six-person teams.
 const patrolSize = (B) => clamp(Math.floor(Number.isFinite(B.patrollers) ? B.patrollers : (clamp(Math.floor(B.tier || 0), 0, 2) + 1) * 2), 1, 6);
-const patrolDuty = (B) => skeletonPatrol() ? Math.ceil(patrolSize(B) / 2) : patrolSize(B);
-const bspec = (b) => b.type === 'patrol' ? { ...BTYPES.patrol, crew: patrolSize(b), upkeep: 100 + 425 * patrolSize(b) }
+// Operations overrides the working team, while each hut keeps its manual choice for later.
+const patrolOverride = (P) => P && Number.isFinite(P.patrolCount) ? clamp(Math.floor(P.patrolCount), 1, 6) : null;
+const patrolPlan = () => state.phase === 'open' ? runOps : opsState().plans[planFor(state.day)];
+const patrolTeamSize = (B, P = patrolPlan()) => patrolOverride(P) ?? patrolSize(B);
+const patrolDuty = (B) => skeletonPatrol() ? Math.ceil(patrolTeamSize(B) / 2) : patrolTeamSize(B);
+const bspec = (b, P) => b.type === 'patrol' ? { ...BTYPES.patrol, crew: patrolTeamSize(b, P), upkeep: 100 + 425 * patrolTeamSize(b, P) }
   : (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier || 0] : BTYPES[b.type]);
 // What a building costs at a size: lodges come small, medium or large, each its own choice in the build menu.
 const sizeCost = (type, tier = 0) => BTYPES[type].cost + (BTYPES[type].tiers || []).slice(1, tier + 1).reduce((a, t) => a + (t.cost || 0), 0);
@@ -12199,13 +12203,17 @@ function buildBuildingDraft() {
   draft.bpos = null; draft.info = null; clearGhost();
   renderSheet(); scheduleSave();
 }
+function resetPatrolCrew(B) {
+  const n = patrolTeamSize(B);
+  B.crew = Array.from({ length: n }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (n - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
+}
 function setPatrolStaff(B, delta) {
   if (!B || B.type !== 'patrol' || visiting || state.phase !== 'closed' || ![-1, 1].includes(delta)) return;
   const n = clamp(patrolSize(B) + delta, 1, 6);
   if (n === patrolSize(B)) return;
   pushUndo('patrol staffing');
   B.patrollers = n;
-  B.crew = Array.from({ length: n }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (n - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
+  resetPatrolCrew(B);
   renderSheet(); scheduleSave();
 }
 function upgradeTier(B) {
@@ -12289,9 +12297,10 @@ function bldSheet(B) {
   const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : 'Served today';
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
-  const staffing = B.type === 'patrol' ? `<div class="field-label">Patrollers per hut</div>
+  const staffing = B.type === 'patrol' ? `<div class="field-label">This hut’s manual staffing</div>
     <div class="stepper"><button data-action="patrolStaff" data-d="-1" aria-label="Fewer patrollers" ${visiting || open || patrolSize(B) <= 1 ? 'disabled' : ''}>−</button><output>${patrolSize(B)}</output><button data-action="patrolStaff" data-d="1" aria-label="More patrollers" ${visiting || open || patrolSize(B) >= 6 ? 'disabled' : ''}>+</button></div>
-    <p class="help">Choose 1–6 overnight · ${money(s.upkeep)}/day for the full team. No expansion fee. Skeleton staffing rounds half the team up.${open ? ' Change staffing after the day ends.' : ''}</p>` : '';
+    <p class="help">${patrolOverride(patrolPlan()) != null ? `Operations overrides this hut with ${patrolTeamSize(B)} patrollers. Your manual choice is kept for when the override is off.` : 'This hut uses its manual staffing.'} ${visiting ? '' : '<button class="link" data-action="opsOpen">Operations</button>'}</p>
+    <p class="help">Choose 1–6 overnight · ${money(s.upkeep)}/day for the active team. No expansion fee. Skeleton staffing rounds half the team up.${open ? ' Change manual staffing after the day ends.' : ''}</p>` : '';
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
@@ -14780,6 +14789,14 @@ function planLine(word) {
   const o = opsState();
   return `<p class="conn">Plans: ${OPS_KINDS.map(([k, l]) => `${l.replace(' season', '')} <b>${word(o.plans[k])}</b>`).join(' · ')} <button class="link" data-action="opsOpen">Edit</button></p>`;
 }
+function patrolOpsHtml(P) {
+  const n = patrolOverride(P);
+  return `<div class="field-label">Ski patrol</div>
+    <div class="toggle-row"><div><b>Override all patrol huts</b><span>${n == null ? 'Use the manual staffing saved on each hut' : `${n} patrollers per hut in this plan`}</span></div>
+      <button class="switch" role="switch" aria-checked="${n != null}" aria-label="Override all patrol huts" data-action="opsPatrolOverride"><i></i></button></div>
+    ${n == null ? '<p class="help">Select a patrol hut to adjust its team individually.</p>' : `<div class="field-label">Patrollers per hut</div><div class="stepper"><button data-action="opsPatrolCount" data-d="-1" aria-label="Fewer patrollers per hut" ${n <= 1 ? 'disabled' : ''}>−</button><output>${n}</output><button data-action="opsPatrolCount" data-d="1" aria-label="More patrollers per hut" ${n >= 6 ? 'disabled' : ''}>+</button></div><p class="help">Applies to every patrol hut in this plan. Turn off the override to restore each hut’s manual staffing.</p>`}
+    ${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}`;
+}
 function opsSection() {
   const o = opsState();
   const day = state.phase === 'open' ? state.day + 1 : state.day; // the next day you can still plan
@@ -14811,12 +14828,13 @@ function opsSection() {
     <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
     <p class="help">Après-ski and night skiing are under <button class="link" data-action="manage" data-v="evenings">Evenings</button>.</p>
     <div class="field-label">Staffing</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}
-    ${hasBld('patrol') ? `<div class="field-label">Ski patrol</div>${opsSeg('opsPatrol', 0, P.patrol, [['full', 'Full'], ['skeleton', 'Skeleton']], 'Ski patrol')}` : ''}
+    ${hasBld('patrol') ? patrolOpsHtml(P) : ''}
     <div class="costs"><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
     <p class="help ${let0 > 8 ? 'warn' : ''}">${feel} Guests expect the most on weekends, at higher prices and as your reputation grows. Slow lifts mean longer lines; lean staff mean slower food and loading; a skeleton patrol can turn an injury into a claim.</p>
     <button class="btn secondary" data-action="opsReset">Run everything in this plan</button>`;
 }
 function opsAction(a, b) {
+  if (visiting) return false;
   const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day;
   const P = o.plans[opsEdit || planFor(day)], v = b.dataset.v, id = +b.dataset.id;
   if (a === 'opsOpen') { opsEdit = null; resortTab = 'ops'; select({ kind: 'resort', obj: null }); return true; }
@@ -14837,8 +14855,11 @@ function opsAction(a, b) {
   else if (a === 'opsTownBus') P.townBus = v;
   else if (a === 'opsStaff') P.staff = v;
   else if (a === 'opsPatrol') P.patrol = v;
+  else if (a === 'opsPatrolOverride') P.patrolCount = patrolOverride(P) == null ? 2 : null;
+  else if (a === 'opsPatrolCount') { if (patrolOverride(P) == null || ![-1, 1].includes(+b.dataset.d)) return false; P.patrolCount = clamp(patrolOverride(P) + +b.dataset.d, 1, 6); }
   else if (a === 'opsReset') Object.assign(P, blankPlan());
   else return false;
+  if (state.phase === 'closed') for (const B of world.buildings) if (B.type === 'patrol') resetPatrolCrew(B);
   renderSheet(); refreshTimebar(true); scheduleSave();
   return true;
 }
@@ -16533,6 +16554,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.58.1', date: 'Oct 28, 2026', title: 'Patrol staffing in Operations', small: true, items: ['Choose 1–6 patrollers for every hut with an override in each Operations plan. Turn it off to use each hut’s saved manual staffing.', 'Select a patrol hut to adjust its individual team overnight. Daily costs and active staff follow the plan in use.'] },
   { v: '2.58', date: 'Oct 28, 2026', title: 'Choose your patrol staffing', items: ['One ski patrol building with 1–6 patrollers per hut. Select the building overnight and use the staffing buttons to choose your team.', 'Daily upkeep follows the chosen staff count, with no expansion fee. Existing patrol teams keep their size. Skeleton staffing puts half the team on duty, rounded up.'] },
   { v: '2.57.2', date: 'Oct 28, 2026', title: 'Night skiing closes on time', small: true, items: ['Fixed: mid-mountain ski lifts stop boarding at night closing time, and their queues clear. Riders already aboard finish their trip.', 'Fixed: night lights stay on until the last guests clear the mountain, with the extra lighting time included in operating costs.'] },
   { v: '2.57.1', date: 'Oct 28, 2026', title: 'Better lift links and trail forks', small: true, items: ['Fixed: nearby lift stations can connect across a short, gentle uphill walk. The lift panel tells you whether guests can walk or glide to the next lift.', 'Fixed: trail forks now value continuing the current run fairly. Strong skiers can stay on the black diamond while others take an easier branch.', 'Fixed: route planning at two-base mountains accounts for the actual crossing to another base and the route back to a guest’s parking lot.'] },
