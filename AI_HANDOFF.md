@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.50: completed Modern models for tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle and transit. Phil approved publication after gallery revisions.
 - 2.47: Twin Notch, a second-base mountain: two lots on one valley road, guests choose a lot by the lifts
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
   Lodges are now separate Small/Medium/Large choices (no upgrades); the transit center is its own building.
@@ -175,6 +176,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Modern facilities published in 2.50
+- Published to main at 4bf7f23e2ae75c7545d183bab61954d5f126e023 on Phil's explicit "Publish" instruction. Modern now covers every non-decor type except food truck. Scandinavian extensions remain outstanding.
+- Nine new model functions registered in MODELS_MODERN. Service buildings use charcoal walls with selective windows and framed entrances; shuttle glass uses transparent MODERN_RAIL, never BM.glow. Phil reviewed the arranged modern-preview.html gallery and requested these revisions.
+- Passed tests/building-styles.mjs: all 19 variants, exact seats/doors/signs, extents, finite geometry, syntax and preview cleanup. Updated browser scenarios 82 and 83 for expanded coverage and transport theme picker.
+- Browser suite attempted but blocked before scenarios: Chromium unavailable; installer repeatedly downloaded invalid/truncated archives. No in-game phone/desktop or day/night validation claimed. Full suite not run. Phil was informed before publication.
+- Guide and CHANGES updated. No matching roadmap card found. Existing developer preview height issue remains. modern-preview.html is an isolated model gallery, not an in-game save.
+
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
