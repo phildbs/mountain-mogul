@@ -46,11 +46,11 @@ export default async function ({ browser, url }) {
   const other = await h.ev(`$('cmBoard').innerText`);
   assert(/Bluebird Bowl/.test(other) && /Guest/i.test(other) && /Visit/.test(other), 'another player sees it, tagged Guest, with Visit');
   // every mountain is listed together; chips filter mountains in or out, and the last one can't be turned off
-  eq(await h.ev(`[...document.querySelectorAll('#cmBoard .mts button')].map((b) => b.getAttribute('aria-pressed')).join()`), 'true,true,true,true', 'all mountains on by default');
+  eq(await h.ev(`(() => { const b = [...document.querySelectorAll('#cmBoard .mts button')]; return [b.length === Object.keys(MOUNTAINS).length + 1, b.every((x) => x.getAttribute('aria-pressed') === 'true')]; })()`), [true, true], 'a chip for every mountain and Custom, all on by default');
   await h.click('#cmBoard .mts [data-v=juniper]'); await h.wait(100);
   assert(!/Bluebird Bowl/.test(await h.ev(`$('cmBoard').innerText`)), 'filtering Juniper out hides its resorts');
   eq(await h.ev(`JSON.parse(localStorage.getItem('mm.boardMts')).includes('juniper')`), false, 'the filter is remembered');
-  for (const k of ['maple', 'raven', 'custom']) { await h.click(`#cmBoard .mts [data-v=${k}]`); await h.wait(50); }
+  for (const k of [...(await h.ev(`Object.keys(MOUNTAINS)`)).filter((m) => m !== 'juniper'), 'custom']) { await h.click(`#cmBoard .mts [data-v=${k}]`); await h.wait(50); }
   eq(await h.ev(`[...boardMts()].join()`), 'custom', 'the last mountain stays on');
   await h.click('#cmBoard .mts [data-v=juniper]'); await h.wait(100);
   assert(/Bluebird Bowl/.test(await h.ev(`$('cmBoard').innerText`)), 'and turning Juniper back on shows it again');
