@@ -198,6 +198,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Seasonal invitation prompt and dropdown
+- Phil requested the referral card once per game season, late December through February, with permanent dropdown access. `friend-referrals` preview at `2845138a08bdc40ec132cd789a26299506ad35fa` now auto-prompts once from Dec 20 through Feb 28, only overnight with no other modal/menu open. Stores optional `clock.referralPromptSeason`; defaults to null for old saves. Date window uses day offset to avoid leap-year drift. Invite friends in resort dropdown opens progress outside the seasonal window too.
+- Still query-gated prototype (`?referralPreview=1`), no referral backend or live rewards. Preview starts Dec 20 to demonstrate popup; sample storage guards still prevent real save writes. No publication or release changelog yet. Extended scenario 86 for boundaries, repeat suppression, new season, saved marker and menu access. Inline JS syntax/diff checks pass. Local browser tests blocked: missing Chromium and browser download returned invalid archives. GitHub browser tests pending.
+
+
 ### 2026-10-28 · ChatGPT · Actual mountain photo for invitations
 - Phil requested a real mountain snapshot instead of the illustrated card. Latest `friend-referrals` preview is `c3baf7598800bd6aff2b68f0171f29fbd5aeff2d`, open `index.html?referralPreview=1`. Captures actual scene into a 1200×630 JPG with resort name and small wordmark. Offscreen landscape render uses a cloned camera; restores render target and disposes buffers. Change photo closes dialog for pan/rotate/zoom, Use this view captures the chosen angle. Save photo downloads; Share my mountain uses native image-file sharing when supported, otherwise saves image. No image upload or OG thumbnail hosting; referral progress remains mocked.
 - GitHub Tests 40750131561 passed all four groups. Extended 86 for real nonempty scene pixels, JPG dimensions, changed image after camera move, restored render target and file download at desktop/phone. No publish or database changes. Previous UI prototype notes still apply.
