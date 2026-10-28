@@ -78,7 +78,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scandinavian-complete | ChatGPT | Nine remaining models and comparison gallery; GitHub browser tests pending | 2026-10-28 |
+| scandinavian-complete | ChatGPT | Nine models and gallery ready; four GitHub test shards green; awaiting Phil’s visual review | 2026-10-28 |
 
 ## Known issues
 
@@ -197,7 +197,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-28 · ChatGPT · Scandinavian completion preview
 - Branch `scandinavian-complete` based on main 38ae9a7; latest preview commit 92e6e7fbd77e051d10a941ec58f48ef2168cce40. Nine remaining types added (tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle, transit); food truck and decor remain Classic. Existing eight types and revised narrow gables preserved.
-- `scandinavian-preview.html` has a nine-building orbit/zoom/day-evening gallery. `tests/scandinavian-styles.mjs` checks all 19 variants for exact seats/doors/signs, finite geometry, extents, and developer preview; local pass. `83-themes` extended for menu and gallery browser checks; GitHub CI pending. No publish. Cloud browser canvas was blank, so visual approval from Phil is important.
+- `scandinavian-preview.html` has a nine-building orbit/zoom/day-evening gallery. `tests/scandinavian-styles.mjs` checks all 19 variants for exact seats/doors/signs, finite geometry, extents, and developer preview; local pass. `83-themes` extended for menu and gallery browser checks; GitHub Tests run 40740283426 passed all four shards on 92e6e7f. No publish. Cloud browser canvas was blank, so visual approval from Phil is important.
 
 
 ### 2026-10-28 · Claude · Review of 2.51 (edit trail routes)
