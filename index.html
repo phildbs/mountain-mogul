@@ -7235,10 +7235,10 @@ function newToday() {
 function canLoad(L) {
   if (state.phase !== 'open' || !L.open || L.windHold) return false;
   if (isVillage(L)) return state.time < apresEnd() + 30; // the village gondola runs until après is over, so everyone gets back to their car
-  // Base lifts stop loading at closing time, unless they serve a lit trail for night skiing; upper
-  // lifts keep running so nobody is stranded.
-  if (state.time < closeTime() || !L.fromBase) return true;
-  return nightNow() && liftLit(L);
+  if (state.time < closeTime()) return true;
+  // Night hours apply to every ski lift, including mid-mountain connections.
+  if (nightEnd()) return nightNow() && liftLit(L);
+  return !L.fromBase; // daytime-only upper lifts can still bring stranded guests out
 }
 const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 
@@ -8218,8 +8218,11 @@ function simStep(dt) {
   }
   if (today.night && nightEnd() && state.time >= nightEnd() && !today.nightClosed) {
     today.nightClosed = true;
-    for (const g of guests) if (g.night && !g.leaving && g.st !== 'incar') { g.leaving = true; thought(g, 'Lights out. What a night session!'); }
-    for (const L of world.lifts) if (L.fromBase) for (const g of L.queue.splice(0)) baseDecision(g);
+    for (const g of guests) if (g.night && !g.leaving && g.st !== 'incar') { g.leaving = true; thought(g, 'Night skiing is closing. Last run!'); }
+    for (const L of world.lifts) if (!isVillage(L)) {
+      L.qVersion++;
+      for (const g of L.queue.splice(0)) { g.leaving = true; if (L.fromBase) baseDecision(g); else goCar(g); }
+    }
   }
   if (nightClearout()) today.nightClearoutMinutes = (today.nightClearoutMinutes || 0) + dt / 60;
   // On a torchlight night the day runs until the fireworks are done.
@@ -8881,8 +8884,9 @@ const NIGHT_HOURS = [[0, 'Off'], [1140, 'Until 7'], [1200, 'Until 8'], [1260, 'U
 const lightCost = (t) => Math.round(t.len * LIGHT_COST_UNIT * MOUNTAIN.costs / 500) * 500;
 const nightNow = () => !!nightEnd() && state.phase === 'open' && state.time >= closeTime() && state.time < nightEnd();
 // Keep terrain and lift terminal lights on for the last night guests while they clear the mountain.
-const nightClearout = () => !!(today && today.nightClosed && state.phase === 'open' && nightEnd() && state.time < nightEnd() + 30
-  && (guests.some((g) => g.night && !g.gone) || world.lifts.some((L) => L.riders.some((r) => r.length))));
+const nightClearout = () => !!(state.phase === 'open' && nightEnd() && state.time >= nightEnd()
+  && (guests.some((g) => g.night && !g.gone && g.st !== 'incar' && (g.st === 'ski' || !isBase(g)))
+    || world.lifts.some((L) => !isVillage(L) && L.riders.some((r) => r.length))));
 const nightLightsOn = () => nightNow() || nightClearout();
 const liftLit = (L) => L.departing.some((t) => t.lit && t.open && t.snowOk !== false);
 const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
@@ -8921,7 +8925,7 @@ function maybeStayNight(g) {
 // Night skiing costs: lights on every lit trail that ran, night crew, and patrol.
 function nightCost(lv) {
   if (!nightEnd()) return { lights: 0, staff: 0 };
-  const clearout = today ? clamp(today.nightClearoutMinutes || 0, 0, 30) : 0;
+  const clearout = today ? Math.max(0, today.nightClearoutMinutes || 0) : 0;
   const hours = (nightEnd() - closeTime() + clearout) / 60;
   const lit = realTrails().filter((t) => t.lit && t.open);
   const extra = world.buildings.filter((B) => B.type === 'tlight').length * LIGHT_GAP; // each trail light you place draws like a stretch of lit trail
@@ -11329,6 +11333,7 @@ function dayHardEnd() {
   let e = closeTime() + DAY_HARD_END - DAY_CLOSE;
   if (apresOn()) e = Math.max(e, apresEnd() + 10);
   if (nightEnd()) e = Math.max(e, nightEnd() + 30);
+  if (nightClearout()) e = Math.max(e, state.time + 1); // finish the final descent before ending the day
   return e;
 }
 const lastCall = () => (runOps && runOps.lastCall) || APRES_END;
@@ -16523,6 +16528,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.57.2', date: 'Oct 28, 2026', title: 'Night skiing closes on time', small: true, items: ['Fixed: mid-mountain ski lifts stop boarding at night closing time, and their queues clear. Riders already aboard finish their trip.', 'Fixed: night lights stay on until the last guests clear the mountain, with the extra lighting time included in operating costs.'] },
   { v: '2.57.1', date: 'Oct 28, 2026', title: 'Better lift links and trail forks', small: true, items: ['Fixed: nearby lift stations can connect across a short, gentle uphill walk. The lift panel tells you whether guests can walk or glide to the next lift.', 'Fixed: trail forks now value continuing the current run fairly. Strong skiers can stay on the black diamond while others take an easier branch.', 'Fixed: route planning at two-base mountains accounts for the actual crossing to another base and the route back to a guest’s parking lot.'] },
   { v: '2.57', date: 'Oct 28, 2026', title: 'Choose your units', items: ['Open the resort menu to switch between imperial and metric measurements, and choose Fahrenheit or Celsius separately. Metric uses meters, centimeters of snow, hectares and km/h.', 'Your choices update the game immediately and are remembered across resorts on this device.'] },
   { v: '2.56', date: 'Oct 28, 2026', title: 'Clearer venue visits and smarter queues', items: ['Venue panels split service visits into meals, snacks, hot drinks, restroom stops and breaks. These are visits, so a guest can appear more than once. Counts survive a mid-day reload and remain in last day’s venue panel.', 'Fixed: skiers look for another warm-up spot when the fire pit is full. Guests in slow snack and fine-dining queues can now try a faster food venue, as guests in other food queues already do.'] },
