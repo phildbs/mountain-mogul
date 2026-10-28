@@ -120,6 +120,53 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 - Rollback: `./tools/rollback.sh <version>` on `main`.
 - After a release, watch the stats page for new errors.
 
+### Before asking Phil to publish (checklist)
+Work through this on your branch. Report each item to Phil as done, skipped (and why), or failed.
+1. **Start from current `main`.** `git fetch origin main` and branch from it, or rebase onto it. Add your branch to Work in progress.
+2. **Changelog.** Add a new entry at the top of `CHANGES` in `index.html`; its `v` is the new version.
+   - Format: `{ v: '2.49.1', date: 'Oct 29, 2026', title: 'Short title', items: ['Plain sentence for players.', …] }`.
+   - Version: minor (2.50) for a new feature, patch (2.49.1) for fixes. Add `small: true` for a fix-only release.
+   - Players see this in What's new and in the update banner. The banner reads the top entry's `v` and `title` with a
+     regex, so keep that exact shape and keep `CHANGES` inside `index.html`.
+3. **Guide.** If gameplay or building options change, update `guide.html` (Buildings list, Themes line, etc.).
+4. **Roadmap.** If the work delivers part of a `roadmap.html` card, mark it. A shipped piece stays **Ongoing**, with a
+   crossed-off line, e.g. `<ul class="steps"><li class="did"><s>Added: X</s> <span>in 2.49</span></li></ul>`. Only move
+   a card to Done if Phil says so. Never change `data-idea` values: votes are stored against them.
+5. **Tests.** Run `cd tests && npm install && node run.mjs <names>` for the scenarios that cover the change, plus
+   `32-old-saves` if saves or loading are touched. Read every line for `FAIL`. A command that just ends with
+   `| tail` can hide a failure (Claude got caught by this once). The full suite only runs if Phil asks.
+   - For buildings and themes: `18-builder 25-eateries 26-shops 27-services 51-nearest-building 59-bulldoze 54-evenings 82-building-styles 83-themes 32-old-saves`.
+   - Add or extend a scenario for anything new.
+6. **Look at it in a real browser.** Use `openGame(browser, url, { render: true, width, height })` from
+   `tests/harness.mjs`. Take phone (390×844) and desktop screenshots, by day and after dark (open a day, set
+   `state.time` to about 1000). Place buildings with `evalBuilding` + `commitBuilding`, so they sit on a levelled pad,
+   not floating. **If you can't run Chromium, say so plainly**: Phil or Claude must check the visuals before
+   publishing. A geometry check alone isn't enough.
+7. **Push the branch and hand over to Phil.** Send a short summary, the screenshots and the test results. Update this
+   file: Current status and your note.
+8. **Publish only when Phil says "Publish".** Fast-forward `main` (`git merge --ff-only <branch>`) and push. GitHub
+   Pages deploys in a minute or two. Then move the work to Recently shipped here and clear Work in progress.
+9. **After release,** check `mtmogul.com/stats.html` for new errors. If something broke, roll back with
+   `./tools/rollback.sh <version>` on `main`.
+
+### Adding buildings or themes
+- **New theme models for existing types:** write model functions with a `Kit`, like the modern and Scandinavian sets.
+  - Match the classic model's seats (`k.seat`, same count and order), door position (`door`) and sign (`sign`) exactly;
+    guests and placement depend on them. Keep within the `BTYPES` footprint.
+  - Windows use `BM.glow`. It's coloured glass by day and lit or dark at night, and it throws light on the ground, so
+    put it on the outward faces of windows.
+  - Register the models in a registry (like `MODELS_MODERN`), and add or extend the theme in `THEMES`.
+  - `themed()`, the menu picker, saving, blueprints and restyling then work automatically.
+- **A new theme:** add `THEMES.<key> = { label, note, models }`. Keys are saved with each building (`B.style`), so
+  never rename or remove a key once it has shipped.
+- **A brand-new building type** is more work. It needs:
+  - a `BTYPES` entry (name, where, cost, sizes, upkeep, desc), a classic model in `MODELS`, and its place in `BGROUPS`;
+  - `BICON` (a 24-unit line SVG) and `BBLURB`;
+  - `capOf` text, and service behaviour (what guests do there).
+  Talk to Phil before adding one.
+- Decorations are on the roadmap ("More decorations"). Plain decor (`plop` types like bench, tree or lamp) is the
+  simplest kind of new type.
+
 ## AI collaboration notes
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
