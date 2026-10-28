@@ -1,0 +1,76 @@
+import { openGame, assert, eq } from '../harness.mjs';
+const code = '11111111-1111-4111-8111-111111111111';
+const friend = '22222222-2222-4222-8222-222222222222';
+export default async function ({ browser, url }) {
+  for (const width of [1280,390]) {
+    const g = await openGame(browser,url,{width,height:844});
+    await g.click('#startBtn'); await g.wait(900);
+    await g.ev(`select(null); $('hint').hidden = true; state.welcomed = true;`);
+    await g.ev(`(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.referrals = { status: { code: '${code}', claimed: 0, qualified: 1, decoration: false, friends: [{ id: '${friend}', days: 7, real_days: 3, qualified: true, claimed: false }] }, balances: {} }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); __fakeSwitch('referral-owner', 'referral@example.test'); })()`);
+    await g.wait(500);
+    await g.ev(`activeSlot().owner = CLOUD.uid; const db = JSON.parse(localStorage.getItem('FAKE_DB')); for (const row of db.rows) if (row.id === slots.active) row.owner = CLOUD.uid; localStorage.setItem('FAKE_DB',JSON.stringify(db)); loadReferralStatus()`);
+    await g.ev(`state.day = 19; state.phase = 'closed'; saveNow(); CLOUD.lastUp = 0;`);
+    await g.wait(250);
+    assert(await g.page.locator('#referralBox').isVisible(), 'seasonal card opens in the real game');
+    eq(await g.ev('state.referralPromptSeason'),1,'real season marker set');
+    await g.page.locator('.x[data-ref=close]').click();
+    await g.ev(`pushUndo('test build'); state.cash -= 50; undoLast();`);
+    eq(await g.ev('state.referralPromptSeason'),1,'undo cannot reset seasonal prompt');
+    await g.wait(200);
+    eq(await g.ev(`$('referralBox').hidden`),true,'no repeated popup after undo');
+    await g.ev('openReferrals()');
+    assert(await g.page.locator('[data-ref=claim]').isVisible(),'qualified friend has a reward');
+    assert((await g.page.locator('#refLink').inputValue()).startsWith('https://mtmogul.com/?ref='),'real link includes attribution');
+    await g.ev(`state.isPublic = false; renderReferrals();`);
+    assert(!(await g.page.locator('#refLink').inputValue()).includes('visit='),'private mountain is not included in invitation link');
+    await g.ev(`Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true}); Object.defineProperty(navigator,'share',{configurable:true,value:async payload=>{window.__refShared={url:payload.url,file:payload.files[0].type};}});`);
+    await g.page.locator('[data-ref=share]').click();
+    eq(await g.ev('window.__refShared.file'),'image/jpeg','native share sends a real photograph');
+    assert((await g.ev('window.__refShared.url')).includes('ref='),'native photo share includes invitation attribution');
+    const before = await g.ev('state.cash');
+    await g.ev(`claimReferral('${friend}')`);
+    eq(await g.ev('[state.cash,state.referralCredit]'),[before+100000,100000],'real claim credits active resort once');
+    await g.ev(`claimReferral('${friend}')`);
+    eq(await g.ev('state.cash'),before+100000,'repeat claim does not duplicate cash');
+    await g.ev('syncReferralBalance();');
+    eq(await g.ev('state.cash'),before+100000,'balance reconciliation is idempotent');
+    // Another device has credited the second friend; this device still has an old snapshot.
+    await g.ev(`(() => { const d=JSON.parse(localStorage.getItem('FAKE_DB')); d.referrals.status.friends.push({ id:'33333333-3333-4333-8333-333333333333',days:7,real_days:3,qualified:true,claimed:false }); d.referrals.loseClaimResponse=true; localStorage.setItem('FAKE_DB',JSON.stringify(d)); })()`);
+    await g.ev('loadReferralStatus()');
+    await g.ev(`claimReferral('33333333-3333-4333-8333-333333333333')`);
+    eq(await g.ev('[state.cash,state.referralCredit]'),[before+200000,200000],'lost response recovers committed payment once');
+    await g.ev(`claimReferral('33333333-3333-4333-8333-333333333333')`);
+    eq(await g.ev('state.cash'),before+200000,'retry after lost response remains idempotent');
+    await g.ev(`(() => { const d=JSON.parse(localStorage.getItem('FAKE_DB')); d.referrals.loseClaimResponse=false; d.referrals.balances[slots.active]=300000; localStorage.setItem('FAKE_DB',JSON.stringify(d)); })()`);
+    await g.ev('syncReferralBalance()');
+    eq(await g.ev('[state.cash,state.referralCredit]'),[before+300000,300000],'other-device credit reconciles once');
+    await g.ev(`saveNow(); const sv = loadSave(); applySave(sv); state.started = true;`);
+    eq(await g.ev('state.referralCredit'),300000,'reward watermark survives save and reload');
+    await g.ev('syncReferralBalance()');
+    eq(await g.ev('state.cash'),before+300000,'reload does not recredit rewards');
+    await g.ev(`refState.decoration = true; refState.claimed = 3; refState.qualified = 3; renderReferrals();`);
+    assert(await g.page.getByText('Special decoration earned',{exact:true}).isVisible(),'earned decoration milestone is displayed');
+    eq(await g.page.locator('[data-ref=claim]').count(),0,'no claims after lifetime cap');
+    const fits = await g.page.locator('#referralBox .modal').evaluate(el=>{const b=el.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight;});
+    assert(fits,`real referral modal fits at ${width}px`);
+    await g.page.locator('.x[data-ref=close]').click();
+    await g.ev(`state.day=110; state.phase='closed';`);
+    await g.click('#badge');await g.click('#mInvite');
+    assert(await g.page.locator('#referralBox').isVisible(),'dropdown works outside popup season');
+    await g.page.locator('.x[data-ref=close]').click();
+    await g.ev(`setSession({ user: { id:'another-owner', is_anonymous:true, identities:[] } });`);
+    eq(await g.ev('[refState.available,refState.code || null]'),[false,null],'account switch clears invitation state');
+    eq(g.errors,[],'no browser errors');
+    await g.page.close();
+  }
+  // Incoming invitation survives a reload and is accepted before the first online save.
+  const h=await openGame(browser,url);
+  await h.ev(`(() => { const d=JSON.parse(localStorage.getItem('FAKE_DB')); d.referrals={status:{friends:[],claimed:0,qualified:0},balances:{}}; localStorage.setItem('FAKE_DB',JSON.stringify(d)); })()`);
+  await h.page.goto(url+'?ref='+code);
+  await h.page.waitForFunction(()=>window.__dbg && window.__dbg('CLOUD.ready'));
+  eq(await h.ev(`JSON.parse(localStorage.getItem('FAKE_DB')).referrals.accepted[CLOUD.uid]`),code,'incoming code accepted on guest account');
+  eq(await h.ev(`localStorage.getItem(REF_KEY)`),null,'accepted invitation removed from pending storage');
+  assert(!h.page.url().includes('ref='),'invitation stripped from URL after capture');
+  eq(h.errors,[],'incoming invitation has no browser errors');
+  await h.page.close();
+}

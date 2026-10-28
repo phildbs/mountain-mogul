@@ -75,6 +75,7 @@
       }
       if (q.op === 'upsert') {
         const o = { ...q.obj, summary: { ...(q.obj.summary || {}), guest: !!(d.users[me] || {}).anon } }, ex = d.rows.find((r) => r.id === o.id);
+        if (d.referrals && Number(o.save?.clock?.referralCredit || 0) !== Number(d.referrals.balances?.[o.id] || 0)) return { data: null, error: { code: '40001', message: 'referral_save_conflict' } };
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }
         else {
           if (d.rows.filter((r) => r.owner === me).length >= 5) return { data: null, error: { code: 'P0001', message: 'mountain_limit' } };
@@ -111,6 +112,31 @@
     // set_profile: signed-in players only; the name goes on all their resorts (blank while private)
     rpc: async (fn, args) => {
       const d = db(), me = uid();
+      // Referral UI fixtures. Real authorization/qualification rules are tested in SQL.
+      if (fn.startsWith('referral_') && d.referrals) {
+        const r = d.referrals;
+        if (r.offline) return { data: null, error: { message: 'network unavailable' } };
+        if (fn === 'referral_accept') {
+          (r.accepted || (r.accepted = {}))[me] ||= args.invite_code; put(d);
+          return { data: { accepted: true }, error: null };
+        }
+        if (fn === 'referral_status') return { data: { available: true, signed_in: !(d.users[me] || {}).anon, ...(r.status || {}) }, error: null };
+        if (fn === 'referral_balance') return { data: { mountain: args.mountain_id, credit: r.balances?.[args.mountain_id] || 0 }, error: null };
+        if (fn === 'referral_claim') {
+          const f = r.status.friends.find(f => f.id === args.invitation_id), row = d.rows.find(m => m.id === args.mountain_id && m.owner === me);
+          if (!f || !f.qualified || !row) return { data: null, error: { message: 'friend_not_qualified' } };
+          if (!f.claimed) {
+            if (r.status.claimed >= 3) return { data: null, error: { message: 'referral_cap' } };
+            f.claimed = true; r.status.claimed++;
+            (r.balances || (r.balances = {}))[row.id] = (r.balances?.[row.id] || 0) + 100000;
+            row.save.cash += 100000; row.save.clock.referralCredit = r.balances[row.id];
+            r.claims = (r.claims || 0) + 1;
+          }
+          put(d);
+          if (r.loseClaimResponse) return { data: null, error: { message: 'network response lost' } };
+          return { data: { mountain: row.id, credit: r.balances[row.id], paid: true }, error: null };
+        }
+      }
       if (fn === 'social_counts') {
         return { data: d.rows.filter((r) => r.public || r.owner === me).map((r) => ({ mountain_id: r.id,
           likes: (d.likes || []).filter((l) => l.mountain_id === r.id).length, visits: (d.visits || []).filter((v) => v.mountain_id === r.id).length })), error: null };
