@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
 - 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
 - 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
@@ -72,7 +73,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: `routing-feedback` candidate 086f916 addresses the new lift-transfer and black-run cutoff reports; full Tests run 40785122583 passed, awaiting Phil's Publish. 2.57 deployed and release tests passed. Popularity reporting remains pending.
+**Active**: 2.57.1 publication approved; release checks pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -86,7 +87,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| routing-feedback | ChatGPT | Candidate 086f916: fair fork scoring, base-aware destinations and short uphill lift transfers; full CI passed, awaiting Publish | 2026-10-28 |
 
 
 ## Known issues
@@ -203,6 +203,9 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.57.1 approved
+- Phil explicitly said Publish. Candidate 086f91646dece9c345e604a71847f44b452314bd passed full GitHub Tests run 40785122583. Release includes routing fixes, What's new, guide, scenarios 92/93 and this handoff. No database or save-schema changes. Main before release was 188f80e09c779eee6c1600e8c56275abe9ced12f; no intervening changes need merging. Published main at b6be08d8255698c7b959f12a1388fa7dc83e950f. Release Tests and Pages pending.
 
 ### 2026-10-28 · ChatGPT · Routing feedback candidate
 - Branch `routing-feedback`, candidate 086f916f53d36b6b94096b1ce68eef2f9b210fbb, based on published main 188f80e0. Patch 2.57.1, What's new + guide updated. No database or save-schema changes; transfers rebuild from geometry on loading existing saves. Not published.
