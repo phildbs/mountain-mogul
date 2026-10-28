@@ -80,6 +80,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| scenic-resort-cards | ChatGPT | Scenic captured mountain photos on title resort cards; preserve saves and cloud sync | 2026-10-28 |
 
 
 ## Known issues
@@ -196,6 +197,15 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Scenic title resort cards awaiting tests
+- Branch `scenic-resort-cards`, based on current main 8bdcc7f (2.53.1 grooming fix preserved). Candidate patch 2.53.2; What's new + guide updated. No main publication or database migration.
+- Replaced title-card `resortMap` top-down images with bounded 720×360 JPEG captures of the actual built scene. A separate oblique camera frames lifts/trails/buildings and base lots consistently, independent of the player's camera. Opaque sky backdrop avoids black JPEG transparency; temporary placement brush/drafts/band are hidden and restored. Shared offscreen capture helper also preserves referral photo behavior and always restores render target/disposes buffers.
+- Photos persist as optional root save.photo and per-slot photo, migrate on opening/returning to title, and refresh at save boundaries at most every 30s (forced when returning to title). Old map thumbnails are ignored; older unopened resorts use existing painted scenic mountain fallback until visited. Only the loaded own resort is photographed; visits/tutorial/demo/simulation never overwrite photos. Invalid/oversized/non-JPEG URLs are rejected, capture failures retain the last photo. No save version/cash/gameplay changes.
+- Own cloud-list query reads `photo:save->>photo` with owner filter; no image data added to leaderboard summaries or other public list queries. Verified JSON alias syntax against current Supabase docs; no schema change needed. Test stand-in supports the same projection.
+- Added 88-resort-photos for desktop/phone real pixels, image size, saved/cloud pictures, inactive/online cards, old-save fallback, camera/render target/temporary visibility restoration, caching and visit/tutorial safety. 01-saves, 02-mountains, 32-old-saves, 86/87-referrals are also relevant. Expensive photos are opt-in when the existing no-render harness flag is active, preserving normal test speed. Local Chromium is unavailable; syntax and diff checks pass. GitHub browser tests are being started; results not checked yet.
+- Phil requested: when GitHub tests are running, tell him and PAUSE. Do not poll. Resume/check results once when he says to continue. This preference overrides the old wait-and-poll workflow. Do not publish this branch until Phil approves.
+
 
 ### 2026-10-28 · ChatGPT · Published 2.53
 - Phil explicitly approved publication. Production migration `20261028193542_friend_referrals` installed; verified four RLS-protected private tables, four RPCs and two save triggers. Release commit `c5a54382c633e2e82e9cdbbf87042851fd7e037b` preserves newer main stats changes and includes What's new, guide, roadmap social summary and this handoff. GitHub Pages run 40755829363 succeeded; live mtmogul.com serves 2.53, Invite friends, claim logic and the updated guide/handoff. Initial error check: zero 2.53 reports.

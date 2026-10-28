@@ -2849,6 +2849,7 @@ function scheduleSave() {
 function saveNow() {
   if (REFERRAL_PREVIEW) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
+  if (state.started && state.phase !== 'open') refreshResortPhoto();
   try {
     localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
   } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
@@ -2947,7 +2948,7 @@ function useSlot(id, sv, then) {
 // The whole resort as plain data. Cloud copies leave out the day in progress.
 function saveData(withSim) {
   return {
-      v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
+      v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
@@ -2978,6 +2979,11 @@ function applySave(sv) {
   updateCash(false);
   resetDraft();
   const ok = sv && sv.n === trees.n && (sv.mt || 'juniper') === MOUNTAIN.id;
+  if (!visiting && !practice && onThisMountain() && activeSlot()) {
+    const slot = activeSlot();
+    if (ok && validResortPhoto(sv.photo)) slot.photo = sv.photo;
+    else if (!ok) { delete slot.photo; delete slot.photoAt; }
+  }
   if (!state.wx) state.wx = initWeather(ok && sv.clock && sv.clock.day != null ? sv.clock.day : PRESEASON_DAY);
   restoreTerrain(ok ? sv.terrain : '');
   satSpaces = 0;
@@ -15201,6 +15207,7 @@ async function cloudSave(manual, forReferral = false) {
     if (pendingReferral) throw new Error('invitation_pending');
     await syncReferralBalance();
     if (CLOUD.uid !== uploadUid || slots.active !== slot.id || (slot.owner && slot.owner !== CLOUD.uid) || visiting || practice) { CLOUD.uploading = false; return; }
+    refreshResortPhoto();
     const save = saveData(false);
     save.savedAt = 0;
     const summary = summaryDoc();
@@ -15215,7 +15222,7 @@ async function cloudSave(manual, forReferral = false) {
       slot.savedAt = Date.now(); // the online copy is this device's own: not 'newer' than it
       if (!slot.owner) slot.owner = CLOUD.uid;
       writeSlots();
-      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, public: listed(), updatedAt: Date.now() });
+      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo: save.photo, public: listed(), updatedAt: Date.now() });
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
@@ -15283,9 +15290,9 @@ async function refreshMine() {
 async function loadMine() {
   CLOUD.own = null;
   if (!CLOUD.uid) return;
-  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at').eq('owner', CLOUD.uid);
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at, photo:save->>photo').eq('owner', CLOUD.uid);
   if (error) throw error;
-  CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, public: r.public, updatedAt: Date.parse(r.updated_at) }));
+  CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, photo: validResortPhoto(r.photo) ? r.photo : null, public: r.public, updatedAt: Date.parse(r.updated_at) }));
 }
 /* ---------- Undo: put back the last change made overnight ----------
    Before each change (clearing or leveling ground, building, removing, upgrading) the resort is
@@ -15491,22 +15498,13 @@ async function claimReferral(invitation) {
 // Render the actual scene into a landscape card without changing the player's view or canvas size.
 function captureReferralPhoto() {
   if (glLost || visiting || practice) return false;
-  const w = 1200, h = 540, previous = renderer.getRenderTarget();
-  let target = null;
+  const w = 1200, h = 540;
   try {
     updateCamera();
     const shot = camera.clone(), span = camera.top - camera.bottom;
     shot.left = -span * (w / h) / 2; shot.right = span * (w / h) / 2;
     shot.updateProjectionMatrix(); shot.updateMatrixWorld();
-    target = new THREE.WebGLRenderTarget(w, h);
-    renderer.setRenderTarget(target); renderer.render(scene, shot);
-    const pixels = new Uint8Array(w * h * 4);
-    renderer.readRenderTargetPixels(target, 0, 0, w, h, pixels);
-    const view = document.createElement('canvas'); view.width = w; view.height = h;
-    const vc = view.getContext('2d'), data = vc.createImageData(w, h);
-    // WebGL reads from the bottom left; a shared photo must be right-side up.
-    for (let y = 0; y < h; y++) data.data.set(pixels.subarray((h - y - 1) * w * 4, (h - y) * w * 4), y * w * 4);
-    vc.putImageData(data, 0, 0);
+    const view = captureSceneCanvas(shot, w, h);
     const card = document.createElement('canvas'); card.width = w; card.height = 630;
     const c = card.getContext('2d');
     c.fillStyle = '#dce6ec'; c.fillRect(0, 0, w, 630); c.drawImage(view, 0, 0);
@@ -15525,8 +15523,6 @@ function captureReferralPhoto() {
   } catch (error) {
     refPhotoError = 'Couldn’t take a photo. Try another view of your mountain.';
     return false;
-  } finally {
-    renderer.setRenderTarget(previous); target?.dispose();
   }
 }
 function referralPhotoHtml() {
@@ -16331,6 +16327,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.53.2', date: 'Oct 28, 2026', title: 'Your mountain in the picture', small: true, items: ['Your saved resorts now show scenic 3D photos on the title screen instead of top-down maps. Open an older resort once to refresh its picture.'] },
   { v: '2.53.1', date: 'Oct 28, 2026', title: 'Cleaner trail merges', small: true, items: [
     'Where one trail joins or crosses another, the grooming lines no longer overlap. The older trail’s corduroy carries straight through, and the joining trail’s lines blend into it.',
   ] },
@@ -16963,9 +16960,13 @@ function slotRows() {
   const rows = new Map();
   for (const s of slots.list) {
     rows.set(s.id, { id: s.id, mt: slotMt(s), name: s.name || 'Juniper Ridge', when: s.when, here: true, sum: s.sum, savedAt: s.savedAt,
-      foreign: !!(s.owner && CLOUD.uid && s.owner !== CLOUD.uid), newer: onlineIsNewer(s) });
+      foreign: !!(s.owner && CLOUD.uid && s.owner !== CLOUD.uid), newer: onlineIsNewer(s), photo: s.photo });
   }
-  for (const m of CLOUD.own || []) if (!rows.has(m.id)) rows.set(m.id, { id: m.id, mt: m.mt || 'juniper', name: m.name || 'Juniper Ridge', when: m.when, online: true, sum: m, savedAt: m.updatedAt });
+  for (const m of CLOUD.own || []) {
+    const row = rows.get(m.id);
+    if (row) { if (validResortPhoto(m.photo) && (row.newer || !validResortPhoto(row.photo))) row.photo = m.photo; }
+    else rows.set(m.id, { id: m.id, mt: m.mt || 'juniper', name: m.name || 'Juniper Ridge', when: m.when, online: true, sum: m, savedAt: m.updatedAt, photo: m.photo });
+  }
   return [...rows.values()];
 }
 // Each mountain's painted picture is drawn once and reused by every card that shows it.
@@ -16979,44 +16980,70 @@ function mountainThumb(mt) {
   }
   return thumbCache.get(mt);
 }
-// A top-down map of the resort as built: shaded snow, forest, the road and lots, trails, lifts and buildings.
-// Made from the live world, so only for the resort loaded on this page; kept with its save slot.
-function resortMap(W = 360, H = 154) {
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const g = cv.getContext('2d');
-  // frame everything built (trails, lifts, buildings and the lot), with a margin, at the card's shape
-  const pts = [...realTrails().flatMap((t) => t.samples), ...world.lifts.flatMap((L) => [L.a, L.b]), ...world.buildings.map((B) => B), ...lotBoxes().flatMap((b) => [{ x: b.x0, z: b.z0 }, { x: b.x1, z: b.z1 }])];
-  let x0 = Math.min(...pts.map((p) => p.x)), x1 = Math.max(...pts.map((p) => p.x)), z0 = Math.min(...pts.map((p) => p.z)), z1 = Math.max(...pts.map((p) => p.z));
-  if (!pts.length) { x0 = -40; x1 = 40; z0 = 20; z1 = 70; }
-  x0 -= 10; x1 += 10; z0 -= 8; z1 += 8;
-  const sc = Math.min(W / (x1 - x0), H / (z1 - z0)), ox = (x0 + x1) / 2 - W / sc / 2, oz = (z0 + z1) / 2 - H / sc / 2;
-  const X = (x) => (x - ox) * sc, Z = (z) => (z - oz) * sc;
-  const img = g.createImageData(W, H);
-  for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
-    const gx = px / sc + ox + HALF, gz = py / sc + oz + HALF;
-    const hx = sampleGrid(HT, gx + 1, gz) - sampleGrid(HT, gx - 1, gz), hz = sampleGrid(HT, gx, gz + 1) - sampleGrid(HT, gx, gz - 1);
-    const shade = clamp(0.86 + (-hx * 0.6 - hz * 0.4) * 0.9, 0.55, 1.08), cr = sampleGrid(CREEKD, gx, gz) < 1.2;
-    // past the edge of the land (a tall resort framed wide), fade into the sky like the 3D view does
-    const hz2 = gx < 0 || gz < 0 || gx > WN || gz > WN ? 1 : hazeAt(gx, gz), o = (py * W + px) * 4;
-    img.data[o] = lerp(cr ? 120 : 232 * shade, 223, hz2); img.data[o + 1] = lerp(cr ? 160 : 238 * shade, 231, hz2); img.data[o + 2] = lerp(cr ? 205 : 246 * shade, 240, hz2); img.data[o + 3] = 255;
+// Render a separate camera without touching the player's canvas, camera or render target.
+function captureSceneCanvas(shot, width, height) {
+  const previous = renderer.getRenderTarget(), target = new THREE.WebGLRenderTarget(width, height);
+  const transient = [brushMesh, draftGroup, band].filter(Boolean).map(obj => [obj, obj.visible]);
+  try {
+    for (const [obj] of transient) obj.visible = false;
+    renderer.setRenderTarget(target); renderer.render(scene, shot);
+    const pixels = new Uint8Array(width * height * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+    const cv = document.createElement('canvas'); cv.width = width; cv.height = height;
+    const ctx = cv.getContext('2d'), data = ctx.createImageData(width, height);
+    for (let y = 0; y < height; y++) data.data.set(pixels.subarray((height-y-1)*width*4,(height-y)*width*4),y*width*4);
+    ctx.putImageData(data,0,0);
+    return cv;
+  } finally {
+    renderer.setRenderTarget(previous); target.dispose();
+    for (const [obj, visible] of transient) obj.visible = visible;
   }
-  g.putImageData(img, 0, 0);
-  g.fillStyle = 'rgba(52, 92, 72, 0.55)';
-  const tr = Math.max(1.2, sc * 0.9);
-  for (let k = 0; k < trees.n; k++) if (trees.alive[k] && hazeAt(trees.x[k] + HALF, trees.z[k] + HALF) < 0.5) { const x = X(trees.x[k]), y = Z(trees.z[k]); if (x >= -2 && y >= -2 && x < W + 2 && y < H + 2) { g.beginPath(); g.arc(x, y, tr, 0, 6.283); g.fill(); } }
-  g.strokeStyle = '#5b6370'; g.lineWidth = 1.6; g.beginPath(); ROAD_WORLD.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); g.stroke();
-  g.fillStyle = '#5d6470';
-  for (const b of lotBoxes()) g.fillRect(X(b.x0), Z(b.z0), (b.x1 - b.x0) * sc, (b.z1 - b.z0) * sc);
-  for (const t of realTrails()) {
-    const w = TRAIL_WIDTHS[t.width].hw * 2 * sc, path = () => { g.beginPath(); t.samples.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z)))); };
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    g.strokeStyle = `rgb(${RATINGS[trailSign(t)].col.map((c) => Math.round(c * 255)).join(',')})`; g.lineWidth = w + 1.6; path(); g.stroke();
-    g.strokeStyle = '#fbfdff'; g.lineWidth = Math.max(1, w - 0.6); path(); g.stroke();
+}
+function validResortPhoto(photo) {
+  return typeof photo === 'string' && photo.length < 120000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(photo);
+}
+function captureResortPhoto() {
+  const width = 720, height = 360, az = 0.35, el = 0.55;
+  const pts = [...realTrails().flatMap(t => t.samples), ...world.lifts.flatMap(L => [L.a,L.b]), ...world.buildings,
+    ...lotBoxes().flatMap(b => [{x:b.x0,z:b.z0},{x:b.x1,z:b.z1}])];
+  if (!world.lifts.length && !realTrails().length && !world.buildings.length) {
+    pts.push({x:-60,z:-65},{x:60,z:65});
   }
-  g.lineCap = 'butt';
-  for (const L of world.lifts) { g.strokeStyle = '#1b2533'; g.lineWidth = 1.3; g.beginPath(); g.moveTo(X(L.a.x), Z(L.a.z)); g.lineTo(X(L.b.x), Z(L.b.z)); g.stroke(); g.fillStyle = '#1b2533'; for (const p of [L.a, L.b]) g.fillRect(X(p.x) - 1.5, Z(p.z) - 1.5, 3, 3); }
-  for (const B of world.buildings) { const bb = boxOf(B); g.fillStyle = '#8a5a3b'; g.fillRect(X(bb.x0), Z(bb.z0), Math.max(2, (bb.x1 - bb.x0) * sc), Math.max(2, (bb.z1 - bb.z0) * sc)); }
-  return cv.toDataURL('image/jpeg', 0.78);
+  const x0 = Math.min(...pts.map(p=>p.x))-8, x1 = Math.max(...pts.map(p=>p.x))+8;
+  const z0 = Math.min(...pts.map(p=>p.z))-8, z1 = Math.max(...pts.map(p=>p.z))+8;
+  const focus = new THREE.Vector3((x0+x1)/2,heightAt((x0+x1)/2,(z0+z1)/2),(z0+z1)/2);
+  const shot = camera.clone();
+  shot.position.copy(focus).add(new THREE.Vector3(Math.sin(az)*Math.cos(el)*420,Math.sin(el)*420,Math.cos(az)*Math.cos(el)*420));
+  shot.lookAt(focus); shot.updateMatrixWorld();
+  const frame = [...pts,{x:x0,z:z0},{x:x1,z:z0},{x:x0,z:z1},{x:x1,z:z1}]
+    .flatMap(p=>[0,10].map(up=>new THREE.Vector3(p.x,heightAt(p.x,p.z)+up,p.z).applyMatrix4(shot.matrixWorldInverse)));
+  const loX = Math.min(...frame.map(p=>p.x)), hiX = Math.max(...frame.map(p=>p.x));
+  const loY = Math.min(...frame.map(p=>p.y)), hiY = Math.max(...frame.map(p=>p.y));
+  const halfH = Math.max(22,(hiY-loY)*0.58,(hiX-loX)*0.58/(width/height)), halfW = halfH*width/height;
+  shot.left = (loX+hiX)/2-halfW; shot.right = (loX+hiX)/2+halfW;
+  shot.bottom = (loY+hiY)/2-halfH; shot.top = (loY+hiY)/2+halfH;
+  shot.updateProjectionMatrix();
+  const view = captureSceneCanvas(shot,width,height), cv = document.createElement('canvas');
+  cv.width = width; cv.height = height;
+  const ctx = cv.getContext('2d'), colors = getComputedStyle(document.documentElement), sky = ctx.createLinearGradient(0,0,0,height);
+  sky.addColorStop(0,colors.getPropertyValue('--sky-1').trim() || '#bfd3ea');
+  sky.addColorStop(1,colors.getPropertyValue('--sky-2').trim() || '#e8eef6');
+  ctx.fillStyle = sky; ctx.fillRect(0,0,width,height); ctx.drawImage(view,0,0);
+  let photo = cv.toDataURL('image/jpeg',0.68);
+  if (photo.length >= 120000) photo = cv.toDataURL('image/jpeg',0.45);
+  return validResortPhoto(photo) ? photo : null;
+}
+function refreshResortPhoto(force = false) {
+  if (REFERRAL_PREVIEW || visiting || practice || simulating || glLost || !onThisMountain()) return;
+  if (window.__mmNoRender && !window.__mmCapturePhotos) return; // headless scenarios opt into photo rendering
+  const slot = activeSlot();
+  if (!slot || (slot.owner && CLOUD.uid && slot.owner !== CLOUD.uid)) return;
+  if (!force && validResortPhoto(slot.photo) && Date.now()-(slot.photoAt || 0)<30000) return;
+  // Failed captures keep the last good photo and must never interrupt a save.
+  try {
+    const photo = captureResortPhoto();
+    if (photo) { slot.photo = photo; slot.photoAt = Date.now(); delete slot.thumb; delete slot.thumbAt; writeSlots(); }
+  } catch (e) { /* retain the last photo or the painted mountain */ }
 }
 function paintThumbs() {
   for (const cv of document.querySelectorAll('#titleSlots canvas[data-mt]')) cv.getContext('2d').drawImage(mountainThumb(cv.dataset.mt).cv, 0, 0, cv.width, cv.height);
@@ -17107,12 +17134,10 @@ function slotCard(r, active) {
   const stars = live ? starsOf() : sum.stars ?? (slotById(r.id) || {}).stars ?? 0;
   const max = (GOALS[isCustomId(r.mt) ? 'custom' : r.mt] || []).length || 5;
   const has = live && !!loadSave();
-  // the map of the resort: made fresh for the one loaded here, kept with its slot for the others
-  const slot = slotById(r.id), mapKey = `2:${state.day}:${world.trails.length}:${world.lifts.length}:${world.buildings.length}`;
-  if (live && has && slot && slot.thumbAt !== mapKey) {
-    try { slot.thumb = resortMap(); slot.thumbAt = mapKey; writeSlots(); } catch (e) { /* the painted mountain will do */ }
-  }
-  const pic = slot && slot.thumb && (live ? world.lifts.length || world.trails.length : sum.lifts || sum.trails) ? `<img class="sc-map" src="${slot.thumb}" alt="Map of ${esc(r.name)}">` : `<canvas width="720" height="450" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>`;
+  const slot = slotById(r.id);
+  if (live && has && !r.newer) refreshResortPhoto();
+  const photo = r.newer ? r.photo : validResortPhoto(slot?.photo) ? slot.photo : r.photo;
+  const pic = validResortPhoto(photo) ? `<img class="sc-map" src="${photo}" alt="Scenic view of ${esc(r.name)}" width="720" height="360">` : `<canvas width="720" height="450" data-mt="${esc(r.mt)}" aria-hidden="true"></canvas>`;
   if (slotAsk === r.id) {
     return `<article class="panel scard ask"><div class="sc-body"><h2>${esc(r.name)}</h2>
       <p>Delete ${esc(r.name)}${r.foreign ? ' from this device' : ''}? This can’t be undone.</p>
@@ -17360,6 +17385,7 @@ function showTitle() {
   state.started = false;
   winterView = true;
   styleSnowVisuals();
+  refreshResortPhoto(true);
   $('report').hidden = true;
   if (state.tool !== 'explore') setTool('explore');
   $('hud').hidden = true;
