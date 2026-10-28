@@ -237,21 +237,23 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
     const ideas = d.ideas ? { n: d.ideas_count, list: d.ideas } : { n: d.feedback.filter(isIdea).length, list: d.feedback.filter(isIdea) };
     const notes = d.ideas ? { n: d.feedback_count, list: d.feedback } : { n: d.feedback_count - ideas.n, list: d.feedback.filter((f) => !isIdea(f)) };
     const fbList = (list, none) => list.length ? `<ul class="fb">${list.map((f) => `<li><time>${new Date(f.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(isIdea(f) ? f.message.slice(IDEA.length).trim() : f.message)}</li>`).join('')}</ul>` : `<p class="note">${none}</p>`;
-    const mts = d.by_mountain.map((r) => [mtName(r.mt), r.n]).reduce((acc, [k, n]) => { const f = acc.find((a) => a[0] === k); if (f) f[1] += n; else acc.push([k, n]); return acc; }, []).sort((a, b) => b[1] - a[1]);
-    rows = d.top;
+    const built = d.mountains_built != null, nBuilt = built ? d.mountains_built : d.mountains;
+    const mts = (d.by_mountain_built || d.by_mountain).map((r) => [mtName(r.mt), r.n]).reduce((acc, [k, n]) => { const f = acc.find((a) => a[0] === k); if (f) f[1] += n; else acc.push([k, n]); return acc; }, []).sort((a, b) => b[1] - a[1]);
+    rows = d.top_built || d.top;
     $('out').innerHTML = `
       <dl class="grid">
         <div class="card tile"><dt>Players</dt><dd>${num(d.visitors)}</dd><small>opened the game, all time</small></div>
         <div class="card tile"><dt>New today</dt><dd>${num(d.new_24h)}</dd><small>last 24 hours · ${num(d.new_7d)} this week</small></div>
-        <div class="card tile"><dt>Playing</dt><dd>${num(d.played_24h)}</dd><small>saved a game in 24 h · ${num(d.played_7d)} this week</small></div>
+        <div class="card tile"><dt>Playing</dt><dd>${num(d.played_built_24h ?? d.played_24h)}</dd><small>${built ? 'built a lift and saved' : 'saved a game'} in 24 h · ${num(d.played_built_7d ?? d.played_7d)} this week</small></div>
+        ${built ? `<div class="card tile"><dt>Left early</dt><dd>${num(d.empty_24h)}</dd><small>pressed Play, built nothing · 24 h · ${num(d.empty_7d)} this week</small></div>` : ''}
         <div class="card tile"><dt>Signed in</dt><dd>${num(d.signed_in)}</dd><small>Google or email accounts</small></div>
       </dl>
       <section class="card" style="margin-bottom:12px" id="retention"><h2>Player retention</h2><p class="note">Loading…</p></section>
       <section class="card" style="margin-bottom:12px" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
       <section class="card" style="margin-bottom:12px"><details class="fold" id="resortsFold"${resortsOpen() ? ' open' : ''}>
-        <summary><h2>Resorts</h2><span class="note">${num(recentRows().length)} played in 48 h · ${num(d.mountains)} in all</span></summary>
+        <summary><h2>Resorts</h2><span class="note">${num(recentRows().length)} played in 48 h · ${num(nBuilt)} in all${built ? ` · ${num(d.mountains - nBuilt)} empty not shown` : ''}</span></summary>
         <div class="head"><div class="range" role="group" aria-label="Which resorts">
-          <button data-range="recent" aria-pressed="${range === 'recent'}">Last 48 hours <b>${num(recentRows().length)}</b></button><button data-range="all" aria-pressed="${range === 'all'}">All <b>${num(d.mountains)}</b></button></div></div>
+          <button data-range="recent" aria-pressed="${range === 'recent'}">Last 48 hours <b>${num(recentRows().length)}</b></button><button data-range="all" aria-pressed="${range === 'all'}">All <b>${num(nBuilt)}</b></button></div></div>
         <p class="note">Tap a column heading to sort, or a name to visit it read-only. Nothing you do there changes it. Tap ☆ to make a public resort a staff pick in the game’s Browse tab.</p>
         <div class="scroll" id="resorts"></div>
       </details></section>
@@ -265,7 +267,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
       </section>
       <div class="two">
         <section class="card"><h2>How far players get</h2><p class="note">Share of everyone who opened the game.</p>${bars(funnel, d.visitors)}</section>
-        <section class="card"><h2>Mountains picked</h2><p class="note">${num(d.mountains)} mountains started.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
+        <section class="card"><h2>Mountains picked</h2><p class="note">${num(nBuilt)} mountains with at least one lift${built ? `, not counting ${num(d.mountains - nBuilt)} where nothing was built` : ''}.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
       </div>
       <div class="two">
         <section class="card"><h2>Feature ideas</h2><p class="note">${num(ideas.n)} ${ideas.n === 1 ? 'idea' : 'ideas'} sent with Suggest a feature. Newest first.</p>${fbList(ideas.list, 'No ideas yet.')}</section>

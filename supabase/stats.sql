@@ -34,6 +34,14 @@ begin
     'played_7d', (select count(distinct owner) from mountains where updated_at > now() - interval '7 days'),
     'by_mountain', (select coalesce(jsonb_agg(jsonb_build_object('mt', mt, 'n', n) order by n desc), '[]'::jsonb)
                     from (select coalesce(summary->>'mt', '') mt, count(*) n from mountains group by 1) x),
+    -- Resorts with at least one lift count as started; ones with nothing built are people who pressed Play and left.
+    'mountains_built', (select count(*) from mountains where coalesce((summary->>'lifts')::int, 0) > 0),
+    'empty_24h', (select count(*) from mountains where created_at > now() - interval '24 hours' and coalesce((summary->>'lifts')::int, 0) = 0),
+    'empty_7d', (select count(*) from mountains where created_at > now() - interval '7 days' and coalesce((summary->>'lifts')::int, 0) = 0),
+    'played_built_24h', (select count(distinct owner) from mountains where updated_at > now() - interval '24 hours' and coalesce((summary->>'lifts')::int, 0) > 0),
+    'played_built_7d', (select count(distinct owner) from mountains where updated_at > now() - interval '7 days' and coalesce((summary->>'lifts')::int, 0) > 0),
+    'by_mountain_built', (select coalesce(jsonb_agg(jsonb_build_object('mt', mt, 'n', n) order by n desc), '[]'::jsonb)
+                    from (select coalesce(summary->>'mt', '') mt, count(*) n from mountains where coalesce((summary->>'lifts')::int, 0) > 0 group by 1) x),
     'top', (select coalesce(jsonb_agg(t), '[]'::jsonb) from (
               select id, public, summary->>'name' as name, summary->>'mt' as mt, summary->>'when' as "when",
                      coalesce((summary->>'lifts')::int, 0) as lifts, coalesce((summary->>'trails')::int, 0) as trails,
@@ -41,6 +49,13 @@ begin
                      coalesce((summary->>'stars')::int, 0) as stars, updated_at,
                      exists (select 1 from featured f where f.mountain_id = mountains.id and f.picked) as featured
               from mountains order by updated_at desc limit 300) t), -- the most recently played; the page sorts them
+    'top_built', (select coalesce(jsonb_agg(t), '[]'::jsonb) from (
+              select id, public, summary->>'name' as name, summary->>'mt' as mt, summary->>'when' as "when",
+                     coalesce((summary->>'lifts')::int, 0) as lifts, coalesce((summary->>'trails')::int, 0) as trails,
+                     coalesce((summary->>'bestGuests')::int, 0) as best_guests, coalesce((summary->>'cash')::bigint, 0) as cash,
+                     coalesce((summary->>'stars')::int, 0) as stars, updated_at,
+                     exists (select 1 from featured f where f.mountain_id = mountains.id and f.picked) as featured
+              from mountains where coalesce((summary->>'lifts')::int, 0) > 0 order by updated_at desc limit 300) t),
     'feedback_count', (select count(*) from feedback where message not like '💡 Idea:%'),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
                    select created_at, message from feedback where message not like '💡 Idea:%' order by created_at desc limit 10) f),
