@@ -8746,7 +8746,8 @@ const lmCtx = lmCanvas.getContext('2d');
 const lightTex = new THREE.CanvasTexture(lmCanvas);
 lightTex.flipY = false; // canvas rows run with world z
 const MM_LIGHT = { map: { value: lightTex }, night: { value: 0 }, box: { value: new THREE.Vector4(-HALF, -HALF, 2 * HALF, 2 * HALF) } };
-function nightLit(mat) {
+// Buildings (`low`) take it only near the ground: decks and the foot of the walls, not the roofs.
+function nightLit(mat, low) {
   if (mat.userData.mmLit) return;
   mat.userData.mmLit = true;
   const prev = mat.onBeforeCompile, own = mat.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey;
@@ -8754,17 +8755,18 @@ function nightLit(mat) {
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev.call(mat, sh, r);
     sh.uniforms.mmLightMap = MM_LIGHT.map; sh.uniforms.mmNight = MM_LIGHT.night; sh.uniforms.mmBox = MM_LIGHT.box;
-    sh.vertexShader = 'varying vec3 vMmW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+    sh.vertexShader = 'varying vec3 vMmW;\nvarying float vMmH;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+  vMmH = transformed.y;
   { vec4 mw = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mw = instanceMatrix * mw;
   #endif
     vMmW = (modelMatrix * mw).xyz; }`);
-    sh.fragmentShader = 'varying vec3 vMmW;\nuniform sampler2D mmLightMap;\nuniform float mmNight;\nuniform vec4 mmBox;\n' + sh.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-      `outgoingLight += diffuseColor.rgb * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5;
+    sh.fragmentShader = 'varying vec3 vMmW;\nvarying float vMmH;\nuniform sampler2D mmLightMap;\nuniform float mmNight;\nuniform vec4 mmBox;\n' + sh.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+      `outgoingLight += (diffuseColor.rgb * 0.7 + 0.12) * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5${low ? ' * (1.0 - smoothstep(0.25, 0.95, vMmH))' : ''}; // dark wood catches some warm light too
 gl_FragColor = vec4( outgoingLight, diffuseColor.a );`);
   };
-  mat.customProgramCacheKey = () => base + '|mmlit';
+  mat.customProgramCacheKey = () => base + (low ? '|mmlitb' : '|mmlit');
   mat.needsUpdate = true;
 }
 // Lambert materials get the night light as they appear (trails, buildings and the like are made as you build).
@@ -8790,7 +8792,11 @@ function drawLightMap() {
     if (B.type === 'lamp') spot(B.x, B.z, 5, LAMP, 0.85);
     else if (B.type === 'tlight') { const p = B.lightAt || B; spot(p.x, p.z, 5.5, LAMP, 0.8); }
     else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
-    else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
+    else {
+      const s = bspec(B);
+      spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.75 + 1, WARM, B.winLights && B.winLights.length ? 0.1 : 0.35);
+      for (const w of B.winLights || []) spot(w.x, w.z, w.r, WARM, w.a); // light out of the windows
+    }
   }
   if (open) for (const p of lotPoleList) if (p.sec < lotsOpen()) spot(p.x, p.z, 6.5, LAMP, 0.7);
   // floodlights on the lift terminals light the loading and unloading areas
@@ -8799,6 +8805,37 @@ function drawLightMap() {
   lightTex.needsUpdate = true;
 }
 
+// Where a building's windows throw light at night: each lit pane facing out casts a patch on the snow in
+// front of it, bigger for bigger glass. Worked out once from the model's window faces.
+function windowLights(b) {
+  if (!b.glowMat) return [];
+  b.group.updateMatrixWorld(true);
+  const cells = new Map(), v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  b.group.traverse((o) => {
+    if (!o.isMesh || o.material !== b.glowMat) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i + 2 < pos.count; i += 3) {
+      for (let j = 0; j < 3; j++) v[j].fromBufferAttribute(pos, i + j).applyMatrix4(o.matrixWorld);
+      n.crossVectors(e1.subVectors(v[1], v[0]), e2.subVectors(v[2], v[0]));
+      const area = n.length() / 2;
+      if (area < 1e-4) continue;
+      n.divideScalar(area * 2);
+      if (Math.abs(n.y) > 0.5) continue; // window faces are upright
+      const cx = (v[0].x + v[1].x + v[2].x) / 3, cz = (v[0].z + v[1].z + v[2].z) / 3;
+      if ((cx - b.x) * n.x + (cz - b.z) * n.z < 0) continue; // the inner face of the pane
+      const key = `${Math.round(cx / 0.9)},${Math.round(cz / 0.9)},${Math.round(Math.atan2(n.x, n.z) * 2)}`;
+      const c = cells.get(key) || { x: 0, z: 0, nx: n.x, nz: n.z, a: 0 };
+      c.x += cx * area; c.z += cz * area; c.a += area;
+      cells.set(key, c);
+    }
+  });
+  const out = [];
+  for (const c of cells.values()) {
+    const x = c.x / c.a, z = c.z / c.a, size = Math.sqrt(c.a);
+    out.push({ x: x + c.nx * (0.35 + size * 0.3), z: z + c.nz * (0.35 + size * 0.3), r: 1.6 + size * 1.9, a: Math.min(0.75, 0.32 + c.a * 0.45) });
+  }
+  return out.sort((p, q) => q.a - p.a).slice(0, 24);
+}
 // Evening lights around the resort: windows glow only in buildings that are open right now, lamp posts
 // and the parking lot light up after dark, fire pits flicker, and each throws a pool of light on the snow.
 const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38;
@@ -10015,6 +10052,8 @@ function addBuilding(b) {
   if (b.type === 'tlight') faceTrail(b);
   // each building gets its own window glow, so a closed one can go dark
   b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
+  b.winLights = windowLights(b);
+  b.group.traverse((o) => { if (o.isMesh && o.material.isMeshLambertMaterial) nightLit(o.material, true); }); // the night light reaches its deck and the foot of its walls
   bldGroup.add(b.group);
   world.buildings.push(b);
   initBldSim(b);
@@ -15045,6 +15084,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.48.1', date: 'Oct 28, 2026', title: 'Light from the windows', small: true, items: [
+    'After dark, lit windows throw warm light onto the snow and the deck in front of them, so buildings glow from where their windows are. Bigger windows light up more.',
+  ] },
   { v: '2.48', date: 'Oct 28, 2026', title: 'Glades', items: [
     'Ski through the trees: paint a glade over forest with Trail › Glade. Start it at the top of a lift or beside a trail, and let it run out onto a trail, a lift or the base.',
     'Choose how much to thin: Tight (experts only), Classic (advanced and experts) or Open (strong intermediates too). More trees make it rate harder, and accidents likelier and more serious.',
