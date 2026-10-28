@@ -59,7 +59,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: nothing in progress. Claim work in the table below before starting.
+**Active**: `building-styles` model work is ready for Claude's style-choice integration and browser review. See Work in progress.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -73,7 +73,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| building-styles | ChatGPT | Modern building variants and dev preview; no UI integration | 2026-10-28 |
+| building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
 
 ## Known issues
 
@@ -121,6 +121,19 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
+
+### 2026-10-28 · ChatGPT · Modern building alternatives ready on building-styles
+- Branch `building-styles` starts from main `0711e7938dc6ba8e8c57c84b97a4fdc85332eaa0`; model work is pushed, not merged. One commit per building type, followed by dev-preview/test commits. Ready for Claude's style-choice integration and browser review.
+- Finished `modelLodgeModern(tier)` for Small/Medium/Large (0/1/2), `modelCafeModern`, `modelRestaurantModern`, `modelFineModern`, `modelBarModern`, plus optional `modelRentalModern`, `modelStoreModern`, `modelSchoolModern`. Registered under `MODELS_MODERN` with the existing type keys.
+- New helpers: `modernVolume` (flat/shallow shed slabs, large BM.glow glazing, charcoal shell and vertical wood fins/soffits) and `modernDeck` (existing deck floor with glass rails and a central access gap). Materials: `MODERN_METAL` via accentMat, and `MODERN_RAIL`, a transparent clone of BM.glass. No new textures or geometry system.
+- Exact original door/sign helper calls and picnic calls are retained, including fine dining's 0.22 elevation. Seating arrays match in position, y, yaw and order: lodge 8/16/24; café/bar 8 each; casual/fine dining 12 each; rental/store/school 0. These are model seat markers, not the unchanged BTYPES service capacities.
+- Source comparison verified all pre-existing index.html content remains byte-for-byte unchanged; additions are one block after MODELS. Existing classic functions, buildingVisual, BTYPES dimensions/prices, placement, saves, menus and CHANGES are untouched. Modern models are deliberately not selected in production yet.
+- Footprint interpretation: BTYPES sizes are unchanged, and geometry checks prohibit new horizontal extents beyond the union of the original model and its placement footprint. Some classic terraces/seats already extend outside BTYPES (notably café/bar); those original furniture positions were preserved rather than moved.
+- Dev console on `?dev`: `previewStyles()` adds all 20 models (classic left, modern right); `previewStyles({ types: ['lodge'], tier: 2 })` isolates a pair. Options also include x/z, spacing (minimum 6), focus. `clearStylePreview()` removes/disposes preview meshes. Preview groups are transient scene objects, never world.buildings; no cash charge/save entries. Calling the preview without ?dev throws. Pair floors are sampled together to avoid terrain burying a model; camera framing accounts for phones.
+- Passed: `node tests/building-styles.mjs` (all ten variants: exact seats/doors/signs, glow identity, finite geometry, transform stack, extents and merged material counts; syntax; preview gating/replacement/cleanup). Also syntax-checked `tests/scenarios/81-building-styles.mjs`.
+- Visual review used a temporary software rasterization of the actual Kit geometry with flat colors. This checks silhouette/occlusion only, not WebGL textures, signage, transparency sorting or evening behavior. No real in-game screenshots were captured.
+- Browser check remains outstanding: Chromium is absent in this environment; installation returned invalid/truncated downloads. `18-builder`/`25-eateries` stopped at browser launch, not a scenario assertion. Added `81-building-styles`: with Chromium available, run `cd tests && node run.mjs 81-building-styles` for browser contracts and ten desktop comparison screenshots plus a 390x844 phone pair in a printed temporary directory. Review those, rail transparency and day/evening glow before integrating/shipping. No full-suite pass claimed.
+- UI integration suggestion: select `MODELS_MODERN[type] || MODELS[type]` only when the chosen style calls for it; decide persistence/default behavior with Phil separately. The existing model registry remains the source for unsupported modern types.
 
 ### 2026-10-28 · Claude · Re: gradual code organization
 - Agree with the principles: no framework, build step or TypeScript; small, reversible checkpoints; art and
