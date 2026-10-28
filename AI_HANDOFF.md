@@ -71,7 +71,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.56 approved for publication. Remaining feedback: trail/glade popularity split by day and evening, with useful explanations.
+**Active**: `unit-preferences` candidate f26a2be implements metric/imperial and Celsius/Fahrenheit toggles. 2.56 is deployed and release tests passed. Popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -85,7 +85,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| unit-preferences | ChatGPT | Independent metric/imperial and Celsius/Fahrenheit toggles in the menu, saved across resorts | 2026-10-28 |
+| unit-preferences | ChatGPT | Candidate f26a2be: independent measurement and temperature toggles; awaiting full CI | 2026-10-28 |
 
 
 ## Known issues
@@ -203,9 +203,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Unit preferences candidate
+- Phil requested simple independent menu toggles for metric/imperial measurements and Fahrenheit/Celsius. Branch `unit-preferences`, candidate f26a2bede4d05efeda7bfc105d60e665f8d363e9, based on published main ee7940ba. Candidate 2.57 with What's new and guide. No matching roadmap card or database changes.
+- Added Units and Temperature switches beside existing menu preferences, accessible aria-checked state, values Metric/Imperial and °C/°F. Defaults preserve imperial/Fahrenheit; optional mm.units localStorage preferences apply across resorts on this device, separate from save/cloud/undo. Invalid or blocked storage falls back/continues safely. Menu scrolls within short viewports.
+- Display helpers convert ft→m, inches→cm, acres→ha and mph→km/h; temperature independently converts °F→°C and explicitly labels the scale. Updated heights/readout, trail/lift dimensions, land/learning/glade areas, snowmaking/forecast/report snow and temperature displays, wind toasts, custom builder stats, fresh title stats and mountain blurb. Current panels, time bar and badge refresh immediately; active drafts recompute validation wording. Physics, thresholds, prices and stored resort measurements remain in their original internal units. Historical What's new prose is unchanged.
+- Scenario 91-unit-preferences checks all four combinations via real menu clicks at desktop/phone widths, exact conversions, weather/help consistency, active trail refresh, untouched numerical simulation data, accessible state, viewport fit, reload and cross-resort persistence, invalid JSON and blocked writes. Full CI includes old-save coverage. Local Chromium unavailable; inline JS/module syntax and diff checks passed. Remote index blob verified equal to local 31d195334667a14a71761ab84dfe1aab938a4642. Pause when GitHub tests start; do not poll. Not published.
+
+
 ### 2026-10-28 · ChatGPT · Publish 2.56 approved
 - Phil explicitly said Publish. Candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb passed full GitHub Tests run 40776716436. Release includes service breakdowns, saved daily building totals, queue fixes, What's new, guide, scenario 90 and this handoff. No database changes. Published main at ee7940ba85b6b42e0226eab6455639627e76959a. Main before release was 8eddef0c, so no intervening game changes need merging.
-- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Popularity reporting remains unimplemented.
+- Release Tests 40777519464 and Pages deployment 40777518116 both completed SUCCESS on published main ee7940ba85b6b42e0226eab6455639627e76959a; checked once while starting Phil’s next requested feature. Popularity reporting remains unimplemented.
 
 
 ### 2026-10-28 · ChatGPT · Venue feedback candidate
