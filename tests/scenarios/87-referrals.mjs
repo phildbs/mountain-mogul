@@ -23,6 +23,10 @@ export default async function ({ browser, url }) {
     assert((await g.page.locator('#refLink').inputValue()).startsWith('https://mtmogul.com/?ref='),'real link includes attribution');
     await g.ev(`state.isPublic = false; renderReferrals();`);
     assert(!(await g.page.locator('#refLink').inputValue()).includes('visit='),'private mountain is not included in invitation link');
+    await g.ev(`Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true}); Object.defineProperty(navigator,'share',{configurable:true,value:async payload=>{window.__refShared={url:payload.url,file:payload.files[0].type};}});`);
+    await g.page.locator('[data-ref=share]').click();
+    eq(await g.ev('window.__refShared.file'),'image/jpeg','native share sends a real photograph');
+    assert((await g.ev('window.__refShared.url')).includes('ref='),'native photo share includes invitation attribution');
     const before = await g.ev('state.cash');
     await g.ev(`claimReferral('${friend}')`);
     eq(await g.ev('[state.cash,state.referralCredit]'),[before+100000,100000],'real claim credits active resort once');
