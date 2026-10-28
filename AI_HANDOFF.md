@@ -94,6 +94,8 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 ## Development guidelines
 
 **Before starting**
+- Read `STYLE_GUIDE.md` (repo root on `main`; on branch `style-guide` until published) for colours, fonts, interface
+  parts, icons, 3D art, writing and behaviour rules. New work must match it, or update it on purpose.
 - Read this file and check recent commits on `main` and open branches (`git log origin/main`,
   `git branch -r`). The other assistant may be mid-change in another conversation.
 - Discuss major architecture, feature or disruptive changes with the owner first.
