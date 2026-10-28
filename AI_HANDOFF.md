@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
 - 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
 - 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
@@ -72,7 +73,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.57 approved for publication. Remaining feedback: trail/glade popularity split by day and evening, with useful explanations.
+**Active**: 2.57.1 publication approved; release checks pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -203,9 +204,22 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.57.1 approved
+- Phil explicitly said Publish. Candidate 086f91646dece9c345e604a71847f44b452314bd passed full GitHub Tests run 40785122583. Release includes routing fixes, What's new, guide, scenarios 92/93 and this handoff. No database or save-schema changes. Main before release was 188f80e09c779eee6c1600e8c56275abe9ced12f; no intervening changes need merging. Release Tests and Pages pending.
+
+### 2026-10-28 · ChatGPT · Routing feedback candidate
+- Branch `routing-feedback`, candidate 086f916f53d36b6b94096b1ce68eef2f9b210fbb, based on published main 188f80e0. Patch 2.57.1, What's new + guide updated. No database or save-schema changes; transfers rebuild from geometry on loading existing saves. Not published.
+- Fork bug: updateSki compared a branch's vTrail (skiing plus destination) with vRest for continuing (destination/future branches only). Now compares vTrail for both choices, excluding the current fork from the continuation search. Length enjoyment uses only the unskied portion. Extracted production-helper smoke checks reproduced near-total blue diversion under old scoring and continued black-preferring advanced traffic after the fix, while intermediates still use the easier branch.
+- Destination bug: vBase previously valued every base lift regardless of which base a trail ended at. It now receives the hypothetical endpoint, skips inaccessible other-base lifts, subtracts an available crossing cost, and accounts for a homebound guest's parked-car base. Village gondolas serve via crossCost instead of masquerading as ordinary ski lifts. Guests without a known parked car keep the existing generic exit value.
+- Transfer limits: existing glide links retain 220m radius and 6m upward tolerance. New walk links allow at most 100m separation / 20m rise, 25% average rise and 35% sampled segment grades on owned ground. Top decisions use walk speed with skis off, followed by normal queue arrival; walking carries a larger distance penalty. Lift panels distinguish walk and glide connections. These are bounded nearby connections, not arbitrary uphill hiking.
+- Initial full CI 40784012227: 92 could not find a legal gentle uphill site in its natural-terrain search; all other scenarios passed, including 93 and existing transfer tests. Replaced only that fixture with a controlled 10% station-approach slope and the established scenario-30 upper lift/return layout. It still uses actual placement validation, network recomputation and guest walking/queue arrival; no gameplay changes. Module syntax and diff checks pass; full rerun 40785122583 completed SUCCESS on candidate 086f91646dece9c345e604a71847f44b452314bd. No local browser pass claimed.
+- New 92-routing-feedback tests seeded fork choices by ability/preference, closed branches, an actual legal Juniper lift connection rejected by the old height gate, walking/queue arrival and closed/far controls. New 93-route-base-destinations checks Twin Notch's isolated bases, returning to the parked car and operating/stopped village-gondola access. Existing 30-transfer, 79-two-bases, 85-night-lifts and old saves remain relevant in full CI.
+- Read-only feedback context confirmed the second report was on Twin Notch; its current public save was updated after the report. No player geometry or identifying data was committed. The exact red/green screenshot resort is not identified; Phil can supply its share link to confirm the precise stations. Local Chromium unavailable; extracted helper smoke, inline JS/module syntax and diff checks pass. Remote index matches local bf9ca6255aa78777134ae8ce99e2e927d84dc320. Pause once GitHub tests start; do not poll.
+
+
 ### 2026-10-28 · ChatGPT · Publish 2.57 approved
-- Phil explicitly said Publish. Candidate f26a2bede4d05efeda7bfc105d60e665f8d363e9 passed full GitHub Tests run 40778774810. Release includes independent measurement/temperature toggles, What's new, guide, scenario 91 and this handoff. No database changes. Main before release was ee7940ba, so no intervening game changes need merging.
-- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Popularity reporting remains unimplemented.
+- Phil explicitly said Publish. Candidate f26a2bede4d05efeda7bfc105d60e665f8d363e9 passed full GitHub Tests run 40778774810. Release includes independent measurement/temperature toggles, What's new, guide, scenario 91 and this handoff. No database changes. Published main at 188f80e09c779eee6c1600e8c56275abe9ced12f. Main before release was ee7940ba, so no intervening game changes need merging.
+- 2.57 release Tests 40779939826 and Pages deployment 40779938338 both completed SUCCESS on main 188f80e09c779eee6c1600e8c56275abe9ced12f; checked once during the next requested routing investigation. Popularity reporting remains unimplemented.
 
 
 ### 2026-10-28 · ChatGPT · Unit preferences candidate
