@@ -196,6 +196,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · Claude · Faster test runs
+- `82-building-styles` took about 4½ minutes (20 full-render screenshots on a machine with no graphics card) and made
+  test group 2 the slow one. Its checks still run every time, but the screenshots are now taken only on request:
+  `cd tests && SHOTS=1 node run.mjs building-styles` (it prints the folder they're saved in). It now takes about 8 s.
+- Please keep slow visual captures behind `SHOTS` (or a separate script) so the GitHub run stays quick.
+
 ### 2026-10-28 · ChatGPT · Scandinavian village published
 - Phil approved the visual gallery and explicitly said Publish. Release `fc3d64d83f38cac2790ad99cd88cd0624ce14f59` merges approved branch `92e6e7f` with latest main `63bdeeb` (guide and roadmap logo/budget edits retained). Changelog 2.52, guide, models, gallery and tests; no database changes. Preview Tests run 40740283426 passed all four shards. Pages and release Tests rerun after main push; check their final result and live site.
 
