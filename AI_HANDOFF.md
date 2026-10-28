@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.56: venue service breakdowns and saved daily totals, full-firepit warm-up alternatives, and faster-venue switching for snack and fine-dining queues.
 - 2.55: expand patrol teams to 4 or 6; returning staff use real lift seats and remain available at the aid station when no lift route reaches home.
 - 2.54: overnight learning-area editing, protected serving lift stations, and night clear-out lighting with actual extension costs.
 - Owner dashboard: Invited players tile counts new players who joined through an invitation and created a resort, once per attribution, independently of reward qualification.
@@ -70,7 +71,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.55 approved for publication. Remaining feedback: venue service counts/balance and trail/glade popularity by day and evening.
+**Active**: 2.56 approved for publication. Remaining feedback: trail/glade popularity split by day and evening, with useful explanations.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -201,9 +202,22 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.56 approved
+- Phil explicitly said Publish. Candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb passed full GitHub Tests run 40776716436. Release includes service breakdowns, saved daily building totals, queue fixes, What's new, guide, scenario 90 and this handoff. No database changes. Main before release was 8eddef0c, so no intervening game changes need merging.
+- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Popularity reporting remains unimplemented.
+
+
+### 2026-10-28 · ChatGPT · Venue feedback candidate
+- Latest candidate f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb. Run 40775958488 passed all existing scenarios; only new test 90 failed because its single-person queue did not meet the existing five-minute switching improvement threshold (truck 2.6 min / fine dining 5 min remaining). Corrected the fixture to use 24 queued guests and explicitly assert both no-switch for short waits and switching from the back of a genuinely slow queue. Game code is unchanged. Full GitHub Tests run 40776716436 completed SUCCESS on f6c28976286af3fbc9590bdb79cb9a76bbcc3bbb; Phil reported all pass, checked once. Ready for Phil’s publication decision; not published.
+- Branch `venue-feedback`, candidate aa962f38c75b34954f4cff9d66f91c4f59e510ed from published main 8eddef0c. Candidate 2.56, What's new and guide updated; not published. No database changes. Remaining popularity report still pending.
+- Café counts combine snacks, hot drinks and restroom stops; truck counts only snacks. Added Today/Last day service breakdowns with explicit repeat-visit wording, rather than changing prices, seats or forcing equal venue totals. Counter increments only after accepted service, mirrors existing visits, and is copied into yday. Optional sim.buildingToday snapshots preserve per-building daily counters/revenue across mid-day restores; old saves with no snapshots retain fallback behavior.
+- Full fire pits skip warm-up selection, redirect arriving warm-up guests, and release warm-up queues from older saved days. Try another nearby warm-up venue without marking them warmed if unserved. Snack and fine-dining queues now use the existing hungry-guest faster-venue / abandonment logic.
+- New 90-venue-services covers service mix, total reconciliation, mid-day restore, full-fire selection/arrival alternatives and snack/fine-dining queue switching. Full CI includes 32-old-saves. Local Chromium unavailable; syntax/diff checks pass. Remote game blob matches local e5ab7b48e3262784f252f67dbbc7ef856d025253. Pause when CI runs; do not poll. Phil will report the result.
+
+
 ### 2026-10-28 · ChatGPT · Publish 2.55 approved
-- Phil explicitly said Publish. Candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 passed full GitHub Tests run 40773066187. Release includes patrol teams and lift returns, What's new, guide, test coverage and this handoff. No database changes. Main before release was 7d55b699, so no intervening game changes need merging.
-- Check Pages deployment and release tests once. If running, tell Phil and pause without polling. Remaining venue balance and popularity reports are not implemented.
+- Phil explicitly said Publish. Candidate 6a1cf6d69c0a1b76dfd90416d2483667b2622d02 passed full GitHub Tests run 40773066187. Release includes patrol teams and lift returns, What's new, guide, test coverage and this handoff. No database changes. Published main at 8eddef0c056a90be171e6b592e888c6a7888eae7. Main before release was 7d55b699, so no intervening game changes need merging.
+- Release Tests run 40774458983 and Pages deployment 40774458265 both completed SUCCESS on published main 8eddef0c056a90be171e6b592e888c6a7888eae7. Phil reported Passed; checked once. Remaining venue balance and popularity reports are not implemented.
 
 
 ### 2026-10-28 · ChatGPT · Patrol feedback candidate
