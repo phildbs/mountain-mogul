@@ -80,6 +80,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| friend-referrals | ChatGPT | In-game invitation UI prototype with sample progress; browser CI pending | 2026-10-28 |
 
 
 ## Known issues
@@ -196,6 +197,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · In-game referral UI preview
+- Phil requested a preview of how referrals look in game. Branch `friend-referrals`, commit `0ee915d4eda137c967900558b55c4e0aba7bfc05`, based on main 790ed3e. Open `index.html?referralPreview=1`. Sample invitation prompt, empty state, progress, one ready reward and all three paid with future decoration milestone. Preview selector below modal. Claims never change state.cash; sharing is simulated.
+- Prototype only, NOT a functioning referral backend. Query mode skips Supabase init, loadSave/readSlots migrations and saveNow/writeSlots/clearSave. Normal game stays unchanged, no schema changes, no changelog claiming release. Auto-opens in-game with starter terrain. Test `86-referral-preview` covers desktop/phone fit, qualification copy, claim states, cap, storage guards and normal query gating. Syntax check passes; GitHub CI pending. Phil must review before any publication.
+
 
 ### 2026-10-28 · ChatGPT · Agreed referral reward rules
 - Phil approved $100,000 per qualifying friend, up to three rewards per player ($300,000 lifetime total), and a special decoration after three qualify. Design the decoration later; retain the earned milestone for that future unlock.
