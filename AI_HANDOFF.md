@@ -77,7 +77,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| stats-retention | ChatGPT | Retention charts + SQL ready; not published or installed | 2026-10-28 |
+| (none) | | | |
 
 ## Known issues
 
@@ -176,6 +176,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Retention dashboard published
+- Phil authorized Publish. Installed player_retention_tracking migration on iwhhoneaxmeiktqzwxjs, then fast-forwarded main to f511886a0709a51b83a27d4950f135fc0d1685ca.
+- Owner RPC verified after install: empty daily data and zero eligible cohorts as expected, first full tracking day 2026-10-29 UTC. Prior validation confirmed non-owner denial. JavaScript syntax passed; authenticated browser visual review still outstanding.
+- Security advisors: private tables deliberately have RLS without client policies; admin_retention deliberately exposes authenticated execution with an internal owner check, matching existing admin RPCs. No public access added.
+- No historical backfill. Save activity begins now; display starts on first full UTC day, exact-day retention matures after target day closes. No game-facing behavior changed.
+
+
 
 ### 2026-10-28 · ChatGPT · Player retention ready for review
 - Branch stats-retention at f511886a0709a51b83a27d4950f135fc0d1685ca: stats.html adds D1/D7/D30 exact-day return rates and daily new/returning save activity chart + counts table. No external chart library.
