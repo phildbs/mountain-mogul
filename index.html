@@ -8283,7 +8283,7 @@ function endDay() {
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
   for (const B of world.buildings) {
     const cost = upk(B) + B.today.cogs;
-    B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
+    B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, services: { ...B.today.services }, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost) };
   }
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
@@ -9348,6 +9348,7 @@ function serializeSim() {
   if (state.phase !== 'open') return null;
   return {
     today, schedule, nextGid, nextCid, buses, busPending, nextBusAt, nextParkAt, offCars,
+    buildingToday: world.buildings.map((B) => ({ id: B.id, today: { ...B.today, services: { ...B.today.services } } })),
     offQueue: offQueue.map((q) => ({ car: q.car.id, since: q.since })),
     guests: guests.map((g) => ({ ...g, T: g.T ? g.T.id : null, L: g.L ? g.L.id : null })),
     cars: cars.map((c) => ({ ...c })),
@@ -9377,6 +9378,10 @@ function restoreSim(sim) {
     if ((g.st === 'bq' || g.st === 'inside' || g.st === 'lesson') && !B) { g.st = 'walk'; g.then = { k: 'car' }; g.leaving = true; }
     if (B && (g.st === 'inside' || g.st === 'lesson')) { B.used[POOL[g.svc]]++; g.deck = -1; }
     guests.push(g); gById.set(g.id, g);
+  }
+  for (const r of sim.buildingToday || []) {
+    const B = bldById(r.id);
+    if (B && r.today) B.today = { ...B.today, ...r.today, services: { ...r.today.services } };
   }
   for (const g of guests.filter((x) => x.st === 'bq').sort((p, q) => p.qT - q.qT)) { const B = bldById(g.bid); B.q[POOL[g.svc]].push(g); g.qv = -1; }
   for (const g of guests.filter((x) => x.st === 'xq').sort((p, q) => p.qStart - q.qStart)) { const L = liftById(g.xLid); if (L) { L.xq = L.xq || { a: [], b: [] }; L.xq[g.xEnd].push(g.id); } else crossTo(g, g.xZone, g.xNext); } // in line for the village gondola
@@ -11172,7 +11177,7 @@ function initBldSim(B) {
   B.used = { seat: 0, rr: 0, rent: 0, lesson: 0 };
   B.counterFree = 0; B.rented = 0; B.qv = 0;
   B.deckUse = new Array((B.seatsW || []).length).fill(0);
-  B.today = { visits: 0, revenue: 0, cogs: 0, peak: 0, calls: 0, resp: 0 };
+  B.today = { visits: 0, services: {}, revenue: 0, cogs: 0, peak: 0, calls: 0, resp: 0 };
   if (B.type === 'patrol') B.crew = Array.from({ length: bspec(B).crew }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (bspec(B).crew - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
 }
 function estWait(B, svc) {
@@ -11211,7 +11216,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
       if (!svc || !bldOpenNow(B)) continue;
       if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
       if (need === 'lunch' && g.pricedOut && g.pricedOut.includes(svc)) continue; // already found that too dear today
-      if (svc === 'rest' && B.used.seat >= poolSlots(B, 'seat')) continue; // nobody queues for a bench
+      if ((svc === 'rest' || (svc === 'warm' && B.type === 'firepit')) && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) continue; // free outdoor breaks need an available seat
       if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
       if (d > radius && !(baseToo && B.isBase)) continue;
@@ -11397,6 +11402,13 @@ function bldQueueSlot(B, pool, k) {
   return { x: B.door.x + fx * (0.15 + row * 0.27) + sx * side, z: B.door.z + fz * (0.15 + row * 0.27) + sz * side };
 }
 function joinBuildingQueue(g, B) {
+  if (g.svc === 'warm' && B.type === 'firepit' && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) {
+    g.avoidB = B.id; g.avoidUntil = state.time + 15;
+    const alt = bestVisit(g, B.door, 20, false, world.buildings, ['warm']);
+    if (alt) return startVisit(g, alt.B, alt.svc, g.resume);
+    thought(g, 'The fire is full. I’ll find somewhere else to warm up.');
+    return leaveBuilding(g, B);
+  }
   g.st = 'bq'; g.qT = state.time; g.qv = -1;
   B.q[POOL[g.svc]].push(g); B.qv++;
 }
@@ -11410,7 +11422,12 @@ function bldStep(B) {
       serve(g, B);
     }
     for (let i = q.length - 1; i >= 0; i--) {
-      const g = q[i], waited = state.time - g.qT, food = pool === 'seat' && (g.svc === 'food' || g.svc === 'dine');
+      const g = q[i], waited = state.time - g.qT, food = pool === 'seat' && ['food', 'dine', 'finedine', 'snack'].includes(g.svc);
+      if (g.svc === 'warm' && B.type === 'firepit' && B.used.seat >= slots) {
+        q.splice(i, 1); B.qv++;
+        joinBuildingQueue(g, B); // also release warm-up lines restored from older saves
+        continue;
+      }
       // Hungry guests in a slow line look around every few minutes, and go where they'll eat sooner.
       if (food && waited > 5 && waited <= g.pat * 1.6 + 4 && state.time >= (g.qLook || 0)) {
         g.qLook = state.time + 3;
@@ -11479,6 +11496,8 @@ function serve(g, B) {
     } else today.rev[REV_CAT[svc]] += amt;
   }
   B.used[pool]++; B.today.visits += AGENT;
+  const services = B.today.services || (B.today.services = {});
+  services[svc] = (services[svc] || 0) + AGENT;
   g.until = state.time + lerp(SVC_TIME[svc][0], SVC_TIME[svc][1], Math.random());
   g.st = svc === 'lesson' ? 'lesson' : 'inside';
   g.deck = -1;
@@ -12200,6 +12219,13 @@ function levelOffer(B) {
   const cost = levelRect(boxOf(B), pad, 2.5, true).cost;
   return `<button class="btn secondary" data-action="levelB" ${cost <= state.cash ? '' : 'disabled'}>Level the ground around it · ${money(cost)}</button>`;
 }
+function bldServiceBreakdown(B, data, open) {
+  if (!['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar', 'firepit'].includes(B.type)) return '';
+  const labels = { food: 'Meals', dine: 'Meals', finedine: 'Meals', snack: 'Snacks', warm: B.type === 'firepit' ? 'Warm-ups' : 'Hot drinks', rr: 'Restroom stops', rest: 'Rest breaks', fire: 'Evening fire visits', drinks: 'Drinks', apres: 'Après visits' };
+  const rows = Object.entries((data && data.services) || {}).filter(([k, n]) => labels[k] && Number.isFinite(n) && n > 0).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) return '';
+  return `<div class="field-label">${open ? 'Today' : 'Last day'} · visits by service</div><dl class="kv">${rows.map(([k, n]) => `<div><dt>${labels[k]}</dt><dd>${n.toLocaleString('en-US')}</dd></div>`).join('')}</dl><p class="help">Counts service visits. A guest can use more than one service, or stop more than once.</p>`;
+}
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
   const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : 'Served today';
@@ -12225,6 +12251,7 @@ function bldSheet(B) {
       <div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day${bldMode(B) === 'closed' ? ' · closed today' : bldMode(B) === 'lunch' ? ' · lunch only' : ''}</dd></div>
       <div><dt>Last day</dt><dd>${y ? signedMoney(y.profit) : '–'}</dd></div>
     </dl>
+    ${bldServiceBreakdown(B, open ? B.today : y, open)}
     ${planLine((P) => MODE_WORD[bldModeIn(P, B)])}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
@@ -16432,6 +16459,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.56', date: 'Oct 28, 2026', title: 'Clearer venue visits and smarter queues', items: ['Venue panels split service visits into meals, snacks, hot drinks, restroom stops and breaks. These are visits, so a guest can appear more than once. Counts survive a mid-day reload and remain in last day’s venue panel.', 'Fixed: skiers look for another warm-up spot when the fire pit is full. Guests in slow snack and fine-dining queues can now try a faster food venue, as guests in other food queues already do.'] },
   { v: '2.55', date: 'Oct 28, 2026', title: 'More help from ski patrol', items: ['Expand an existing patrol team overnight from 2 to 4 or 6 patrollers, with higher upkeep. Skeleton staffing puts half the team on duty.', 'Returning patrollers take operating lifts uphill, using a seat on a real chair. If the lifts can’t reach their hut, they stay available at the aid station. The patrol panel distinguishes staff responding from staff returning.'] },
   { v: '2.54', date: 'Oct 28, 2026', title: 'Edit learning areas and safer night closing', items: ['Select a learning area overnight to repaint or trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Serving lift stations must stay inside.', 'At the end of night skiing, lit routes and lift terminals stay illuminated while the last skiers clear the mountain. The short extension is included in the day’s night-operation costs.'] },
   { v: '2.53.2', date: 'Oct 28, 2026', title: 'Your mountain in the picture', small: true, items: ['Your saved resorts now show scenic 3D photos on the title screen instead of top-down maps. Open an older resort once to refresh its picture.'] },
