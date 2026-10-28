@@ -72,7 +72,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: `routing-feedback` candidate 8b2414f addresses the new lift-transfer and black-run cutoff reports. 2.57 deployed and release tests passed. Popularity reporting remains pending.
+**Active**: `routing-feedback` candidate 086f916 addresses the new lift-transfer and black-run cutoff reports. 2.57 deployed and release tests passed. Popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -86,7 +86,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| routing-feedback | ChatGPT | Candidate 8b2414f: fair fork scoring, base-aware destinations and short uphill lift transfers; awaiting CI | 2026-10-28 |
+| routing-feedback | ChatGPT | Candidate 086f916: fair fork scoring, base-aware destinations and short uphill lift transfers; awaiting CI | 2026-10-28 |
 
 
 ## Known issues
@@ -205,10 +205,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ## AI collaboration notes
 
 ### 2026-10-28 · ChatGPT · Routing feedback candidate
-- Branch `routing-feedback`, candidate 8b2414ff53d36b6b94096b1ce68eef2f9b210fbb, based on published main 188f80e0. Patch 2.57.1, What's new + guide updated. No database or save-schema changes; transfers rebuild from geometry on loading existing saves. Not published.
+- Branch `routing-feedback`, candidate 086f916f53d36b6b94096b1ce68eef2f9b210fbb, based on published main 188f80e0. Patch 2.57.1, What's new + guide updated. No database or save-schema changes; transfers rebuild from geometry on loading existing saves. Not published.
 - Fork bug: updateSki compared a branch's vTrail (skiing plus destination) with vRest for continuing (destination/future branches only). Now compares vTrail for both choices, excluding the current fork from the continuation search. Length enjoyment uses only the unskied portion. Extracted production-helper smoke checks reproduced near-total blue diversion under old scoring and continued black-preferring advanced traffic after the fix, while intermediates still use the easier branch.
 - Destination bug: vBase previously valued every base lift regardless of which base a trail ended at. It now receives the hypothetical endpoint, skips inaccessible other-base lifts, subtracts an available crossing cost, and accounts for a homebound guest's parked-car base. Village gondolas serve via crossCost instead of masquerading as ordinary ski lifts. Guests without a known parked car keep the existing generic exit value.
 - Transfer limits: existing glide links retain 220m radius and 6m upward tolerance. New walk links allow at most 100m separation / 20m rise, 25% average rise and 35% sampled segment grades on owned ground. Top decisions use walk speed with skis off, followed by normal queue arrival; walking carries a larger distance penalty. Lift panels distinguish walk and glide connections. These are bounded nearby connections, not arbitrary uphill hiking.
+- Initial full CI 40784012227: 92 could not find a legal gentle uphill site in its natural-terrain search; all other scenarios passed, including 93 and existing transfer tests. Replaced only that fixture with a controlled 10% station-approach slope and the established scenario-30 upper lift/return layout. It still uses actual placement validation, network recomputation and guest walking/queue arrival; no gameplay changes. Module syntax and diff checks pass; rerun pending, no local browser pass claimed.
 - New 92-routing-feedback tests seeded fork choices by ability/preference, closed branches, an actual legal Juniper lift connection rejected by the old height gate, walking/queue arrival and closed/far controls. New 93-route-base-destinations checks Twin Notch's isolated bases, returning to the parked car and operating/stopped village-gondola access. Existing 30-transfer, 79-two-bases, 85-night-lifts and old saves remain relevant in full CI.
 - Read-only feedback context confirmed the second report was on Twin Notch; its current public save was updated after the report. No player geometry or identifying data was committed. The exact red/green screenshot resort is not identified; Phil can supply its share link to confirm the precise stations. Local Chromium unavailable; extracted helper smoke, inline JS/module syntax and diff checks pass. Remote index matches local bf9ca6255aa78777134ae8ce99e2e927d84dc320. Pause once GitHub tests start; do not poll.
 
