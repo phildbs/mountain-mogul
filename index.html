@@ -1146,6 +1146,9 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .bpick i.bi svg { width: 20px; height: 20px; }
 .bpick em { font-style: normal; font-size: 11.5px; color: var(--ink); opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bpick .have { color: #1f7a42; font-weight: 600; }
+.themes { display: flex; gap: 4px; margin: 0 0 10px; }
+.themes button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 6px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.themes button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 .btabs { flex: none; display: flex; gap: 2px; margin: 2px 0 10px; padding: 3px; border-radius: 10px; background: rgba(20, 36, 58, 0.06); overflow-x: auto; scrollbar-width: none; }
 .btabs button { flex: 1 1 auto; min-width: 0; min-height: 30px; border: 0; background: none; border-radius: 8px; padding: 7px 5px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
 .btabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20, 36, 58, 0.12); }
@@ -4986,11 +4989,11 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0) {
   const build = mover ? moveFee(mover) : sizeCost(type, tier);
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
-function commitBuilding(info, type, x, z, rot) {
+function commitBuilding(info, type, x, z, rot, style) {
   clearTreeSet(info.treeSet);
   const tier = info.tier || 0;
   state.cash -= info.cost;
-  const b = { id: world.nextId++, type, tier, x, z, rot, spent: info.cost, yday: null, padY: info.padY };
+  const b = { id: world.nextId++, type, tier, x, z, rot, spent: info.cost, yday: null, padY: info.padY, style: styleOf(type, style) };
   b.name = nextBuildingName(type, x, z);
   if (BTYPES[type].noPad) { addBuilding(b); return b; }
   const res = levelRect(info.bb, info.padY, 2.5, false);
@@ -5071,7 +5074,7 @@ function planVisual(p) {
   } else if (p.kind === 'lift') {
     g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b, p.type), false), p.paused);
   } else {
-    g = blueprint(buildingVisual({ type: p.type, tier: p.tier || 0, x: p.x, z: p.z, rot: p.rot }, true).group, p.paused);
+    g = blueprint(buildingVisual({ type: p.type, tier: p.tier || 0, x: p.x, z: p.z, rot: p.rot, style: p.style }, true).group, p.paused);
   }
   p.group = g;
   planGroup.add(g);
@@ -5101,7 +5104,7 @@ function buildPlan(p) {
   p.cost = info.cost;
   if (info.cost > state.cash) { p.short = true; return `there wasn’t enough cash (it needs ${money(info.cost)}).`; }
   p.short = false;
-  const made = p.kind === 'trail' ? commitTrail(info, p.pts, p.width) : p.kind === 'lift' ? commitLift(info, p.type) : commitBuilding(info, p.type, p.x, p.z, p.rot);
+  const made = p.kind === 'trail' ? commitTrail(info, p.pts, p.width) : p.kind === 'lift' ? commitLift(info, p.type) : commitBuilding(info, p.type, p.x, p.z, p.rot, p.style);
   p.madeName = made.name;
   return true;
 }
@@ -5631,6 +5634,8 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
   else if (a === 'bTab') { setBTab(b.dataset.v); renderSheet(); }
+  else if (a === 'bTheme') { setBTheme(b.dataset.v); if (draft.bpos) recomputeBldDraft(); renderSheet(); hover.dirty = true; }
+  else if (a === 'bldTheme' && obj && state.phase === 'closed') { const st = styleOf(obj.type, b.dataset.v); if (st !== obj.style) { pushUndo(`restyling ${obj.name}`); obj.style = st; restyleBuilding(obj); scheduleSave(); } renderSheet(); }
   else if (a === 'pickB') { if (b.dataset.v) setBTab((BGROUPS.find((g) => g[2].includes(b.dataset.v)) || [])[0]); draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); draft.moving = null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'moveBld' && obj) startMove(obj);
   else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
@@ -6344,10 +6349,10 @@ function serializeWorld() {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined })),
+    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, style: B.style || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
-    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
+    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
 }
 let satSpaces = 0;
@@ -10336,6 +10341,21 @@ function clearScandinavianPreview() {
   renderer.shadowMap.needsUpdate = true;
 }
 if (DEV) { window.previewScandinavian = previewScandinavian; window.clearScandinavianPreview = clearScandinavianPreview; }
+/* ---------- Building themes ----------
+   Some buildings come in more than one look. The theme is chosen in the build menu and kept with each
+   building; a type without that theme's model falls back to the classic one. Look only: size, seats,
+   doors and prices are the same in every theme. */
+const THEMES = {
+  classic: { label: 'Classic', note: 'Log lodges and chalets', models: MODELS },
+  modern: { label: 'Modern', note: 'Flat roofs, big glass, dark metal', models: MODELS_MODERN },
+  scandi: { label: 'Scandinavian', note: 'Painted timber village', models: MODELS_SCANDINAVIAN },
+};
+const themed = (type) => Object.values(THEMES).some((T) => T !== THEMES.classic && T.models[type]);
+const modelFor = (type, style) => ((THEMES[style] && THEMES[style].models[type]) || MODELS[type]);
+const styleOf = (type, style) => (style && style !== 'classic' && THEMES[style] && THEMES[style].models[type] ? style : undefined);
+let bThemeNow = null;
+function bTheme() { if (bThemeNow == null) { try { bThemeNow = localStorage.getItem('mm.bTheme') || 'classic'; } catch (e) { bThemeNow = 'classic'; } if (!THEMES[bThemeNow]) bThemeNow = 'classic'; } return bThemeNow; }
+function setBTheme(k) { if (!THEMES[k]) return; bThemeNow = k; try { localStorage.setItem('mm.bTheme', k); } catch (e) { /* storage blocked */ } }
 
 /* =====================================================================
    BUILDINGS: placement
@@ -10461,7 +10481,7 @@ function nextBuildingName(type, x, z, skip) {
   for (let i = 2; ; i++) { const n = `${bases[0]} ${i}`; if (!used.has(n)) return n; }
 }
 function buildingVisual(b, ghost) {
-  const k = MODELS[b.type](b.tier, b, ghost);
+  const k = modelFor(b.type, b.style)(b.tier, b, ghost);
   const s = bspec(b);
   const bb = boxOf(b), fs = footprintStats(bb);
   const top = b.padY != null ? Math.max(b.padY, fs.hmin) : fs.hmax;
@@ -10554,8 +10574,11 @@ function restyleBuilding(b) {
   const v = buildingVisual(b, false);
   b.group = v.group; b.baseY = v.baseY;
   b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
+  b.winLights = windowLights(b);
+  b.group.traverse((o) => { if (o.isMesh && o.material.isMeshLambertMaterial) nightLit(o.material, true); });
   bldGroup.add(b.group);
   renderer.shadowMap.needsUpdate = true;
+  litSig = ''; lmSig = ''; // windows and their light follow the new look
 }
 function upgradeBuilding(b) {
   bldGroup.remove(b.group);
@@ -10576,9 +10599,10 @@ function clearGhost() {
 }
 let ghostDrive = null;
 const DRIVE_GHOST = new THREE.MeshLambertMaterial({ map: APRON_TEX, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-function showGhost(type, tier, x, z, rot, ok, padY) {
-  const key = `${type}:${tier}:${rot}`;
-  const b = { type, tier, x, z, rot };
+function showGhost(type, tier, x, z, rot, ok, padY, style) {
+  style = style === undefined ? (draft.moving ? draft.moving.style : styleOf(type, bTheme())) : style;
+  const key = `${type}:${tier}:${rot}:${style || ''}`;
+  const b = { type, tier, x, z, rot, style };
   if (key !== ghostKey) {
     if (ghost) { scene.remove(ghost); ghost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
     ghost = buildingVisual(b, true).group;
@@ -11437,6 +11461,11 @@ function hoverGhost(p) {
   const v = evalBuilding(draft.btype, x, z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0);
   showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, x, z, draft.rot, !v.problems.length, v.padY);
 }
+// The theme picker: in the build menu (for tabs with themed buildings) and while placing one.
+function themeSeg(show, act = 'bTheme', cur = bTheme()) {
+  if (!show) return '';
+  return `<div class="field-label">Theme</div><div class="themes" role="group" aria-label="Theme">${Object.entries(THEMES).map(([k, T]) => `<button data-action="${act}" data-v="${k}" aria-pressed="${cur === k}" title="${T.note}">${T.label}</button>`).join('')}</div>`;
+}
 function bldDraftSheet() {
   if (!draft.btype) {
     const tab = BGROUPS.find(([k]) => k === bTab()) || BGROUPS[0];
@@ -11451,6 +11480,7 @@ function bldDraftSheet() {
       + (g[0] === 'transport' ? extra('manage', 'parking', 'parking', 'Off-site parking', 'Overflow lots, shuttled in', offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking')
         + extra('manage', 'lotgrow', 'car', lotCount() > 1 ? 'Grow your parking' : 'Grow the main lot', 'More spaces by the road', state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces a section` : 'Add overnight', state.phase === 'closed' ? money(LOT_EXPAND_COST) : '') : '');
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+      ${themeSeg(tab[2].some(themed))}
       <div class="btabs" role="tablist">${BGROUPS.map(([k, label]) => `<button role="tab" data-action="bTab" data-v="${k}" aria-selected="${k === tab[0]}">${label}</button>`).join('')}</div>
       ${BGROUPS.map((g) => `<div class="bpick rows" data-tab="${g[0]}" ${g === tab ? '' : 'hidden'}>${cards(g)}</div>`).join('')}
       <p class="help">${tab[0] === 'decor' ? 'Decor places with each tap; keep tapping to add more.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
@@ -11468,6 +11498,7 @@ function bldDraftSheet() {
   }
   const plan = planning(), short = info && info.cost > state.cash && !plan;
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>${tname}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    ${themeSeg(themed(draft.btype) && !draft.moving)}
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>Upkeep</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
@@ -11522,7 +11553,7 @@ function buildBuildingDraft() {
   const info = draft.info;
   if (!info || info.problems.length) return;
   if (planning()) {
-    addPlan({ kind: 'bld', type: draft.btype, tier: draft.btier || 0, x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, cost: info.cost });
+    addPlan({ kind: 'bld', type: draft.btype, tier: draft.btier || 0, x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, cost: info.cost, style: styleOf(draft.btype, bTheme()) });
     toast(planToast());
     draft.bpos = null; draft.info = null; clearGhost();
     renderSheet(); scheduleSave();
@@ -11530,7 +11561,7 @@ function buildBuildingDraft() {
   }
   if (info.cost > state.cash) return;
   pushUndo(`the new ${BTYPES[draft.btype].name.toLowerCase()}`);
-  const b = commitBuilding(info, draft.btype, draft.bpos.x, draft.bpos.z, draft.rot);
+  const b = commitBuilding(info, draft.btype, draft.bpos.x, draft.bpos.z, draft.rot, bTheme());
   computeNetwork(); syncLabels(); updateCash(true);
   if (b.type === 'bar' && !OPS_KINDS.some(([k]) => opsState().plans[k].apres === 'on')) toast(`Built ${b.name} · −${money(info.cost)}. Turn on après under Evenings to keep it open after the lifts close.`, false, { label: 'Evenings', fn: () => openManage('evenings') });
   else toast(`Built ${b.name} · −${money(info.cost)}`);
@@ -11636,6 +11667,7 @@ function bldSheet(B) {
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${upgrade}
+    ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic')}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
@@ -15521,9 +15553,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.48.1', date: 'Oct 28, 2026', title: 'Light from the windows', small: true, items: [
-    'After dark, lit windows throw warm light onto the snow and the deck in front of them, so buildings glow from where their windows are. Bigger windows light up more.',
+  { v: '2.49', date: 'Oct 28, 2026', title: 'Building themes', items: [
+    'Choose a theme in the build menu: Classic, Modern (flat roofs, big glass, dark metal) or Scandinavian (a painted timber village). Lodges, cafés, restaurants, fine dining, bars, rental shops, ski stores and ski schools come in all three.',
+    'Themes are just the look: size, seats, service and price are the same. Mix them however you like, and change a building’s theme for free overnight from its panel.',
+    'After dark, lit windows throw warm light onto the snow and the deck in front of them, so buildings glow from where their windows are.',
     'By day, windows look like glass catching the sky instead of dark panels or a midday glow.',
+    'Fixed: blueprints for a medium or large lodge came back as small lodges after loading.',
   ] },
   { v: '2.48', date: 'Oct 28, 2026', title: 'Glades', items: [
     'Ski through the trees: paint a glade over forest with Trail › Glade. Start it at the top of a lift or beside a trail, and let it run out onto a trail, a lift or the base.',

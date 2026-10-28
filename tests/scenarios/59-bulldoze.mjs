@@ -45,7 +45,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[world.buildings.some((B) => B.type === 'lamp'), state.cash]`), [false, cash2 + Math.round(lamp.spent * 0.25)], 'a placed lamp post comes out with a quarter back');
 
   // only overnight
-  await g.ev(`(() => { setTool('explore'); state.phase = 'open'; setTool('clear'); })()`);
+  await g.ev(`(() => { setTool('explore'); state.speed = 0; state.phase = 'open'; setTool('clear'); })()`); // paused: no day is really running
   eq(await g.ev(`state.tool`), 'explore', 'no bulldozing while the resort is open');
   await g.ev(`state.phase = 'closed'`);
   eq(g.errors, [], 'no page errors');
