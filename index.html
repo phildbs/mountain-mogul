@@ -4653,6 +4653,7 @@ function clearDraftVisuals() {
   if (draft.kind !== 'bld' || !draft.bpos) clearGhost();
 }
 function resetDraft() {
+  draft.movingTrail = null;
   draft.pts = []; draft.info = null; draft.bpos = null;
   clearGhost();
   clearDraftVisuals();
@@ -4850,6 +4851,48 @@ function commitTrail(info, pts, width) {
   addTrail(made);
   return made;
 }
+// Trail routes are edited overnight using the same handles as a new trail.
+function startTrailMove(t) {
+  if (state.phase !== 'closed' || visiting || t.virtual) return;
+  setTool('trail');
+  draft.movingTrail = t; draft.width = t.width; draft.grade = false;
+  draft.pts = t.pts.map(p => ({ x: p.x, z: p.z }));
+  draft.dirty = true; syncHandles(); renderSheet();
+}
+function cancelTrailMove() {
+  const t = draft.movingTrail; draft.movingTrail = null;
+  setTool('explore'); if (t) select({ kind: 'trail', obj: t });
+}
+function evalTrailMove(t, pts, width, grade) {
+  // Don't let a new endpoint connect back to the trail's old route.
+  const trails = world.trails;
+  try {
+    world.trails = trails.filter(o => o !== t);
+    const info = evalTrail(pts, width, false, grade);
+    info.moved = width !== t.width || pts.length !== t.pts.length || pts.some((p, i) => !t.pts[i] || distXZ(p, t.pts[i]) > 0.25);
+    return info;
+  } finally { world.trails = trails; }
+}
+function moveTrailDraft() {
+  const t = draft.movingTrail;
+  if (!t || state.phase !== 'closed' || visiting || draft.pts.length < 2) return;
+  const info = evalTrailMove(t, draft.pts, draft.width, draft.grade);
+  if (!info.moved || info.an.problems.length || info.cost > state.cash) return;
+  pushUndo(`editing ${t.name}`);
+  const pts = (info.reversed ? [...draft.pts].reverse() : draft.pts).map(p => ({ x: p.x, z: p.z }));
+  clearTreeSet(info.treeSet); state.cash -= info.cost;
+  if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
+  if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
+  removeTrail(t);
+  t.pts = pts; t.width = draft.width;
+  // Snow on the old route cannot be carried to the new one.
+  t.machine = 0; t.icy = false; t.sinceSnow = 0;
+  addTrail(t); computeNetwork(); syncLabels(); updateCash(true);
+  draft.movingTrail = null; resetDraft(); setTool('explore'); select({ kind: 'trail', obj: t });
+  toast(`Updated ${t.name} · −${money(info.cost)}. Check the trail connections.`);
+  scheduleSave();
+}
+
 function evalLift(a0, b0, type, allowPlans, self) {
   let a = a0, b = b0;
   if (heightAt(a.x, a.z) > heightAt(b.x, b.z)) [a, b] = [b, a];
@@ -5007,7 +5050,7 @@ function commitBuilding(info, type, x, z, rot, style) {
 
 function recomputeTrailDraft() {
   if (draft.pts.length < 2) { draft.info = null; return; }
-  const info = evalTrail(draft.pts, draft.width, planning(), draft.grade);
+  const info = draft.movingTrail ? evalTrailMove(draft.movingTrail, draft.pts, draft.width, draft.grade) : evalTrail(draft.pts, draft.width, planning(), draft.grade);
   draft.info = info;
   const mat = trailMaterial();
   mat.color.set(0xffd8c9);
@@ -5025,6 +5068,7 @@ function recomputeLiftDraft() {
 
 const planToast = () => `Blueprint saved, number ${world.plans.length} in the build order. It’s built overnight when there’s cash; change the order or pause it under Plans.`;
 function buildDraft() {
+  if (draft.movingTrail) return moveTrailDraft();
   if (draft.kind === 'bld') return buildBuildingDraft();
   if (draft.movingLift) return moveLiftDraft();
   const info = draft.info;
@@ -5374,6 +5418,7 @@ function openAreaTool() {
   setTool('clear');
 }
 function trailDraftSheet() {
+  const editing = draft.movingTrail;
   const n = draft.pts.length, info = draft.info;
   const help = n === 0 ? 'Click in the clearing at the top of a lift, or on an existing trail to branch off it.'
     : n === 1 ? 'Now click down the mountain to shape the trail.'
@@ -5394,14 +5439,14 @@ function trailDraftSheet() {
     <div class="costs"><span>Grading</span><span>${money(info.grading)}</span>
       <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}${info.bridges ? `<span>${info.bridges > 1 ? `${info.bridges} creek bridges` : 'Creek bridge'} and approaches</span><span>${money(info.bridgeCost)}</span>` : ''}</div>`;
   }
-  return `<div class="sheet-title"><h3>New trail</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+  return `<div class="sheet-title"><h3>${editing ? 'Edit route' : 'New trail'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     ${n ? '' : TRAIL_MODES('trail')}
-    <p class="help">${help}</p>
+    <p class="help">${editing ? 'Drag points to reshape the trail. New clearing and grading are charged at the normal construction price. Old clearing and earthwork remain. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
     <div class="field-label">Width</div>
     <div class="seg" role="group" aria-label="Trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
       `<button data-action="width" data-v="${k}" aria-pressed="${draft.width === k}">${w.label}<small>${widthFt(k)} ft</small></button>`).join('')}</div>
     ${body}
-    ${buildRow(info, info && !info.an.problems.length)}`;
+    ${editing ? `<div class="row"><button class="btn secondary" data-action="trailMoveCancel">Cancel</button><button class="btn secondary" data-action="trailMoveReset">Reset route</button></div><button class="btn wide" data-action="build" ${info && info.moved && !info.an.problems.length && info.cost <= state.cash ? '' : 'disabled'}>Apply route${info ? ' · ' + money(info.cost) : ''}</button>` : buildRow(info, info && !info.an.problems.length)}`;
 }
 
 function liftDraftSheet() {
@@ -5542,6 +5587,7 @@ function trailSheet(t) {
       `<button data-action="sign" data-v="${i}" aria-pressed="${sign === i}" aria-label="${r.name}" title="${r.name}">${ratingSymbol(i)}</button>`).join('')}</div>
     <p class="conn">${esc(from)}<br>${esc(to)}</p>
     ${notes.length ? `<ul class="problems soft">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${state.phase === 'closed' && !visiting && !t.virtual ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}
     ${state.phase !== 'closed' ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
 }
 
@@ -5615,6 +5661,9 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'undo') draftUndo();
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
   else if (a === 'liftMoveReset' && draft.movingLift) { const L = draft.movingLift; draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }]; draft.dirty = true; syncHandles(); }
+  else if (a === 'moveTrail' && obj) startTrailMove(obj);
+  else if (a === 'trailMoveCancel') cancelTrailMove();
+  else if (a === 'trailMoveReset' && draft.movingTrail) { draft.pts = draft.movingTrail.pts.map(p => ({ x: p.x, z: p.z })); draft.width = draft.movingTrail.width; draft.grade = false; draft.dirty = true; syncHandles(); renderSheet(); }
   else if (a === 'moveLift' && obj) startLiftMove(obj);
   else if (a === 'liftUpOpen' && obj) { liftUpFor = obj.id; renderSheet(); }
   else if (a === 'liftUpClose') { liftUpFor = null; renderSheet(); }
@@ -5631,7 +5680,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
+  else if (a === 'exitTool') { if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -14627,7 +14676,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
-    if (draft.movingLift) cancelLiftMove();
+    if (draft.movingTrail) cancelTrailMove();
+    else if (draft.movingLift) cancelLiftMove();
     else if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
   }
   else return;
@@ -15718,6 +15768,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.51', date: 'Oct 28, 2026', title: 'Edit trail routes', items: ['Select a trail overnight and choose Edit route. Drag its points, check the rating and cost, then apply or cancel.', 'Edited trails keep their names, signs and equipment. Clearing and grading cost the normal construction price; old clearings remain and machine snow is lost. Check trail connections after editing.'] },
   { v: '2.50.1', date: 'Oct 28, 2026', title: 'Lunch and parking fixes', small: true, items: [
     'Fixed: a guest who found lunch too expensive went hungry all afternoon. Now they look for something cheaper, like a food truck or café, and only skip lunch after turning down a couple of places.',
     'Fixed: with two bases, beginners could park by a lift with lots of hard runs instead of the one with a green run. Guests now pick the lot whose lifts have runs that suit them, and notice straight away when a lift closes.',
