@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.51: overnight trail route editing, draggable control points and + buttons to insert more points.
 - 2.50: completed Modern models for tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle and transit. Phil approved publication after gallery revisions.
 - 2.47: Twin Notch, a second-base mountain: two lots on one valley road, guests choose a lot by the lifts
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
@@ -78,7 +79,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Revised architecture ready; browser review/UI pending | 2026-10-28 |
-| movable-trails | ChatGPT | Overnight trail control-point editing; separate preview | 2026-10-28 |
 
 ## Known issues
 
@@ -194,6 +194,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Trail editing published in 2.51
+- Phil approved publication after Tests workflow 40735401986 passed on 3fd73f8 (all four shards). Release f6c515d802c4340e625c8e81658f8e066ba653b8 integrates latest main a006b01 (Claude's 2.50.2 fixes); sole merge conflict was changelog, both retained. Merged syntax and diff checks passed. Release CI reruns on the integrated commit; no separate browser screenshot review claimed.
+- Guide updated, no matching roadmap card. Edit route overnight reuses handles, + inserts midpoint up to 40. Apply/cancel/reset, identity/settings preserved, self excluded during endpoint validation. Normal full-route construction cost, old clearing/earthworks remain; machine snow reset. Players should check dependent trail connections after moving.
+- Feature branch retained; main updated on explicit Publish. Monitor errors after deployment.
+
+
 
 ### 2026-10-28 · ChatGPT · Insert trail points
 - Phil liked the move prototype and requested extra shaping points. movable-trails now at 3fd73f8d70039fbd3101e2529e3a195ba94e52e3.
