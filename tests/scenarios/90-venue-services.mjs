@@ -43,7 +43,14 @@ export default async function ({ browser, url }) {
       const q = makeGuest({id:null},B.door.x,B.door.z);
       Object.assign(q,{svc,bid:B.id,st:'bq',qT:state.time-6,pat:100,qLook:0,resume:{k:'top',lid:world.lifts[0].id}});
       B.q.seat=[q]; bldStep(B);
-      results.push(B.q.seat.length===0 && q.bid!==B.id && q.avoidB===B.id);
+      const staysForShortWait = B.q.seat.includes(q) && q.bid===B.id;
+      B.q.seat=Array.from({length:24},()=>{
+        const guest=makeGuest({id:null},B.door.x,B.door.z);
+        Object.assign(guest,{svc,bid:B.id,st:'bq',qT:state.time-6,pat:100,qLook:0,resume:{k:'top',lid:world.lifts[0].id}});
+        return guest;
+      });
+      const last=B.q.seat[B.q.seat.length-1]; bldStep(B);
+      results.push(staysForShortWait && !B.q.seat.includes(last) && last.bid!==B.id && last.avoidB===B.id);
     }
     return {full,alternative,noLine,results};
   })()`);
