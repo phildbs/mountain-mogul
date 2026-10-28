@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.53.2: title-screen resort cards use saved scenic 3D photos instead of top-down maps; photos sync with cloud saves and older resorts refresh when opened.
 - 2.53: friend invitations with real mountain photos, 7 operating days over 3 server-UTC days, up to three $100,000 rewards per account, a saved decoration milestone, seasonal card and year-round menu.
 - 2.52: all nine remaining Scandinavian building counterparts published after Phil approved the gallery; food truck and decor remain Classic.
 - 2.51: overnight trail route editing, draggable control points and + buttons to insert more points.
@@ -80,7 +81,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scenic-resort-cards | ChatGPT | Scenic title resort photos complete; GitHub Tests green; awaiting Phil’s review/publication approval | 2026-10-28 |
 
 
 ## Known issues
@@ -198,13 +198,18 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
-### 2026-10-28 · ChatGPT · Scenic title resort cards ready for review
-- Branch `scenic-resort-cards`, based on current main 8bdcc7f (2.53.1 grooming fix preserved). Candidate patch 2.53.2; What's new + guide updated. No main publication or database migration.
+### 2026-10-28 · ChatGPT · Release 2.53.2
+- Phil approved Publish. Scenic title resort photos from candidate c6374ea8c4ac39dacf20ed39725025848827c25e passed GitHub Tests run 40763110802. Release includes What's new, guide and this handoff. No database changes. Older resort slots use the scenic fallback until opened once; captured photos then follow online saves.
+- Main published at c44eee47fcd39becc95eb0672a2f448f119c9e51. Verify deployment once; pause if GitHub release tests are still running, per Phil’s request. Do not poll. Record final deployment result when he asks to continue.
+
+
+### 2026-10-28 · ChatGPT · Scenic title resort cards approved for release 2.53.2
+- Branch `scenic-resort-cards`, based on current main 8bdcc7f (2.53.1 grooming fix preserved). Patch 2.53.2; What's new + guide updated. Phil explicitly said Publish. No database migration required; publication preserves the 2.53.1 grooming fix.
 - Replaced title-card `resortMap` top-down images with bounded 720×360 JPEG captures of the actual built scene. A separate oblique camera frames lifts/trails/buildings and base lots consistently, independent of the player's camera. Opaque sky backdrop avoids black JPEG transparency; temporary placement brush/drafts/band are hidden and restored. Shared offscreen capture helper also preserves referral photo behavior and always restores render target/disposes buffers.
 - Photos persist as optional root save.photo and per-slot photo, migrate on opening/returning to title, and refresh at save boundaries at most every 30s (forced when returning to title). Old map thumbnails are ignored; older unopened resorts use existing painted scenic mountain fallback until visited. Only the loaded own resort is photographed; visits/tutorial/demo/simulation never overwrite photos. Invalid/oversized/non-JPEG URLs are rejected, capture failures retain the last photo. No save version/cash/gameplay changes.
 - Own cloud-list query reads `photo:save->>photo` with owner filter; no image data added to leaderboard summaries or other public list queries. Verified JSON alias syntax against current Supabase docs; no schema change needed. Test stand-in supports the same projection.
-- Added 88-resort-photos for desktop/phone real pixels, image size, saved/cloud pictures, inactive/online cards, old-save fallback, camera/render target/temporary visibility restoration, caching and visit/tutorial safety. 01-saves, 02-mountains, 32-old-saves, 86/87-referrals are also relevant. Expensive photos are opt-in when the existing no-render harness flag is active, preserving normal test speed. Local Chromium is unavailable; syntax and diff checks pass. GitHub Tests run 40763110802 PASSED on c6374ea8c4ac39dacf20ed39725025848827c25e. Phil reported all green; checked once and confirmed completed/success. Ready for preview review; not published.
-- Phil requested: when GitHub tests are running, tell him and PAUSE. Do not poll. Resume/check results once when he says to continue. This preference overrides the old wait-and-poll workflow. Do not publish this branch until Phil approves.
+- Added 88-resort-photos for desktop/phone real pixels, image size, saved/cloud pictures, inactive/online cards, old-save fallback, camera/render target/temporary visibility restoration, caching and visit/tutorial safety. 01-saves, 02-mountains, 32-old-saves, 86/87-referrals are also relevant. Expensive photos are opt-in when the existing no-render harness flag is active, preserving normal test speed. Local Chromium is unavailable; syntax and diff checks pass. GitHub Tests run 40763110802 PASSED on c6374ea8c4ac39dacf20ed39725025848827c25e. Phil reported all green; checked once and confirmed completed/success. Approved for publication; source code and tests are unchanged from the passing candidate.
+- Phil requested: when GitHub tests are running, tell him and PAUSE. Do not poll. Resume/check results once when he says to continue. This preference overrides the old wait-and-poll workflow. Phil explicitly approved publication of this branch.
 
 
 ### 2026-10-28 · ChatGPT · Published 2.53
