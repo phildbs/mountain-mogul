@@ -9654,27 +9654,34 @@ const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit
 /* ---------- Scandinavian village alternatives ---------- */
 const SCANDI_TRIM = accentMat(0xe7d9b9);
 function scandiHall(k, o) {
-  const start = k.parts.length, color = o.color ?? 0xa74438;
-  hall(k, { ...o, over: 0.12, roof: accentMat(0x394449) });
-  for (let i = start; i < k.parts.length; i++) {
-    const p = k.parts[i];
-    if (p[1] === BM.log) p[1] = accentMat(color);
-    else if (p[1] === BM.dark) p[1] = SCANDI_TRIM;
+  const { x = 0, z = 0, w, d, h, color = 0xa74438 } = o;
+  // A row of narrow, front-facing houses instead of a single broad chalet roof.
+  const count = w >= 3 ? 3 : w >= 2.3 ? 2 : 1, bay = w / count;
+  for (let i = 0; i < count; i++) {
+    const px = x - w / 2 + bay * (i + 0.5), recess = i % 2 ? 0.12 : 0;
+    const depth = d - recess, pz = z - recess / 2;
+    const wall = Math.max(0.92, h) + (i % 2 ? 0.17 : 0), rise = bay * 0.58;
+    const front = pz + depth / 2, width = bay - 0.075;
+    const start = k.parts.length;
+    hall(k, { x: px, z: pz, w: width, d: depth, h: wall, rise, over: 0.03, gableFront: true, windows: false, roof: accentMat(0x394449) });
+    for (let j = start; j < k.parts.length; j++) {
+      if (k.parts[j][1] === BM.log) k.parts[j][1] = accentMat(color);
+      else if (k.parts[j][1] === BM.dark) k.parts[j][1] = SCANDI_TRIM;
+    }
+    // Tall paired windows with pale surrounds; upper gable light reads from a distance.
+    for (const side of [-1, 1]) {
+      const wx = px + side * width * 0.27;
+      k.add(bx(width * 0.3, wall * 0.68, 0.035), SCANDI_TRIM, wx, wall * 0.51, front + 0.012);
+      k.add(bx(width * 0.3 - 0.045, wall * 0.68 - 0.045, 0.025), BM.glow, wx, wall * 0.51, front + 0.035);
+      k.add(bx(0.02, wall * 0.66, 0.02), SCANDI_TRIM, wx, wall * 0.51, front + 0.055);
+      k.add(bx(0.04, wall, 0.035), SCANDI_TRIM, px + side * (width / 2 - 0.025), wall / 2, front + 0.01);
+    }
+    k.add(bx(width * 0.25, rise * 0.3, 0.025), BM.glow, px, wall + rise * 0.3, front + 0.02);
+    for (let a = -width / 2 + 0.08; a < width / 2; a += 0.13)
+      k.add(bx(0.018, wall - 0.04, 0.01), accentMat(color), px + a, wall / 2, front + 0.006);
+    for (const side of [-1, 1]) for (let a = -depth / 2 + 0.08; a < depth / 2; a += 0.14)
+      k.add(bx(0.01, wall - 0.04, 0.018), accentMat(color), px + side * width / 2, wall / 2, pz + a);
   }
-  const { x = 0, z = 0, w, d, h, gableFront = false } = o;
-  k.push(x, 0, z, gableFront ? Math.PI / 2 : 0);
-  const L = gableFront ? d : w, D = gableFront ? w : d;
-  // Painted vertical boards and pale corner posts replace the horizontal log language.
-  for (const side of [-1, 1]) {
-    for (let px = -L / 2 + 0.09; px < L / 2; px += 0.16)
-      k.add(bx(0.018, h - 0.05, 0.012), accentMat(color), px, h / 2, side * (D / 2 + 0.007));
-    for (const px of [-L / 2 + 0.025, L / 2 - 0.025])
-      k.add(bx(0.045, h, 0.035), SCANDI_TRIM, px, h / 2, side * (D / 2 + 0.012));
-    k.add(bx(L, 0.045, 0.035), SCANDI_TRIM, 0, h - 0.025, side * (D / 2 + 0.012));
-    for (let pz = -D / 2 + 0.09; pz < D / 2; pz += 0.16)
-      k.add(bx(0.012, h - 0.05, 0.018), accentMat(color), side * (L / 2 + 0.007), h / 2, pz);
-  }
-  k.pop();
 }
 function scandiDeck(k, ...args) {
   const start = k.parts.length;
@@ -9694,8 +9701,6 @@ function modelLodgeScandinavian(tier) {
   } else if (tier === 1) {
     scandiHall(k, { color: 0xa74438, w: 2.5, d: 2.5, h: 0.95, rise: 1.05, z: -0.45, gableFront: true });
     for (const s of [-1, 1]) scandiHall(k, { color: s < 0 ? 0xd4a842 : 0x577b8e, w: 1.45, d: 2.0, h: 0.62, rise: 0.55, x: s * 1.95, z: -0.55, chimney: s });
-    k.add(bx(1.3, 0.62, 0.05), BM.dark, 0, 0.62, 0.81); k.add(bx(1.2, 0.54, 0.06), BM.glow, 0, 0.62, 0.815);
-    k.add(gablePrism(0.9, 0.42, 0.05).rotateY(Math.PI / 2), BM.glow, 0, 1.1, 0.82);
     door(k, 0, 0.84, 0.42, 0.34);
     sign(k, 'lodge', 0, 1.32, 0.8, 0.95);
     scandiDeck(k, 0, 1.33, 5.0, 1.0);
@@ -9704,8 +9709,6 @@ function modelLodgeScandinavian(tier) {
   } else {
     scandiHall(k, { color: 0xa74438, w: 3.1, d: 3.1, h: 1.2, rise: 1.3, z: -0.5, gableFront: true });
     for (const s of [-1, 1]) scandiHall(k, { color: s < 0 ? 0x577b8e : 0xd4a842, w: 1.9, d: 2.5, h: 0.82, rise: 0.7, x: s * 2.5, z: -0.6, chimney: s });
-    for (const yy of [0.45, 0.95]) { k.add(bx(1.7, 0.36, 0.05), BM.dark, 0, yy, 1.06); k.add(bx(1.6, 0.28, 0.06), BM.glow, 0, yy, 1.065); }
-    k.add(gablePrism(1.2, 0.55, 0.05).rotateY(Math.PI / 2), BM.glow, 0, 1.4, 1.07);
     door(k, 0, 1.09, 0.4, 0.4);
     sign(k, 'lodge', 0, 1.27, 1.08, 1.1);
     scandiDeck(k, 0, 1.75, 6.8, 1.15);
@@ -9715,7 +9718,6 @@ function modelLodgeScandinavian(tier) {
   }
   return k;
 }
-
 function modelCafeScandinavian() {
   const k = new Kit(), acc = accentMat(BTYPES.cafe.accent);
   scandiHall(k, { color: 0xd4a842, w: 2.4, d: 1.5, h: 0.62, rise: 0.48, z: -0.3, chimney: 1, windows: false });
@@ -9729,7 +9731,6 @@ function modelCafeScandinavian() {
   k.add(bx(0.1, 0.08, 0.1), acc, -0.65, 0.33, 1.1); k.add(bx(0.1, 0.08, 0.1), acc, 0.65, 0.33, 1.1); // mugs
   return k;
 }
-
 function modelRestaurantScandinavian() {
   const k = new Kit();
   scandiHall(k, { color: 0x577b8e, w: 3.7, d: 1.9, h: 0.72, rise: 0.58, z: -0.45, chimney: -1, windows: false });
@@ -9749,7 +9750,6 @@ function modelRestaurantScandinavian() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.62, 0.04), BM.dark, s * 1.9, 0.31, 1.48);
   return k;
 }
-
 function modelFineScandinavian() {
   const k = new Kit(), acc = accentMat(BTYPES.fine.accent);
   k.add(bx(3.9, 0.22, 2.2), BM.stone, 0, 0.11, -0.4);              // stone plinth
@@ -9770,7 +9770,6 @@ function modelFineScandinavian() {
   for (const s of [-1, 1]) { k.add(bx(0.05, 0.85, 0.05), BM.dark, s * 2.0, 0.42, 1.7); k.add(bx(0.12, 0.14, 0.12), BM.glow, s * 2.0, 0.92, 1.7); }
   return k;
 }
-
 function modelBarScandinavian() {
   const k = new Kit(), acc = accentMat(BTYPES.bar.accent);
   scandiHall(k, { color: 0xa74438, w: 3.2, d: 1.7, h: 0.66, rise: 0.5, z: -0.45, roof: accentMat(0x2f2a28), chimney: 1, windows: false });
@@ -9788,7 +9787,6 @@ function modelBarScandinavian() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
   return k;
 }
-
 function modelRentalScandinavian() {
   const k = new Kit();
   scandiHall(k, { color: 0xd4a842, w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
@@ -9799,7 +9797,6 @@ function modelRentalScandinavian() {
   k.add(bx(2.8, 0.06, 1.0), BM.plank, 0, 0.03, 0.75);
   return k;
 }
-
 function modelStoreScandinavian() {
   const k = new Kit(), acc = accentMat(BTYPES.store.accent);
   scandiHall(k, { color: 0x577b8e, w: 3.0, d: 1.8, h: 0.72, rise: 0.55, z: -0.35, roof: accentMat(0x2f3d4f), chimney: -1, windows: false });
@@ -9811,7 +9808,6 @@ function modelStoreScandinavian() {
   k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
   return k;
 }
-
 function modelSchoolScandinavian() {
   const k = new Kit();
   scandiHall(k, { color: 0x719082, w: 2.5, d: 1.4, h: 0.6, rise: 0.5, z: -1.4, chimney: -1 });
@@ -9825,7 +9821,6 @@ function modelSchoolScandinavian() {
   for (const [fx, fz] of [[-1.4, -0.4], [1.4, -0.4], [-1.4, 2.1]]) { k.add(bx(0.03, 0.5, 0.03), BM.dark, fx, 0.25, fz); k.add(bx(0.18, 0.11, 0.01), accentMat(BTYPES.school.accent), fx + 0.1, 0.44, fz); }
   return k;
 }
-
 const MODELS_SCANDINAVIAN = { lodge: modelLodgeScandinavian, cafe: modelCafeScandinavian, restaurant: modelRestaurantScandinavian, fine: modelFineScandinavian, bar: modelBarScandinavian, rental: modelRentalScandinavian, store: modelStoreScandinavian, school: modelSchoolScandinavian };
 // Console-only, transient comparison. Left: classic; right: Scandinavian. Never enters world.buildings/saves.
 // Open ?dev, then previewScandinavian(); previewScandinavian({ types: ['lodge'], tier: 2 }) for one pair.
