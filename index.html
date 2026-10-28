@@ -1310,6 +1310,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mGoalsMenu">Goals <span class="mval" id="mGoalsN"></span></button>
           <button id="commBtn">Leaderboard <span class="mval" id="commBtnLabel"></span></button>
           <button id="mComm">Profile, sharing and sign-in</button>
+          <button id="mInvite" hidden>Invite friends</button>
           <div class="mgrp">Game</div>
           <button id="mFull">Full screen</button>
           <button id="mHint">Show controls</button>
@@ -2947,7 +2948,7 @@ function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, lastReport: state.lastReport, prices: state.prices,
-        season: state.season, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
+        season: state.season, referralPromptSeason: state.referralPromptSeason, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges },
@@ -12174,7 +12175,7 @@ const SURFACE = {
   powder: 'Powder', packed: 'Packed powder', groomed: 'Groomed', moguls: 'Moguls', icy: 'Icy', firm: 'Firm',
   spring: 'Spring snow', variable: 'Variable', thin: 'Thin cover', closed: 'Not enough snow',
 };
-Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, baseSm: null });
+Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, referralPromptSeason: null, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, baseSm: null });
 
 const midH = () => (MOUNTAIN.baseH + MOUNTAIN.summitH) / 2;
 const elevFrac = (h) => clamp((h - MOUNTAIN.baseH) / (MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -15305,6 +15306,24 @@ function afterLoad() {
 }
 /* ---------- Invitation design preview. Sample data only; no reward or referral RPCs. ---------- */
 let refDemo = { mode: 'prompt', claimed: 0 };
+// Use the season's day offset: dateOf advances by 365 days and drifts in leap years.
+const referralWindow = () => {
+  const d = new Date(SEASON_START + state.day * 86400000), m = d.getUTCMonth();
+  return (m === 11 && d.getUTCDate() >= 20) || m === 0 || m === 1;
+};
+function maybeReferralPrompt() {
+  if (!REFERRAL_PREVIEW || !state.started || visiting || practice || state.summer || state.bankrupt
+      || state.phase !== 'closed' || !referralWindow() || refChoosingPhoto
+      || state.referralPromptSeason === state.season || !$('title').hidden || !$('menu').hidden
+      || [...document.querySelectorAll('.modal-bg')].some(el => !el.hidden)) return;
+  openReferralPreview('prompt');
+  state.referralPromptSeason = state.season;
+  scheduleSave();
+}
+$('mInvite').onclick = () => {
+  $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
+  openReferralPreview('empty');
+};
 let refPhoto = '', refPhotoError = '', refChoosingPhoto = false;
 // Render the actual scene into a landscape card without changing the player's view or canvas size.
 function captureReferralPhoto() {
@@ -15384,7 +15403,7 @@ function openReferralPreview(mode = refDemo.mode) {
 }
 function closeReferralPreview() {
   $('referralBox').hidden = true;
-  $('refPreviewOpen').focus({ preventScroll: true });
+  (refChoosingPhoto ? $('refPreviewOpen') : $('badge')).focus({ preventScroll: true });
 }
 function renderReferralPreview() {
   const mode = refDemo.mode, qualified = mode === 'complete' ? 3 : mode === 'ready' ? 1 : 0;
@@ -17320,7 +17339,7 @@ function frame(now) {
       if (overlay.traffic) for (const t of world.trails) styleTrail(t);
     }
   }
-  if (state.started) refreshTimebar(false);
+  if (state.started) { refreshTimebar(false); maybeReferralPrompt(); }
   // Food sales, lift power and the rest move cash all day long; keep the figure in the corner current.
   if (state.started && Math.round(state.cash) !== shownCash) updateCash(false);
   fitT += dt;
@@ -17417,7 +17436,9 @@ function start(hot) {
     winterView = false; styleSnowVisuals(); refreshTimebar(true);
     buildStarter(); select(null);
     camTween = null; cam.viewH = 150; cam.viewGoal = null; updateCamera();
-    $('refPreviewOpen').hidden = false; $('refPreviewDock').hidden = false; openReferralPreview('prompt');
+    $('refPreviewOpen').hidden = false; $('refPreviewDock').hidden = false; $('mInvite').hidden = false;
+    state.day = 19; // Dec 20: demonstrate the once-per-season invitation.
+    refreshTimebar(true); maybeReferralPrompt();
   }
   requestAnimationFrame((t) => { lastT = t; frame(t); });
 }
