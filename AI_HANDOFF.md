@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.52: all nine remaining Scandinavian building counterparts published after Phil approved the gallery; food truck and decor remain Classic.
 - 2.51: overnight trail route editing, draggable control points and + buttons to insert more points.
 - 2.50: completed Modern models for tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle and transit. Phil approved publication after gallery revisions.
 - 2.47: Twin Notch, a second-base mountain: two lots on one valley road, guests choose a lot by the lifts
@@ -64,7 +65,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Scandinavian building set completion on `scandinavian-complete` for Phil’s preview. See Work in progress.
+**Active**: nothing in progress. Claim work in the table below before starting.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -78,7 +79,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scandinavian-complete | ChatGPT | Nine models and gallery ready; four GitHub test shards green; awaiting Phil’s visual review | 2026-10-28 |
+
 
 ## Known issues
 
@@ -194,6 +195,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Scandinavian village published
+- Phil approved the visual gallery and explicitly said Publish. Release `fc3d64d83f38cac2790ad99cd88cd0624ce14f59` merges approved branch `92e6e7f` with latest main `63bdeeb` (guide and roadmap logo/budget edits retained). Changelog 2.52, guide, models, gallery and tests; no database changes. Preview Tests run 40740283426 passed all four shards. Pages and release Tests rerun after main push; check their final result and live site.
+
 
 ### 2026-10-28 · ChatGPT · Scandinavian completion preview
 - Branch `scandinavian-complete` based on main 38ae9a7; latest preview commit 92e6e7fbd77e051d10a941ec58f48ef2168cce40. Nine remaining types added (tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle, transit); food truck and decor remain Classic. Existing eight types and revised narrow gables preserved.
