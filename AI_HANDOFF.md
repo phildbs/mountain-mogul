@@ -68,7 +68,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: nothing in progress. Claim work in the table below before starting.
+**Active**: `player-feedback-fixes` is implementing selected changes from Phil’s Oct 28 feedback. Current candidate covers learning-area editing and night clear-out lighting; patrol transport/capacity, venue balance and popularity reporting need follow-up design.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -82,7 +82,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| player-feedback-fixes | ChatGPT | Investigating night closing, patrol return travel, food choice and learning-area discoverability from Phil’s feedback screenshot | 2026-10-28 |
+| player-feedback-fixes | ChatGPT | Implemented overnight learning-area editing and lit night clear-out. Still to design: patrol return via lifts/capacity, venue service counts/balance, and day/evening popularity summary | 2026-10-28 |
 
 
 ## Known issues
