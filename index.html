@@ -3599,7 +3599,7 @@ function surfaceIndex() {
   const put = (x, z, e) => { const k = Math.floor(x / C) + ',' + Math.floor(z / C); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(e); };
   for (const t of realTrails()) {
     const hw = TRAIL_WIDTHS[t.width].hw;
-    for (const sm of t.samples) put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, id: t.id });
+    for (const sm of t.samples) put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, hw, id: t.id });
     for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: hw * 1.45, id: t.id });
   }
   for (const L of world.lifts) { pads.push({ x: L.a.x, z: L.a.z, r: 4.6, id: -1 }); pads.push({ x: L.b.x, z: L.b.z, r: 5.1, id: -1 }); }
@@ -3618,9 +3618,23 @@ function edgeMask(idx, selfId) {
     return sstep(0, 1.2, m);
   };
 }
-function ribbonGeometry(samples, hw, edgeCol, bad, mask) {
+// Where a trail runs over an older one, its grooming lines fade out so the older trail's corduroy carries
+// straight through the merge instead of two sets of lines crossing.
+function coverMask(idx, selfId) {
+  if (!idx) return null;
+  return (x, z) => {
+    let m = Infinity;
+    const ci = Math.floor(x / idx.C), cj = Math.floor(z / idx.C);
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const list = idx.grid.get((ci + di) + ',' + (cj + dj));
+      if (list) for (const e of list) if (e.id < selfId) m = Math.min(m, Math.hypot(x - e.x, z - e.z) - e.hw);
+    }
+    return sstep(-1, 0.3, m);
+  };
+}
+function ribbonGeometry(samples, hw, edgeCol, bad, mask, cover) {
   const n = samples.length, m = ACROSS.length;
-  const pos = new Float32Array(n * m * 3), uv = new Float32Array(n * m * 2), col = new Float32Array(n * m * 3);
+  const pos = new Float32Array(n * m * 3), uv = new Float32Array(n * m * 2), col = new Float32Array(n * m * 4);
   let total = 0;
   for (let i = 1; i < n; i++) total += distXZ(samples[i], samples[i - 1]);
   let dist = 0;
@@ -3643,7 +3657,7 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask) {
         const f = sstep(0.5, 3.5, Math.min(dist, total - dist)) * (mask ? mask(x, z) : 1);
         c = [lerp(1, edgeCol[0], f), lerp(1, edgeCol[1], f), lerp(1, edgeCol[2], f)];
       }
-      col[o * 3] = c[0]; col[o * 3 + 1] = c[1]; col[o * 3 + 2] = c[2];
+      col[o * 4] = c[0]; col[o * 4 + 1] = c[1]; col[o * 4 + 2] = c[2]; col[o * 4 + 3] = cover ? cover(x, z) : 1;
     }
   }
   const idx = [];
@@ -3654,7 +3668,7 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   if (geo.attributes.normal.array[1] < 0) {
@@ -3725,7 +3739,8 @@ function refreshTrailMesh(t, idx) {
   if (t.virtual) return;
   buildBridges(t);
   t.mesh.geometry.dispose();
-  t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(idx || surfaceIndex(), t.id));
+  const sidx = idx || surfaceIndex();
+  t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
 }
 function removeTrail(t) {
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
@@ -16316,6 +16331,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.53.1', date: 'Oct 28, 2026', title: 'Cleaner trail merges', small: true, items: [
+    'Where one trail joins or crosses another, the grooming lines no longer overlap. The older trail’s corduroy carries straight through, and the joining trail’s lines blend into it.',
+  ] },
   { v: '2.53', date: 'Oct 28, 2026', title: 'Bring friends to the mountain', items: ['Invite friends from the resort menu with a photo of your mountain. Each new friend who confirms an account and completes 7 operating days across 3 real days earns you $100,000, up to 3 friends across your account.', 'The invitation card appears once each season between late December and February. Invite friends stays in the menu all year.', 'Qualify 3 friends to earn a special decoration milestone. The decoration itself will arrive in a future update.'] },
   { v: '2.52', date: 'Oct 28, 2026', title: 'Scandinavian village buildings', items: ['Every building except the food truck and decor now has a Scandinavian look. The tuning center, gift kiosk, kids’ camp, ski patrol, first-aid clinic, both restrooms, shuttle station and transit center join the painted timber village.', 'Choose Scandinavian in the build menu, or restyle a building overnight. Its size, seats, price and service stay the same.'] },
   { v: '2.51', date: 'Oct 28, 2026', title: 'Edit trail routes', items: ['Select a trail overnight and choose Edit route. Drag its points, check the rating and cost, then apply or cancel.', 'Edited trails keep their names, signs and equipment. Clearing and grading cost the normal construction price; old clearings remain and machine snow is lost. Check trail connections after editing.'] },
