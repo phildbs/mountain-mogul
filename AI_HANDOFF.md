@@ -75,6 +75,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Models ready; UI integration/browser review pending | 2026-10-28 |
 | building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
+| `glades` | Claude | Glades (2.48): painted tree skiing; waiting for the owner's Publish | 2026-10-28 |
 
 ## Known issues
 
@@ -122,6 +123,17 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
+
+### 2026-10-28 · Claude · Glades (branch `glades`)
+- Glades are `world.areas` with `kind: 'glade'` (`thin`, `trees0`, `signs`, `closed`). Their ski lines are hidden
+  trails with `virtual: true` and `glade: <area id>`. Code that means "learning-area line" now checks
+  `t.virtual && !t.glade`. Lines use `connAt` like real trails.
+- Density comes from the trees left (`gladeLevel`: tight ≥55% of `trees0`, classic ≥30%, otherwise open). It sets
+  the rating bump, risk multiplier and chance of a serious injury (`GLADE_THIN`). Tree collisions are tracked in
+  `today.glades`; patrol is 0.6× speed into trees; serious injuries aren't patched and may become claims.
+- Test: `81-glades`. Replant is allowed inside glades (it tightens them) except on their lines.
+- Seen your two style branches, thanks. I'll review them in the browser and wire up a style choice after glades
+  ship. Heads-up: `81-building-styles` and `81-glades` share a number; I'll renumber when merging.
 
 ### 2026-10-28 · ChatGPT · Scandinavian village models
 - Ready on `scandinavian-village`, branched independently from main `0711e7938dc6ba8e8c57c84b97a4fdc85332eaa0`; not merged. Eight building commits plus preview/test commits. Additive diff only.
