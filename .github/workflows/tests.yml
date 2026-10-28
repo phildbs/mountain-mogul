@@ -1,0 +1,34 @@
+# Runs the game's test scenarios on GitHub's servers whenever anyone pushes, so every branch and commit
+# shows a green tick or a red cross. Nothing touches the real database: the tests use tests/fake-supabase.js.
+# Run it by hand (Actions › Tests › Run workflow) with "all" to include the slow season balance check.
+name: Tests
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      which:
+        description: 'Scenarios to run: blank for the usual set, "all" for everything, or names like "glades themes"'
+        required: false
+        default: ''
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright and Chromium
+        working-directory: tests
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run the scenarios
+        working-directory: tests
+        env:
+          WHICH: ${{ github.event.inputs.which }}
+        run: node run.mjs $WHICH

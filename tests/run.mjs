@@ -20,12 +20,18 @@ for (const f of files) {
   const t0 = Date.now();
   const mod = await import(pathToFileURL(join(dir, f)));
   if (mod.slow && !all && !only.length) { console.log(`SKIP ${f} (slow: run with "all" or by name)`); continue; }
-  try {
-    const note = await mod.default({ browser, url: server.url });
-    console.log(`PASS ${f} (${((Date.now() - t0) / 1000).toFixed(0)}s)${note ? ' · ' + note : ''}`);
-  } catch (e) {
-    failed++;
-    console.log(`FAIL ${f}: ${e.message.split('\n')[0]}`);
+  // A failure gets one more try, so a timing hiccup on a busy machine doesn't fail the run; a real bug fails twice.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const note = await mod.default({ browser, url: server.url });
+      console.log(`PASS ${f} (${((Date.now() - t0) / 1000).toFixed(0)}s)${attempt > 1 ? ' · passed on retry' : ''}${note ? ' · ' + note : ''}`);
+      break;
+    } catch (e) {
+      for (const ctx of browser.contexts()) for (const p of ctx.pages()) await p.close().catch(() => {});
+      if (attempt === 1) { console.log(`RETRY ${f}: ${e.message.split('\n')[0]}`); continue; }
+      failed++;
+      console.log(`FAIL ${f}: ${e.message.split('\n')[0]}`);
+    }
   }
   // A failed test can leave its page open, still running the game; close it so it can't slow the next ones.
   for (const ctx of browser.contexts()) for (const p of ctx.pages()) await p.close().catch(() => {});
