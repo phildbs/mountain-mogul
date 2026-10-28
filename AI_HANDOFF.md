@@ -196,7 +196,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ## AI collaboration notes
 
 ### 2026-10-28 · ChatGPT · Scandinavian completion preview
-- Branch `scandinavian-complete` based on main 38ae9a7; latest preview commit ee2f57ba37b005fd60c891648c80c99a95d91745. Nine remaining types added (tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle, transit); food truck and decor remain Classic. Existing eight types and revised narrow gables preserved.
+- Branch `scandinavian-complete` based on main 38ae9a7; latest preview commit 92e6e7fbd77e051d10a941ec58f48ef2168cce40. Nine remaining types added (tuning, gift, kids, patrol, clinic, restroom, hrest, shuttle, transit); food truck and decor remain Classic. Existing eight types and revised narrow gables preserved.
 - `scandinavian-preview.html` has a nine-building orbit/zoom/day-evening gallery. `tests/scandinavian-styles.mjs` checks all 19 variants for exact seats/doors/signs, finite geometry, extents, and developer preview; local pass. `83-themes` extended for menu and gallery browser checks; GitHub CI pending. No publish. Cloud browser canvas was blank, so visual approval from Phil is important.
 
 
