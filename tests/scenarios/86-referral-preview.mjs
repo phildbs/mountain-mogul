@@ -52,11 +52,11 @@ export default async function ({ browser, url }) {
     });
     assert(layout, `dialog and sample controls fit at ${width}px`);
     eq(await g.ev(`(() => { localStorage.setItem(SLOTS_KEY, 'sentinel'); localStorage.setItem(SAVE_KEY, 'old-save'); saveNow(); writeSlots(); readSlots(); clearSave(); return [localStorage.getItem(SLOTS_KEY), localStorage.getItem(SAVE_KEY)]; })()`), ['sentinel', 'old-save'], 'preview does not overwrite or migrate saves');
-    await tap('[data-ref=close]');
+    await tap('.x[data-ref=close]');
     assert(await g.page.locator('#refPreviewOpen').isVisible(), 'preview can be reopened');
     await tap('#refPreviewOpen');
     assert(await g.page.locator('#referralBox').isVisible(), 'preview reopens');
-    await tap('[data-ref=close]');
+    await tap('.x[data-ref=close]');
     eq(await g.ev('state.referralPromptSeason'), 1, 'automatic prompt records the game season');
     await g.ev('maybeReferralPrompt()');
     eq(await g.ev("$('referralBox').hidden"), true, 'dismissed prompt stays closed this season');
@@ -64,7 +64,7 @@ export default async function ({ browser, url }) {
     eq(await g.ev(`(() => { const day = state.day; const result = [18,19,61,89,90].map(n => { state.day = n; return referralWindow(); }); state.day = day; return result; })()`), [false,true,true,true,false], 'window runs from Dec 20 through end of February');
     await g.ev("state.season = 2; state.day = 19; maybeReferralPrompt()");
     eq(await g.ev("[state.referralPromptSeason, $('referralBox').hidden]"), [2,false], 'new season can show the prompt again');
-    await tap('[data-ref=close]');
+    await tap('.x[data-ref=close]');
     await g.ev('state.day = 110;');
     await tap('#badge');
     await tap('#mInvite');

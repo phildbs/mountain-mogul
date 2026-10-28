@@ -13,7 +13,7 @@ export default async function ({ browser, url }) {
     await g.wait(250);
     assert(await g.page.locator('#referralBox').isVisible(), 'seasonal card opens in the real game');
     eq(await g.ev('state.referralPromptSeason'),1,'real season marker set');
-    await g.page.locator('[data-ref=close]').click();
+    await g.page.locator('.x[data-ref=close]').click();
     await g.ev(`pushUndo('test build'); state.cash -= 50; undoLast();`);
     eq(await g.ev('state.referralPromptSeason'),1,'undo cannot reset seasonal prompt');
     await g.wait(200);
@@ -53,11 +53,11 @@ export default async function ({ browser, url }) {
     eq(await g.page.locator('[data-ref=claim]').count(),0,'no claims after lifetime cap');
     const fits = await g.page.locator('#referralBox .modal').evaluate(el=>{const b=el.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight;});
     assert(fits,`real referral modal fits at ${width}px`);
-    await g.page.locator('[data-ref=close]').click();
+    await g.page.locator('.x[data-ref=close]').click();
     await g.ev(`state.day=110; state.phase='closed';`);
     await g.click('#badge');await g.click('#mInvite');
     assert(await g.page.locator('#referralBox').isVisible(),'dropdown works outside popup season');
-    await g.page.locator('[data-ref=close]').click();
+    await g.page.locator('.x[data-ref=close]').click();
     await g.ev(`setSession({ user: { id:'another-owner', is_anonymous:true, identities:[] } });`);
     eq(await g.ev('[refState.available,refState.code || null]'),[false,null],'account switch clears invitation state');
     eq(g.errors,[],'no browser errors');
