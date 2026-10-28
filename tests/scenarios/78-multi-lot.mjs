@@ -10,7 +10,7 @@ export default async function ({ browser, url }) {
   eq(await j.ev(`(() => { state.lotLayout = [[0, 0], [0, 1]]; state.lotSections = 2; buildLot(); return [stalls.length, stalls.every((s) => !s.lot)]; })()`), [192, true], 'old two-number layouts still mean the main lot');
   await j.page.close();
 
-  // Twin Notch: a west lot beside the road
+  // Twin Notch: a west lot beside the road, on its valley side
   const g = await openGame(browser, url, { mountain: 'twin' });
   await g.click('#startBtn'); await g.wait(300);
   eq(await g.ev(`lotCount()`), 2, 'Twin Notch has a site for a second lot');
@@ -19,10 +19,10 @@ export default async function ({ browser, url }) {
     const west = stalls.filter((s) => s.lot === 1), main = stalls.filter((s) => !s.lot), site = lotSite(1);
     const box = slotBox(0, 0, 1), box2 = slotBox(0, 1, 1);
     return { main: main.length, west: west.length, inProp: [box, box2].every((b) => [[b.x0, b.z0], [b.x1, b.z1]].every(([x, z]) => inProperty(x, z))),
-      clear: [lotLandBlock(box), lotLandBlock(box2)], north: box.z1 < site.z, westOf: Math.max(...west.map((s) => s.x)) < Math.min(...main.map((s) => s.x)),
+      clear: [lotLandBlock(box), lotLandBlock(box2)], south: box.z0 > site.z, westOf: Math.max(...west.map((s) => s.x)) < Math.min(...main.map((s) => s.x)),
       road: site.road < ROAD_WORLD.length, cap: lotCapacity(), sizes: [lotSize(0), lotSize(1)] }; })()`);
   eq([r.main, r.west, r.cap, r.sizes], [96, 192, 288, [1, 2]], 'a main section and two west sections');
-  assert(r.inProp && r.north && r.westOf && r.road, `the west lot sits on the property, up the mountain side of the road, west of the main lot: ${JSON.stringify(r)}`);
+  assert(r.inProp && r.south && r.westOf && r.road, `the west lot sits on the property, on the valley side of the road, west of the main lot: ${JSON.stringify(r)}`);
   eq(r.clear, ['', ''], 'on clear, level ground');
   // a car for the west lot drives part of the road, then in by its drive, and parks
   const c = await g.ev(`(() => { openDay(); const i = stalls.findIndex((s) => s.lot === 1); const p = carPath(stalls[i]); const site = lotSite(1);
