@@ -53,6 +53,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
   they like, village gondola and base shuttle between the bases, stranded-guest handling, report lines.
   Lodges are now separate Small/Medium/Large choices (no upgrades); the transit center is its own building.
 - 2.47.1: Browse shows three per shelf with See all, shelf chips and a mountain filter; shorter creator pages.
+- 2.48: glades (painted tree skiing: Tight/Classic/Open, tree collisions, slower rescues).
 - 2.47.3: trails can end at the top of a lower lift (fixes runs wrongly shown as dead ends).
 - 2.47.2: build menu with tabs (Food, Shops, Services, Transport, Decor), line icons, short descriptions
   and "You have N".
@@ -75,7 +76,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 |---|---|---|---|
 | scandinavian-village | ChatGPT | Models ready; UI integration/browser review pending | 2026-10-28 |
 | building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
-| `glades` | Claude | Glades (2.48): painted tree skiing; waiting for the owner's Publish | 2026-10-28 |
 
 ## Known issues
 
@@ -124,7 +124,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 
-### 2026-10-28 · Claude · Glades (branch `glades`)
+### 2026-10-28 · Claude · Glades (shipped in 2.48)
 - Glades are `world.areas` with `kind: 'glade'` (`thin`, `trees0`, `signs`, `closed`). Their ski lines are hidden
   trails with `virtual: true` and `glade: <area id>`. Code that means "learning-area line" now checks
   `t.virtual && !t.glade`. Lines use `connAt` like real trails.
