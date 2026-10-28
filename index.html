@@ -3304,7 +3304,10 @@ const LIFT_TYPES = {
   six: { name: 'Express', long: 'Six-pack express', seats: 6, speed: 5.0, spacing: 4.0, base: 1400000, perUnit: 9500 },
   // Enclosed, heated cabins: loved on cold days, the only lift sightseers ride, and the first to stop in wind.
   gondola: { name: 'Gondola', long: 'Gondola', seats: 8, speed: 5.5, spacing: 7.0, base: 3200000, perUnit: 12000, cabin: true, minLen: 20 },
+  // Across the valley between two bases, both ways: guests ride it to reach the other base, not to ski.
+  village: { name: 'Village Gondola', long: 'Village gondola', seats: 8, speed: 5.5, spacing: 6.0, base: 1400000, perUnit: 9000, cabin: true, minLen: 20, minVert: -99, village: true },
 };
+const isVillage = (L) => !!LIFT_TYPES[L.type].village;
 const liftCapacity = (t) => Math.round(t.seats * t.speed * 3600 / (t.spacing * 10) / 10) * 10;
 const LIFT_COLORS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0x1aa3b8, 0xc23f6e, 0x4f5d73];
 const world = { trails: [], lifts: [], nextId: 1 };
@@ -3766,7 +3769,7 @@ function cabinGeo() {
   ], [G, B, W, G]);
 }
 const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
-  k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : k === 'gondola' ? cabinGeo() : chairGeo(LIFT_TYPES[k].seats)]));
+  k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : LIFT_TYPES[k].cabin ? cabinGeo() : chairGeo(LIFT_TYPES[k].seats)]));
 
 function liftLayout(a, b, type) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
@@ -4351,7 +4354,7 @@ function computeNetwork() {
   }
   // Lifts whose bottom station is a short, level or downhill glide from another lift's top: guests can cross over.
   for (const L of world.lifts) {
-    L.transfers = world.lifts.filter((M) => M !== L && !M.fromBase && distXZ(L.b, M.a) < TRANSFER_R && trueY(M.a.x, M.a.z) <= trueY(L.b.x, L.b.z) + 0.6);
+    L.transfers = world.lifts.filter((M) => M !== L && !M.fromBase && !isVillage(M) && !isVillage(L) && distXZ(L.b, M.a) < TRANSFER_R && trueY(M.a.x, M.a.z) <= trueY(L.b.x, L.b.z) + 0.6);
   }
   for (const M of world.lifts) M.transferFrom = world.lifts.filter((L) => L.transfers.includes(M));
   // Which lifts and trails a guest arriving at the base can reach.
@@ -4636,6 +4639,7 @@ function evalLift(a0, b0, type, allowPlans, self) {
   if (lay.hlen < minLen) problems.push(`Too short. A ${t.long.toLowerCase()} needs at least ${ftOf(minLen)} between stations.`);
   if (lay.hlen > maxLen) problems.push(`Too long. Keep a ${t.long.toLowerCase()} under ${ftOf(maxLen)}.`);
   if (lay.vertM < minVert) problems.push(`The top station must be at least ${fmtFt(Math.round(minVert * 3.281))} higher than the bottom.`);
+  if (t.village && !(isBase(a) && isBase(b) && baseOf(a) !== baseOf(b))) problems.push('A village gondola links two bases: put one station at each base.');
   if (t.maxGrade && lay.vertM / lay.horizM > t.maxGrade) problems.push(`Too steep for a ${t.long.toLowerCase()}. Pick a gentler slope${type === 'carpet' ? ', or use a T-bar' : ', or a chairlift'}.`);
   const stations = world.lifts.filter((L) => L !== self).map((L) => [L.name, L.a, L.b]);
   if (allowPlans) for (const pl of world.plans) if (pl.kind === 'lift') stations.push(['a planned lift', pl.a, pl.b]);
@@ -5199,8 +5203,9 @@ function liftDraftSheet() {
   }
   return `<div class="sheet-title"><h3>New lift</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
-    <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).map(([k, t]) =>
+    <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).filter(([, t]) => !t.village || lotCount() > 1).map(([k, t]) =>
       `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : t.cabin ? `${t.seats}-person cabins` : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
+    ${LIFT_TYPES[draft.liftType].village ? '<p class="help">Links your two bases across the valley, carrying guests both ways: put one station at each base. Guests ride it to reach the other base and to get back to their car.</p>' : ''}
     ${draft.liftType === 'gondola' ? '<p class="help">Enclosed, heated cabins. Skiers prefer it on cold days, and sightseers buy a scenic ride to the top and back when it starts at the base. It stops first in high wind.</p>' : ''}
     ${draft.liftType === 'carpet' && !world.areas.length ? '<p class="help">A carpet works best inside a learning area. <button class="link" data-action="trailMode" data-v="area">Paint one first</button></p>' : ''}
     ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? 'A covered conveyor belt for gentle slopes up to about 590 ft. Perfect for a learning area at the base.' : 'Pulls skiers up on their skis, up to about 2,600 ft. Cheap to run and keeps going in wind that stops chairlifts.'}</p>` : ''}
@@ -6152,7 +6157,7 @@ function clockLabel(min) {
   const h = Math.floor(min / 60) % 24, m = Math.floor(min % 60); // past midnight on a late last call
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
-const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, hsq: 420, six: 520, gondola: 900 };
+const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, hsq: 420, six: 520, gondola: 900, village: 600 };
 // Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
 const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
 // Overhead every day of the season, open or not (insurance, utilities, office, property tax),
@@ -6853,7 +6858,103 @@ function goCar(g) {
     if (car && car.offsite) { g.gone = true; gById.delete(g.id); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
   }
   const s = car ? stalls[car.stall] : roadEnd();
+  if (car && lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' }); // parked at the other base
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
+}
+/* ---------- Two bases: getting between them ----------
+   A mountain with more than one lot has a base by each. Guests cross by the village gondola (both ways)
+   or the base shuttle (loop buses on the valley road between shuttle stations at each base). With
+   neither, they don't head for the other base's lifts, and anyone who ends up there waits for a ride
+   back to their car at closing: stranded, unhappy, and on the day report. */
+const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCount(); k++) { const d = Math.abs(p.x - lotSite(k).x); if (d < bd) { bd = d; best = k; } } return best; };
+const villageLifts = (za, zb) => world.lifts.filter((L) => isVillage(L) && L.open && !L.windHold && new Set([baseOf(L.a), baseOf(L.b)]).size === 2 && [za, zb].every((z) => baseOf(L.a) === z || baseOf(L.b) === z));
+const zoneStations = (z) => stations().filter((B) => baseOf(B.door) === z);
+const baseShuttle = (za, zb) => zoneStations(za).length > 0 && zoneStations(zb).length > 0;
+const LOOP_SEATS = 40, LOOP_WAIT = 8; // a base shuttle bus, and about how long a wait for one feels
+function crossCost(za, zb) {
+  let c = Infinity;
+  for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? (L.xq[za] || []).length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
+  if (baseShuttle(za, zb)) c = Math.min(c, 1.6);
+  return c;
+}
+// Head for the other base: the quicker of the gondola and the shuttle, then carry on with `next`.
+function crossTo(g, zone, next) {
+  const zg = baseOf(g);
+  g.xNext = next; g.xZone = zone;
+  let best = null, bd = Infinity;
+  for (const L of villageLifts(zg, zone)) { const end = baseOf(L.a) === zg ? 'a' : 'b', d = distXZ(L[end], g); if (d < bd) { bd = d; best = { kind: 'lift', L, end }; } }
+  if (baseShuttle(zg, zone)) for (const B of zoneStations(zg)) { const d = distXZ(B.door, g) + 12; if (d < bd) { bd = d; best = { kind: 'bus', B }; } }
+  if (!best) return stranded(g);
+  if (best.kind === 'lift') { const p = best.L[best.end]; return setMove(g, { x: p.x + (Math.random() - 0.5) * 1.2, z: p.z + (Math.random() - 0.5) * 1.2 }, g.onSkis ? 'glide' : 'walk', { k: 'xlift', lid: best.L.id, end: best.end }); }
+  g.stn = best.B.id;
+  setMove(g, { x: best.B.door.x + (Math.random() - 0.5) * 1.6, z: best.B.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'xbus' });
+}
+// No way across: someone gives them a ride back to their car, after a long, cold wait.
+function stranded(g) {
+  const car = cars.find((c) => c.id === g.car), s = car ? stalls[car.stall] : roadEnd();
+  g.sat = Math.max(0, g.sat - 18); today.complaints.stranded++; today.crossStranded = (today.crossStranded || 0) + AGENT;
+  thought(g, 'Ended up at the wrong base with no way back to the car. Waited ages for a ride.');
+  g.xNext = { k: 'car' }; g.st = 'xride'; g.xUntil = state.time + 35; g.xAt = { x: s.x + 0.25, z: s.z };
+}
+// Arrived at the other base: on with the plan.
+function crossDone(g) {
+  const n = g.xNext || { k: 'base' }; g.xNext = null; g.xZone = null;
+  today.crossings = (today.crossings || 0) + AGENT;
+  if (n.k === 'car') return goCar(g);
+  if (n.k === 'queue') { const L = liftById(n.lid); if (L && canLoad(L)) return goQueue(g, L, 'walk'); }
+  baseDecision(g);
+}
+// Each minute: the village gondolas load from both ends up to their capacity, riders arrive after the
+// ride; base shuttles run between stations at the two bases while anyone is waiting or riding.
+function crossStep(dt) {
+  if (lotCount() < 2) return;
+  for (const L of world.lifts) {
+    if (!isVillage(L)) continue;
+    L.xq = L.xq || { a: [], b: [] }; L.xBudget = L.xBudget || { a: 0, b: 0 };
+    if (!L.open || L.windHold || state.phase !== 'open') continue;
+    const perMin = liftCapacity(LIFT_TYPES[L.type]) / 60 / AGENT, ride = L.stats.ride / 60;
+    for (const end of ['a', 'b']) {
+      L.xBudget[end] = Math.min(L.xBudget[end] + perMin * dt, perMin * 3);
+      while (L.xBudget[end] >= 1 && L.xq[end].length) {
+        const g = gById.get(L.xq[end].shift()); if (!g || g.st !== 'xq') continue;
+        L.xBudget[end]--;
+        const wait = state.time - g.qStart; if (wait > g.pat) { g.sat -= (wait - g.pat) * 0.8; thought(g, `Waited ${Math.round(wait)} minutes for ${L.name}.`); }
+        const to = end === 'a' ? L.b : L.a;
+        g.st = 'xride'; g.xUntil = state.time + ride; g.xAt = { x: to.x + (Math.random() - 0.5) * 1.2, z: to.z + (Math.random() - 0.5) * 1.2 };
+        today.liftRiders[L.id] = (today.liftRiders[L.id] || 0) + 1;
+      }
+    }
+  }
+  for (const g of guests) if (g.st === 'xride' && state.time >= g.xUntil) { g.x = g.xAt.x; g.z = g.xAt.z; g.st = 'walk'; g.tx = g.x; g.tz = g.z; g.then = null; crossDone(g); }
+}
+// The base shuttle: one loop bus at a time drives the valley road from a station at one base to one at the other.
+function loopStep() {
+  if (lotCount() < 2 || !hasStation()) return;
+  const waiting = guests.filter((g) => g.st === 'xbq');
+  if (!waiting.length || buses.filter((b) => b.kind === 'loop').length >= (waiting.length * AGENT > LOOP_SEATS ? 2 : 1)) return; // a second bus when one can't take everyone
+  const from = bldById(waiting[0].stn); if (!from) return;
+  const zone = waiting[0].xZone, to = zoneStations(zone).sort((p, q) => distXZ(p.door, from.door) - distXZ(q.door, from.door))[0];
+  if (!to) return;
+  const path = loopPath(to, from); // it comes from the far station to pick them up
+  buses.push({ id: nextCid++, kind: 'loop', stn: from.id, to: to.id, st: 'in', path, len: pathLen(path), pd: 0, riders: [], dwell: 0, legs: 0 });
+}
+function loopPath(a, b) {
+  const near = (p) => { let k = 0, bd = Infinity; ROAD_WORLD.forEach((q, i) => { const d = distXZ(q, p); if (d < bd) { bd = d; k = i; } }); return k; };
+  const ka = near(a.approach), kb = near(b.approach), road = ka <= kb ? ROAD_WORLD.slice(ka, kb + 1) : ROAD_WORLD.slice(kb, ka + 1).reverse();
+  return [a.stop, ...(a.bayIn ? [a.bayIn] : []), a.approach, ...road, b.approach, ...(b.bayIn ? [b.bayIn] : []), b.stop];
+}
+// At a stop: riders get off, and whoever is waiting here for the other base gets on.
+function loopArrive(b) {
+  const st = bldById(b.stn);
+  for (const id of b.riders) { const g = gById.get(id); if (!g) continue; g.x = st ? st.door.x + (Math.random() - 0.5) * 1.6 : g.x; g.z = st ? st.door.z + (Math.random() - 0.5) * 0.4 : g.z; g.st = 'walk'; g.tx = g.x; g.tz = g.z; g.then = null; crossDone(g); }
+  b.riders = [];
+  let seats = LOOP_SEATS / AGENT;
+  for (const g of guests) {
+    if (!seats) break;
+    if (g.st !== 'xbq' || g.stn !== b.stn) continue;
+    const wait = state.time - g.qSince; if (wait > g.pat + 6) { g.sat -= Math.min(12, (wait - g.pat - 6) * 0.5); thought(g, `Waited ${Math.round(wait)} minutes for the base shuttle.`); }
+    g.st = 'xbus'; b.riders.push(g.id); seats--;
+  }
 }
 function hikeOut(g) {
   g.sat -= 12; today.complaints.stranded++;
@@ -6920,11 +7021,15 @@ function baseDecision(g) {
   if (maybeVisit(g, g, 14, true, { k: 'base' })) return;
   let best = null, bv = -Infinity;
   const memo = new Map();
+  const zg = lotCount() > 1 ? baseOf(g) : 0;
   for (const L of world.lifts) {
-    if (!L.fromBase || !canLoad(L)) continue;
-    const v = noisy(vLift(L, g, 0, memo) - Math.hypot(L.a.x - g.x, L.a.z - g.z) * 0.02);
+    if (!L.fromBase || !canLoad(L) || isVillage(L)) continue;
+    const cross = zg === (lotCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
+    if (cross === Infinity) continue;
+    const v = noisy(vLift(L, g, 0, memo) - (cross ? cross : Math.hypot(L.a.x - g.x, L.a.z - g.z) * 0.02));
     if (v > bv) { bv = v; best = L; }
   }
+  if (best && lotCount() > 1 && baseOf(best.a) !== zg && !g.leaving) return crossTo(g, baseOf(best.a), { k: 'queue', lid: best.id });
   if (!best) { refundGuest(g, world.lifts.some((L) => L.fromBase && L.windHold) ? 'Wind hold on the lifts. Getting my money back.' : null); return goCar(g); }
   if (balk(g, best, { k: 'base' })) return;
   if (g.leaving) return baseDecision(g);
@@ -7197,7 +7302,7 @@ function carArrived(car) {
 
 /* ---------- Lifts ---------- */
 function initLiftSim(L) {
-  L.queue = []; L.incoming = 0; L.qVersion = 0;
+  L.queue = []; L.incoming = 0; L.qVersion = 0; L.xq = null; L.xBudget = null;
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
 function stepLift(L, dt) {
@@ -7308,6 +7413,12 @@ function arrive(g) {
     g.st = 'watch';
   } else if (t.k === 'pq') {
     g.st = 'pq'; g.qSince = state.time;
+  } else if (t.k === 'xlift') { // in line for the village gondola
+    const L = liftById(t.lid);
+    if (!L || !L.open) return crossTo(g, g.xZone, g.xNext);
+    L.xq = L.xq || { a: [], b: [] }; L.xq[t.end].push(g.id); g.st = 'xq'; g.qStart = state.time; g.xLid = L.id; g.xEnd = t.end;
+  } else if (t.k === 'xbus') { // waiting for the base shuttle
+    g.st = 'xbq'; g.qSince = state.time;
   }
 }
 function carLeave(car) {
@@ -7376,7 +7487,7 @@ function updateGuest(g, dt) {
     case 'watch': if (state.time >= TORCH.parade[1] + 8) showOver(g); break;
     default: break;
   }
-  if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow') updateNeeds(g, dt);
+  if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow' && g.st !== 'xride' && g.st !== 'xbus') updateNeeds(g, dt);
 }
 function updateCar(c, dt) {
   if (c.st === 'parked') return;
@@ -7549,6 +7660,7 @@ function simStep(dt) {
   for (const B of world.buildings) bldStep(B);
   patrolStep(dt);
   busStep(dt);
+  crossStep(dt);
   let eating = 0;
   for (const B of world.buildings) if (isEatery(B)) eating += B.used.seat * AGENT;
   if (eating > today.lunchPeak.n) today.lunchPeak = { n: eating, t: state.time };
@@ -8625,7 +8737,7 @@ function drawPeople() {
     if (g.st === 'incar' || g.gone) continue;
     onMountain++;
     if (g.st === 'ski') g.T.count++;
-    if (!showFigs || n >= MAX_G || (g.st === 'inside' && g.deck < 0)) { g.px = null; continue; }
+    if (!showFigs || n >= MAX_G || (g.st === 'inside' && g.deck < 0) || g.st === 'xride' || g.st === 'xbus') { g.px = null; continue; }
     const p = guestPos(g);
     g.px = p.x; g.py = p.y; g.pz = p.z;
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
@@ -8717,6 +8829,7 @@ function restoreSim(sim) {
     guests.push(g); gById.set(g.id, g);
   }
   for (const g of guests.filter((x) => x.st === 'bq').sort((p, q) => p.qT - q.qT)) { const B = bldById(g.bid); B.q[POOL[g.svc]].push(g); g.qv = -1; }
+  for (const g of guests.filter((x) => x.st === 'xq').sort((p, q) => p.qStart - q.qStart)) { const L = liftById(g.xLid); if (L) { L.xq = L.xq || { a: [], b: [] }; L.xq[g.xEnd].push(g.id); } else crossTo(g, g.xZone, g.xNext); } // in line for the village gondola
   cars = (sim.cars || []).filter((c) => stalls[c.stall]); // cars in lots that are gone (satellite lots before off-site parking)
   for (const c of cars) {
     if (stalls[c.stall]) stalls[c.stall].car = c.id;
@@ -10388,7 +10501,18 @@ function busStep(dt) {
       sendBus('park', st, load);
     }
   }
+  loopStep();
   for (const b of buses) {
+    if (b.kind === 'loop') { // the base shuttle: drive, stop, load, and head back while anyone is waiting
+      b.pd += CAR_SPEED * 0.8 * dt;
+      if (b.st === 'in' && b.pd >= b.len) { b.st = 'stop'; b.dwell = state.time + 2; loopArrive(b); }
+      else if (b.st === 'stop' && state.time >= b.dwell) {
+        const here = bldById(b.stn), there = bldById(b.to);
+        if (!here || !there || (!b.riders.length && !guests.some((g) => g.st === 'xbq'))) { b.st = 'gone'; continue; }
+        b.path = loopPath(here, there); b.len = pathLen(b.path); b.pd = 0; b.st = 'in'; [b.stn, b.to] = [b.to, b.stn]; b.legs++;
+      }
+      continue;
+    }
     const st = bldById(b.stn);
     if (b.st === 'in' || b.st === 'out') {
       b.pd += CAR_SPEED * 0.8 * dt;
