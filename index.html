@@ -4366,8 +4366,8 @@ function styleArea(a) {
 let areaDraft = null, areaDraftMesh = null;
 const AREA_DRAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x3d8bfd, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function areaPaintAt(p) {
-  if (!areaDraft) areaDraft = { cells: new Set(), erase: false };
-  if (!areaDraft.blocks) areaDraft.blocks = areaBlocks();
+  if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
+  if (!areaDraft.blocks) areaDraft.blocks = areaBlocks(areaDraft.editId == null ? null : areaById(areaDraft.editId));
   const r = state.brushR;
   for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
@@ -4386,25 +4386,54 @@ function drawAreaDraft() {
   scene.add(areaDraftMesh);
 }
 function clearAreaDraft() {
+  const edit = areaDraft && areaDraft.editId != null ? areaById(areaDraft.editId) : null;
   areaDraft = null;
+  if (edit) { edit.mesh.visible = true; styleArea(edit); }
   drawAreaDraft();
+}
+function editArea(A) {
+  if (!A || isGlade(A) || visiting || state.phase !== 'closed') return;
+  clearAreaDraft();
+  state.landMode = 'area';
+  setTool('clear');
+  areaDraft = { cells: new Set(A.cells), erase: false, editId: A.id, blocks: areaBlocks(A) };
+  A.mesh.visible = false;
+  drawAreaDraft();
+  $('sizes').hidden = false;
+  select(null);
+  renderSheet();
 }
 function areaDraftInfo() {
   if (!areaDraft || !areaDraft.cells.size) return null;
   if (state.landMode === 'glade') return gladeDraftInfo();
-  const n = areaDraft.cells.size, treeSet = new Set(), problems = [];
-  for (const k of areaDraft.cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
+  const n = areaDraft.cells.size, treeSet = new Set(), problems = [], old = areaDraft.editId == null ? null : areaById(areaDraft.editId);
+  const added = old ? [...areaDraft.cells].filter((k) => !old.set.has(k)) : [...areaDraft.cells];
+  for (const k of added) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
   if (n < AREA_MIN_CELLS) problems.push('Paint a bigger area: at least about half an acre.');
-  const lotWarn = lotReserve().some((r) => [...areaDraft.cells].some((k) => boxDist({ x: keyX(k), z: keyZ(k) }, r) < 0.5));
-  return { n, treeSet, problems, lotWarn, prep: n * AREA_CELL_COST, cost: n * AREA_CELL_COST + treeSet.size * TREE_COST };
+  if (old) for (const L of areaLifts(old)) if (!nearCell({ set: areaDraft.cells }, L.a, 3) || !nearCell({ set: areaDraft.cells }, L.b, 3)) problems.push(`Keep both stations of ${L.name} inside the learning area.`);
+  const lotWarn = lotReserve().some((r) => added.some((k) => boxDist({ x: keyX(k), z: keyZ(k) }, r) < 0.5));
+  const prep = added.length * AREA_CELL_COST;
+  return { n, treeSet, problems, lotWarn, prep, cost: prep + treeSet.size * TREE_COST, old, added: added.length };
 }
 function commitArea() {
   const info = areaDraftInfo();
   if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
   if (info.glade) return commitGlade(info);
-  pushUndo('building a learning area');
+  pushUndo(info.old ? 'editing a learning area' : 'building a learning area');
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
+  if (info.old) {
+    const a = info.old;
+    a.cells = [...areaDraft.cells]; a.cost = (a.cost || 0) + info.cost; a.set = new Set(a.cells);
+    refreshAreaMesh(a); a.mesh.visible = true;
+    clearAreaDraft();
+    computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
+    toast(`Updated ${a.name} · −${money(info.cost)} for added ground.`);
+    setTool('explore');
+    select({ kind: 'area', obj: a });
+    renderSheet();
+    return;
+  }
   const a = { id: world.nextId++, name: nextAreaName(), kind: 'learn', cells: [...areaDraft.cells], cost: info.cost };
   addArea(a);
   clearAreaDraft();
@@ -5648,6 +5677,7 @@ function areaSheet(A) {
       ${open ? `<div><dt>Skiing now</dt><dd>${skiing}</dd></div><div><dt>Runs today</dt><dd>${runs}</dd></div>` : ''}
       <div><dt>Grooming</dt><dd>${money(A.cells.length * AREA_GROOM_CELL)}/night</dd></div>
     </dl>
+    ${state.phase === 'closed' && !visiting ? `<button class="btn secondary" data-action="editArea">Edit learning area</button>` : ''}
     ${state.phase === 'closed' ? removeBlock('this learning area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function trailSheet(t) {
@@ -5799,7 +5829,13 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
-  else if (a === 'areaClear') { clearAreaDraft(); renderSheet(); }
+  else if (a === 'editArea' && selected && selected.kind === 'area') editArea(selected.obj);
+  else if (a === 'areaClear') {
+    const old = areaDraft && areaDraft.editId != null ? areaById(areaDraft.editId) : null;
+    clearAreaDraft();
+    if (old) { setTool('explore'); select({ kind: 'area', obj: old }); }
+    renderSheet();
+  }
   else if (a === 'areaBuild') commitArea();
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
@@ -8792,6 +8828,10 @@ const LIGHT_COST_UNIT = 420, LIGHT_HOUR_UNIT = 0.8, NIGHT_BASE_HR = 160, NIGHT_L
 const NIGHT_HOURS = [[0, 'Off'], [1140, 'Until 7'], [1200, 'Until 8'], [1260, 'Until 9']];
 const lightCost = (t) => Math.round(t.len * LIGHT_COST_UNIT * MOUNTAIN.costs / 500) * 500;
 const nightNow = () => !!nightEnd() && state.phase === 'open' && state.time >= closeTime() && state.time < nightEnd();
+// Keep terrain and lift terminal lights on for the last night guests while they clear the mountain.
+const nightClearout = () => !!(today && today.nightClosed && state.phase === 'open' && nightEnd() && state.time < nightEnd() + 30
+  && (guests.some((g) => g.night && !g.gone) || world.lifts.some((L) => L.riders.some((r) => r.length))));
+const nightLightsOn = () => nightNow() || nightClearout();
 const liftLit = (L) => L.departing.some((t) => t.lit && t.open && t.snowOk !== false);
 const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
 // The night crowd: a share of a day's demand, more on weeknights (after work), fewer when it's bitter
@@ -8829,7 +8869,8 @@ function maybeStayNight(g) {
 // Night skiing costs: lights on every lit trail that ran, night crew, and patrol.
 function nightCost(lv) {
   if (!nightEnd()) return { lights: 0, staff: 0 };
-  const hours = (nightEnd() - closeTime()) / 60;
+  const clearout = today && today.nightClosed ? clamp(state.time - nightEnd(), 0, 30) : 0;
+  const hours = (nightEnd() - closeTime() + clearout) / 60;
   const lit = realTrails().filter((t) => t.lit && t.open);
   const extra = world.buildings.filter((B) => B.type === 'tlight').length * LIGHT_GAP; // each trail light you place draws like a stretch of lit trail
   const lights = Math.round((lit.reduce((a, t) => a + t.len, 0) + extra) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
@@ -8919,7 +8960,7 @@ function rebuildLights() {
 }
 // After dark, lit trails glow when the night plan is running (and always in the night preview).
 function updateNightLights() {
-  const on = duskK > 0.15 && (nightNow() || (torchTonight() && state.time < TORCH.end));
+  const on = duskK > 0.15 && (nightLightsOn() || (torchTonight() && state.time < TORCH.end));
   const k = on ? duskK : 0;
   litPools.visible = false; // lit trails are lit by the light map, from their poles
   lampGlow.geometry.setDrawRange(0, k > 0 ? lampSpots.length : 0);
@@ -8991,7 +9032,7 @@ function drawLightMap() {
   if (open) for (const p of lotPoleList) if (p.sec < lotsOpen()) spot(p.x, p.z, 6.5, LAMP, 0.7);
   // floodlights on the lift terminals light the loading and unloading areas
   for (const L of world.lifts) if (liftLightOn(L)) for (const p of [L.a, L.b]) spot(p.x, p.z, 6, LAMP, 0.8);
-  if (nightNow() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
+  if (nightLightsOn() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
   lightTex.needsUpdate = true;
 }
 
@@ -9033,7 +9074,7 @@ const _winA = new THREE.Color(), _winB = new THREE.Color();
 function bldLitNow(B) {
   if (B.type === 'firepit') return true;
   if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
-  if (B.type === 'tlight') return nightNow() || (torchTonight() && state.time >= TORCH.parade[0] - 10 && state.time < TORCH.end);
+  if (B.type === 'tlight') return nightLightsOn() || (torchTonight() && state.time >= TORCH.parade[0] - 10 && state.time < TORCH.end);
   if (state.phase !== 'open') return true;
   return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
 }
@@ -9063,7 +9104,7 @@ const LOT_POLE_GEO = (() => {
 const LOT_HEAD_GEO = (() => { const a = new THREE.BoxGeometry(0.3, 0.1, 0.22); return a; })();
 const MAX_LOT_POLES = 4 * 40 + 2 * 40;
 // A lift station's light is on after dark while the lift runs: all day, then for night skiing.
-const liftLightOn = (L) => state.phase === 'open' && L.open && (state.time < closeTime() + 20 || (nightNow() && liftLit(L)));
+const liftLightOn = (L) => state.phase === 'open' && L.open && (state.time < closeTime() + 20 || (nightLightsOn() && liftLit(L)));
 const lotPoleMesh = new THREE.InstancedMesh(LOT_POLE_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LOT_POLES);
 const lotHeadMesh = new THREE.InstancedMesh(LOT_HEAD_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_LOT_POLES * 2);
 lotHeadMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_LOT_POLES * 2 * 3), 3);
@@ -9121,7 +9162,7 @@ function updateEveningGlow() {
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
-  const lit = (state.phase === 'open' ? Math.round(sstep(EVENING[0] - 25, EVENING[0] + 15, state.time) * 8) : 0) + ':' + world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
+  const lit = (state.phase === 'open' ? Math.round(sstep(EVENING[0] - 25, EVENING[0] + 15, state.time) * 8) : 0) + ':' + world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightLightsOn() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
   if (lit !== litSig) {
     litSig = lit;
     // by day windows look like glass; as dusk falls they turn lit or dark
@@ -12301,7 +12342,7 @@ function applyDayMelt(w) {
 }
 
 /* ---------- Trail snow: natural cover plus machine snow ---------- */
-const runnable = (t) => t.open && t.snowOk !== false && (t.lit || !nightNow());
+const runnable = (t) => t.open && t.snowOk !== false && (t.lit || !nightLightsOn());
 const needOf = (t) => OPEN_NEED[trailSign(t)];
 function trailNatural(t) {
   let s = 0, n = 0;
@@ -13528,14 +13569,14 @@ function landSheet() {
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
   }
   if (area) {
-    const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
+    const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash, editing = !!(areaDraft && areaDraft.editId != null);
     return `${head}
-    <p class="help">Paint a gentle slope where first-timers can learn. Steep ground, trails, buildings and the road are left out. Then add a magic carpet or T-bar with both stations inside it.</p>
+    <p class="help">${editing ? 'Paint to add ground or erase to trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Keep both stations of any serving lift inside the area.' : 'Paint a gentle slope where first-timers can learn. Steep ground, trails, buildings and the road are left out. Then add a magic carpet or T-bar with both stations inside it.'}</p>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
     ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${acresOf(info.n).toFixed(1)} acres</dd></div><div><dt>Upkeep</dt><dd>${money(info.n * AREA_GROOM_CELL)}/day grooming</dd></div></dl>
     ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
-    <div class="costs"><span>Grooming and fencing</span><span>${money(info.prep)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>
-    <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button></div>` : ''}
+    <div class="costs"><span>${editing ? 'Preparing added ground' : 'Grooming and fencing'}</span><span>${money(info.prep)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>
+    <div class="row"><button class="btn secondary" data-action="areaClear">${editing ? 'Cancel' : 'Start over'}</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : editing ? `Apply changes · ${money(info.cost)}` : `Build · ${money(info.cost)}`}</button></div>` : editing ? '<button class="btn secondary" data-action="areaClear">Cancel editing</button>' : ''}
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
   }
   if (doze) return `${head}
@@ -16327,6 +16368,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.54', date: 'Oct 28, 2026', title: 'Edit learning areas and safer night closing', items: ['Select a learning area overnight to repaint or trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Serving lift stations must stay inside.', 'At the end of night skiing, lit routes and lift terminals stay illuminated while the last skiers clear the mountain. The short extension is included in the day’s night-operation costs.'] },
   { v: '2.53.2', date: 'Oct 28, 2026', title: 'Your mountain in the picture', small: true, items: ['Your saved resorts now show scenic 3D photos on the title screen instead of top-down maps. Open an older resort once to refresh its picture.'] },
   { v: '2.53.1', date: 'Oct 28, 2026', title: 'Cleaner trail merges', small: true, items: [
     'Where one trail joins or crosses another, the grooming lines no longer overlap. The older trail’s corduroy carries straight through, and the joining trail’s lines blend into it.',
