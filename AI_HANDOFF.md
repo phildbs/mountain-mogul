@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
 - 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
 - 2.57.1: fair trail-fork choices, base-aware route destinations and short gentle uphill walks between nearby lift stations.
 - 2.57: independent metric/imperial and Celsius/Fahrenheit menu toggles, remembered across resorts on this device.
@@ -74,7 +75,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Patrol staffing candidate 2.58 is awaiting GitHub browser tests and Phil’s review. Not published. Trail/glade popularity reporting remains pending.
+**Active**: 2.58 publication approved after full GitHub browser tests passed. Published main at 07dc848eeaed7726be7ab4afc82348579835ad04; deployment verification pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -88,7 +89,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-staffing | ChatGPT | One patrol building option with adjustable 1–6 on-duty staff per hut | 2026-10-28 |
 
 
 ## Known issues
@@ -205,6 +205,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Publish 2.58 approved
+- Phil explicitly requested publication. Candidate 15907f14afb484f438277419e45493aa0610e45b passed full GitHub Tests run 40788362858 (success). Main remains b8e93e9eebf786cc4eaf27a75c6736dea8877151, so this is a fast-forward with no intervening work.
+- Includes one patrol build-menu entry, overnight 1–6 staffing controls, legacy team migration, guide, What’s new and regression scenarios. No database changes. Pages deployment pending.
 
 ### 2026-10-28 · ChatGPT · Single patrol building and staffing selector
 - Branch patrol-staffing starts from published 2.57.2 at b8e93e9eebf786cc4eaf27a75c6736dea8877151. Phil requested only one Ski patrol choice in the build menu and adjustable staff per hut. Removed patrol building tiers; one hut starts with two patrollers. Building panel has overnight 1–6 staffing buttons with no expansion fee. Full-team upkeep remains $100 + $425 per patroller, preserving the prior 2/4/6 prices. Skeleton duty rounds half up.
