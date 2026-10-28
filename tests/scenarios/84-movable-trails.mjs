@@ -2,7 +2,7 @@ import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function({browser,url}) {
  const g=await openGame(browser,url);
  await g.click('#startBtn'); await g.ev(SETUPS.juniperStarter);
- const cancel=await g.ev(`(()=>{const t=realTrails()[0];const before=JSON.stringify(saveData(false));startTrailMove(t);draft.pts[0].x+=3;cancelTrailMove();return before===JSON.stringify(saveData(false));})()`);
+ const cancel=await g.ev(`(()=>{const t=realTrails()[0];const snapshot=()=>{const s=saveData(false);delete s.savedAt;return JSON.stringify(s);};const before=snapshot();startTrailMove(t);draft.pts[0].x+=3;cancelTrailMove();return before===snapshot();})()`);
  eq(cancel,true,'cancel leaves saved resort untouched');
  const r=await g.ev(`(()=>{state.cash=1e9;const t=realTrails()[0], id=t.id,name=t.name,old=t.pts.map(p=>({...p}));t.open=false;t.sign=2;t.sm=true;t.lit=true;t.machine=12;
  startTrailMove(t);let info;for(const dx of [.5,-.5,1,-1]){draft.pts=old.map(p=>({...p}));const i=Math.floor(old.length/2);draft.pts[i].x+=dx;info=evalTrailMove(t,draft.pts,draft.width,false);if(!info.an.problems.length)break;}
