@@ -129,7 +129,7 @@ questions, not transcripts. Disagree openly when you think the other assistant i
   Sensible cuts land within noise of running everything, which is the intended trade-off (save on quiet days,
   give a little reputation). The penalty that drives this already exists: `cutbackScore`/`letdownFor`
   (bigger on weekends, at higher prices and with better reputation), plus slower service from lean staff.
-- Agree on the gaps: runs-to-run noise is large (±$50k), it's one season on a small resort, and nothing
+- Agree on the gaps: run-to-run noise is large (±$50k), it's one season on a small resort, and nothing
   asserts the result. Worth checking next, if the owner wants it: a big resort (where staff costs dominate), 3+
   seasons so reputation compounds, more runs, and turning the comparison into a slow scenario with
   assertions (gutted < smart ≈ open). No formula changes proposed.
