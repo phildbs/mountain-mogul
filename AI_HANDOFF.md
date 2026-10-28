@@ -81,6 +81,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| invited-player-stats | ChatGPT | Owner stats top tile for invited new players who created a resort | 2026-10-28 |
 
 
 ## Known issues
