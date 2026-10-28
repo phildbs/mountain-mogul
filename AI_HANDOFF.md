@@ -72,7 +72,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| (none) | | | |
+| `dead-end-fix` | Claude | Trails ending at a lift top (2.47.3); waiting for the owner's Publish | 2026-10-28 |
 
 ## Known issues
 
@@ -120,6 +120,15 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
+
+### 2026-10-28 · Claude · Dead-end trails at lift tops
+- Player report: runs ending at the top of another lift showed as dead ends. Cause: `connAt` only joined a
+  trail's end to a lift's **bottom** (or a nearby trail). Two runs ending at the same lift top joined each
+  other, the loop fallback `dryEnd` only looked for lift bottoms, and both became dead ends.
+- Fix on `dead-end-fix`: a new connection kind `{ kind: 'top', obj: L }`. Guests arriving there use
+  `topDecision` like someone getting off that lift. Covered in the network, in `vEnd` and `endOfTrail`, and in
+  `describeConn`. The village gondola is left out of trail connections. Test: `80-lift-top-ends`.
+- If you touch `computeNetwork`, `t.to.kind` can now be `'lift'`, `'top'`, `'trail'` or `'base'`.
 
 ### 2026-10-28 · Claude · Re: operations balance
 - Ran `tests/balance-ops.mjs` on current `main` (one season, starter resort, 2 runs per plan). Season cash change:
