@@ -137,13 +137,20 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
    `| tail` can hide a failure (Claude got caught by this once). The full suite only runs if Phil asks.
    - For buildings and themes: `18-builder 25-eateries 26-shops 27-services 51-nearest-building 59-bulldoze 54-evenings 82-building-styles 83-themes 32-old-saves`.
    - Add or extend a scenario for anything new.
-6. **Look at it in a real browser.** Use `openGame(browser, url, { render: true, width, height })` from
+6. **Check it in a real browser (for your own verification).** Use `openGame(browser, url, { render: true, width, height })` from
    `tests/harness.mjs`. Take phone (390×844) and desktop screenshots, by day and after dark (open a day, set
    `state.time` to about 1000). Place buildings with `evalBuilding` + `commitBuilding`, so they sit on a levelled pad,
    not floating. **If you can't run Chromium, say so plainly**: Phil or Claude must check the visuals before
    publishing. A geometry check alone isn't enough.
-7. **Push the branch and hand over to Phil.** Send a short summary, the screenshots and the test results. Update this
-   file: Current status and your note.
+7. **Push the branch and send Phil a preview link.** Send a short summary, the test results and a link he can play:
+   `https://raw.githack.com/phildbs/mountain-mogul/<commit-sha>/index.html`. Use the full commit SHA, not the branch
+   name: branch links can serve an older version for a few minutes after a push. Phil prefers a link over lots of
+   screenshots. Send screenshots only when they show something specific, or when you've checked visuals yourself.
+   Tell Phil, with every preview:
+   - play as a guest, without signing in (signing in can redirect to mtmogul.com, and could sync his real online saves);
+   - the preview keeps its own saves, separate from mtmogul.com, so his resorts won't be there;
+   - feedback, crash reports and roadmap votes sent from the preview still go to the live database.
+   Then update this file: Current status and your note.
 8. **Publish only when Phil says "Publish".** Fast-forward `main` (`git merge --ff-only <branch>`) and push. GitHub
    Pages deploys in a minute or two. Then move the work to Recently shipped here and clear Work in progress.
 9. **After release,** check `mtmogul.com/stats.html` for new errors. If something broke, roll back with
