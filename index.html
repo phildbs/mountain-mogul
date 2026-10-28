@@ -7793,10 +7793,11 @@ function initLiftSim(L) {
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
 function stepLift(L, dt) {
-  const riding = L.riders.some((r) => r.length);
+  const staff = patrolCrew().filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
+  const riding = L.riders.some((r) => r.length) || staff.some((c) => c.st === 'returnride');
   if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
-  if (!riding && !L.queue.length && !L.incoming && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
+  if (!riding && !staffWaiting && !L.queue.length && !L.incoming && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
   const total = L.total, gap = total / L.chairCount;
   const slow = liftMode(L) === 'slow';
   const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
@@ -7808,7 +7809,7 @@ function stepLift(L, dt) {
     if (p1 >= total) loadBottom(L, i);
   }
   // Lifts draw power while they run: all day, then at night only for night skiing or to bring riders up.
-  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || L.riders.some((r) => r.length))) {
+  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || riding || staffWaiting)) {
     const c = LIFT_OP_HOUR[L.type] * dt / 3600 * (slow ? SLOW.cost : 1);
     today.exp.lifts += c; state.cash -= c;
     if (state.time >= closeTime()) today.night.lifts += c;
@@ -7816,6 +7817,9 @@ function stepLift(L, dt) {
   }
 }
 function unloadTop(L, i) {
+  for (const c of patrolCrew()) if (c.st === 'returnride' && c.lift === L.id && c.chair === i) {
+    c.x = L.b.x; c.z = L.b.z; c.st = 'back'; c.lift = null; c.chair = -1;
+  }
   const keep = [];
   for (const id of L.riders[i]) {
     const g = gById.get(id);
@@ -7846,6 +7850,9 @@ function loadBottom(L, i) {
   // Lean crews miss the odd seat when loading a busy line.
   const seats = LIFT_TYPES[L.type].seats - (L.queue.length > 6 && Math.random() < staffLevel().miss ? 1 : 0);
   let n = 0;
+  for (const c of patrolCrew()) if (n < seats && c.st === 'returnqueue' && c.lift === L.id) {
+    c.st = 'returnride'; c.chair = i; c.seat = n++;
+  }
   while (L.queue.length && n < seats) {
     const g = L.queue.shift();
     const wait = state.time - g.qStart;
@@ -9434,7 +9441,12 @@ const BTYPES = {
   school: { name: 'Ski school', where: 'base', cost: 75000, sign: 'SKI SCHOOL', accent: 0x2f8f5e, classes: 8, w: 3.2, d: 4.6, upkeep: 1600,
     desc: 'Beginner lessons on a practice area beside the building. Eight instructors.' },
   patrol: { name: 'Ski patrol', where: 'any', cost: 85000, sign: 'SKI PATROL', accent: 0xc0302a, crew: 2, w: 2.6, d: 2.2, upkeep: 950,
-    desc: 'Two patrollers who ski out to injured guests. Faster when the hut is close.' },
+    desc: 'Patrollers ski out to injured guests. Expand the team overnight without adding another hut. Returning staff take operating lifts uphill.',
+    tiers: [
+      { label: 'Two-person', crew: 2, w: 2.6, d: 2.2, upkeep: 950 },
+      { label: 'Four-person', crew: 4, w: 2.6, d: 2.2, upkeep: 1800, cost: 60000 },
+      { label: 'Six-person', crew: 6, w: 2.6, d: 2.2, upkeep: 2650, cost: 60000 },
+    ] },
   restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
     desc: 'A small block of restrooms for busy areas.' },
   shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 500,
@@ -9578,7 +9590,7 @@ const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar'];
 const isEatery = (B) => EATS.includes(B.type);
 const isDecor = (B) => !!BTYPES[B.type].decor;
 const realBlds = () => world.buildings.filter((B) => !isDecor(B));
-const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier] : BTYPES[b.type]);
+const bspec = (b) => (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier || 0] : BTYPES[b.type]);
 // What a building costs at a size: lodges come small, medium or large, each its own choice in the build menu.
 const sizeCost = (type, tier = 0) => BTYPES[type].cost + (BTYPES[type].tiers || []).slice(1, tier + 1).reduce((a, t) => a + (t.cost || 0), 0);
 const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0 };
@@ -10985,6 +10997,7 @@ function buildingVisual(b, ghost) {
   return { group: g, seats: k.seats, baseY, fh, fs };
 }
 function addBuilding(b) {
+  if (b.type === 'patrol') b.tier = clamp(Math.floor(b.tier || 0), 0, 2);
   const v = buildingVisual(b, false);
   b.group = v.group; b.baseY = v.baseY;
   const s = bspec(b);
@@ -11160,7 +11173,7 @@ function initBldSim(B) {
   B.counterFree = 0; B.rented = 0; B.qv = 0;
   B.deckUse = new Array((B.seatsW || []).length).fill(0);
   B.today = { visits: 0, revenue: 0, cogs: 0, peak: 0, calls: 0, resp: 0 };
-  if (B.type === 'patrol') B.crew = Array.from({ length: bspec(B).crew }, (_, i) => ({ st: 'idle', x: B.door.x + (i - 0.5) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
+  if (B.type === 'patrol') B.crew = Array.from({ length: bspec(B).crew }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (bspec(B).crew - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
 }
 function estWait(B, svc) {
   const pool = POOL[svc], slots = poolSlots(B, pool), avg = (SVC_TIME[svc][0] + SVC_TIME[svc][1]) / 2;
@@ -11675,9 +11688,59 @@ function firstAidPoint(p) {
   const hut = nearestBld(p, (B) => B.type === 'patrol' && B.isBase);
   return hut ? hut.door : roadEnd();
 }
+const patrolCrew = () => world.buildings.filter((B) => B.type === 'patrol').flatMap((B) => B.crew || []);
+// Staff can ski downhill or traverse gentle ground; a return route never treats a climb as skiing.
+function patrolGlide(a, b) {
+  const start = trueY(a.x, a.z), n = Math.max(1, Math.ceil(distXZ(a, b)));
+  for (let i = 1; i <= n; i++) if (trueY(lerp(a.x, b.x, i / n), lerp(a.z, b.z, i / n)) > start + 0.6) return false;
+  return true;
+}
+// Search downhill traverses and operating lifts, including a chain of lifts, to reach the home hut.
+function patrolReturnLift(p, home) {
+  const lifts = world.lifts.filter((L) => !isVillage(L) && canLoad(L));
+  const nodes = [p, ...lifts.map((L) => L.b)], costs = nodes.map(() => Infinity), first = nodes.map(() => null), seen = new Set();
+  costs[0] = 0;
+  let best = Infinity, result = null;
+  for (let step = 0; step < nodes.length; step++) {
+    let at = -1;
+    for (let i = 0; i < nodes.length; i++) if (!seen.has(i) && (at < 0 || costs[i] < costs[at])) at = i;
+    if (at < 0 || !Number.isFinite(costs[at])) break;
+    seen.add(at);
+    const a = nodes[at];
+    if (patrolGlide(a, home)) {
+      const cost = costs[at] + distXZ(a, home) / PATROL_SPEED;
+      if (cost < best) { best = cost; result = first[at]; }
+    }
+    lifts.forEach((L, j) => {
+      if (seen.has(j + 1) || !patrolGlide(a, L.a)) return;
+      const speed = LIFT_TYPES[L.type].speed / 10 / PACE * (liftMode(L) === 'slow' ? SLOW.speed : 1);
+      const cost = costs[at] + distXZ(a, L.a) / PATROL_SPEED + (L.upLen + L.total / L.chairCount) / speed;
+      if (cost < costs[j + 1]) { costs[j + 1] = cost; first[j + 1] = first[at] || L; }
+    });
+  }
+  return result;
+}
+function patrolReturn(c, B, dt) {
+  const home = { x: B.door.x + (c.home - (bspec(B).crew - 1) / 2) * 0.35, z: B.door.z };
+  if (c.st === 'returnride') return; // the real chair carries them to unloadTop
+  if (c.st === 'returnwalk' || c.st === 'returnqueue') {
+    const L = liftById(c.lift);
+    if (!L || !canLoad(L)) { c.st = 'back'; c.lift = null; return; }
+    if (c.st === 'returnwalk' && moveXZ(c, L.a.x, L.a.z, PATROL_SPEED * dt)) c.st = 'returnqueue';
+    return;
+  }
+  if (c.st === 'returnhome' || patrolGlide(c, home)) {
+    c.st = 'returnhome';
+    if (moveXZ(c, home.x, home.z, PATROL_SPEED * dt)) { c.st = 'idle'; c.target = null; }
+    return;
+  }
+  const L = patrolReturnLift(c, home);
+  if (L) { c.st = 'returnwalk'; c.lift = L.id; c.target = null; }
+  else { c.st = 'idle'; c.target = null; c.lift = null; } // ready to help from the aid station if the lifts cannot get them home
+}
 function patrolStep(dt) {
   const huts = world.buildings.filter((B) => B.type === 'patrol' && bldMode(B) !== 'closed');
-  const onDuty = (c) => !skeletonPatrol() || c.home === 0; // a skeleton patrol is one patroller per hut
+  const onDuty = (c) => !skeletonPatrol() || c.home % 2 === 0; // half of each team on skeleton staffing
   for (const g of guests) {
     if (g.st !== 'hurt' || g.rescuer || g.gone) continue;
     let best = null, bd = Infinity, home = null;
@@ -11729,9 +11792,7 @@ function patrolStep(dt) {
         }
         c.st = 'back';
       }
-    } else if (c.st === 'back') {
-      if (moveXZ(c, B.door.x + (c.home - 0.5) * 0.35, B.door.z, PATROL_SPEED * dt)) { c.st = 'idle'; c.target = null; }
-    }
+    } else if (['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)) patrolReturn(c, B, dt);
   }
 }
 
@@ -12072,7 +12133,7 @@ function buildBuildingDraft() {
 }
 function upgradeTier(B) {
   const next = BTYPES[B.type].tiers && BTYPES[B.type].tiers[B.tier + 1];
-  if (!next || state.phase !== 'closed') return;
+  if (!next || visiting || state.phase !== 'closed') return;
   const v = validateBuilding(B.type, B.tier + 1, B.x, B.z, B.rot, B.id);
   if (v.problems.length) { toast(`Can’t upgrade here: ${v.problems[0]}`, true); return; }
   const pad = B.padY != null ? B.padY : (B.baseY - 0.03) / VEX;
@@ -12087,7 +12148,7 @@ function upgradeTier(B) {
   applyTerrainChange(gres.i0, gres.j0, gres.i1, gres.j1);
   upgradeBuilding(B);
   computeNetwork(); syncLabels(); updateCash(true);
-  toast(B.type === 'lodge' ? `${B.name} is now a ${next.label.toLowerCase()} lodge · −${money(cost)}` : `${B.name} now has ${next.label} · −${money(cost)}`);
+  toast(B.type === 'patrol' ? `${B.name} now has ${next.crew} patrollers · −${money(cost)}` : B.type === 'lodge' ? `${B.name} is now a ${next.label.toLowerCase()} lodge · −${money(cost)}` : `${B.name} now has ${next.label} · −${money(cost)}`);
   renderSheet(); scheduleSave();
 }
 // Off-site parking: set it up, or move up to the next size, overnight.
@@ -12119,7 +12180,7 @@ function bldLive(B) {
     case 'clinic': return `<b>${B.today.visits}</b> patients today · <b>${today ? today.patched : 0}</b> back on the snow`;
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
-    case 'patrol': return `<b>${B.crew.filter((c) => c.st !== 'idle').length}</b> of ${s.crew} patrollers out on calls`;
+    case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${skeletonPatrol() ? s.crew / 2 : s.crew} on duty`;
     default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle`;
   }
 }
@@ -12144,12 +12205,12 @@ function bldSheet(B) {
   const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : 'Served today';
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
-  const next = null; // lodges come in sizes from the build menu; nothing upgrades in place
+  const next = B.type === 'patrol' && !visiting ? t.tiers[B.tier + 1] : null;
   let upgrade = '';
   if (next) {
     upgrade = state.phase === 'closed'
-      ? `<button class="btn secondary" data-action="upgrade">${next.seats ? `Upgrade to ${next.label.toLowerCase()} (${next.seats} seats)` : `Upgrade to ${next.label}`} · ${money(next.cost)}</button>`
-      : `<p class="help">${next.seats ? `Upgrade to a ${next.label.toLowerCase()} lodge (${next.seats} seats)` : `Upgrade to ${next.label}`} overnight.</p>`;
+      ? `<button class="btn secondary" data-action="upgrade">Expand to ${next.crew} patrollers · ${money(next.cost)}</button><p class="help">Same hut and footprint · ${money(next.upkeep)}/day upkeep. Skeleton staffing puts half the team on duty.</p>`
+      : `<p class="help">Expand to ${next.crew} patrollers overnight · ${money(next.cost)}, then ${money(next.upkeep)}/day upkeep.</p>`;
   }
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
@@ -12182,7 +12243,9 @@ function drawStaff(n) {
   for (const B of world.buildings) {
     if (B.type === 'patrol' && B.crew) for (const c of B.crew) {
       if (n >= MAX_G) return n;
-      writeFig(n++, c.x, heightAt(c.x, c.z) + 0.14, c.z, c.yaw, 1, PATROL_LOOK, 0);
+      const L = c.st === 'returnride' ? liftById(c.lift) : null;
+      const p = L ? guestPos({ st: 'ride', L, chair: c.chair, seat: c.seat }) : { x: c.x, y: heightAt(c.x, c.z) + 0.14, z: c.z, yaw: c.yaw, sy: 1 };
+      writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, PATROL_LOOK, 0);
     }
     if (B.type === 'school' && B.used && B.used.lesson) {
       const k = Math.ceil(B.used.lesson / 6);
@@ -16369,6 +16432,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.55', date: 'Oct 28, 2026', title: 'More help from ski patrol', items: ['Expand an existing patrol team overnight from 2 to 4 or 6 patrollers, with higher upkeep. Skeleton staffing puts half the team on duty.', 'Returning patrollers take operating lifts uphill, using a seat on a real chair. If the lifts can’t reach their hut, they stay available at the aid station. The patrol panel distinguishes staff responding from staff returning.'] },
   { v: '2.54', date: 'Oct 28, 2026', title: 'Edit learning areas and safer night closing', items: ['Select a learning area overnight to repaint or trim it. Added ground costs the normal preparation and tree-clearing price; removing ground has no fee or refund. Serving lift stations must stay inside.', 'At the end of night skiing, lit routes and lift terminals stay illuminated while the last skiers clear the mountain. The short extension is included in the day’s night-operation costs.'] },
   { v: '2.53.2', date: 'Oct 28, 2026', title: 'Your mountain in the picture', small: true, items: ['Your saved resorts now show scenic 3D photos on the title screen instead of top-down maps. Open an older resort once to refresh its picture.'] },
   { v: '2.53.1', date: 'Oct 28, 2026', title: 'Cleaner trail merges', small: true, items: [
