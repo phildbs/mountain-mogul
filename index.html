@@ -7087,10 +7087,38 @@ function carPath(stall) {
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
+// With more than one lot, a carload heads for the base whose lifts and runs suit its lead skier, and
+// the lifts guests rode most last time: their favourites. A full lot sends it to the next best one.
+const drawAbility = () => { const r = Math.random(), mix = MOUNTAIN.skiers; return r < mix[0] ? 0 : r < mix[0] + mix[1] ? 1 : r < mix[0] + mix[1] + mix[2] ? 2 : 3; };
+function lotCentre(lot) { const S = stalls.filter((s) => (s.lot || 0) === lot); if (!S.length) return null; let x = 0, z = 0; for (const t of S) { x += t.x; z += t.z; } return { x: x / S.length, z: z / S.length }; }
+let lotScoreCache = null;
+function lotScores(ab) {
+  const key = `${state.day}:${world.lifts.length}:${world.trails.length}:${state.lotSections}`;
+  if (!lotScoreCache || lotScoreCache.key !== key) {
+    const rides = (state.lastReport && state.lastReport.liftRides) || {}, most = Math.max(1, ...Object.values(rides));
+    lotScoreCache = { key, by: [0, 1, 2, 3].map((a) => Array.from({ length: lotCount() }, (_, lot) => {
+      const c = lotCentre(lot); if (!c) return -1;
+      let sc = 0.01;
+      for (const L of world.lifts) {
+        if (!L.open || !L.reachable || distXZ(L.a, c) > 48) continue; // the lifts you can walk to from this lot
+        for (const t of L.departing) { const d = Math.abs(trailSign(t) - a); sc += a === 0 ? (trailSign(t) === 0 ? 1 : 0.1) : d === 0 ? 1 : d === 1 ? 0.6 : 0.2; }
+        sc += 1.5 * (rides[L.id] || 0) / most; // a favourite
+      }
+      return sc;
+    })) };
+  }
+  return lotScoreCache.by[ab];
+}
 function spawnCar(size, night, evening) {
-  // The main lot's open sections fill first; then cars go to off-site parking.
+  // The main lot's open sections fill first; then cars go to off-site parking. With more than one lot,
+  // the carload picks the lot that suits it best, and the next best if that one is full.
   const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
-  for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
+  let ab = null;
+  if (lotCount() > 1) {
+    ab = drawAbility();
+    const sc = lotScores(ab), order = sc.map((v, lot) => [v + Math.random() * 0.3, lot]).filter(([v]) => v >= 0).sort((p, q) => q[0] - p[0]).map(([, lot]) => lot);
+    for (const lot of order) { free.length = 0; for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car && (stalls[i].lot || 0) === lot) free.push(i); if (free.length >= AGENT) break; }
+  } else for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
   if (free.length < AGENT) {
     if (parkOffsite(size, night, evening)) return;
     if (!offsiteSpec() && !visiting && !practice && !(state.nudges && state.nudges.lot)) {
@@ -7104,15 +7132,15 @@ function spawnCar(size, night, evening) {
   }
   const si = free[0];
   const path = carPath(stalls[si]);
-  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0, night: !!night, evening: !!evening,
+  const car = { id: nextCid++, stall: si, st: 'in', path, len: pathLen(path), pd: 0, color: pick(CARS), size, members: [], back: 0, night: !!night, evening: !!evening, ab,
     extra: free.slice(1).map((i) => ({ i, color: pick(CARS) })) };
   for (const i of free) stalls[i].car = car.id;
   cars.push(car);
+  if (lotCount() > 1) { const lot = stalls[si].lot || 0; (today.lotCars || (today.lotCars = {}))[lot] = (today.lotCars[lot] || 0) + size * AGENT; }
   today.lotPeak = Math.max(today.lotPeak || 0, stalls.reduce((a, s) => a + (s.car ? 1 : 0), 0));
 }
 function makeGuest(car, x, z) {
-  const r = Math.random(), mix = MOUNTAIN.skiers;
-  const ab = r < mix[0] ? 0 : r < mix[0] + mix[1] ? 1 : r < mix[0] + mix[1] + mix[2] ? 2 : 3;
+  const ab = car.ab != null && !car.members.length ? car.ab : drawAbility(); // the carload's lead skier chose the lot
   const g = {
     id: nextGid++, car: car.id, name: `${pick(FIRST)} ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}.`,
     ab, pref: ab === 0 ? 0 : Math.random() < 0.6 ? ab : ab - 1,
@@ -7671,6 +7699,8 @@ function endDay() {
   for (const t of realTrails()) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
   state.lastReport = {
     event: evToday ? evToday.type : null,
+    liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
+    lotCars: today.lotCars || null,
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
