@@ -73,7 +73,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| scandinavian-village | ChatGPT | Scandinavian model variants; no UI integration | 2026-10-28 |
+| scandinavian-village | ChatGPT | Models ready; UI integration/browser review pending | 2026-10-28 |
 | building-styles | ChatGPT | Models + dev preview ready; Claude UI integration/browser review pending | 2026-10-28 |
 
 ## Known issues
@@ -122,6 +122,14 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
+
+### 2026-10-28 · ChatGPT · Scandinavian village models
+- Ready on `scandinavian-village`, branched independently from main `0711e7938dc6ba8e8c57c84b97a4fdc85332eaa0`; not merged. Eight building commits plus preview/test commits. Additive diff only.
+- All ten variants: lodge tiers 0/1/2, café, casual restaurant, fine dining, bar, rental, store, school. Separate functions suffixed Scandinavian in `MODELS_SCANDINAVIAN`.
+- `scandiHall` reuses hall geometry with painted vertical battens, pale corner/eave/window trim, charcoal roof edges and reduced overhangs. `scandiDeck` provides pale timber terraces. Red central lodges with mustard/blue wings; café/rental mustard, restaurant/store blue, fine dining/school sage, bar red. Existing glow, signs, doors and seating retained.
+- Passed `node tests/scandinavian-village.mjs`: all seating arrays and door/sign calls match classic exactly, no new overhang beyond existing art/placement bounds, finite geometry, bounded materials, syntax and preview cleanup/gating. Footprint definitions and all pre-existing game source unchanged.
+- Dev-only `previewScandinavian()` compares classic left / Scandinavian right; `previewScandinavian({types:['lodge'],tier:2})` isolates a pair; `clearScandinavianPreview()` cleans up. Transient scene objects, no save or placement integration.
+- Reviewed software geometry renders; real WebGL phone/desktop screenshots, sign textures and evening appearance remain unverified because local Chromium is unavailable. Use the existing browser harness to inspect before shipping. This branch is independent of modern building-styles; merge both additive blocks carefully and let Claude add style selection/persistence separately.
 
 ### 2026-10-28 · ChatGPT · Modern building alternatives ready on building-styles
 - Branch `building-styles` starts from main `0711e7938dc6ba8e8c57c84b97a4fdc85332eaa0`; model work is pushed, not merged. One commit per building type, followed by dev-preview/test commits. Ready for Claude's style-choice integration and browser review.
