@@ -8,7 +8,7 @@ export default async function ({ browser, url }) {
   // the menu shows the theme picker on tabs with themed buildings only
   const menu = await g.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('food'); renderSheet(); const food = !!document.querySelector('#sheet [data-action=bTheme]');
     setBTab('transport'); renderSheet(); const tr = !!document.querySelector('#sheet [data-action=bTheme]'); setTool('explore'); return [food, tr]; })()`);
-  eq(menu, [true, false], 'Theme shows for food, not for transport');
+  eq(menu, [true, true], 'Theme shows for food and transport');
   eq(await g.ev(`(() => { setBTheme('modern'); setTool('bld'); draft.btype = null; setBTab('food'); renderSheet();
     const only = [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v);
     setBTheme('classic'); setTool('explore'); return only; })()`), ['truck'], 'buildings without a modern look say “Classic look only”');
