@@ -68,7 +68,7 @@ export default async function ({ browser, url }) {
   assert(!/Upgrade to a transit center/i.test(await g.ev(`$('sheet').innerText`)), 'a station no longer offers an upgrade');
   await g.ev(`(() => { select(null); setTool('bld'); draft.btype = null; renderSheet(); })()`); await g.wait(50);
   assert(await g.ev(`!!document.querySelector('#sheet [data-action=pickB][data-v=transit]')`), 'Transit center is in the build menu');
-  const tc = await g.ev(`(() => { state.cash = 5e6; for (let i = 0; i < 30; i++) { const sn = snapToRoad('transit', { x: -40 + i * 4, z: 60 }), v = evalBuilding('transit', sn.x, sn.z, sn.rot, false); if (!v.problems.length) { commitBuilding(v, 'transit', sn.x, sn.z, sn.rot); computeNetwork(); return world.buildings[world.buildings.length - 1].type; } } return null; })()`);
+  const tc = await g.ev(`(() => { state.cash = 5e6; for (let i = 0; i < 30; i++) { const sn = snapToRoad('transit', { x: -40 + i * 4, z: 60 }), v = evalBuilding('transit', sn.x, sn.z, sn.rot, false); if (!v.problems.length) { const b = commitBuilding(v, 'transit', sn.x, sn.z, sn.rot); computeNetwork(); return b.type; } } return null; })()`);
   eq(tc, 'transit', 'and it builds beside the road');
   await g.ev(`setTool('explore')`);
   // older resorts keep a bigger main lot
