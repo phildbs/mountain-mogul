@@ -8176,9 +8176,579 @@ const RACE = { start: 600, end: 900, gap: 6, gate: 7 };
 const raceToday = () => { const e = showToday(); return !!e && e.type === 'race'; };
 let raceCache = null;
 function raceTrail() {
-  if (raceCache && raceCache.day === state.day && world.trails.includes(raceCa
-... 35452 bytes omitted ...
-+ 0.07 * Math.cos(t * 0.27), 0, 1));
+  if (raceCache && raceCache.day === state.day && world.trails.includes(raceCache.t)) return raceCache.t;
+  const ok = realTrails().filter((t) => t.open && t.reachable && t.returns && trailSign(t) >= 2);
+  ok.sort((a, b) => trailSign(b) - trailSign(a) || b.an.len - a.an.len);
+  raceCache = { day: state.day, t: ok[0] || null };
+  return raceCache.t;
+}
+const hashR = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+const RACER_SPEED = SKI_SPEED[3] * 60 * 2; // units per game minute, twice an expert
+const RACER_JACKETS = [0x1f5fbf, 0xd23b2e, 0xf2c230, 0x111418, 0x2fa36b, 0xe85d9c];
+const CROWD_JACKETS = [0x3b6fb6, 0xc0442e, 0x2f8f5e, 0xe0a030, 0x7a4cc4, 0x2b2f36, 0xd9d4c7];
+// Each racer's run: a little faster or slower than the field, the same every time it's drawn.
+function racerRun(T, k) {
+  const r = hashR(state.day * 131 + k * 17 + 3);
+  return { start: RACE.start + k * RACE.gap, dur: T.len / RACER_SPEED * (0.93 + r * 0.14), r };
+}
+const racerCount = () => Math.floor((Math.min(RACE.end, closeTime() - 10) - RACE.start) / RACE.gap) + 1;
+// The racing line: across the trail and back, through a gate at each turn.
+function raceLine(T, s) {
+  const k = Math.min(T.samples.length - 2, Math.max(0, Math.floor(s / 0.5))), a = T.samples[k], b = T.samples[k + 1];
+  const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1;
+  const amp = s < RACE.gate * 0.5 || s > T.len - RACE.gate ? 0 : TRAIL_WIDTHS[T.width].hw * 0.45;
+  const side = Math.sin((s - RACE.gate * 0.5) / RACE.gate * Math.PI + Math.PI / 2) * amp;
+  return { x: a.x - dz / L * side, z: a.z + dx / L * side, cx: a.x, cz: a.z, nx: -dz / L, nz: dx / L, yaw: Math.atan2(dx, dz) };
+}
+let raceCourse = null, raceKey = '';
+function syncRaceCourse() {
+  const T = raceToday() ? raceTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === raceKey) return;
+  raceKey = key;
+  if (raceCourse) { scene.remove(raceCourse); raceCourse.traverse((o) => o.isMesh && o.geometry.dispose()); raceCourse = null; }
+  if (!T) return;
+  const g = new THREE.Group(), pole = new THREE.CylinderGeometry(0.035, 0.035, 1.1, 5);
+  const red = new THREE.MeshLambertMaterial({ color: 0xd8342a }), blue = new THREE.MeshLambertMaterial({ color: 0x2559c4 }), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  const add = (geo, mat, x, y, z, yaw) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = yaw || 0; m.castShadow = true; g.add(m); return m; };
+  // gates: two poles and a panel, alternating red and blue
+  let n = 0;
+  for (let s = RACE.gate; s < T.len - RACE.gate; s += RACE.gate, n++) {
+    const p = raceLine(T, s), mat = n % 2 ? blue : red;
+    for (const o of [-0.65, 0.65]) { const x = p.x + p.nx * o, z = p.z + p.nz * o; add(pole, mat, x, heightAt(x, z) + 0.55, z); }
+    add(new THREE.BoxGeometry(1.3, 0.42, 0.03), mat, p.x, heightAt(p.x, p.z) + 0.82, p.z, p.yaw);
+  }
+  // the finish: an arch across the trail and fencing down the last stretch
+  const hw = TRAIL_WIDTHS[T.width].hw, f = raceLine(T, T.len - 2.5), tall = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
+  for (const o of [-hw - 0.3, hw + 0.3]) { const x = f.cx + f.nx * o, z = f.cz + f.nz * o; add(tall, white, x, heightAt(x, z) + 1.3, z); }
+  add(new THREE.BoxGeometry(hw * 2 + 0.8, 0.45, 0.08), red, f.cx, heightAt(f.cx, f.cz) + 2.45, f.cz, f.yaw);
+  const rail = new THREE.BoxGeometry(0.05, 0.35, 1);
+  for (let s = T.len - 16; s < T.len - 1.5; s += 1.5) {
+    const p = raceLine(T, s), q = raceLine(T, s + 1.5);
+    for (const o of [-hw * 0.68, hw * 0.68]) {
+      const x0 = p.cx + p.nx * o, z0 = p.cz + p.nz * o, x1 = q.cx + q.nx * o, z1 = q.cz + q.nz * o, x = (x0 + x1) / 2, z = (z0 + z1) / 2;
+      add(rail, FENCE_MAT, x, heightAt(x, z) + 0.2, z, Math.atan2(x1 - x0, z1 - z0)).scale.z = Math.hypot(x1 - x0, z1 - z0);
+    }
+  }
+  mergeStatic(g);
+  raceCourse = g; scene.add(g);
+}
+// Racers on the course, and the crowd along the finish fences.
+function drawRace(n) {
+  const T = raceToday() ? raceTrail() : null;
+  if (!T) return n;
+  const t = state.time;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - RACE.start) / RACE.gap) - 3); k < racerCount() && n < MAX_G; k++) {
+    const run = racerRun(T, k);
+    if (run.start > t) break;
+    const e = (t - run.start) / run.dur;
+    if (e >= 1) continue;
+    const s = T.len * e, p = raceLine(T, s), q = raceLine(T, Math.min(T.len, s + 0.6));
+    if (s > T.len - 20) near = true;
+    writeFig(n++, p.x, heightAt(p.x, p.z) + 0.12, p.z, Math.atan2(q.x - p.x, q.z - p.z), 0.82, { jc: RACER_JACKETS[k % RACER_JACKETS.length], pc: 0x15171c, hc: 0xf2f2f2 }, 0.35);
+  }
+  if (t < RACE.start - 30 || t > RACE.end + 20) return n;
+  return drawCrowd(T, n, T.len - 3, TRAIL_WIDTHS[T.width].hw * 0.68 + 0.35, near);
+}
+// Spectators down both sides of the last stretch of a trail, facing in; they jump when something's happening.
+function drawCrowd(T, n, s0, inner, near) {
+  const hw = TRAIL_WIDTHS[T.width].hw, now = performance.now() / 1000;
+  for (let i = 0; i < 26 && n < MAX_G; i++) {
+    const s = s0 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
+    const o = side * (inner + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+    const hop = near ? Math.max(0, Math.sin(now * 9 + i * 1.7)) * 0.12 : 0;
+    writeFig(n++, x, heightAt(x, z) + 0.12 + hop, z, p.yaw + (side > 0 ? -Math.PI / 2 : Math.PI / 2), 1, { jc: CROWD_JACKETS[i % CROWD_JACKETS.length], pc: 0x2b2f36, hc: hashR(i * 3) < 0.5 ? 0xe8c39e : 0x8d5a3c }, 0);
+  }
+  return n;
+}
+// The day's results, for the report: how many ran and the fastest time.
+function raceResults() {
+  const T = raceTrail();
+  if (!T) return null;
+  let best = null;
+  const runs = racerCount();
+  for (let k = 0; k < runs; k++) {
+    const run = racerRun(T, k), secs = T.len * FT_PER_UNIT / 70 * (0.93 + run.r * 0.14);
+    if (!best || secs < best.secs) best = { secs, bib: k + 1 };
+  }
+  return { runs, trail: T.name, best };
+}
+const raceTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+
+// Pond skim: a meltwater pond at the bottom of the gentlest run, and skiers in costume trying to cross it.
+const POND = { start: 660, end: 900, gap: 4, run: 32, at: 9, len: 6 };
+const pondToday = () => { const e = showToday(); return !!e && e.type === 'pond'; };
+const COSTUMES = [
+  { jc: 0xff4fa3, pc: 0xffd23a, hc: 0x7cf0ff }, { jc: 0x48d16a, pc: 0x7a3dc8, hc: 0xffa12b }, { jc: 0xffe14a, pc: 0x1f5fbf, hc: 0xff4f4f },
+  { jc: 0xf4f4f4, pc: 0xd8342a, hc: 0xd8342a }, { jc: 0xff8a1f, pc: 0x24272e, hc: 0x48d16a }, { jc: 0x2bc4d8, pc: 0xff4fa3, hc: 0xffe14a },
+];
+const pondCount = () => Math.floor((Math.min(POND.end, closeTime() - 10) - POND.start) / POND.gap) + 1;
+// Each skimmer's attempt: how fast, and whether they make it across. The same every time it's drawn.
+function skimRun(k) {
+  const r = hashR(state.day * 71 + k * 29 + 11), f = hashR(state.day * 13 + k * 7 + 5);
+  return { start: POND.start + k * POND.gap, speed: RACER_SPEED * (0.5 + r * 0.25), dry: f < 0.45, sink: 0.25 + f * 0.6 };
+}
+let pondMesh = null, pondKey = '';
+function syncPond() {
+  const T = pondToday() ? torchTrail() : null, key = T ? `${state.day}|${T.id}` : '';
+  if (key === pondKey) return;
+  pondKey = key;
+  if (pondMesh) { scene.remove(pondMesh); pondMesh.traverse((o) => o.isMesh && o.geometry.dispose()); pondMesh = null; }
+  if (!T || T.len < POND.run + 4) return;
+  // a disc draped over the snow, so it sits flat on a slope
+  const hw = TRAIL_WIDTHS[T.width].hw, mid = T.len - POND.at + POND.len / 2, R = 24, rings = 6;
+  const g = new THREE.Group(), pos = [], idx = [];
+  const at = (u, v) => { const p = raceLine(T, mid + u * POND.len / 2); const x = p.cx + p.nx * v * hw * 0.85, z = p.cz + p.nz * v * hw * 0.85; return [x, heightAt(x, z) + 0.05, z]; };
+  pos.push(...at(0, 0));
+  for (let r = 1; r <= rings; r++) for (let a = 0; a < R; a++) { const t = a / R * Math.PI * 2, k = r / rings; pos.push(...at(Math.cos(t) * k, Math.sin(t) * k)); }
+  for (let a = 0; a < R; a++) idx.push(0, 1 + a, 1 + (a + 1) % R);
+  for (let r = 1; r < rings; r++) for (let a = 0; a < R; a++) {
+    const i0 = 1 + (r - 1) * R + a, i1 = 1 + (r - 1) * R + (a + 1) % R, j0 = i0 + R, j1 = i1 + R;
+    idx.push(i0, j0, j1, i0, j1, i1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const water = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3f93d6, transparent: true, opacity: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  water.receiveShadow = true; water.renderOrder = 2;
+  g.add(water);
+  // bunting poles at the corners
+  const pole = new THREE.CylinderGeometry(0.06, 0.06, 2.2, 6), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  for (const [u, v] of [[-1.1, -1.15], [-1.1, 1.15], [1.1, -1.15], [1.1, 1.15]]) {
+    const [x, y, z] = at(u, v), m = new THREE.Mesh(pole, white); m.position.set(x, y + 1.05, z); m.castShadow = true; g.add(m);
+  }
+  pondMesh = g; scene.add(g);
+}
+const splash = glowPoints(400, 6, 0xffffff);
+const splashSt = { vel: new Float32Array(400 * 3), life: new Float32Array(400), next: 0, done: new Set() };
+function splashAt(x, y, z) {
+  const pos = splash.geometry.attributes.position.array;
+  for (let k = 0; k < 40; k++) {
+    const i = splashSt.next, a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 1.6;
+    splashSt.next = (splashSt.next + 1) % 400;
+    pos.set([x, y + 0.2, z], i * 3);
+    splashSt.vel.set([Math.cos(a) * r, 2 + Math.random() * 2.5, Math.sin(a) * r], i * 3);
+    splashSt.life[i] = 0.8 + Math.random() * 0.5;
+  }
+}
+function updateSplash(dt) {
+  const pos = splash.geometry.attributes.position.array, cl = splash.geometry.attributes.color.array;
+  let any = false;
+  for (let i = 0; i < 400; i++) {
+    if (splashSt.life[i] <= 0) continue;
+    any = true; splashSt.life[i] -= dt; splashSt.vel[i * 3 + 1] -= 7 * dt;
+    for (let a = 0; a < 3; a++) pos[i * 3 + a] += splashSt.vel[i * 3 + a] * dt;
+    const f = Math.max(0, Math.min(1, splashSt.life[i] / 0.6)); cl[i * 3] = 0.75 * f; cl[i * 3 + 1] = 0.9 * f; cl[i * 3 + 2] = f;
+  }
+  splash.geometry.setDrawRange(0, any ? 400 : 0);
+  splash.geometry.attributes.position.needsUpdate = true; splash.geometry.attributes.color.needsUpdate = true;
+}
+// Skimmers come down the last stretch, hit the water, and either skim across or go in and wade out.
+function drawPond(n) {
+  const T = pondToday() ? torchTrail() : null;
+  if (!T || !pondMesh) return n;
+  const t = state.time, p0 = T.len - POND.run, w0 = T.len - POND.at, w1 = w0 + POND.len;
+  let near = false;
+  for (let k = Math.max(0, Math.floor((t - POND.start) / POND.gap) - 3); k < pondCount() && n < MAX_G; k++) {
+    const run = skimRun(k);
+    if (run.start > t) break;
+    const el = t - run.start, look = COSTUMES[k % COSTUMES.length];
+    let s = p0 + el * run.speed;
+    const stopAt = run.dry ? T.len - 0.5 : w0 + POND.len * run.sink;
+    if (s >= stopAt) {
+      // landed: dry skimmers stand at the end for a moment; the rest splash and wade out
+      const tStop = run.start + (stopAt - p0) / run.speed, after = t - tStop;
+      if (after > 2.5) continue;
+      if (!run.dry && !splashSt.done.has(`${state.day}|${k}`)) { const p = raceLine(T, stopAt); splashSt.done.add(`${state.day}|${k}`); splashAt(p.cx, heightAt(p.cx, p.cz), p.cz); }
+      const p = raceLine(T, stopAt), o = run.dry ? 0 : Math.min(1, after / 2.5) * TRAIL_WIDTHS[T.width].hw * 0.95 * (k % 2 ? 1 : -1);
+      const x = p.cx + p.nx * o, z = p.cz + p.nz * o;
+      writeFig(n++, x, heightAt(x, z) + (run.dry ? 0.12 : -0.15 + Math.min(1, after / 2.5) * 0.25), z, p.yaw + (run.dry ? 0 : Math.sign(o || 1) * Math.PI / 2), 1, look, 0);
+      near = true;
+      continue;
+    }
+    if (s > w0 - 6) near = true;
+    const p = raceLine(T, s), onWater = s >= w0 && s <= w1;
+    writeFig(n++, p.cx, heightAt(p.cx, p.cz) + (onWater ? 0.06 : 0.12), p.cz, p.yaw, 0.85, look, onWater ? -0.15 : 0.25);
+  }
+  if (t < POND.start - 30 || t > POND.end + 20) return n;
+  return drawCrowd(T, n, T.len - 1, TRAIL_WIDTHS[T.width].hw * 0.9 + 0.4, near);
+}
+function pondResults() {
+  const T = torchTrail();
+  if (!T || T.len < POND.run + 4) return null;
+  let dry = 0;
+  const runs = pondCount();
+  for (let k = 0; k < runs; k++) if (skimRun(k).dry) dry++;
+  return { runs, dry, trail: T.name };
+}
+
+/* ---------- Night skiing ----------
+   Light a trail (from its panel, overnight) and the night plan can keep it open after the lifts close:
+   until 7, 8 or 9 PM. Only lit trails run at night, and only lifts with a lit trail off the top. A
+   night crowd of locals drives up after work and buys night tickets; some day guests stay on. Lights,
+   night staff and lift power are the costs. It's reported on its own page of the day report. */
+const LIGHT_COST_UNIT = 420, LIGHT_HOUR_UNIT = 0.8, NIGHT_BASE_HR = 160, NIGHT_LIFT_HR = 120;
+const NIGHT_HOURS = [[0, 'Off'], [1140, 'Until 7'], [1200, 'Until 8'], [1260, 'Until 9']];
+const lightCost = (t) => Math.round(t.len * LIGHT_COST_UNIT * MOUNTAIN.costs / 500) * 500;
+const nightNow = () => !!nightEnd() && state.phase === 'open' && state.time >= closeTime() && state.time < nightEnd();
+const liftLit = (L) => L.departing.some((t) => t.lit && t.open && t.snowOk !== false);
+const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
+// The night crowd: a share of a day's demand, more on weeknights (after work), fewer when it's bitter
+// cold, and more the more lit terrain there is to ski.
+function nightDemand(dayN) {
+  const lit = realTrails().filter((t) => t.lit && runnable(t) && t.reachable && t.returns);
+  if (!lit.length) return 0;
+  const dow = dateOf(state.day).getUTCDay(), f = dow === 0 ? 0.5 : dow === 6 ? 0.9 : dow === 5 ? 1.1 : 1;
+  const priceF = clamp(Math.exp(-(svcPrice('night') - 35) / 35 * 1.6), 0.15, 1.6);
+  const terrain = Math.min(1.3, 0.45 + lit.length * 0.2), hours = (nightEnd() - DAY_CLOSE) / 120;
+  const cold = todayWx().lo < 5 ? 0.7 : 1;
+  return Math.round(dayN * 0.22 * f * priceF * terrain * hours * cold * state.reputation);
+}
+function nightSchedule(n) {
+  const out = [];
+  let total = 0;
+  while (total < n) {
+    const r = Math.random(), size = r < 0.35 ? 1 : r < 0.75 ? 2 : r < 0.9 ? 3 : 4;
+    out.push({ t: clamp(950 + Math.abs(gaussian()) * 45, 945, nightEnd() - 60), size, night: true }); total += size;
+  }
+  return out;
+}
+// Some night skiers want a snack partway through the session.
+function nightSnack(g) { g.snackAt = Math.random() < 0.45 ? closeTime() + 30 + Math.random() * Math.max(30, nightEnd() - closeTime() - 75) : Infinity; }
+// Day guests with energy left may stay on under the lights.
+function maybeStayNight(g) {
+  if (!nightEnd() || g.night || g.leaving || g.sight || g.ab === 0 || g.fat > g.stam * 0.9 || g.sat < 45) return false;
+  if (Math.random() > 0.15 + (g.ab >= 2 ? 0.08 : 0) + (g.sat - 45) / 300) return false;
+  g.fat = Math.min(g.fat, g.stam * 0.6); // a second wind
+  g.night = true; g.stayedNight = true; g.leaveAt = nightEnd() - Math.random() * 60; today.night.stayed += AGENT;
+  g.warmed = false; nightSnack(g); // a new session, and it's colder now
+  thought(g, 'Staying for night skiing under the lights!');
+  return true;
+}
+// Night skiing costs: lights on every lit trail that ran, night crew, and patrol.
+function nightCost(lv) {
+  if (!nightEnd()) return { lights: 0, staff: 0 };
+  const hours = (nightEnd() - closeTime()) / 60;
+  const lit = realTrails().filter((t) => t.lit && t.open);
+  const extra = world.buildings.filter((B) => B.type === 'tlight').length * LIGHT_GAP; // each trail light you place draws like a stretch of lit trail
+  const lights = Math.round((lit.reduce((a, t) => a + t.len, 0) + extra) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
+  const staff = Math.round((NIGHT_BASE_HR + NIGHT_LIFT_HR * world.lifts.filter((L) => L.open && liftLit(L)).length) * hours * MOUNTAIN.costs * lv.cost);
+  return { lights, staff };
+}
+function nightReport() {
+  if (!nightEnd()) return null;
+  const n = today.night, c = today.nightCost || { lights: 0, staff: 0 }, lifts = Math.round(n.lifts);
+  let busiest = null;
+  for (const t of realTrails()) if (t.lit && n.runs[t.id] && (!busiest || n.runs[t.id] > busiest.n)) busiest = { name: t.name, n: n.runs[t.id] * AGENT };
+  return { guests: n.guests, stayed: n.stayed, rev: Math.round(today.rev.night || 0), lights: c.lights, staff: c.staff, lifts,
+    profit: Math.round((today.rev.night || 0) - c.lights - c.staff - lifts), until: nightEnd(), lit: realTrails().filter((t) => t.lit).length, busiest,
+    trails: realTrails().length, cold: todayWx().lo < 5 };
+}
+
+// Light poles along lit trails, and their glow and pools of light after dark.
+const LIGHT_GEO = (() => {
+  const pole = new THREE.CylinderGeometry(0.05, 0.06, 2.4, 5); pole.translate(0, 1.2, 0);
+  const arm = new THREE.BoxGeometry(0.5, 0.06, 0.08); arm.translate(-0.22, 2.35, 0);
+  const lamp = new THREE.BoxGeometry(0.22, 0.1, 0.18); lamp.translate(-0.45, 2.3, 0);
+  const parts = [pole, arm, lamp].map((q) => q.toNonIndexed());
+  const n = parts.reduce((a, q) => a + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const q of parts) { pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3); o += q.attributes.position.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return g;
+})();
+const MAX_LIGHTS = 2500, LIGHT_GAP = 7;
+const lightMesh = new THREE.InstancedMesh(LIGHT_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LIGHTS);
+lightMesh.count = 0; lightMesh.castShadow = true; lightMesh.frustumCulled = false;
+scene.add(lightMesh);
+const lampGlow = glowPoints(MAX_LIGHTS, 6, 0xfff0c8);
+const litPools = new THREE.Group();
+scene.add(litPools);
+const POOL_MAT = new THREE.MeshBasicMaterial({ color: 0xfff1cf, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+let lampSpots = [], autoPoles = [];
+function rebuildLights() {
+  lampSpots = []; autoPoles = [];
+  const gone = world.noPoles || [];
+  for (const m of litPools.children.slice()) { litPools.remove(m); m.geometry.dispose(); }
+  const _o = new THREE.Object3D();
+  if (!realTrails().some((t) => t.lit)) { lightMesh.count = 0; return; }
+  // Where a pole can't stand: on any trail's snow, under a lift line, or in a building.
+  const onSnow = new Map();
+  for (const t of realTrails()) {
+    const r = TRAIL_WIDTHS[t.width].hw + 0.35, c = Math.ceil(r);
+    for (let i = 0; i < t.samples.length; i += 2) {
+      const sm = t.samples[i];
+      for (let ix = Math.floor(sm.x) - c; ix <= Math.floor(sm.x) + c; ix++) for (let iz = Math.floor(sm.z) - c; iz <= Math.floor(sm.z) + c; iz++)
+        if (Math.hypot(ix + 0.5 - sm.x, iz + 0.5 - sm.z) <= r) { const k = cellKey(ix, iz); if (!onSnow.has(k)) onSnow.set(k, new Set()); onSnow.get(k).add(t); }
+    }
+  }
+  const blocked = (x, z, self) => [...(onSnow.get(cellKey(Math.floor(x), Math.floor(z))) || [])].some((o) => o !== self) || world.lifts.some((L) => distToSeg({ x, z }, L.a, L.b) < 1.4)
+    || world.buildings.some((B) => boxDist({ x, z }, boxOf(B, 0.3)) === 0);
+  for (const t of realTrails()) {
+    if (!t.lit) continue;
+    const hw = TRAIL_WIDTHS[t.width].hw, n = Math.max(2, Math.round(t.len / LIGHT_GAP));
+    for (let k = 0; k <= n && lampSpots.length < MAX_LIGHTS; k++) {
+      const i = Math.min(t.samples.length - 2, Math.round(k / n * (t.samples.length - 2))), a = t.samples[i], b = t.samples[i + 1];
+      let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+      // alternate sides; if that side is on another trail, under a lift or in a building, try the other, else skip
+      let side = k % 2 ? 1 : -1, x = 0, z = 0, ok = false;
+      for (let tries = 0; tries < 2 && !ok; tries++, side = -side) {
+        const off = side * (hw + 0.55); x = a.x - dz * off; z = a.z + dx * off;
+        ok = !blocked(x, z, t);
+      }
+      if (!ok || gone.some(([gx, gz]) => Math.hypot(gx - x, gz - z) < 1.2)) continue; // bulldozed: stays gone
+      side = -side; // undo the loop's last flip
+      // the arm reaches in over this trail: the pole's arm points along -x, turned to face the trail's centre
+      const yaw = Math.atan2(-dx * side, -dz * side);
+      _o.position.set(x, heightAt(x, z), z); _o.rotation.set(0, yaw, 0); _o.updateMatrix();
+      lightMesh.setMatrixAt(lampSpots.length, _o.matrix);
+      lampSpots.push({ x: x + dz * side * 0.45, y: heightAt(x, z) + 2.3, z: z - dx * side * 0.45, t });
+      autoPoles.push({ x, z });
+    }
+    const pool = new THREE.Mesh(ribbonGeometry(t.samples, hw * 0.95, edgeTint(trailSign(t))), POOL_MAT);
+    pool.renderOrder = 3; pool.userData.t = t;
+    litPools.add(pool);
+  }
+  lightMesh.count = lampSpots.length;
+  lightMesh.instanceMatrix.needsUpdate = true;
+  const pos = lampGlow.geometry.attributes.position.array;
+  lampSpots.forEach((p, i) => pos.set([p.x, p.y, p.z], i * 3));
+  lampGlow.geometry.attributes.position.needsUpdate = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// After dark, lit trails glow when the night plan is running (and always in the night preview).
+function updateNightLights() {
+  const on = duskK > 0.15 && (nightNow() || (torchTonight() && state.time < TORCH.end));
+  const k = on ? duskK : 0;
+  litPools.visible = false; // lit trails are lit by the light map, from their poles
+  lampGlow.geometry.setDrawRange(0, k > 0 ? lampSpots.length : 0);
+  lampGlow.material.opacity = k;
+}
+
+// Night light that actually lights things: every lamp, fire pit, open door, lit parking section and
+// trail light paints a warm patch into a map of the whole mountain, seen from above. After dark, the
+// snow, buildings, trees, skiers and cars under a patch are lit by it.
+const LM_PX = 1024;
+const lmCanvas = document.createElement('canvas');
+lmCanvas.width = lmCanvas.height = LM_PX;
+const lmCtx = lmCanvas.getContext('2d');
+const lightTex = new THREE.CanvasTexture(lmCanvas);
+lightTex.flipY = false; // canvas rows run with world z
+const MM_LIGHT = { map: { value: lightTex }, night: { value: 0 }, box: { value: new THREE.Vector4(-HALF, -HALF, 2 * HALF, 2 * HALF) } };
+function nightLit(mat) {
+  if (mat.userData.mmLit) return;
+  mat.userData.mmLit = true;
+  const prev = mat.onBeforeCompile, own = mat.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey;
+  const base = own ? mat.customProgramCacheKey() : prev ? String(prev) : '';
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(mat, sh, r);
+    sh.uniforms.mmLightMap = MM_LIGHT.map; sh.uniforms.mmNight = MM_LIGHT.night; sh.uniforms.mmBox = MM_LIGHT.box;
+    sh.vertexShader = 'varying vec3 vMmW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+  { vec4 mw = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    mw = instanceMatrix * mw;
+  #endif
+    vMmW = (modelMatrix * mw).xyz; }`);
+    sh.fragmentShader = 'varying vec3 vMmW;\nuniform sampler2D mmLightMap;\nuniform float mmNight;\nuniform vec4 mmBox;\n' + sh.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+      `outgoingLight += diffuseColor.rgb * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5;
+gl_FragColor = vec4( outgoingLight, diffuseColor.a );`);
+  };
+  mat.customProgramCacheKey = () => base + '|mmlit';
+  mat.needsUpdate = true;
+}
+// Lambert materials get the night light as they appear (trails, buildings and the like are made as you build).
+function patchNightMaterials() {
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m.isMeshLambertMaterial) nightLit(m);
+  });
+}
+function drawLightMap() {
+  const c = lmCtx, k = LM_PX / (2 * HALF);
+  c.globalCompositeOperation = 'source-over'; c.fillStyle = '#000'; c.fillRect(0, 0, LM_PX, LM_PX);
+  c.globalCompositeOperation = 'lighter';
+  const spot = (x, z, r, rgb, a) => {
+    const px = (x + HALF) * k, pz = (z + HALF) * k, pr = r * k, g = c.createRadialGradient(px, pz, 0, px, pz, pr);
+    g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.45, `rgba(${rgb},${a * 0.55})`); g.addColorStop(1, `rgba(${rgb},0)`);
+    c.fillStyle = g; c.fillRect(px - pr, pz - pr, pr * 2, pr * 2);
+  };
+  const WARM = '255,196,130', FIRE = '255,140,60', LAMP = '255,214,160';
+  const open = state.phase === 'open';
+  for (const B of world.buildings) {
+    if (!bldLitNow(B)) continue;
+    if (B.type === 'lamp') spot(B.x, B.z, 5, LAMP, 0.85);
+    else if (B.type === 'tlight') { const p = B.lightAt || B; spot(p.x, p.z, 5.5, LAMP, 0.8); }
+    else if (B.type === 'firepit') { spot(B.x, B.z, 6, FIRE, 0.9); spot(B.x, B.z, 2.2, '255,170,90', 0.6); }
+    else { const s = bspec(B); spot(B.door.x, B.door.z, 3.6, WARM, 0.75); spot(B.x, B.z, Math.max(s.w, s.d) * 0.9 + 1.5, WARM, 0.35); }
+  }
+  if (open) for (const p of lotPoleList) if (p.sec < lotsOpen()) spot(p.x, p.z, 6.5, LAMP, 0.7);
+  // floodlights on the lift terminals light the loading and unloading areas
+  for (const L of world.lifts) if (liftLightOn(L)) for (const p of [L.a, L.b]) spot(p.x, p.z, 6, LAMP, 0.8);
+  if (nightNow() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
+  lightTex.needsUpdate = true;
+}
+
+// Evening lights around the resort: windows glow only in buildings that are open right now, lamp posts
+// and the parking lot light up after dark, fire pits flicker, and each throws a pool of light on the snow.
+const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38;
+function bldLitNow(B) {
+  if (B.type === 'firepit') return true;
+  if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
+  if (B.type === 'tlight') return nightNow() || (torchTonight() && state.time >= TORCH.parade[0] - 10 && state.time < TORCH.end);
+  if (state.phase !== 'open') return true;
+  return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
+}
+const decorGlow = glowPoints(800, 7, 0xffffff);
+const POOL_GLOW = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+const groundPools = new THREE.Mesh(new THREE.BufferGeometry(), POOL_GLOW);
+groundPools.renderOrder = 3; groundPools.frustumCulled = false;
+scene.add(groundPools);
+let lightSig = '', litSig = '', lmSig = '', lmSweep = 0, glowSpots = [], poolSpots = [];
+// Light poles in each parking section: two in each strip between the rows of stalls.
+function lotPoles() {
+  const out = [];
+  for (let k = 0; k < state.lotSections; k++) {
+    const o = sectionOrigin(k);
+    for (const dz of [2.8, 5.6]) for (const dx of [2, 6]) { const x = o.x + dx, z = o.z + dz; out.push({ x, z, y: heightAt(x, z), sec: k }); }
+  }
+  return out;
+}
+const LOT_POLE_GEO = (() => {
+  const parts = [new THREE.CylinderGeometry(0.05, 0.07, 2.2, 6).translate(0, 1.1, 0), new THREE.BoxGeometry(1.0, 0.07, 0.08).translate(0, 2.15, 0)].map((q) => q.toNonIndexed());
+  const n = parts.reduce((a, q) => a + q.attributes.position.count, 0), pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const q of parts) { pos.set(q.attributes.position.array, o * 3); nor.set(q.attributes.normal.array, o * 3); o += q.attributes.position.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return g;
+})();
+const LOT_HEAD_GEO = (() => { const a = new THREE.BoxGeometry(0.3, 0.1, 0.22); return a; })();
+const MAX_LOT_POLES = 4 * 40 + 2 * 40;
+// A lift station's light is on after dark while the lift runs: all day, then for night skiing.
+const liftLightOn = (L) => state.phase === 'open' && L.open && (state.time < closeTime() + 20 || (nightNow() && liftLit(L)));
+const lotPoleMesh = new THREE.InstancedMesh(LOT_POLE_GEO, new THREE.MeshLambertMaterial({ color: 0x3c4048 }), MAX_LOT_POLES);
+const lotHeadMesh = new THREE.InstancedMesh(LOT_HEAD_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff }), MAX_LOT_POLES * 2);
+lotHeadMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_LOT_POLES * 2 * 3), 3);
+for (const m of [lotPoleMesh, lotHeadMesh]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
+lotPoleMesh.castShadow = true;
+let lotPoleList = [];
+function rebuildLotPoles() {
+  lotPoleList = lotPoles().slice(0, MAX_LOT_POLES);
+  const _o = new THREE.Object3D();
+  lotPoleList.forEach((p, i) => {
+    _o.position.set(p.x, p.y, p.z); _o.rotation.set(0, 0, 0); _o.updateMatrix(); lotPoleMesh.setMatrixAt(i, _o.matrix);
+    for (const s of [0, 1]) { _o.position.set(p.x + (s ? 0.45 : -0.45), p.y + 2.07, p.z); _o.updateMatrix(); lotHeadMesh.setMatrixAt(i * 2 + s, _o.matrix); }
+  });
+  lotPoleMesh.count = lotPoleList.length; lotHeadMesh.count = lotPoleList.length * 2;
+  lotPoleMesh.instanceMatrix.needsUpdate = true; lotHeadMesh.instanceMatrix.needsUpdate = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// The lamps on the lot poles: lit after dark on open sections, dark grey otherwise.
+function styleLotHeads(dark, open) {
+  const c = lotHeadMesh.instanceColor.array, on = [1, 0.88, 0.66], off = [0.36, 0.38, 0.42];
+  lotPoleList.forEach((p, i) => { const col = dark > 0.05 && (p.L ? liftLightOn(p.L) : open && p.sec < lotsOpen()) ? on : off; c.set(col, i * 6); c.set(col, i * 6 + 3); });
+  lotHeadMesh.instanceColor.needsUpdate = true;
+}
+// Where the light comes from: lamp heads, fire pit flames, lot poles, and the doors of buildings.
+function rebuildGlows() {
+  glowSpots = []; poolSpots = [];
+  for (const B of world.buildings) {
+    if (B.type === 'lamp') { glowSpots.push({ x: B.x, y: B.baseY + 1.4, z: B.z, kind: 'lamp', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.6, B, w: 1 }); }
+    else if (B.type === 'firepit') { glowSpots.push({ x: B.x, y: B.baseY + 0.4, z: B.z, kind: 'fire', B }); poolSpots.push({ x: B.x, z: B.z, r: 2.4, B, w: 1.1, fire: true }); }
+    else if (B.type === 'tlight') continue;
+    else poolSpots.push({ x: B.door.x, z: B.door.z, r: 1.8, B, w: 0.8 });
+  }
+  rebuildLotPoles(); // real poles, lit by the light map; no floating glows
+  // the lot's light poles share the trail-light mesh
+  const pos = decorGlow.geometry.attributes.position.array;
+  glowSpots.slice(0, 800).forEach((g, i) => pos.set([g.x, g.y, g.z], i * 3));
+  decorGlow.geometry.attributes.position.needsUpdate = true;
+  // pools: a disc draped on the snow for each light, bright in the middle and fading out
+  const R = 14, verts = [], idx = [];
+  for (const p of poolSpots) {
+    const o = verts.length / 3;
+    verts.push(p.x, heightAt(p.x, p.z) + 0.06, p.z);
+    for (let a = 0; a < R; a++) { const t = a / R * Math.PI * 2, x = p.x + Math.cos(t) * p.r, z = p.z + Math.sin(t) * p.r; verts.push(x, heightAt(x, z) + 0.06, z); }
+    for (let a = 0; a < R; a++) idx.push(o, o + 1 + a, o + 1 + (a + 1) % R);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(verts.length), 3));
+  geo.setIndex(idx);
+  groundPools.geometry.dispose(); groundPools.geometry = geo;
+  litSig = '';
+}
+function updateEveningGlow() {
+  const sig = `${world.buildings.map((B) => B.id).join(',')}|${lotGroup.children.length}|${stalls.length && stalls[0].x}|${world.lifts.map((L) => `${L.id}:${L.a.x},${L.b.x}`).join(',')}`;
+  if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
+  const dark = duskK, open = state.phase === 'open';
+  // windows and which pools are on, when something changes
+  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
+  if (lit !== litSig) {
+    litSig = lit;
+    for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
+    styleLotHeads(dark, open);
+    const col = groundPools.geometry.attributes.color;
+    if (col) {
+      const R = 14;
+      poolSpots.forEach((p, i) => {
+        const on = p.B ? bldLitNow(p.B) : open && p.sec < lotsOpen();
+        const w = on ? p.w : 0, base = i * (R + 1) * 3, c = p.fire ? [1, 0.55, 0.25] : [1, 0.82, 0.55];
+        col.array.set([c[0] * w, c[1] * w, c[2] * w], base);
+        for (let a = 0; a < R; a++) col.array.set([0, 0, 0], base + (a + 1) * 3);
+      });
+      col.needsUpdate = true;
+    }
+  }
+  groundPools.visible = false; // the light map does this now
+  MM_LIGHT.night.value = dark;
+  if (dark > 0.02 && (lit !== lmSig)) { lmSig = lit; drawLightMap(); }
+  if ((lmSweep -= 1) <= 0) { lmSweep = 90; patchNightMaterials(); }
+  // glow points: lamps and lot poles after dark; fires always, flickering
+  const cl = decorGlow.geometry.attributes.color.array, t = performance.now() / 1000;
+  let n = 0;
+  for (const g of glowSpots) {
+    if (n >= 800) break;
+    let c = [0, 0, 0];
+    if (g.kind === 'fire') { const f = 0.75 + 0.25 * Math.sin(t * 13 + g.x) * Math.sin(t * 7.3 + g.z); c = [1 * f, 0.55 * f, 0.2 * f]; }
+    else if (dark > 0.05 && (g.kind === 'lamp' || (open && g.sec < lotsOpen()))) c = [dark, dark * 0.9, dark * 0.7];
+    cl.set(c, n * 3); n++;
+  }
+  decorGlow.geometry.setDrawRange(0, n);
+  decorGlow.geometry.attributes.color.needsUpdate = true;
+}
+
+/* ---------- Drawing guests and cars ---------- */
+const _c = new THREE.Color();
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _v = new THREE.Vector3(), _e = new THREE.Euler();
+function writeFig(n, x, y, z, yaw, sy, g, pitch = 0) {
+  _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, sy * figScale, figScale); _v.set(x, y, z);
+  _m.compose(_v, _q, _s);
+  for (const k of ['jacket', 'pants', 'head']) _m.toArray(figMeshes[k].instanceMatrix.array, n * 16);
+  figMeshes.jacket.instanceColor.setXYZ(n, ...hexRGB(g.jc));
+  figMeshes.pants.instanceColor.setXYZ(n, ...hexRGB(g.pc));
+  figMeshes.head.instanceColor.setXYZ(n, ...hexRGB(g.hc));
+}
+const rgbCache = new Map();
+function hexRGB(h) {
+  let v = rgbCache.get(h);
+  if (!v) { _c.setHex(h); v = [_c.r, _c.g, _c.b]; rgbCache.set(h, v); }
+  return v;
+}
+for (const k of ['jacket', 'pants', 'head']) {
+  const m = figMeshes[k];
+  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_G * 3), 3);
+}
+for (const k of ['body', 'cabin']) carMeshes[k].instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARS * 3).fill(1), 3);
+
+function guestPos(g) {
+  if (g.st === 'inside' && g.deck >= 0) {
+    const B = bldById(g.bid), st = B && B.seatsW[g.deck];
+    if (st) return { x: st.x, y: st.y - 0.12, z: st.z, yaw: st.yaw, sy: 0.72 };
+  }
+  if (g.st === 'lesson') {
+    const B = bldById(g.bid);
+    if (B) {
+      const t = state.time * 0.6 + g.ph * 10;
+      const p = toWorld(B, -1.25 + 2.2 * clamp(g.lx + 0.07 * Math.sin(t * 0.3), 0, 1), -0.25 + 2.1 * clamp(g.lz + 0.07 * Math.cos(t * 0.27), 0, 1));
       return { x: p.x, y: B.baseY + 0.06, z: p.z, yaw: g.ph * 3 + Math.sin(t * 0.2), sy: 1 };
     }
   }
