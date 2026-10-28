@@ -8838,7 +8838,8 @@ function windowLights(b) {
 }
 // Evening lights around the resort: windows glow only in buildings that are open right now, lamp posts
 // and the parking lot light up after dark, fire pits flicker, and each throws a pool of light on the snow.
-const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38;
+const WIN_ON = 0xffcf7a, WIN_OFF = 0x2b2f38, WIN_DAY = 0x93b3cc; // lit, dark, and glass catching the daylight
+const _winA = new THREE.Color(), _winB = new THREE.Color();
 function bldLitNow(B) {
   if (B.type === 'firepit') return true;
   if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
@@ -8930,10 +8931,12 @@ function updateEveningGlow() {
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
-  const lit = world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
+  const lit = Math.round(dark * 8) + ':' + world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightNow() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
   if (lit !== litSig) {
     litSig = lit;
-    for (const B of world.buildings) if (B.glowMat) B.glowMat.color.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF);
+    // by day windows look like glass; as dusk falls they turn lit or dark
+    const k = Math.min(1, dark * 1.6);
+    for (const B of world.buildings) if (B.glowMat) B.glowMat.color.copy(_winA.setHex(WIN_DAY).lerp(_winB.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF), k));
     styleLotHeads(dark, open);
     const col = groundPools.geometry.attributes.color;
     if (col) {
@@ -15086,6 +15089,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.48.1', date: 'Oct 28, 2026', title: 'Light from the windows', small: true, items: [
     'After dark, lit windows throw warm light onto the snow and the deck in front of them, so buildings glow from where their windows are. Bigger windows light up more.',
+    'By day, windows look like glass catching the sky instead of dark panels or a midday glow.',
   ] },
   { v: '2.48', date: 'Oct 28, 2026', title: 'Glades', items: [
     'Ski through the trees: paint a glade over forest with Trail › Glade. Start it at the top of a lift or beside a trail, and let it run out onto a trail, a lift or the base.',
