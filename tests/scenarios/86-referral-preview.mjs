@@ -2,16 +2,23 @@ import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   for (const width of [1280, 390]) {
     const g = await openGame(browser, url, { query: '?referralPreview=1', width, height: 844 });
+    const tap = async (selector) => {
+      try { await g.page.locator(selector).click({ timeout: 5000 }); }
+      catch (error) {
+        const hit = await g.page.locator(selector).evaluate((el) => { const b = el.getBoundingClientRect(); return { box: b.toJSON(), hit: document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.outerHTML.slice(0, 400) }; });
+        throw new Error(selector + ' click: ' + JSON.stringify(hit) + ' ' + error.message.replace(/\n/g, ' '));
+      }
+    };
     eq(await g.ev(`[REFERRAL_PREVIEW, CLOUD.ready, !!CLOUD.sb, $('referralBox').hidden]`), [true, false, false, false], 'preview starts without an online session');
     assert(await g.page.getByRole('heading', { name: 'Your mountain is worth sharing' }).isVisible(), 'invitation prompt opens');
-    await g.page.locator('[data-ref=progress]').click();
+    await tap('[data-ref=progress]');
     assert(await g.page.getByText('No friends yet.', { exact: false }).isVisible(), 'new invitation state');
     await g.page.locator('#refPreviewState').selectOption('progress');
     assert(await g.page.getByText('One more real day of play to qualify.').isVisible(), 'operating days alone do not qualify');
     eq(await g.page.locator('[data-ref=claim]').count(), 0, 'no premature reward button');
     const cash = await g.ev('state.cash');
     await g.page.locator('#refPreviewState').selectOption('ready');
-    await g.page.locator('[data-ref=claim]').click();
+    await tap('[data-ref=claim]');
     eq(await g.ev('state.cash'), cash, 'sample claim never changes real resort cash');
     assert(await g.page.getByText('$100,000 received', { exact: true }).isVisible(), 'sample claim shows received');
     eq(await g.page.locator('[data-ref=claim]').count(), 0, 'sample claim cannot be repeated');
@@ -21,13 +28,14 @@ export default async function ({ browser, url }) {
     const layout = await g.page.evaluate(() => {
       const modal = document.querySelector('#referralBox .modal').getBoundingClientRect();
       const dock = document.querySelector('#refPreviewDock').getBoundingClientRect();
-      return modal.left >= 0 && modal.right <= innerWidth && modal.top >= 0 && modal.bottom <= dock.top + 1 && dock.bottom <= innerHeight;
+      const body = document.querySelector('#refBody').getBoundingClientRect();
+      return modal.left >= 0 && modal.right <= innerWidth && modal.top >= 0 && modal.bottom <= innerHeight && dock.top >= body.bottom;
     });
     assert(layout, `dialog and sample controls fit at ${width}px`);
     eq(await g.ev(`(() => { localStorage.setItem(SLOTS_KEY, 'sentinel'); localStorage.setItem(SAVE_KEY, 'old-save'); saveNow(); writeSlots(); readSlots(); clearSave(); return [localStorage.getItem(SLOTS_KEY), localStorage.getItem(SAVE_KEY)]; })()`), ['sentinel', 'old-save'], 'preview does not overwrite or migrate saves');
-    await g.page.locator('[data-ref=close]').click();
+    await tap('[data-ref=close]');
     assert(await g.page.locator('#refPreviewOpen').isVisible(), 'preview can be reopened');
-    await g.page.locator('#refPreviewOpen').click();
+    await tap('#refPreviewOpen');
     assert(await g.page.locator('#referralBox').isVisible(), 'preview reopens');
     eq(g.errors, [], 'no browser errors');
     await g.page.close();
