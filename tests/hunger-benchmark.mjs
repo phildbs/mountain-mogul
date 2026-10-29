@@ -37,6 +37,14 @@ try {
   const shape=await setup.ev(`(() => {
     state.cash=1e9;state.welcomed=true;state.reputation=1.5;
     state.lotLayout=[[0,0,0],[0,1,0],[0,2,0],[0,0,1],[0,1,1],[0,2,1]];state.lotSections=6;buildLot();
+    for(const [u,v,tier]of [[.7,.16,2],[.3,.16,0]]){
+      let placed=false;
+      for(let dz=0;dz<14&&!placed;dz+=2)for(let dx=-12;dx<=12&&!placed;dx+=2){
+        const x=160*u-80+dx,z=80-160*v-dz,info=evalBuilding('lodge',x,z,0,false,null,null,tier);
+        if(!info.problems.length){commitBuilding(info,'lodge',x,z,0);computeNetwork();placed=true;}
+      }
+      if(!placed)throw Error('No valid lodge at base '+u);
+    }
     // Add forks to existing routes; every addition must pass the actual trail validator.
     for(const T of [...world.trails])for(const side of [-1,1]){
       const samples=T.samples,start=Math.floor(samples.length*.3),end=samples.length-1;
@@ -44,14 +52,6 @@ try {
         const i=Math.round(start+(end-start)*(k+1)/4),p=samples[i];return {x:p.x+(k===3?0:side*2),z:p.z};
       })].map(p=>({x:p.x,z:p.z,y:heightAt(p.x,p.z)}));
       const v=evalTrail(pts,'medium',false,false);if(!v.an.problems.length){commitTrail(v,pts,'medium');computeNetwork();}
-    }
-    for(const [u,v]of [[.7,.16],[.3,.16]]){
-      let placed=false;
-      for(let dz=0;dz<14&&!placed;dz+=2)for(let dx=-12;dx<=12&&!placed;dx+=2){
-        const x=160*u-80+dx,z=80-160*v-dz,info=evalBuilding('lodge',x,z,0,false,null,null,2);
-        if(!info.problems.length){commitBuilding(info,'lodge',x,z,0);computeNetwork();placed=true;}
-      }
-      if(!placed)throw Error('No valid lodge at base '+u);
     }
     return {lifts:world.lifts.length,trails:world.trails.length,forks:world.trails.reduce((s,T)=>s+T.branches.length,0),seats:world.buildings.reduce((s,B)=>s+(bspec(B).seats||0),0)};
   })()`);
