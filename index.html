@@ -11270,6 +11270,8 @@ function svcFor(B, need) {
   return o.includes(need) ? need : null;
 }
 function bestVisit(g, here, radius, baseToo, list, needList) {
+  // A shorter line only helps if this guest can actually choose that place from here.
+  list = list.filter((B) => distXZ(B.door, here) <= radius || (baseToo && B.isBase));
   for (const need of needList) {
     let best = null, bv = -Infinity;
     for (const B of list) {
@@ -11278,7 +11280,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
       if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
       if (need === 'lunch' && g.pricedOut && g.pricedOut.includes(svc)) continue; // already found that too dear today
       if ((svc === 'rest' || (svc === 'warm' && B.type === 'firepit')) && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) continue; // free outdoor breaks need an available seat
-      if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5)) continue; // somewhere else will feed them sooner
+      if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5, list)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
       if (d > radius && !(baseToo && B.isBase)) continue;
       const v = 10 - d * 0.12 - estWait(B, svc) * g.qh * 0.6 + tastes(g, B, svc)
@@ -11301,12 +11303,12 @@ function tastes(g, B, svc) {
 }
 // Another open place to eat with a shorter line, counting the trip there: for skipping or leaving a slow food line.
 // Returns { B, svc } or null.
-function otherEatery(g, from, mustBeat = Infinity) {
+function otherEatery(g, from, mustBeat = Infinity, list = world.buildings) {
   let best = null, bt = mustBeat;
-  for (const B of world.buildings) {
+  for (const B of list) {
     if (B === from || !bldOpenNow(B) || (g.avoidB === B.id && state.time < g.avoidUntil)) continue;
     const svc = svcFor(B, 'lunch');
-    if (!svc) continue;
+    if (!svc || (g.pricedOut && g.pricedOut.includes(svc))) continue;
     const t = estWait(B, svc) + distXZ(B.door, from.door || from) / 5; // about 5 units a minute on skis
     if (t < bt) { bt = t; best = { B, svc }; }
   }
@@ -16563,6 +16565,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.58.3', date: 'Oct 29, 2026', title: 'More reliable lunch choices', small: true, items: ['Fixed: hungry guests no longer pass up a nearby eatery because of a shorter line somewhere outside their search area, or food they already found too expensive.', 'The how-to guide explains lodge meals, lodge sizes, food prices and what to check when a lodge is quiet.'] },
   { v: '2.58.2', date: 'Oct 28, 2026', title: 'Clear patrol staffing and expenses', small: true, items: ['Patrol staffing uses the exact headcount you select. Full and Skeleton controls have been removed; Lean, Normal and Extra affect other employees.', 'Patrollers cost $425 each per operating day, plus $100 hut upkeep. Patrol wages appear once in payroll, with no extra building-staff charge. Operations estimates and day reports use the same expense rules.', 'Patrol claims now follow guests who actually missed rescue help, rather than a staffing toggle.'] },
   { v: '2.58.1', date: 'Oct 28, 2026', title: 'Patrol staffing in Operations', small: true, items: ['Choose 1–6 patrollers for every hut with an override in each Operations plan. Turn it off to use each hut’s saved manual staffing.', 'Select a patrol hut to adjust its individual team overnight. Daily costs and active staff follow the plan in use.'] },
   { v: '2.58', date: 'Oct 28, 2026', title: 'Choose your patrol staffing', items: ['One ski patrol building with 1–6 patrollers per hut. Select the building overnight and use the staffing buttons to choose your team.', 'Daily upkeep follows the chosen staff count, with no expansion fee. Existing patrol teams keep their size. Skeleton staffing puts half the team on duty, rounded up.'] },
