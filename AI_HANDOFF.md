@@ -93,6 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| asset-controls | ChatGPT | Asset-card plan controls and lift colors | 2026-10-29 |
 
 
 
@@ -210,6 +211,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Asset-card plans and lift colors (2.60 candidate)
+- asset-controls branches from main ac3c230. Replaces the read-only Plans line on building/lift cards with all three plan rows. Reuses opsSeg/opsAction and the same plan objects as Operations; explicit data-plan prevents global opsEdit selecting the wrong plan. Eateries offer Open/Lunch/Closed, other non-decor buildings Open/Closed, lifts Full/Slow/Off. Edits during an open day leave runOps unchanged until the next day. Manual lift start/stop remains separate.
+- Eight existing lift colors on the lift card, free/immediate. Replaces only that lift's shared accent-material references and sets its own chair material color; never rebuilds/resets the lift, mutates a shared material, changes cash or interrupts riders. L.color already saves/loads, so no new save field. Read-only visits hide and block edits. Closed-day color changes use existing undo.
+- Changelog/guide updated; no matching roadmap card. Scenario 101 covers two-way Operations sync, each plan, non-eatery restrictions, deferred runOps, isolated material updates, occupied chairs/queues, save/reload and visits. Syntax/whitespace pass. Local browser attempt blocked by missing Chromium; full GitHub CI and real phone/desktop visual checks pending. Not published.
 
 ### 2026-10-29 · ChatGPT · 2.59 published with Phil’s approval
 - Phil explicitly approved publication without a second Claude review and requested the release procedure. Main fast-forwarded from 5972abd to c215ffd128282a9458c5779d78b6acf23ac98da4 (tested 92f97dfa plus handover-only commit). Pages deployment 40877951630 succeeded. Live index is version 2.59 and its Git blob d5a6040fa37c5a4a7c9727983d635f5de3f1601b exactly matches the tested game.

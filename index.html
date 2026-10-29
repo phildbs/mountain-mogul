@@ -920,6 +920,15 @@ a.vtag { text-decoration: none; }
 .ops-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ops-row em { font-style: normal; color: var(--steep); font-size: 11px; }
 .seg.ops button { min-height: 28px; padding: 4px 2px; font-size: 12px; }
+.asset-plans { display: grid; gap: 8px; }
+.asset-plan { display: grid; gap: 4px; }
+.asset-plan > span { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+.lift-colors { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.lift-colors button { display: grid; place-items: center; min-width: 0; height: 32px; padding: 3px; border: 2px solid transparent; border-radius: 8px; background: var(--panel); cursor: pointer; }
+.lift-colors button[aria-pressed="true"] { border-color: var(--ink); }
+.lift-colors button span { width: 18px; height: 18px; border-radius: 4px; }
+.lift-colors button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .help.warn { color: #9a3326; }
 .manage.bizfly { flex-direction: row; transform: none; top: 0; }
 @media (max-width: 640px) { .manage.bizfly { display: none; } }
@@ -5794,7 +5803,8 @@ function liftSheet(L) {
       <div><dt>Chairs</dt><dd>${L.chairCount}</dd></div>
     </dl>
     <p class="conn">${esc(feeders)}${departing ? '<br>' + esc(departing) : ''}</p>
-    ${planLine((P) => MODE_WORD[liftModeIn(P, L)])}
+    ${assetPlans('lift', L)}
+    ${liftColorPicker(L)}
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${liftUpgradeSection(L)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
@@ -5957,6 +5967,7 @@ sheet.addEventListener('click', (e) => {
     state.offsite = -1; state.cash += back; updateCash(true);
     toast(`Closed off-site parking · +${money(back)} back`); renderSheet(); scheduleSave();
   }
+  else if (a === 'liftColor' && selected?.kind === 'lift') setLiftColor(obj, +b.dataset.v);
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; computeNetwork(); scheduleSave(); renderSheet(); }
   else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
@@ -12461,7 +12472,7 @@ function bldSheet(B) {
       <div><dt>Last day</dt><dd>${y ? signedMoney(y.profit) : '–'}</dd></div>
     </dl>
     ${bldServiceBreakdown(B, open ? B.today : y, open)}
-    ${planLine((P) => MODE_WORD[bldModeIn(P, B)])}
+    ${assetPlans('bld', B)}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
@@ -14869,9 +14880,9 @@ function moneyPanel() {
 let opsEdit = null; // the plan the Operations tab is showing
 const LIFT_MODES = [['full', 'Full'], ['slow', 'Slow'], ['off', 'Off']];
 const MODE_WORD = { full: 'Full speed', slow: 'Slow', off: 'Off', open: 'Open', lunch: 'Lunch only', closed: 'Closed' };
-function opsSeg(action, id, cur, modes, label) {
+function opsSeg(action, id, cur, modes, label, plan) {
   return `<div class="seg ops" role="group" aria-label="${esc(label)}">${modes.map(([k, l]) =>
-    `<button data-action="${action}" data-id="${id}" data-v="${k}" aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
+    `<button data-action="${action}" data-id="${id}" data-v="${k}"${plan ? ` data-plan="${plan}"` : ''} aria-pressed="${cur === k}">${l}</button>`).join('')}</div>`;
 }
 // Operations folds its long lists away behind a one-line summary.
 const opsFold = { lifts: false, blds: false };
@@ -14935,10 +14946,31 @@ function nightOpsHtml(P) {
     <p class="help">${lit.length} lit trail${lit.length === 1 ? '' : 's'} on ${lifts} lift${lifts === 1 ? '' : 's'}. ${P.night ? `About ${money(Math.round((lights + (NIGHT_BASE_HR + NIGHT_LIFT_HR * lifts) * MOUNTAIN.costs) * hrs))} for lights and night crew, plus lift power.` : 'A night crowd of locals buys night tickets; some day guests stay on.'}</p>`;
 }
 // One line on a lift or building panel: how each plan runs it, with a link to change them.
-function planLine(word) {
+function assetPlans(kind, obj) {
+  if (visiting || (kind === 'bld' && isDecor(obj))) return '';
+  const o = opsState(), lift = kind === 'lift';
+  const modes = lift ? LIFT_MODES : lunchOnlyOk(obj) ? [['open', 'Open'], ['lunch', 'Lunch'], ['closed', 'Closed']] : [['open', 'Open'], ['closed', 'Closed']];
+  return `<div class="field-label">Operating plans</div><div class="asset-plans">${OPS_KINDS.map(([k, label, note]) =>
+    `<div class="asset-plan"><span title="${esc(note)}">${label}</span>${opsSeg(lift ? 'opsLift' : 'opsBld', obj.id, lift ? liftModeIn(o.plans[k], obj) : bldModeIn(o.plans[k], obj), modes, `${label}: ${obj.name}`, k)}</div>`).join('')}</div>
+    <p class="help">${state.phase === 'open' ? 'Changes apply from tomorrow. ' : ''}Shared with <button class="link" data-action="opsOpen">Operations</button>.${lift && !obj.open && !obj.planOff ? ' This lift is manually stopped; start it to let the plan run it.' : ''}</p>`;
+}
+const LIFT_COLOR_NAMES = ['Orange', 'Blue', 'Gold', 'Green', 'Purple', 'Teal', 'Pink', 'Slate'];
+function liftColorPicker(L) {
   if (visiting) return '';
-  const o = opsState();
-  return `<p class="conn">Plans: ${OPS_KINDS.map(([k, l]) => `${l.replace(' season', '')} <b>${word(o.plans[k])}</b>`).join(' · ')} <button class="link" data-action="opsOpen">Edit</button></p>`;
+  return `<div class="field-label">Lift color</div><div class="lift-colors" role="group" aria-label="Lift color">${LIFT_COLORS.map((c, i) =>
+    `<button data-action="liftColor" data-v="${c}" aria-pressed="${L.color === c}" aria-label="${LIFT_COLOR_NAMES[i]}" title="${LIFT_COLOR_NAMES[i]}"><span style="background:${hexOf(c)}"></span></button>`).join('')}</div><p class="help">Free to change. Updates the lift and its map label immediately.</p>`;
+}
+function setLiftColor(L, color) {
+  if (visiting || !world.lifts.includes(L) || !LIFT_COLORS.includes(color) || color === L.color) return;
+  pushUndo('changing a lift’s color');
+  const before = accentMat(L.color), after = accentMat(color);
+  // Accent materials are shared with other lifts and buildings: replace this lift’s references only.
+  L.group.traverse((m) => {
+    if (Array.isArray(m.material)) m.material = m.material.map((mat) => mat === before ? after : mat);
+    else if (m.material === before) m.material = after;
+  });
+  L.chairs.material.color.setHex(color); L.color = color;
+  labelsDirty = true; renderSheet(); scheduleSave();
 }
 function patrolOpsHtml(P) {
   const n = patrolOverride(P);
@@ -14987,12 +15019,14 @@ function opsSection() {
 function opsAction(a, b) {
   if (visiting) return false;
   const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day;
-  const P = o.plans[opsEdit || planFor(day)], v = b.dataset.v, id = +b.dataset.id;
+  const kind = b.dataset.plan || opsEdit || planFor(day);
+  if (!OPS_KINDS.some(([k]) => k === kind)) return false;
+  const P = o.plans[kind], v = b.dataset.v, id = +b.dataset.id;
   if (a === 'opsOpen') { opsEdit = null; resortTab = 'ops'; select({ kind: 'resort', obj: null }); return true; }
   if (a === 'opsEdit') opsEdit = v;
   else if (a === 'opsDay') { if (state.phase === 'open') return; o.override = v === dayKind(day) ? null : { day, plan: v }; opsEdit = v; }
-  else if (a === 'opsLift') { if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
-  else if (a === 'opsBld') { if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
+  else if (a === 'opsLift') { if (!liftById(id) || !LIFT_MODES.some(([k]) => k === v)) return false; if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
+  else if (a === 'opsBld') { const B = bldById(id); if (!B || isDecor(B) || !['open', 'closed', ...(lunchOnlyOk(B) ? ['lunch'] : [])].includes(v)) return false; if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
   else if (a === 'opsHours') P.hours = v;
   else if (a === 'opsFold') opsFold[v] = !opsFold[v];
@@ -16704,6 +16738,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.60', date: 'Oct 29, 2026', title: 'Plan from building and lift cards', items: ['Select a building to set Open, Closed or Lunch only for each operating plan. Select a lift to set Full, Slow or Off. These controls share the same settings as Operations; changes made during an open day apply from tomorrow.', 'Choose from eight lift colors directly on the lift card. Changes are free, saved with your resort and apply immediately without interrupting riders.'] },
   { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider a rejected category after you lower its price. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },
   { v: '2.58.3', date: 'Oct 29, 2026', title: 'More reliable lunch choices', small: true, items: ['Fixed: hungry guests no longer pass up a nearby eatery because of a shorter line somewhere outside their search area, or food they already found too expensive.', 'The how-to guide explains lodge meals, lodge sizes, food prices and what to check when a lodge is quiet.'] },
   { v: '2.58.2', date: 'Oct 28, 2026', title: 'Clear patrol staffing and expenses', small: true, items: ['Patrol staffing uses the exact headcount you select. Full and Skeleton controls have been removed; Lean, Normal and Extra affect other employees.', 'Patrollers cost $425 each per operating day, plus $100 hut upkeep. Patrol wages appear once in payroll, with no extra building-staff charge. Operations estimates and day reports use the same expense rules.', 'Patrol claims now follow guests who actually missed rescue help, rather than a staffing toggle.'] },
