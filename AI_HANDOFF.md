@@ -84,7 +84,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.62.2 published at 72b20c2de20fbc09dc7e1d38c4455f38d700daa8 with Phil’s explicit approval. Reviewed gameplay candidate 4a1db691e2ef2cf2c707cdb225a3462422475492 passed full Tests 40943077153. Only the requested player-note wording and handoff changed afterward. GitHub Pages deployment 40944511583 succeeded.
+**Active**: ChatGPT preparing 2.62.3 on rotation-controls after player feedback: larger SVG Left/Right 90° buttons, corrected direction mapping. Preview only; wait for Phil to report GitHub results without polling.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -217,6 +217,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Clearer rotation controls
+- Preview candidate f0efa1ceb43f177a03217ad52a52644118a177c4: https://raw.githack.com/phildbs/mountain-mogul/f0efa1ceb43f177a03217ad52a52644118a177c4/index.html . Play as guest; separate preview saves; feedback/crashes/votes still live.
+- Phil shared feedback that building rotation symbols were too small and turned the wrong way. Confirmed positive model Y turns counterclockwise viewed above, but was labeled right. Swapped button increments so Left is +90° and Right is −90°; saved angles, fine-angle inputs and R shortcut unchanged.
+- Larger 24px line SVG arrows, explicit Left 90°/Right 90° labels and 44px minimum button height. Applies to buildings, benches and picnic tables through shared rotationControls. CHANGES 2.62.3 and guide updated. No roadmap item newly delivered and no save/schema changes.
+- Extended actual-transform checks at six starting headings and browser scenario 102 to click semantic direction labels on mouse/touch and assert comfortable target/icon sizes. Passed inline JS/test syntax, 9,360 footprint cases, direction checks and diff whitespace checks. Browser/visual check remains unavailable locally (Chromium absent); no rendering success claimed. Full GitHub suite runs on push. Pause for Phil results; do not poll or publish.
+
 
 ### 2026-10-29 · ChatGPT · 2.62.2 and player feedback note published
 - Phil reported all tests passed, requested publication, and asked us to let visitors know we are doing our best to squash simulation bugs and keep up with feedback. Verified full Tests 40943077153 succeeded on 4a1db691e2ef2cf2c707cdb225a3462422475492. Added wording to existing welcome-screen Feedback & ideas card (compact desktop: “Squashing bugs”) and latest What’s new entry. No simulation/test changes after the passed candidate; exact text-only delta, script syntax and whitespace verified locally.
