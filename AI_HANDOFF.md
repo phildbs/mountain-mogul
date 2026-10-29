@@ -215,6 +215,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Visitor regression assertion updated
+- Phil reported failed Tests 40913379862 at 396dcda159fb5a515d0846c78fa393150c13a5ad. All four browser groups finished; three passed, group 2 failed only 06-visits because its exact button-list assertion counted the new presentation-only minimize/expand controls. Scenario 103 passed, including minimized Undo/Clear on mouse/touch. No game-code failure observed in that run.
+- 06 now explicitly permits only the two known data-sheet controls, still rejects all other non-navigation buttons, clicks minimize/expand, compares the serialized resort before/after (excluding save timestamp and camera), and checks that visitor building remains blocked. Existing watch-day and home-save assertions retained. No game-code changes.
+- Test syntax and whitespace checks pass. Local Chromium remains absent. New full GitHub suite runs on push; pause for Phil's result without polling. Prior rendering job was still running at inspection; no rendering success claimed.
+
+
 ### 2026-10-29 · ChatGPT · Keep drawing controls visible when minimized
 - Phil reviewed the card preview and requested persistent Undo/Clear. The original Undo point/Clear row now stays visible in minimized trail/lift drawing cards, with its existing disabled states and actions. Selection and other minimized content remain unchanged. Guide and 2.62 changelog updated; scenario 103 checks real mouse/touch presses, empty-draft disabled state and remaining minimized after Clear.
 - Syntax and whitespace checks pass. Local Chromium still unavailable. Updated GitHub full suite/render workflow will run; wait for Phil to report results without polling. Preview only, no publication.

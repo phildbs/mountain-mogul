@@ -16,7 +16,18 @@ export default async function ({ browser, url }) {
   await g.click('#badge');
   eq(await g.ev(`$('menu').hidden`), true, 'menu stays closed');
   await g.click('#cashBox'); await g.wait(200);
-  eq(await g.ev(`[...document.querySelectorAll('#sheet button:not([data-action=manage])')].map(b => b.textContent.trim()).join()`), '✕', 'finances read only');
+  eq(await g.ev(`[...document.querySelectorAll('#sheet button:not([data-action=manage]):not([data-sheet])')].map(b => b.textContent.trim()).join()`), '✕', 'finances read only');
+  // Card layout is available to visitors; gameplay controls must remain absent.
+  eq(await g.ev(`[...sheet.querySelectorAll('[data-sheet]')].map(b=>b.dataset.sheet).sort()`), ['expand','min'], 'only layout controls added');
+  const snapshot = `(() => {const {savedAt,cam,...resort}=saveData(false);return JSON.stringify(resort);})()`;
+  const resort = await g.ev(snapshot);
+  await g.page.locator('#sheet [data-sheet=min]').click();
+  eq(await g.ev('sheetMode'), 'min', 'visitor can minimize finances');
+  await g.page.locator('#sheet [data-sheet=expand]').click();
+  eq(await g.ev('sheetMode'), 'full', 'visitor can expand finances');
+  eq(await g.ev(snapshot), resort, 'layout controls do not change the visited resort');
+  await g.ev(`setTool('trail')`);
+  eq(await g.ev('state.tool'), 'explore', 'visitor still cannot build');
   await g.ev(`select(null)`); await g.click('#tbGo'); await g.ev(SETUPS.finishDay);
   assert(await g.ev(`state.lastReport.guests`) > 0, 'watched a day');
   await g.click('#visitHome'); await g.wait(1200);
