@@ -5,7 +5,10 @@ export default async function ({ browser, url }) {
     await g.click('#startBtn'); await g.wait(300);
     await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
     await g.ev(`state.cash=1e8;window.findPlacement=(type,deg=37)=>{for(let z=45;z<80;z+=1)for(let x=-35;x<35;x+=1){const v=evalBuilding(type,x,z,deg/90);if(!v.problems.length)return {x,z};}throw Error('No spot for '+type);}`);
-    const press = async (selector) => touch ? g.page.locator(selector).tap() : g.click(selector);
+    const press = async (selector) => {
+      eq(await g.page.locator(selector).count(),1,`one intended control: ${selector}`);
+      return touch ? g.page.locator(selector).tap() : g.click(selector);
+    };
     for (const type of ['bench', 'picnic', 'lodge']) {
       const before = await g.ev(`(() => {window.placementIds=new Set(world.buildings.map(B=>B.id));return {cash:state.cash,n:world.buildings.length};})()`);
       await g.ev(`pickBuilding('${type}');setDraftDegrees(37);draftTap(window.findPlacement('${type}'));recomputeDraft()`);
@@ -13,9 +16,9 @@ export default async function ({ browser, url }) {
       // A real input event updates the ghost without replacing a slider mid-gesture.
       eq(await g.ev(`(() => {const el=sheet.querySelector('[data-rotation=range]');el.value='38';el.dispatchEvent(new Event('input',{bubbles:true}));const kept=el===sheet.querySelector('[data-rotation=range]');el.dispatchEvent(new Event('change',{bubbles:true}));return [kept,Math.round(draft.rot*90),world.buildings.length];})()`), [true,38,before.n], 'slider is stable and still only previews');
       await g.ev(`(() => {const el=sheet.querySelector('[data-rotation=number]');el.value='37';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-      await press('[data-action=rotB][data-d="1"]');
+      await press('#sheet [data-action=rotB][data-d="1"]');
       eq(await g.ev(`Math.round(draft.rot*90)`),127,'quarter turn preserves the fine angle');
-      await press('[data-action=rotB][data-d="-1"]');
+      await press('#sheet [data-action=rotB][data-d="-1"]');
       const cost = await g.ev(`draft.info.cost`);
       assert(await g.ev(`!draft.info.problems.length`), `${type} preview is valid`);
       await press('#sheet [data-action=build]');
@@ -28,17 +31,17 @@ export default async function ({ browser, url }) {
         // Repeat-placement tap also waits; cancel spends nothing and creates nothing.
         const cash=await g.ev(`state.cash`);
         await g.ev(`draftTap(window.findPlacement('bench'));recomputeDraft()`);
-        await press('[data-action=exitTool]');
+        await press('#sheet .sheet-title [data-action=exitTool]');
         eq(await g.ev(`[state.cash,world.buildings.length]`),[cash,before.n+1],'canceling another preview is harmless');
       }
       if(type==='picnic') {
         await g.ev(`setTool('explore');select({kind:'bld',obj:bldById(${placed.id})})`);
-        await press('[data-action=turnBld]');
+        await press('#sheet [data-action=turnBld]');
         eq(await g.ev(`sheet.querySelector('[data-action=build]').disabled`),true,'unchanged rotation cannot be charged');
         const prior=await g.ev(`({rot:bldById(${placed.id}).rot,cash:state.cash,x:draft.bpos.x,z:draft.bpos.z})`);
         await g.ev(`setDraftDegrees(143);draftTap({x:0,z:0})`);
         eq(await g.ev(`[draft.bpos.x,draft.bpos.z,bldById(${placed.id}).rot,state.cash,draft.info.build]`),[prior.x,prior.z,prior.rot,prior.cash,0],'rotation preview stays put, has no turn fee, and leaves original intact');
-        await press('[data-action=exitTool]');
+        await press('#sheet .sheet-title [data-action=exitTool]');
         eq(await g.ev(`[bldById(${placed.id}).rot,state.cash,bldById(${placed.id}).group.visible]`),[prior.rot,prior.cash,true],'cancel restores the original model without spending');
         await g.ev(`startMove(bldById(${placed.id}),true);setDraftDegrees(143)`);
         assert(await g.ev(`!draft.info.problems.length`),'turned table still fits');
