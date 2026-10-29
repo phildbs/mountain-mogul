@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62: movable desktop map cards; full/compact/minimized phone cards; automatic compact placement; persistent Undo point/Clear while minimized.
 - 2.61: precise whole-degree building/bench/table rotation, overnight Rotate it, and explicit bench/table placement confirmation on desktop and touch.
 - 2.60: edit weekday/weekend/quiet operating plans directly on building and lift cards; choose eight lift colors without interrupting riders.
 - 2.59: connected food-seeking, full-day meal searches, price-cut retries and accurate meal outcomes with original hunger locations. Published Oct 29 after full tests and paired benchmarks passed.
@@ -81,7 +82,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT preparing 2.62 on movable-cards: draggable desktop cards, full/compact/minimized phone sheets, automatic compact placement. Preview only; wait for Phil to report GitHub results, do not poll or publish.
+**Active**: Phil approved publishing 2.62 after reporting passed tests. Full Tests 40914666775 succeeded on candidate 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58. Roadmap Phones and tablets now marks these additions with crossed-off steps. Publication underway; Pages verification pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -95,7 +96,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| movable-cards | ChatGPT | Movable/minimizable map cards and compact phone building controls; preview only | 2026-10-29 |
 
 
 
@@ -214,6 +214,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.62 publication approved
+- Phil reported tests passed, requested crossed-off Mobile roadmap additions, and explicitly approved publication. Verified full Tests 40914666775 succeeded at 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58; current main remains the branch's starting commit e4be078360185ba5e94c2cba930dbacd1337c8b4. Added four crossed-off steps under existing phones-and-tablets; status remains Ongoing and vote key unchanged.
+- Only roadmap and handoff change after the passed candidate. Game code is identical to Phil's reviewed preview. Dedicated visual workflow 40913379835 was cancelled; no automated rendering success or manual screenshot review claimed. Phil reviewed the preview and approved publication. Local Chromium unavailable. No save/schema changes.
+- Repaired the old visitor button-list assertion without changing gameplay, while adding stronger checks for unchanged visited resort data and blocked building. Cleared WIP row; publication by fast-forward. Pages verification pending.
+
 
 ### 2026-10-29 · ChatGPT · Visitor regression assertion updated
 - Phil reported failed Tests 40913379862 at 396dcda159fb5a515d0846c78fa393150c13a5ad. All four browser groups finished; three passed, group 2 failed only 06-visits because its exact button-list assertion counted the new presentation-only minimize/expand controls. Scenario 103 passed, including minimized Undo/Clear on mouse/touch. No game-code failure observed in that run.
