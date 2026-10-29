@@ -40,6 +40,7 @@ export default async function ({ browser, url }) {
     const results = [];
     for (const [type,svc] of [['truck','snack'],['fine','finedine']]) {
       const B = world.buildings.find(B=>B.type===type); B.door={...C.door}; B.used.seat=poolSlots(B,'seat');
+      B.counterFree = state.time + 1; // hold the truck window busy; full eating spaces no longer block takeaway orders
       const q = makeGuest({id:null},B.door.x,B.door.z);
       Object.assign(q,{svc,bid:B.id,st:'bq',qT:state.time-6,pat:100,qLook:0,resume:{k:'top',lid:world.lifts[0].id}});
       B.q.seat=[q]; bldStep(B);

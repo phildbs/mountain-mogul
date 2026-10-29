@@ -82,7 +82,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62 after reporting passed tests. Full Tests 40914666775 succeeded on candidate 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58. Roadmap Phones and tablets now marks these additions with crossed-off steps. Publication underway; Pages verification pending.
+**Active**: 2.62 is published. Candidate 2.62.1 on `takeaway-warmup` makes truck meals takeaway and lets cold/tired guests finish eating before a separate nearby warm-up. Preview prepared; GitHub browser tests pending. Pause for Phil to report results; do not poll or publish yet.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -96,6 +96,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| takeaway-warmup | ChatGPT | Food-truck takeaway meals, then a separate nearby warm-up | 2026-10-29 |
 
 
 
@@ -214,6 +215,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Takeaway meals, then warming breaks
+- Phil asked for guests to eat first and then seek a lodge or other warm-up spot, following adjacent café/truck feedback. Branch `takeaway-warmup` starts at published main `805d9714e1f2dac9b02e56ca1129d0476af99fb1`; candidate 2.62.1, not published.
+- Truck window throughput and staffing still limit service; occupied eating spaces no longer block new orders or inflate estimated truck waits. Existing `used.seat` counts track guests eating nearby, so no save format changes. Live truck card shows takeaway eaters without a ten-seat cap.
+- After finishing a truck snack, an unwarmed cold (<20°F) or tired (>55% stamina used) guest can start a separate warm-up at an open nearby venue (lodge/café/fire pit). Preserve the original ski resume, use the existing service price/cost and capacity, avoid long estimated waits and large uphill climbs. Already warmed, departing, sightseeing and après guests skip this extra stop; no candidate means normal resume. This is a local search, not a new across-mountain routing system.
+- Guide and changelog updated; no matching roadmap feature delivered. Scenario 104 covers full truck service, counter throttling, food-then-warm order, revenue/costs, ski resume and guards. Scenario 90 now holds the window busy when testing truck queue switching; eating-space occupancy is no longer a valid way to block service.
+- Passed game/test syntax, whitespace, and a local VM check using extracted actual game functions for takeaway service, billing, warming sequence, route resume and exclusion cases. Chromium is absent, so browser scenarios/screenshots were not run locally; full automatic GitHub suite is pending. Phil prefers preview links and will report test results. No schema/loading changes.
+
 
 ### 2026-10-29 · ChatGPT · 2.62 publication approved
 - Phil reported tests passed, requested crossed-off Mobile roadmap additions, and explicitly approved publication. Verified full Tests 40914666775 succeeded at 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58; current main remains the branch's starting commit e4be078360185ba5e94c2cba930dbacd1337c8b4. Added four crossed-off steps under existing phones-and-tablets; status remains Ongoing and vote key unchanged.

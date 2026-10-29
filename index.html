@@ -9603,7 +9603,7 @@ const BTYPES = {
     ],
   },
   truck: { name: 'Food truck', where: 'any', cost: 30000, sign: 'FOOD', accent: 0xe0702a, seats: 10, counter: 3, stalls: 0, w: 2.2, d: 1.3, upkeep: 260,
-    desc: 'Grab-and-go snacks from a window. Cheap, and handy beside a trail or at the top of a lift.' },
+    desc: 'Takeaway snacks from a window. Guests eat nearby, then can find a separate spot to warm up.' },
   cafe: { name: 'Café', where: 'any', cost: 70000, sign: 'CAFÉ', accent: 0x8b5a3c, seats: 36, counter: 5, stalls: 2, w: 2.8, d: 2.2, upkeep: 520,
     desc: 'Coffee, hot chocolate and pastries. A warm-up stop, best on cold days, with a few seats.' },
   restaurant: { name: 'Casual restaurant', where: 'any', cost: 140000, sign: 'RESTAURANT', accent: 0x2a5fb8, seats: 120, stalls: 6, w: 4.2, d: 3.0, upkeep: 1450,
@@ -11473,6 +11473,8 @@ function initBldSim(B) {
   if (B.type === 'patrol') B.crew = Array.from({ length: bspec(B).crew }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (bspec(B).crew - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
 }
 function estWait(B, svc) {
+  // Takeaway service is limited by the window, not by guests still eating nearby.
+  if (B.type === 'truck' && svc === 'snack') return Math.max(0, B.counterFree - state.time) + B.q.seat.length * AGENT / Math.max(0.05, bspec(B).counter * staffLevel().svc);
   const pool = POOL[svc], slots = poolSlots(B, pool), avg = (SVC_TIME[svc][0] + SVC_TIME[svc][1]) / 2;
   let thr = slots / avg;
   if (pool === 'seat' && bspec(B).counter) thr = Math.min(thr, bspec(B).counter * staffLevel().svc / AGENT);
@@ -11727,7 +11729,7 @@ function bldStep(B) {
   }
   for (const pool in B.q) {
     const q = B.q[pool], slots = poolSlots(B, pool);
-    while (q.length && B.used[pool] < slots) {
+    while (q.length && ((B.type === 'truck' && pool === 'seat') || B.used[pool] < slots)) {
       if (pool === 'seat' && bspec(B).counter && state.time < B.counterFree) break;
       const g = q.shift(); B.qv++;
       if (pool === 'seat' && bspec(B).counter) B.counterFree = Math.max(B.counterFree, state.time) + AGENT / bspec(B).counter / staffLevel().svc;
@@ -11870,7 +11872,20 @@ function finishVisit(g) {
   // Lodges and restaurants have restrooms, so a meal or warm-up covers that too.
   if (svc === 'food' || svc === 'warm' || svc === 'dine' || svc === 'finedine' || svc === 'apres') g.bl = 0;
   g.sat = clamp(g.sat, 0, 100);
+  if (B && B.type === 'truck' && svc === 'snack' && warmAfterMeal(g, B)) return;
   if (B) leaveBuilding(g, B); else resumeGuest(g);
+}
+// Finish the meal first; a nearby warm-up is a separate visit, with the original ski route preserved.
+function warmAfterMeal(g, from) {
+  updateLeaving(g);
+  if (g.warmed || g.leaving || g.apresGuest || g.sight || (g.fat <= g.stam * 0.55 && todayWx().hi >= 20)) return false;
+  const nearby = world.buildings.filter((B) => B !== from && offers(B).includes('warm') && withinWalk(from.door, B) && estWait(B, 'warm') <= Math.max(12, g.pat));
+  const v = bestVisit(g, from.door, 20, false, nearby, ['warm']);
+  if (!v) return false;
+  g.x = from.door.x; g.z = from.door.z;
+  thought(g, `That hit the spot. Heading to ${v.B.name} to warm up.`);
+  startVisit(g, v.B, v.svc, g.resume);
+  return true;
 }
 function leaveBuilding(g, B) {
   g.x = B.door.x; g.z = B.door.z;
@@ -12570,7 +12585,9 @@ function bldLive(B) {
   switch (B.type) {
     case 'lodge': case 'restaurant': case 'fine': case 'cafe': case 'truck': case 'bar': {
       const taken = Math.min(s.seats, B.used.seat * AGENT), line = B.q.seat.length * AGENT;
-      let txt = `<b>${taken}</b> of ${s.seats} ${B.type === 'truck' ? 'eating nearby' : 'seats taken'} · <b>${line}</b> in line`;
+      let txt = B.type === 'truck'
+        ? `<b>${B.used.seat * AGENT}</b> eating takeaway nearby · <b>${line}</b> in line`
+        : `<b>${taken}</b> of ${s.seats} seats taken · <b>${line}</b> in line`;
       if (B.type === 'truck' || B.type === 'cafe') txt += `<br>The window serves about ${s.counter} guests a minute.`;
       if (B.type === 'lodge') {
         txt += `<br>The counter serves about ${s.counter} guests a minute.`;
@@ -16901,6 +16918,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.62.1', date: 'Oct 29, 2026', title: 'Takeaway meals and warming breaks', small: true, items: [
+    'Fixed: food trucks keep serving takeaway meals while earlier customers eat nearby. The window still sets the serving speed.',
+    'After eating at a food truck, cold or tired guests can find a nearby lodge, café or fire pit for a separate warming break before returning to skiing.',
+  ] },
   { v: '2.62', date: 'Oct 29, 2026', title: 'Make room for your mountain', items: ['Minimize map cards without closing them or losing your work; Undo point and Clear stay visible while drawing trails and lifts.', 'Drag card headers on desktop; on phones, swipe the header between full, compact and minimized views.', 'Trail, lift and building placement use compact phone cards with essential controls still in reach.'] },
   { v: '2.61', date: 'Oct 29, 2026', title: 'Precise rotation and careful placement', items: ['Turn buildings, benches and picnic tables to any whole-degree angle with a slider or exact degree entry. Keep the quick quarter-turn buttons, or select an existing building overnight and choose Rotate it. Bus stations still face the road.', 'Tap or click to preview a bench or picnic table, adjust its position and angle, then confirm placement. Each new seat waits for confirmation, including on touchscreens.'] },
   { v: '2.60', date: 'Oct 29, 2026', title: 'Plan from building and lift cards', items: ['Select a building to set Open, Closed or Lunch only for each operating plan. Select a lift to set Full, Slow or Off. These controls share the same settings as Operations; changes made during an open day apply from tomorrow.', 'Choose from eight lift colors directly on the lift card. Changes are free, saved with your resort and apply immediately without interrupting riders.'] },
