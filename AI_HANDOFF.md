@@ -91,6 +91,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| roadmap-paintable-base | ChatGPT | Exploring card for a paintable base area; ready for publication | 2026-10-28 |
 
 
 ## Known issues
@@ -207,6 +208,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Paintable base area roadmap idea
+- Phil requested “Paintable base area” as a possible addition. Added an Exploring card under More mountain on roadmap-paintable-base, commit be02628e9bf8471099b4e019bcd388e5444553e8, based on f425628fc994d477825593cfce15cf15e065a135. New vote ID paintable-base-area; all existing IDs preserved and uniqueness checked. Description covers painting the shape/layout around buildings and lift stations.
+- Roadmap wording only; no game code, database change or version bump. Tests skipped per docs-only policy. Ready for Publish instruction; not yet on main.
 
 ### 2026-10-28 · ChatGPT · Publish 2.58.2 approved
 - Phil explicitly requested Publish. Candidate dc8230d3aa720f0618e1977138ba51df96b14072 passed full GitHub Tests run 40793303497. Main is a526c7f41d8859c296df70f97099c56434e79dee; candidate is two commits ahead with no intervening changes, including the published lift-midstations roadmap card.
