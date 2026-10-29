@@ -77,8 +77,8 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Trail/glade popularity report, split by day and evening, with reasons (requested, not built).
 - Custom mountain fixes, so creation can be turned back on (`CUSTOM_OFF`).
 - New-player onboarding, and a pass over logged errors on the stats page.
-- Roadmap ideas added by Phil: skier obstacle avoidance, paintable base areas (real walkable zones),
-  lift mid-stations.
+- Roadmap ideas added by Phil: skier obstacle avoidance, paintable designated base and mid-mountain areas
+  (real walkable zones, potentially enabling village-gondola connections on other mountains; deferred), lift mid-stations.
 
 ## Work in progress
 
@@ -232,6 +232,13 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-29 · ChatGPT · Paintable designated bases (deferred idea)
+- Phil wants to save this for later, not start implementation: let players paint and designate base areas and mid-mountain bases/hubs on any mountain. Extend the existing paintable-base roadmap idea rather than treating this as a shipped feature.
+- Intent: real traversable areas where guests can move between facilities and lift stations, and where trails can finish successfully. Consider editing/erasing boundaries and distinguishing arrival bases from mid-mountain hubs; a painted hub need not imply a new parking lot.
+- Motivation: players already build additional clusters of lodges/lifts on single-base mountains, but these are not separate simulation bases. Currently `lotCount()` comes from predefined `MOUNTAIN.lots`; the village lift menu requires more than one lot, and `evalLift` requires stations in different recognized base zones. Simply placing buildings does not unlock the village gondola.
+- Explore making designated areas drive guest walking, trail endpoints, lift/service access and inter-base connections (including village gondolas), rather than only revealing a lift-menu option. Work out whether/how mid-mountain hubs participate, uphill access, return-to-car routes and evening transport before changing restrictions.
+- Preserve existing resorts, Twin Notch's predefined bases and current parking behavior. Settle terrain limits, costs, naming, placement rules and save migration with Phil when this is prioritized. No gameplay changes made.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
