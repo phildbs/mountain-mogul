@@ -4,7 +4,8 @@ export default async function ({ browser, url }) {
     const g=await openGame(browser,url,phone?{width:390,height:844,hasTouch:true}:{});
     const entry=g.page.locator('#titlePrivacy'),r=await entry.boundingBox();
     assert(await entry.isVisible(),'privacy link visible before playing');
-    assert(r && r.y>=0 && r.y+r.height<=(phone?844:900) && r.height>=44,'entry link is in the initial viewport and easy to tap');
+    assert(r && r.height>=44,'footer privacy link is easy to tap');
+    eq(await g.ev(`$('title').lastElementChild === $('titlePrivacy').closest('.tfoot')`),true,'privacy link is in the bottom title-screen footer');
     eq(await entry.getAttribute('href'),'privacy.html','direct policy link');
     const openPolicy=async selector=>{
       const pending=g.page.waitForEvent('popup');
