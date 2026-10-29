@@ -94,6 +94,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| precise-placement | ChatGPT | Precise building/bench/table rotation; confirm seat placement | 2026-10-29 |
 
 
 
