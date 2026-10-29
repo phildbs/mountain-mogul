@@ -80,7 +80,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.60 after checks passed. Candidate 05c83dedf4d539a9112cf357b13f4d27d4cbb989 passed all four browser groups and phone/desktop visual checks. Published main at 70d71f8399b951c8a7307996e1913e675f65a463; Pages deployment follows automatically.
+**Active**: ChatGPT is preparing 2.61 on `precise-placement`: precise rotation and confirmed bench/table placement. Full GitHub suite and phone/desktop rendering checks run on push. Wait for Phil to report results; no test polling or publication without his instruction.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -213,6 +213,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Precise rotation and confirmed seat placement
+- Preview candidate: 6f967121166fc4ec4a97b9649e0a294a802e0e1a. Link: https://raw.githack.com/phildbs/mountain-mogul/6f967121166fc4ec4a97b9649e0a294a802e0e1a/index.html . Play as guest; preview saves are separate, but feedback/crash reports/roadmap votes still reach the live database.
+- Phil asked for fine building/bench/picnic-table rotation and explicit seat-placement confirmation, especially on touch. Candidate 2.61 on precise-placement starts from main 8266c7189d320797219baa223d771f5416a3b494. Slider and number entry use whole degrees; quick quarter-turn buttons and R retain the fine angle. Existing rot values stay in quarter-turn units, now fractional, with old integer rotations unchanged.
+- bDims now encloses the rotated corners with a conservative axis-aligned footprint. Existing road/trail/lift/lot/property/building/blueprint checks and grading use it. Doors, seats, yaw, windows and foundations already transform with rot. Bus stations retain road snapping; trees and trail lights retain their automatic orientation.
+- Bench and picnic map taps preview only; every subsequent placement requires Confirm placement (or Plan it while open). Trees still plant immediately. Existing buildings/seats have Rotate it overnight; position stays fixed, turn fee is zero, extra clearing/leveling is quoted. Preview hides only the old model; cancellation restores it, confirmation rebuilds doors/seats and supports undo. Visited resorts remain read only. No database changes.
+- Added scenario 102 for desktop/touch confirmation, fine/quarter rotation, cancellation, doors/seats, no-fee turning, undo, save/load, angled collision protection, blueprints and service/visit restrictions. Harness adds optional hasTouch. Local pure-geometry check passed all 9,360 building/size/angle combinations, including unchanged cardinal footprints. Syntax and diff checks passed. Local Playwright could not start because Chromium is absent; no local browser pass or visual review claimed.
+- Version, guide and style guide updated; no matching roadmap item delivered. Full four-shard browser suite (including old saves) and a dedicated phone/desktop, day/night screenshot job run on push. Phil prefers preview links, not browser automation. Stop once GitHub tests start and wait for him to report pass/fail. Candidate is not published.
 
 ### 2026-10-29 · ChatGPT · Skier obstacle avoidance roadmap
 - Phil requested an Exploring addition: skiers should go around other skiers, buildings, trees and other obstacles rather than passing through them. Added “Skier obstacle avoidance” under Fixes and polish on roadmap-obstacle-avoidance, commit abd3584a3f1e530eb7b928ff5c273b3db49377a1, from main 70d71f8399b951c8a7307996e1913e675f65a463. New vote ID skier-obstacle-avoidance; existing IDs preserved and uniqueness checked.
