@@ -5,7 +5,7 @@ These rules apply to every AI assistant working here (Claude and ChatGPT). The l
 release checklist and shared notes, is `AI_HANDOFF.md`. Read it at the start of a session.
 
 ## The project
-- `index.html`: the whole game in one file (about 17,000 lines, three.js, no build step). `CHANGES` near the
+- `index.html`: the whole game in one file (about 18,000 lines, three.js, no build step). `CHANGES` near the
   end is the player-facing changelog.
 - `guide.html` (how-to), `roadmap.html` (ideas and votes), `stats.html` (owner-only dashboard), `privacy.html`.
 - `supabase/*.sql`: database functions and tables (project `iwhhoneaxmeiktqzwxjs`). `tests/`: Playwright scenarios.
