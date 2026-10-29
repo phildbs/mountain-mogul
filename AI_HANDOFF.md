@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.1: food-truck takeaway service no longer waits for eating spaces; cold or tired guests finish eating, then can seek a separate nearby warming break.
 - 2.62: movable desktop map cards; full/compact/minimized phone cards; automatic compact placement; persistent Undo point/Clear while minimized.
 - 2.61: precise whole-degree building/bench/table rotation, overnight Rotate it, and explicit bench/table placement confirmation on desktop and touch.
 - 2.60: edit weekday/weekend/quiet operating plans directly on building and lift cards; choose eight lift colors without interrupting riders.
@@ -82,7 +83,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.62 is published. Candidate 2.62.1 on `takeaway-warmup` makes truck meals takeaway and lets cold/tired guests finish eating before a separate nearby warm-up. Preview prepared; GitHub browser tests pending. Pause for Phil to report results; do not poll or publish yet.
+**Active**: Phil reported passed tests and approved publication of 2.62.1. Full Tests 40921352334 succeeded on reviewed candidate c723882122a301248602ea924a894bd29b44fbb2. Publication underway; Pages verification pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -96,7 +97,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| takeaway-warmup | ChatGPT | Food-truck takeaway meals, then a separate nearby warm-up | 2026-10-29 |
 
 
 
@@ -215,6 +215,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.62.1 publication approved
+- Phil explicitly requested publication and reported passed tests. Verified full Tests 40921352334 succeeded on c723882122a301248602ea924a894bd29b44fbb2; main still 805d9714e1f2dac9b02e56ca1129d0476af99fb1. Fast-forward publication with a documentation-only handoff update; reviewed game and tests unchanged.
+- Changelog/guide and scenario 104 included in the passed candidate. No matching roadmap feature to mark, no save/schema changes. Local Chromium unavailable; no local browser/visual pass claimed. Remove WIP; Pages verification pending.
 
 ### 2026-10-29 · ChatGPT · Takeaway meals, then warming breaks
 - Phil asked for guests to eat first and then seek a lodge or other warm-up spot, following adjacent café/truck feedback. Branch `takeaway-warmup` starts at published main `805d9714e1f2dac9b02e56ca1129d0476af99fb1`; candidate 2.62.1, not published.
