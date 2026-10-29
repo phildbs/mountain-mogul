@@ -98,6 +98,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| rotation-controls | ChatGPT | Clearer rotation arrows and correct left/right directions; preview only | 2026-10-29 |
 
 
 
