@@ -210,6 +210,46 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · Claude · Review of hunger-reliability (PR #2), please fix before publishing
+Phil asked me to review this and asked you to fix the items below. The direction is right: routing hungry skiers
+along the real trail and lift network, no 3 PM cut-off, and separate on-time, delayed and missed meals are all good.
+I checked out bcffd80 and ran test group 1 locally (Chromium). GitHub run 40871599510 failed in that group.
+
+1. **Two failing tests** (both fail locally too; RETRY doesn't help):
+   - `84-lunch-lots`: `priced out of the lodge … steer clear of it` expects `avoid: true` but gets `false`. The new
+     `serve()` no longer sets `g.avoidB` after a price rejection. Decide which is intended: either set it again, or
+     update the test's expectation and comment, explaining that other categories at the same building stay open.
+   - `99-hunger-reliability`: `TypeError: Cannot read properties of null (reading 'letdown')`. This happens in the Twin Notch part:
+     it sets `state.phase = 'open'` without `openDay()`, so `today` is null when `makeGuest` reads `today.letdown`.
+     Call `openDay()` there, or build a real `today`. This is a test bug, not a game bug.
+2. **Price retries make high food prices nearly free.** Same Juniper day (juniperStarter + midwinter, reputation 1.6),
+   food and snack prices × 1.6, food and dining revenue for the day:
+
+   | | ×1 prices | ×1.6 prices |
+   |---|---|---|
+   | main | $3,773 | $1,652 (−56%) |
+   | branch | $4,219 | $3,440 (−18%) |
+
+   At ×1.6 the branch shows 51 delayed meals, which are guests who rejected the price, re-rolled `willing()` 30
+   minutes later and paid. With a retry every 30 minutes until the session ends, most eventually accept, which
+   undermines the pricing trade-off. Please let a rejected category come back **only after a price cut**, or allow
+   at most **one** retry (optionally with lower willingness). Keep "try a different category now", which is good.
+   Re-run the ×1 / ×1.6 comparison and put the numbers here.
+3. **Hunger reasons are now located at the parking lot.** `noteHunger(g)` moved to `recordMealOutcome()`, which runs
+   at departure (`arrive` car, `busBoard`, `parkBoard`, `endDay`). The "nowhere to eat" branch uses the guest's
+   *current* position, so "nowhere to eat near X" will usually name the base instead of the lift where they were
+   stuck. Store the spot (and the reason) when they first become hungry in `updateNeeds`, e.g. `g.hungerAt =
+   {x, z}`, and have `noteHunger` use that at departure. Add a test that a guest who goes hungry at an upper lift
+   top and then leaves is attributed to that lift.
+4. **Check speed on a big resort.** `mealRoute()` runs twice at every trail fork for each hungry skier (branch and
+   stay), plus at each lift top and base decision, and re-sorts `todo` on every pop (up to 400). On Juniper the day
+   took about the same time as main (1.8 to 2.2 s, worst step under 60 ms both ways), but Juniper has two trails.
+   Please time a full day on a large resort (Twin Notch with all lifts, or a big Maple save) against main. If
+   it's noticeably slower, cache the plan per guest for a minute or two, or only re-plan at lift tops and the base.
+
+When these are done, push to `hunger-reliability`, wait for a green GitHub run, and note the results here.
+Phil will ask me to take one more look before he publishes.
+
 ### 2026-10-29 · ChatGPT · Hunger reliability (2.59 candidate)
 - Phil approved and published 2.58.3 at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2. Tests 40869056378 and post-publication 40870047122 passed; Pages 40870045931 succeeded.
 - New hunger-reliability branch starts there. Hungry daytime skiers seek food through the connected trail/lift network (ability-safe trails, open lifts, trail forks, same-base walking); no straight-line trip across separate bases. Searches continue to sessionEnd, including after 3 PM. Prices/capacities unchanged.
