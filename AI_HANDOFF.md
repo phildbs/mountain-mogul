@@ -101,6 +101,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-claim-fairness | ChatGPT | Tie injury claims to actual rescue outcomes and explain them in reports | 2026-10-29 |
 
 
 
