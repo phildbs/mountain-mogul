@@ -3,10 +3,10 @@ import { startServer, launch, openGame, SETUPS } from './harness.mjs';
 const server = await startServer(), browser = await launch();
 const PLANS = {
   open: `null`,
-  smart: `{ plans: { weekday: { lifts: {}, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'full', staff: 'lean', patrol: 'full' },
-    weekend: { lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrol: 'full' },
-    quiet: { lifts: {}, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'short', staff: 'lean', patrol: 'full' } }, override: null }`,
-  gutted: `(() => { const p = { lifts: { [world.lifts[0].id]: 'slow' }, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'short', staff: 'lean', patrol: 'skeleton' };
+  smart: `{ plans: { weekday: { lifts: {}, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'full', staff: 'lean' },
+    weekend: { lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal' },
+    quiet: { lifts: {}, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'short', staff: 'lean' } }, override: null }`,
+  gutted: `(() => { const p = { lifts: { [world.lifts[0].id]: 'slow' }, bld: { [world.buildings[0].id]: 'lunch' }, lots: null, hours: 'short', staff: 'lean', patrolCount: 1 };
     return { plans: { weekday: p, weekend: p, quiet: p }, override: null }; })()`,
 };
 for (const [mt, setup] of [['juniper', SETUPS.juniperStarter], ['raven', SETUPS.ravenStarter]]) {

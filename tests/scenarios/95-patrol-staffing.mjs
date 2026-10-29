@@ -39,7 +39,7 @@ export default async function ({ browser, url }) {
     openDay(); setPatrolStaff(B, 1); const open = patrolSize(B);
     runOps.patrol = 'skeleton'; B.patrollers = 3;
     return [visit, open, patrolDuty(B), bspec(B).upkeep];
-  })()`), [2, 2, 2, 1375], 'visits and open days cannot resize; odd teams round duty up');
+  })()`), [2, 2, 3, 1375], 'visits and open days cannot resize; selected headcount stays fully on duty despite legacy flags');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

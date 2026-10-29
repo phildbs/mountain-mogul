@@ -44,7 +44,7 @@ export default async function ({ browser, url }) {
     guests.forEach(g => gById.set(g.id,g)); patrolStep(0);
     return B.crew.filter(c => c.st === 'go').length;
   })()`);
-  eq(duty, 3, 'skeleton staffing dispatches half of a six-person team');
+  eq(duty, 6, 'legacy skeleton flag cannot halve the selected six-person team');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
