@@ -26,7 +26,26 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Mogul">
 <meta name="theme-color" content="#14243a">
-<style>*, *::before, *::after { box-sizing: border-box; } html, body { margin: 0; }</style>
+<style>*, *::before, *::after { box-sizing: border-box; } html, body { margin: 0; }/* Cards keep their contents and draft alive when reduced. */
+.sheet-title { flex-shrink: 0; touch-action: none; cursor: grab; }
+.sheet-title input, .sheet-title button { cursor: auto; touch-action: manipulation; }
+.sheet-grip { color: var(--ink-2); flex: none; font-size: 20px; }
+.sheet-title .x { min-width: 32px; height: 32px; }
+.sheet.minimized > :not(.sheet-title), .sheet.compact > :not(.sheet-title):not(.sheet-keep) { display: none !important; }
+.sheet.minimized { overflow: hidden; }
+.sheet.minimized .sheet-title .namedice { display: none; }
+.sheet.compact { max-height: 30vh; }
+.sheet .sheet-title { order: -1; }
+@media (max-width: 640px) {
+  body.tb-low .sheet { top: auto; }
+  .sheet .sheet-title { position: sticky; top: -12px; background: var(--panel); z-index: 1; padding-block: 4px; }
+  .sheet.minimized { max-height: none; padding-block: 6px; }
+  .sheet.compact { max-height: 28dvh; gap: 7px; }
+  .sheet:not(.minimized):not(.compact) { max-height: min(58dvh, calc(100dvh - 230px)); }
+  .sheet.compact .costs { display: none; }
+  .sheet-title .namedice { display: none; }
+}
+</style>
 <title>Mountain Mogul: Free Ski Resort Tycoon Game in Your Browser</title>
 <script type="application/ld+json">
 {
@@ -5557,8 +5576,90 @@ function renderSheet() {
   // Only touch the DOM when something changed, so a click in progress isn't lost.
   if (html && html !== lastSheetHtml) sheet.innerHTML = html;
   lastSheetHtml = html;
+  layoutSheet();
 }
 let lastSheetHtml = '';
+// Card layout is session-only: it never changes a resort or its draft.
+let sheetMode = 'full', sheetContext = '', sheetAuto = false, sheetPos = null, sheetDrag = null;
+const phoneSheet = () => matchMedia('(max-width: 640px)').matches;
+function sheetSize(mode, manual = true) {
+  sheetMode = mode;
+  if (manual) sheetAuto = false;
+  sheet.classList.toggle('minimized', mode === 'min');
+  sheet.classList.toggle('compact', mode === 'compact');
+  const min = sheet.querySelector('[data-sheet="min"]'), expand = sheet.querySelector('[data-sheet="expand"]');
+  if (min) { min.hidden = mode === 'min'; min.setAttribute('aria-expanded', String(mode !== 'min')); }
+  if (expand) { expand.hidden = mode === 'full'; expand.title = expand.ariaLabel = mode === 'min' && phoneSheet() ? 'Expand to compact card' : 'Expand full card'; }
+  if (manual) sheet.scrollTop = 0;
+  clampSheet();
+}
+function clampSheet() {
+  if (!sheetPos || phoneSheet() || sheet.hidden) return;
+  const r = sheet.getBoundingClientRect();
+  sheetPos.x = Math.max(8, Math.min(sheetPos.x, innerWidth - r.width - 8));
+  sheetPos.y = Math.max(8, Math.min(sheetPos.y, innerHeight - r.height - 8));
+  Object.assign(sheet.style, { left: sheetPos.x + 'px', top: sheetPos.y + 'px', right: 'auto', bottom: 'auto' });
+}
+function layoutSheet() {
+  const ctx = state.tool === 'explore' ? selected && `${selected.kind}:${selected.obj?.id ?? selected.obj}` : `${state.tool}:${draft.btype || ''}:${draft.moving?.id || draft.movingLift?.id || draft.movingTrail?.id || ''}`;
+  if (ctx !== sheetContext || sheet.hidden) {
+    sheetContext = ctx; sheetAuto = true; sheetMode = 'full';
+  }
+  const placing = state.tool === 'trail' || state.tool === 'lift' || (state.tool === 'bld' && draft.btype);
+  if (sheetAuto && phoneSheet() && placing && (draft.pts.length || draft.btype)) sheetMode = 'compact';
+  const head = sheet.querySelector('.sheet-title');
+  if (head && !head.querySelector('[data-sheet]')) {
+    head.title = 'Drag to move; on phones swipe up or down to resize';
+    head.insertAdjacentHTML('afterbegin', '<span class="sheet-grip" aria-hidden="true">⋮</span>');
+    head.insertAdjacentHTML('beforeend', '<button class="x" data-sheet="min" title="Minimize card" aria-label="Minimize card">−</button><button class="x" data-sheet="expand" title="Expand full card" aria-label="Expand full card">↑</button>');
+  }
+  // Keep original controls, including their disabled states and input listeners.
+  sheet.querySelectorAll('.sheet-keep').forEach(el => el.classList.remove('sheet-keep'));
+  if (placing) {
+    const helps = [...sheet.querySelectorAll(':scope > .help')];
+    const help = state.tool === 'bld' ? helps.at(-1) : helps[0];
+    const keep = el => { while (el && el.parentElement !== sheet) el = el.parentElement; if (el) el.classList.add('sheet-keep'); };
+    if (help) keep(help);
+    sheet.querySelectorAll('[data-action="rotB"], [data-action="build"], [data-action="undo"], [data-action="cancel"], [data-action="trailMoveCancel"], [data-action="trailMoveReset"], [data-action="liftMoveReset"], .problems, .b-rotation').forEach(keep);
+  }
+  if (!placing) sheet.querySelectorAll(':scope > .help, :scope > .kv').forEach(el => el.classList.add('sheet-keep'));
+  sheetSize(sheetMode, false);
+}
+sheet.addEventListener('click', e => {
+  const b = e.target.closest('[data-sheet]');
+  if (b) { e.stopPropagation(); sheetSize(b.dataset.sheet === 'min' ? 'min' : sheetMode === 'min' && phoneSheet() ? 'compact' : 'full'); }
+});
+sheet.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !e.target.closest('.sheet-title') || e.target.closest('button,input,a')) return;
+  const r = sheet.getBoundingClientRect();
+  sheetDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, left: r.left, top: r.top, moved: false };
+  sheet.setPointerCapture(e.pointerId); e.preventDefault();
+});
+sheet.addEventListener('pointermove', e => {
+  const d = sheetDrag; if (!d || d.id !== e.pointerId) return;
+  const dx = e.clientX-d.x, dy = e.clientY-d.y;
+  if (Math.hypot(dx,dy) < 6 && !d.moved) return;
+  d.moved = true;
+  if (!phoneSheet()) { sheetPos = { x: d.left+dx, y: d.top+dy }; clampSheet(); }
+});
+function endSheetDrag(e) {
+  const d = sheetDrag; if (!d || d.id !== e.pointerId) return;
+  sheetDrag = null;
+  if (sheet.hasPointerCapture(e.pointerId)) sheet.releasePointerCapture(e.pointerId);
+  if (e.type === 'pointercancel') return;
+  const dy = e.clientY-d.y;
+  if (phoneSheet() && Math.abs(dy) > 28) {
+    const sizes = ['min','compact','full'], i = sizes.indexOf(sheetMode);
+    sheetSize(sizes[Math.max(0,Math.min(2,i + (dy < 0 ? 1 : -1)))]);
+  } else if (!d.moved && sheetMode === 'min') sheetSize(phoneSheet() ? 'compact' : 'full');
+}
+sheet.addEventListener('pointerup', endSheetDrag);
+sheet.addEventListener('pointercancel', endSheetDrag);
+window.addEventListener('resize', () => {
+  if (phoneSheet()) { sheet.style.left = sheet.style.top = sheet.style.right = sheet.style.bottom = ''; }
+  clampSheet();
+});
+
 
 function problemsHtml(list) {
   return list.length ? `<ul class="problems">${list.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : '';
@@ -16795,6 +16896,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.62', date: 'Oct 29, 2026', title: 'Make room for your mountain', items: ['Minimize map cards without closing them or losing your work.', 'Drag card headers on desktop; on phones, swipe the header between full, compact and minimized views.', 'Trail, lift and building placement use compact phone cards with essential controls still in reach.'] },
   { v: '2.61', date: 'Oct 29, 2026', title: 'Precise rotation and careful placement', items: ['Turn buildings, benches and picnic tables to any whole-degree angle with a slider or exact degree entry. Keep the quick quarter-turn buttons, or select an existing building overnight and choose Rotate it. Bus stations still face the road.', 'Tap or click to preview a bench or picnic table, adjust its position and angle, then confirm placement. Each new seat waits for confirmation, including on touchscreens.'] },
   { v: '2.60', date: 'Oct 29, 2026', title: 'Plan from building and lift cards', items: ['Select a building to set Open, Closed or Lunch only for each operating plan. Select a lift to set Full, Slow or Off. These controls share the same settings as Operations; changes made during an open day apply from tomorrow.', 'Choose from eight lift colors directly on the lift card. Changes are free, saved with your resort and apply immediately without interrupting riders.'] },
   { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider a rejected category after you lower its price. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },

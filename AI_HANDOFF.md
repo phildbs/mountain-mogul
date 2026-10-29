@@ -81,7 +81,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.61 after reporting passed tests. Candidate ed35e04399ba3506eb0a779d3adc3873ac88e408 has four successful browser groups. Phone/desktop day/night rendering checks passed on the identical game code. Publishing by fast-forward; Pages deployment verification pending.
+**Active**: ChatGPT preparing 2.62 on movable-cards: draggable desktop cards, full/compact/minimized phone sheets, automatic compact placement. Preview only; wait for Phil to report GitHub results, do not poll or publish.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -95,6 +95,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| movable-cards | ChatGPT | Movable/minimizable map cards and compact phone building controls; preview only | 2026-10-29 |
 
 
 
@@ -213,6 +214,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Movable and collapsible map cards
+- Branch movable-cards starts at main e4be078360185ba5e94c2cba930dbacd1337c8b4. Shared sheet controls preserve selection/drafts, original inputs/actions and disabled states; session-only layout, no save/schema changes. Phone header swipes resize; desktop header drag clamps to viewport and reclamps on resize. Auto compact placement can be manually expanded or minimized.
+- CHANGES 2.62, guide and intentional style-guide addition included; no matching roadmap item. Added scenario 103 for phone/desktop draft preservation, controls, dragging, resizing and touch buttons; new rendering workflow captures day/night full/compact/minimized cards. Full GitHub suite runs automatically: pause for Phil's results, do not poll.
+- Inline JavaScript, scenario/visual-script syntax and git diff checks pass. Local browser test blocked before execution: Chromium absent. Browser interactions and visuals remain unverified until GitHub checks and Phil preview review. Git push CLI lacks credentials; GitHub connector used for branch commit.
+
 
 ### 2026-10-29 · ChatGPT · 2.61 publication approved
 - Phil reported passed tests and explicitly requested Publish. Verified ed35e04399ba3506eb0a779d3adc3873ac88e408 has all four successful browser groups and descends from current main 8266c7189d320797219baa223d771f5416a3b494 with no divergence. Rendering workflow 40903428654 passed phone/desktop, day/night on the same game code (only tests/handover changed afterward). No manual screenshot review claimed; Phil approved publication.

@@ -60,6 +60,7 @@ Reuse these; don't invent new kinds of control.
 - **Side sheet** (`#sheet`): the main detail and build panel, 300px wide on desktop, a bottom sheet on phones.
   Order: title row (swatch or icon, name, ✕) → one help line → key facts (`.kv`, two columns) → choices →
   costs (`.costs`) → main button → secondary links → a red "Remove…" link last.
+- Map cards minimize without closing or clearing drafts. Drag headers on desktop; phone headers swipe between minimized, compact and full sizes. Compact placement keeps instructions, validation and original action controls. Card layout is session-only.
 - **Buttons:** `.btn` is the accent button (11px corners, bold, soft orange shadow), used once per view.
   `.btn.secondary` is grey; `.btn.danger` is steep red, inside a confirm only. `.link` is underlined text for
   minor actions.
