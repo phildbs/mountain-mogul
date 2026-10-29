@@ -4262,6 +4262,14 @@ function liftTransferMode(L, M) {
   }
   return 'walk';
 }
+// Nearby summit stations can serve the same existing trail entrance. Keep its saved owner;
+// only the extra approach needs the same terrain check as a short station transfer.
+function liftTrailMode(L, T) {
+  if (!T.from || T.from.kind !== 'lift' || isVillage(L)) return null;
+  if (T.from.obj === L) return 'glide';
+  const a = T.samples[0];
+  return distXZ(L.b, a) < STATION_R ? liftTransferMode(L, { type: L.type, a }) : null;
+}
 // The network already checked the ground profile; route scoring only needs the movement penalty.
 const liftTransferCost = (L, M) => 0.5 + distXZ(L.b, M.a) * (trueY(M.a.x, M.a.z) - trueY(L.b.x, L.b.z) > 0.6 ? 0.08 : 0.03);
 function trailNear(p, exclude) {
@@ -4756,7 +4764,7 @@ function computeNetwork() {
   for (const L of world.lifts) {
     L.fromBase = isBase(L.a);
     L.feeders = world.trails.filter((t) => t.to && t.to.kind === 'lift' && t.to.obj === L);
-    L.departing = world.trails.filter((t) => t.from && t.from.obj === L);
+    L.departing = world.trails.filter((t) => liftTrailMode(L, t));
   }
   // Nearby loading stations: glide across level/downhill ground, or walk a short gentle rise.
   for (const L of world.lifts) {
@@ -4768,6 +4776,7 @@ function computeNetwork() {
   const trailR = new Set();
   for (let changed = true; changed;) {
     changed = false;
+    for (const L of liftR) for (const t of L.departing) if (!trailR.has(t)) { trailR.add(t); changed = true; }
     for (const t of world.trails) {
       if (trailR.has(t) || !t.from) continue;
       if ((t.from.kind === 'lift' && liftR.has(t.from.obj)) || (t.from.kind === 'trail' && trailR.has(t.from.obj))) { trailR.add(t); changed = true; }
@@ -7375,6 +7384,9 @@ function canLoad(L) {
 }
 const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 
+// Use the same cable distance and operating speed as actual movement, in simulated minutes.
+const liftRideMinutes = (L) => L.upLen * 10 * PACE / (LIFT_TYPES[L.type].speed * (liftMode(L) === 'slow' ? SLOW.speed : 1) * 60);
+
 /* ---------- Route values: how much a guest would enjoy a path from here ---------- */
 // How much a skier of this ability likes today's snow surface.
 function surfacePref(T, g) {
@@ -7442,7 +7454,7 @@ function vEnd(T, g, depth, memo) {
     for (const M of to.obj.transfers || []) if (canLoad(M)) v = Math.max(v, vLift(M, g, depth + 1, memo) - liftTransferCost(to.obj, M));
     return v;
   }
-  return vLift(to.obj, g, depth + 1, memo);
+  return to.obj.fromBase ? vBase(g, depth + 1, memo, T.samples[T.samples.length - 1]) : vLift(to.obj, g, depth + 1, memo);
 }
 function vLift(L, g, depth, memo) {
   const key = `l${L.id}:${depth}`;
@@ -7452,7 +7464,8 @@ function vLift(L, g, depth, memo) {
   if (!canLoad(L)) v = L.fromBase ? vBase(g, depth, memo, L.a) - 2 : -50;
   else if (g.leaving) v = L.fromBase ? vBase(g, depth, memo, L.a) - 7 : -6;
   else {
-    v = -liftWait(L) * g.qh + (g.seenLift[L.id] ? 0 : 1.5 * g.explore);
+    // Riding is less tiring than waiting, but an extra slow lift still costs skiing time.
+    v = -(liftWait(L) + 0.25 * liftRideMinutes(L) + 0.5) * g.qh + (g.seenLift[L.id] ? 0 : 1.5 * g.explore);
     if (L.type === 'gondola' && todayWx().hi < 20) v += 2.5; // a warm ride on a cold day
     if (depth < 4) {
       let b = -30;
@@ -7710,11 +7723,13 @@ function topDecision(g, L, skipVisit) {
   }
   if (!best) return false;
   const s0 = best.samples[0];
-  g.onSkis = true;
-  setMove(g, s0, 'glide', { k: 'ski', tid: best.id, s: 0 });
+  const mode = liftTrailMode(L, best) || 'glide';
+  g.onSkis = mode !== 'walk';
+  setMove(g, s0, mode, { k: 'ski', tid: best.id, s: 0 });
   return true;
 }
 function startSki(g, T, s) {
+  g.onSkis = true;
   g.st = 'ski'; g.T = T; g.s = s;
   g.nb = 0;
   while (g.nb < T.branches.length && T.branches[g.nb].at * 0.5 < s) g.nb++;
@@ -7762,11 +7777,9 @@ function endOfTrail(g) {
   if (to.kind === 'top') return topDecision(g, to.obj, true) || hikeOut(g);
   const L = to.obj;
   updateLeaving(g);
-  if (L.fromBase && g.leaving) return baseDecision(g);
-  if (!g.leaving && canLoad(L) && maybeVisit(g, L.a, L.fromBase ? 14 : 9, L.fromBase, { k: 'liftq', lid: L.id })) return;
-  if (canLoad(L) && L.fromBase && balk(g, L, { k: 'liftq', lid: L.id })) return;
-  if (canLoad(L) && !(g.leaving && L.fromBase)) return goQueue(g, L, 'glide');
+  // Back at the base, compare all lifts instead of automatically rejoining this endpoint's lift.
   if (L.fromBase) return baseDecision(g);
+  if (!g.leaving && canLoad(L) && maybeVisit(g, L.a, 9, false, { k: 'liftq', lid: L.id })) return;
   if (canLoad(L)) return goQueue(g, L, 'glide');
   return hikeOut(g);
 }
@@ -11449,7 +11462,7 @@ function mealRoute(g, start) {
       const L = n.L, p = n.k === 'top' ? L.b : L.a, radius = n.k === 'top' ? 10 : L.fromBase ? 14 : 9;
       for (const B of world.buildings) if (distXZ(p, B.door) <= radius || (n.k === 'lift' && L.fromBase && B.isBase && sameFoodBase(p, B.door))) consider(B, distXZ(p, B.door) / walking);
       if (n.k === 'top') {
-        for (const T of L.departing) add({ k: 'trail', T, s: 0 }, n.cost + distXZ(p, T.samples[0]) / speed, n.first || { k: 'ski', tid: T.id });
+        for (const T of L.departing) add({ k: 'trail', T, s: 0 }, n.cost + distXZ(p, T.samples[0]) / (liftTrailMode(L, T) === 'walk' ? walking : speed), n.first || { k: 'ski', tid: T.id, from: L.id });
         for (const M of L.transfers || []) if (canLoad(M)) add({ k: 'lift', L: M }, n.cost + distXZ(p, M.a) / walking, n.first || { k: 'transfer', lid: M.id, from: L.id });
       } else if (canLoad(L) && !isVillage(L)) {
         const liftSpeed = LIFT_TYPES[L.type].speed / 10 / PACE * (liftMode(L) === 'slow' ? SLOW.speed : 1) * 60;
@@ -11464,8 +11477,9 @@ function seekMeal(g, start, resume) {
   if (!step) return false;
   if (step.k === 'eat') { startVisit(g, plan.B, plan.svc, resume); return true; }
   if (step.k === 'ski') {
-    const T = trailById(step.tid); g.onSkis = true;
-    setMove(g, T.samples[0], 'glide', { k: 'ski', tid: T.id, s: 0 }); return true;
+    const T = trailById(step.tid), from = liftById(step.from);
+    const mode = from ? liftTrailMode(from, T) || 'glide' : 'glide'; g.onSkis = mode !== 'walk';
+    setMove(g, T.samples[0], mode, { k: 'ski', tid: T.id, s: 0 }); return true;
   }
   if (step.k === 'transfer' || step.k === 'queue') {
     const L = liftById(step.lid), from = liftById(step.from);
@@ -16937,6 +16951,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.62.5', date: 'Oct 29, 2026', title: 'Smarter lift choices', small: true, items: ['Fixed: Skiers returning to the base compare available lifts instead of automatically rejoining the lift beside their trail’s end.', 'Nearby summit lifts can share an existing trail entrance when the approach is safe, without redrawing the trail.', 'Lift choices now weigh ride time as well as queues, transfers and suitable terrain, so a faster direct route gets credit.'] },
   { v: '2.62.4', date: 'Oct 29, 2026', title: 'Privacy policy within reach', small: true, items: ['Open the privacy policy before playing from the title screen, or from the resort menu while playing.', 'Updated the policy to explain guest accounts, online saves, diagnostics, public sharing and friend invitations.'] },
   { v: '2.62.3', date: 'Oct 29, 2026', title: 'Clearer building rotation', small: true, items: ['Fixed: Left and right rotation buttons now turn buildings, benches and picnic tables in the direction shown.', 'Larger rotation arrows and clear Left 90° and Right 90° labels are easier to use on phones.'] },
   { v: '2.62.2', date: 'Oct 29, 2026', title: 'Compare nearby lunch spots', small: true, items: [

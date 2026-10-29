@@ -86,7 +86,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62.4 and starting express-lift routing next. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a. Privacy publication underway; Pages verification pending.
+**Active**: Privacy update 2.62.4 published at 7aab3febddb6be864fcf9607384d81294b4e7fa6; Pages deployment 40960362483 succeeded. ChatGPT preparing 2.62.5 on express-routing for lift route choices. Preview only; pause for Phil's GitHub result without polling.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -100,6 +100,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| express-routing | ChatGPT | Reproduce and fix direct express versus transfer lift route choices | 2026-10-29 |
 
 
 
@@ -218,6 +219,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Express-lift routing candidate
+- Phil authorized the next feedback issue after privacy publication. Candidate 2.62.5 on express-routing starts at main 7aab3febddb6be864fcf9607384d81294b4e7fa6. Reproduced a first-built summit ownership bug with the actual network functions in a controlled VM: upper lift saw a trail, nearby express did not. Reporter-specific saved resort was not retrieved; candidate addresses the observed code paths, not a claimed reproduction of their exact map.
+- Shared summit entrances: liftTrailMode adds safe approaches within the existing 6-unit station radius using existing transfer terrain checks. Canonical trail.from stays unchanged; departure lists/reachability include all serving lifts. Normal and food-seeking guests use the same glide/walk approach; startSki restores skis after a short walk. Distant/steep uphill entrances remain excluded.
+- Returning to a base-lift trail end now invokes baseDecision, comparing all accessible base lifts. vEnd lookahead matches this choice. vLift includes actual simulated cable ride time (slow Operations included), weighted at 0.25 of waiting time plus a small boarding cost, alongside existing queue, ability, terrain, novelty and transfer values. No shortest-path guarantee or hard preference for express lifts; congested express routes can lose.
+- CHANGES 2.62.5 and guide included; no new roadmap feature, no database or serialized-save changes. Old-save coverage remains in the full suite. Added tests/express-routing.mjs (old build fails shared-entrance assertion; fixed build passes shared entrances/order, direct vs transfer, ride length/speed, congestion, base reconsideration and geometry limits) and scenario 107 for valid built geometry, real trail exit/shared-top skiing, closure/wind exclusion and save/reload recomputation. Standalone checks run with scenario 107.
+- Passed standalone source/VM regression, inline JS and scenario syntax, and whitespace checks. Local Chromium unavailable, so no local browser or screenshot pass claimed. GitHub full suite runs on push; pause for Phil results, no polling or publication. Injury-claim balance remains unchanged.
+
 
 ### 2026-10-29 · ChatGPT · Privacy publication approved; routing next
 - Phil reported passed tests, explicitly requested Publish and authorized work on the next issue: express summit lift versus two-lift transfer choices. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a; main is still starting commit b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. Only this handoff changes after the passed candidate. Footer location was Phil's requested revision.
