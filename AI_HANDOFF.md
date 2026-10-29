@@ -82,7 +82,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62 after reporting passed tests. Full Tests 40914666775 succeeded on candidate 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58. Roadmap Phones and tablets now marks these additions with crossed-off steps. Published main at 805d9714e1f2dac9b02e56ca1129d0476af99fb1; Pages deployment verification pending.
+**Active**: Phil approved publishing 2.62 after reporting passed tests. Full Tests 40914666775 succeeded on candidate 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58. Roadmap Phones and tablets now marks these additions with crossed-off steps. Published main at 805d9714e1f2dac9b02e56ca1129d0476af99fb1. GitHub Pages deployment 40915838253 succeeded.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -218,7 +218,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ### 2026-10-29 · ChatGPT · 2.62 publication approved
 - Phil reported tests passed, requested crossed-off Mobile roadmap additions, and explicitly approved publication. Verified full Tests 40914666775 succeeded at 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58; current main remains the branch's starting commit e4be078360185ba5e94c2cba930dbacd1337c8b4. Added four crossed-off steps under existing phones-and-tablets; status remains Ongoing and vote key unchanged.
 - Only roadmap and handoff change after the passed candidate. Game code is identical to Phil's reviewed preview. Dedicated visual workflow 40913379835 was cancelled; no automated rendering success or manual screenshot review claimed. Phil reviewed the preview and approved publication. Local Chromium unavailable. No save/schema changes.
-- Repaired the old visitor button-list assertion without changing gameplay, while adding stronger checks for unchanged visited resort data and blocked building. Cleared WIP row; publication by fast-forward. Pages verification pending.
+- Repaired the old visitor button-list assertion without changing gameplay, while adding stronger checks for unchanged visited resort data and blocked building. Cleared WIP row; publication by fast-forward. GitHub Pages deployment 40915838253 succeeded.
 
 
 ### 2026-10-29 · ChatGPT · Visitor regression assertion updated
@@ -241,7 +241,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ### 2026-10-29 · ChatGPT · 2.61 publication approved
 - Phil reported passed tests and explicitly requested Publish. Verified ed35e04399ba3506eb0a779d3adc3873ac88e408 has all four successful browser groups and descends from current main 8266c7189d320797219baa223d771f5416a3b494 with no divergence. Rendering workflow 40903428654 passed phone/desktop, day/night on the same game code (only tests/handover changed afterward). No manual screenshot review claimed; Phil approved publication.
 - Release includes CHANGES 2.61, player guide, intentional style-guide adjustment, scenario 102 and old-save coverage in the full suite. Local geometry checks passed 9,360 combinations; local Chromium unavailable. No matching roadmap card or database changes. Existing save fields reused with fractional quarter-turn values; old cardinal angles retain exact footprints.
-- Two test-authoring errors were corrected without changing game code or weakening assertions: use stable new-building IDs after terrain refresh reorders neighbors, and select the header close button explicitly in touch tests. Final full suite passed. Cleared WIP row; handover-only publication commit precedes main fast-forward. Pages verification pending.
+- Two test-authoring errors were corrected without changing game code or weakening assertions: use stable new-building IDs after terrain refresh reorders neighbors, and select the header close button explicitly in touch tests. Final full suite passed. Cleared WIP row; handover-only publication commit precedes main fast-forward. GitHub Pages deployment 40915838253 succeeded.
 
 ### 2026-10-29 · ChatGPT · Precise rotation and confirmed seat placement
 - Corrected test candidate: ed35e04399ba3506eb0a779d3adc3873ac88e408. Updated preview (same game code): https://raw.githack.com/phildbs/mountain-mogul/ed35e04399ba3506eb0a779d3adc3873ac88e408/index.html .
