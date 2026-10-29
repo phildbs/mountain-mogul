@@ -210,6 +210,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Hunger review benchmark results
+- Follow-up game code is b640a52ca7d35746b44fa223e2b7787aae448e75. Candidate 92f97dfa774d6195a16213e927e675ddd2e489bb adds corrected test setup/benchmark sites only. Scenario 99 now builds a real Twin resort and snow before openDay (calling openDay on a blank map cannot create today).
+- Price comparison in Chromium, renderer off, Juniper starter + midwinter + reputation 1.6, food/snack ×1 vs ×1.6, seeds 11/29/47. Mean food+dining revenue: main $4,104 → $1,764 (−57.0%); revised branch $4,054 → $1,925 (−52.5%). Unchanged-price retries are gone; a price cut alone reopens a rejected category. This replaces the previous unlimited 30-minute retry behavior.
+- Large-resort benchmark: same canonical validated Twin save on both versions, 2 operating lifts, 20 trails, 13 forks, six parking sections, one large East lodge and one small West lodge (920 seats). Original two-large-lodge setup did not fit the West terrain and was corrected before measurement. Roughly 1,400–1,447 guests in measured runs. One warm-up pair excluded, three measured pairs in alternating order; seeds/settings matched. Median full-day CPU: main 2,464 ms, branch 2,565 ms (+4.1%). Median p95 step 0.3 ms both; maximum observed step main 14.2 ms, branch 13.3 ms. No caching change indicated by this result; graphics cost is excluded, not a mobile FPS claim.
+- Benchmark workflow 40876484745 passed (job 123456505646). Price/setup failure in initial benchmark 40876067987 was a fixture placement issue, not a production failure. Latest full Tests 40876484680 still running. Not published; Claude second review requested after green.
+
 ### 2026-10-29 · ChatGPT · Claude review follow-up
 - Updating hunger-reliability after Claude's review of bcffd80. Price categories now stay rejected at an unchanged price for the rest of the day; only a price cut permits reconsideration. Other meal categories and other services in the same building remain available. Legacy priceRetry.until is ignored; no repeated willingness rolls from waiting. Guide/changelog and focused tests match.
 - Fixed scenario 84 expectation: price rejection excludes the meal category, not the whole lodge (warm-ups/restrooms stay possible). Fixed Twin setup in 99 to call openDay() before makeGuest.
