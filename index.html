@@ -8490,12 +8490,6 @@ function endDay() {
   }
   // Claims follow missed help or a substantial wait, never the injury itself.
   const rescueClaims = patrolClaimReview(ops), claims = rescueClaims.unhelpedClaims + rescueClaims.delayedClaims;
-  const patrolCut = hasBld('patrol') && today.unhelped > 0;
-  let gladeRep = 0;
-  for (const st of Object.values(today.glades || {})) {
-    gladeRep += st.unhelped * 0.01; // someone left hurt in the trees gets talked about
-  }
-  if (gladeRep) state.reputation = clamp(state.reputation - gladeRep, 0.5, 1.5);
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
   // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
@@ -8509,9 +8503,12 @@ function endDay() {
   const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + (today.exp.lease || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
-  // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
-  const repHit = (patrolCut ? today.unhelped * 0.006 : 0) + claims * 0.015;
-  if (repHit) state.reputation = clamp(state.reputation - repHit, 0.5, 1.5);
+  // One coverage penalty per day; claims and glades do not multiply the same rescue failure.
+  const rescueRep = rescueReputation(rescueClaims, today.injuries);
+  rescueRep.before = state.reputation;
+  state.reputation = clamp(state.reputation - rescueRep.loss, 0.5, 1.5);
+  rescueRep.after = state.reputation;
+  const repHit = rescueRep.applied = rescueRep.before - rescueRep.after;
   // Guests who leave early, fed up with the lines, tell their friends.
   if (today.leftLines && today.guests) state.reputation = clamp(state.reputation - today.leftLines / today.guests * 0.05, 0.5, 1.5);
   // The lift with the longest average wait, and what the guests who left early would likely have spent.
@@ -8543,7 +8540,7 @@ function endDay() {
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
@@ -12075,6 +12072,25 @@ function patrolClaimReview(ops) {
   return review;
 }
 
+// Missing all rescues costs at most 0.05 reputation; scale by coverage, not resort size.
+const RESCUE_REP_LIMIT = 0.05;
+function rescueReputation(review, injuries) {
+  const missed = Math.max(0, review.unhelped || 0);
+  const injured = Math.max(injuries || 0, missed + (review.timely || 0) + (review.delayed || 0));
+  const rate = injured ? clamp(missed / injured, 0, 1) : 0;
+  const starter = !hasBld('patrol');
+  return { missed, injured, rate, limit: RESCUE_REP_LIMIT, loss: starter ? 0 : RESCUE_REP_LIMIT * rate, starter };
+}
+function rescueReputationNote(r) {
+  const q = r.rescueRep;
+  if (!q || !q.missed) return ''; // Older reports retain their original results without invented detail.
+  const coverage = `${q.missed} of ${q.injured} injured guests got down without patrol help (${Math.round(q.rate * 100)}%).`;
+  const impact = q.starter ? 'No rescue reputation penalty applies before your first patrol hut.'
+    : q.applied > 0 ? `Rescue problems reduced reputation by ${(q.applied * 100).toFixed(2)} points (${(q.before * 100).toFixed(2)} → ${(q.after * 100).toFixed(2)}).`
+    : 'Reputation was already at its minimum when this penalty was applied.';
+  return `<b>Rescue coverage:</b> ${coverage} ${impact} The daily limit is ${(q.limit * 100).toFixed(0)} points, scaled by the share who missed help. Glades and claims add no separate reputation penalty. Guest satisfaction and other events affect reputation separately. Check patrol staffing and hut locations.`;
+}
+
 function injure(g, T) {
   const p = guestPos(g), A = T && T.glade ? areaById(T.glade) : null;
   g.x = p.x; g.z = p.z; g.yaw = p.yaw;
@@ -14537,6 +14553,8 @@ function showReport(r = state.lastReport, past = false) {
   const ranked = [];
   const note = (p, ...texts) => { for (const t of texts) ranked.push([p, ranked.length, t]); };
   if (state.debt > creditLimit()) note(5, `<b>The bank is nervous.</b> You owe ${money(state.debt)}, over your ${money(creditLimit())} limit.`);
+  const rescueNote = rescueReputationNote(r);
+  if (rescueNote) note(5, rescueNote);
   note(4, ...opsNotes(r));
   if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
@@ -16994,6 +17012,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },
   { v: '2.63', date: 'Oct 29, 2026', title: 'Friday plans and uninterrupted typing', items: ['Choose Use weekend plan on Fridays in Operations to apply that plan automatically every Friday, including quiet season. Individual day choices still take priority; ticket prices and crowd demand are unchanged.', 'Fixed: Live card updates keep text fields focused while you edit. Typing and composing text take priority over game hotkeys.'] },
   { v: '2.62.6', date: 'Oct 29, 2026', title: 'Fairer ski patrol claims', small: true, items: ['Fixed: Serious glade injuries no longer have a separate automatic chance of an injury claim.', 'Rescues within 30 minutes do not trigger claims. Claims can follow missed help or substantial delays, regardless of the skier’s ability.', 'Day reports explain whether claims followed missed rescues or long waits.'] },
   { v: '2.62.5', date: 'Oct 29, 2026', title: 'Smarter lift choices', small: true, items: ['Fixed: Skiers returning to the base compare available lifts instead of automatically rejoining the lift beside their trail’s end.', 'Nearby summit lifts can share an existing trail entrance when the approach is safe, without redrawing the trail.', 'Lift choices now weigh ride time as well as queues, transfers and suitable terrain, so a faster direct route gets credit.'] },

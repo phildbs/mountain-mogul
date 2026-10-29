@@ -1,0 +1,23 @@
+// Coverage should matter equally at small and large resorts, independently of claims or glades.
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import assert from 'node:assert/strict';
+const src = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const fn = name => { const a = src.indexOf('function ' + name + '('); assert(a >= 0); return src.slice(a, src.indexOf('\n}', a) + 2); };
+let hut = true;
+const api = runInNewContext('const RESCUE_REP_LIMIT = 0.05;\n' + ['rescueReputation', 'rescueReputationNote'].map(fn).join('\n') + '\n({rescueReputation,rescueReputationNote})', { hasBld: () => hut, clamp: (v,a,b) => Math.max(a,Math.min(b,v)) });
+const loss = (missed, injured, extra = {}) => api.rescueReputation({ unhelped: missed, ...extra }, injured).loss;
+assert.equal(loss(0, 0), 0, 'no injuries create no penalty');
+assert.equal(loss(0, 100, { timely: 90, delayed: 10, delayedClaims: 10 }), 0, 'rescued guests and claims create no extra reputation penalty');
+assert.equal(loss(10, 100), loss(1000, 10000), 'equal coverage gets equal penalty at any resort size');
+assert(Math.abs(loss(10, 100) - .005) < 1e-12, 'one in ten uses one tenth of the daily limit');
+assert.equal(loss(100, 100), .05, 'fully missed rescue day reaches the daily cap');
+assert.equal(loss(1000, 0), .05, 'incomplete older totals cannot exceed the cap');
+assert.equal(loss(10, 100, { unhelpedClaims: 10, glades: { x: { unhelped: 10 } } }), loss(10, 100), 'claims and glade counts never multiply the penalty');
+hut = false; assert.equal(loss(10,100),0,'starter protection before first hut'); hut = true;
+const q = { ...api.rescueReputation({unhelped:10},100), before:1,after:.995,applied:.005 };
+const note = api.rescueReputationNote({rescueRep:q});
+assert(note.includes('10 of 100') && note.includes('0.50 points') && note.includes('daily limit is 5 points'), 'report explains coverage and applied loss');
+assert.equal(api.rescueReputationNote({}), '', 'old reports do not invent a new penalty');
+assert(api.rescueReputationNote({rescueRep:{...q, applied:0}}).includes('minimum'), 'floor explains zero actual loss');
+console.log('PASS proportional rescue coverage, scale invariance, cap, no overlap, starter grace and report compatibility');

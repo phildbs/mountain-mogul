@@ -69,7 +69,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: nothing in progress.
+**Active**: `rescue-reputation` · 2.63.1 candidate; proportionate rescue reputation penalties and report explanations. Await Phil’s GitHub result; do not poll or publish.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -87,6 +87,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| rescue-reputation | ChatGPT | One capped rescue coverage penalty and report explanations | 2026-10-29 |
 
 ## Known issues
 
@@ -235,6 +236,12 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-29 · ChatGPT · Rescue reputation candidate
+- Phil authorized only overlapping rescue penalties, a daily rescue reputation limit and report explanations; night operations, demand, prices and historical reputation are unchanged. Branch `rescue-reputation` starts at main `9803588`; version 2.63.1.
+- Removed the separate glade loss and per-financial-claim loss. One penalty is `0.05 * missed / injured` (maximum 0.05 per day), using claim review’s de-duplicated missed count. Equal coverage gives equal loss at any resort size. Missing injury totals use known rescue outcomes safely; before the first hut remains protected.
+- Reports save optional `rescueRep` coverage, limit, requested loss and actual before/after loss after the reputation floor; the high-priority explanation uses reputation points (100 times the internal factor). Satisfaction and other reputation effects remain separate. Old reports retain their original results with no invented breakdown.
+- Standalone rescue reputation tests and all existing controlled claim checks passed; game/scenario syntax and diff checks passed. Added browser scenario 110 for real endDay settlement, glade/claim overlap, scale, cap, floor, satisfaction and report reload. Browser scenarios 110,108,81,32 and visual checks cannot run locally: Chromium is absent. GitHub runs the full suite on push; pause without polling until Phil reports results. Guide and CHANGES updated; no database/roadmap change. Not published.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
