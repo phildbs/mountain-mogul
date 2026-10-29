@@ -94,7 +94,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| roadmap-obstacle-avoidance | ChatGPT | Exploring card: skiers go around people, buildings, trees and other obstacles | 2026-10-29 |
 
 
 
@@ -216,7 +215,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-29 · ChatGPT · Skier obstacle avoidance roadmap
 - Phil requested an Exploring addition: skiers should go around other skiers, buildings, trees and other obstacles rather than passing through them. Added “Skier obstacle avoidance” under Fixes and polish on roadmap-obstacle-avoidance, commit abd3584a3f1e530eb7b928ff5c273b3db49377a1, from main 70d71f8399b951c8a7307996e1913e675f65a463. New vote ID skier-obstacle-avoidance; existing IDs preserved and uniqueness checked.
-- Roadmap wording only, no game implementation, database change or version bump. Tests skipped per docs-only policy. Ready for Publish instruction; not yet on main.
+- Roadmap wording only, no game implementation, database change or version bump. Tests skipped per docs-only policy. Published to main at abd3584a3f1e530eb7b928ff5c273b3db49377a1 after Phil’s explicit Publish instruction. Pages deployment pending.
 
 ### 2026-10-29 · ChatGPT · 2.60 publication approved
 - Phil explicitly requested Publish after reporting successful checks. Verified candidate 05c83dedf4d539a9112cf357b13f4d27d4cbb989: four browser test groups and screenshot job all succeeded; main ac3c23078da57cb95c92ba8a72fa120d5467e780 is its ancestor with no divergence. Version/guide/regression coverage included; no matching roadmap item and no database changes.
