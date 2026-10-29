@@ -7,7 +7,7 @@ export default async function ({ browser, url }) {
     await g.ev(`state.cash=1e8;window.findPlacement=(type,deg=37)=>{for(let z=45;z<80;z+=1)for(let x=-35;x<35;x+=1){const v=evalBuilding(type,x,z,deg/90);if(!v.problems.length)return {x,z};}throw Error('No spot for '+type);}`);
     const press = async (selector) => touch ? g.page.locator(selector).tap() : g.click(selector);
     for (const type of ['bench', 'picnic', 'lodge']) {
-      const before = await g.ev(`({cash:state.cash,n:world.buildings.length})`);
+      const before = await g.ev(`(() => {window.placementIds=new Set(world.buildings.map(B=>B.id));return {cash:state.cash,n:world.buildings.length};})()`);
       await g.ev(`pickBuilding('${type}');setDraftDegrees(37);draftTap(window.findPlacement('${type}'));recomputeDraft()`);
       eq(await g.ev(`({cash:state.cash,n:world.buildings.length})`), before, `${type}: map tap only previews (${touch?'touch':'mouse'})`);
       // A real input event updates the ghost without replacing a slider mid-gesture.
@@ -19,7 +19,8 @@ export default async function ({ browser, url }) {
       const cost = await g.ev(`draft.info.cost`);
       assert(await g.ev(`!draft.info.problems.length`), `${type} preview is valid`);
       await press('#sheet [data-action=build]');
-      const placed = await g.ev(`(() => {const B=world.buildings.at(-1),s=bspec(B),local=modelFor(B.type,B.style)(B.tier,B,true).seats,door=toWorld(B,0,s.d/2+0.35);return {id:B.id,type:B.type,rot:B.rot,n:world.buildings.length,cash:state.cash,door:Math.hypot(B.door.x-door.x,B.door.z-door.z)<1e-8,seats:B.seatsW.every((p,i)=>{const q=toWorld(B,local[i].x,local[i].z);return Math.hypot(p.x-q.x,p.z-q.z)<1e-8&&Math.abs(p.yaw-local[i].yaw-B.rot*Math.PI/2)<1e-8;}),ready:draft.bpos===null};})()`);
+      // Leveling a site rebuilds nearby objects and can reorder the list; IDs identify the new one.
+      const placed = await g.ev(`(() => {const added=world.buildings.filter(B=>!window.placementIds.has(B.id));if(added.length!==1)throw Error('Expected one new building, got '+added.length);const B=added[0],s=bspec(B),local=modelFor(B.type,B.style)(B.tier,B,true).seats,door=toWorld(B,0,s.d/2+0.35);return {id:B.id,type:B.type,rot:B.rot,n:world.buildings.length,cash:state.cash,door:Math.hypot(B.door.x-door.x,B.door.z-door.z)<1e-8,seats:B.seatsW.every((p,i)=>{const q=toWorld(B,local[i].x,local[i].z);return Math.hypot(p.x-q.x,p.z-q.z)<1e-8&&Math.abs(p.yaw-local[i].yaw-B.rot*Math.PI/2)<1e-8;}),ready:draft.bpos===null};})()`);
       eq([placed.type,Math.round(placed.rot*90),placed.n,placed.cash,placed.door,placed.seats,placed.ready],[type,37,before.n+1,before.cash-cost,true,true,true], 'confirmed once, charged once, rotated door and seats, ready for another');
       await g.click('#sheet [data-action=build]');
       eq(await g.ev(`world.buildings.length`),before.n+1,'double confirmation cannot place another');
