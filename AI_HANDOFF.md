@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58.3: eligible lunch alternatives and lodge how-to. Published Oct 29 after all four GitHub browser shards passed.
 - 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
 - 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
 - 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
@@ -77,7 +78,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.58.2 publication approved after full GitHub browser tests passed. Published main at f425628fc994d477825593cfce15cf15e065a135; deployment verification pending. Trail/glade popularity reporting remains pending.
+**Active**: 2.58.3 published at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2 after Phil approved. Hunger reliability improvements underway on hunger-reliability.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -91,7 +92,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| lodge-lunch-check | ChatGPT | Verify lodge meals and fix inaccessible lunch alternatives; guide clarification | 2026-10-29 |
+| hunger-reliability | ChatGPT | Food-seeking, full-day meals, price retries and accurate hunger outcomes | 2026-10-29 |
 
 
 ## Known issues
