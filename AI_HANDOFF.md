@@ -70,7 +70,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: nothing in progress.
+**Active**: `reputation-panel` · 2.64 candidate; Business reputation tracking and 14-day trend. Await Phil’s GitHub results; do not poll or publish.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -88,6 +88,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| reputation-panel | ChatGPT | Reputation score, actual change ledger and daily trend | 2026-10-29 |
 
 ## Known issues
 
@@ -237,6 +238,12 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-29 · ChatGPT · Reputation panel candidate
+- Phil requested further design and implementation of Business → Reputation. Branch `reputation-panel` starts at current main `87c4985`; version 2.64. Mobile entry is More → Reputation, matching other Business panels; visitors may read it.
+- Current score on the 50–150 point scale, standing, last operating day’s start/end/net and cause rows, accessible SVG trend and expandable daily scores for the last 14 operating days. Recent changes include overnight borrowing. Older saved scores remain visible without invented causes.
+- `changeReputation` preserves existing order, amounts and 0.5–1.5 bounds for satisfaction, rescue coverage, lift-line departures, rowdiness, events and emergency borrowing. Logs actual post-limit changes and attempted amounts so a cap explains a zero gain/loss. Optional bounded `state.repLog` (120 entries) is saved in clock with null old-save default; optional `report.repDay` holds settlement-only breakdown. No new backend fields or balance changes.
+- Standalone reputation tracking, rescue reputation and existing claim checks passed; syntax/diff checks passed. Added scenario 111 for Business/phone navigation, actual settlement reconciliation, borrowing, reload and legacy saves; updated 45’s expected submenu. Related browser scenarios 111,110,108,45,19,32 could not launch because Chromium is absent; desktop/phone visual verification remains outstanding. Full GitHub suite runs on push; pause without polling for Phil’s results. Guide/CHANGES updated; no newly delivered roadmap item. Not published.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
