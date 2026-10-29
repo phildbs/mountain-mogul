@@ -95,6 +95,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| movable-cards | ChatGPT | Movable/minimizable map cards and compact phone building controls; preview only | 2026-10-29 |
 
 
 
