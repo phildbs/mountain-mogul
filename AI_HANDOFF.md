@@ -83,7 +83,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.62.1 published with Phil’s explicit approval after passed tests. Reviewed candidate c723882122a301248602ea924a894bd29b44fbb2 passed full Tests 40921352334. Main is 666fff5576d70daa8b75388d2f362c2ce13f9c72 (only handoff documentation added after tests). GitHub Pages deployment 40923468862 succeeded.
+**Active**: Candidate 2.62.2 on `compare-trailside-food` fixes the reproduced single-venue trail-stop food choice. Preview 4a1db691e2ef2cf2c707cdb225a3462422475492; tests pending. Pause for Phil’s result and publication instruction.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -216,6 +216,16 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Compare food stops before joining a trail-side line
+- New player screenshot reports zero casual-restaurant visits beside a busy mid-station café/truck. Exact player resort was not inspected. Reproduced a concrete bug using actual `updateSki`/`bestVisit` functions: passing a café with a 20.6-minute estimated queue selected the café, while comparing the same nearby café and empty restaurant selected the restaurant. Cause: trail stops passed only `[st.B]` to `bestVisit`, so the existing faster-food alternative check had no alternatives. This can explain the report, not proof of that resort’s sole cause.
+- Candidate 2.62.2, branch `compare-trailside-food` from main `666fff5576d70daa8b75388d2f362c2ce13f9c72`. While seeking lunch, trail stops now compare registered stops on the same trail within 20 units of the encountered venue, with at most APRES_CLIMB (4 units) elevation difference between alternative doors. No world-wide shortlist or new disconnected routes. Non-lunch-only stops keep the single-venue choice.
+- Existing preferences, operating hours, waits, price rejections and queue-switching rules still decide the choice. Resume at the chosen stop, never behind current ski progress. No forced equal venue counts or restaurant demand bonus. Truck takeaway/after-meal warming unchanged.
+- Changelog and guide updated. No matching roadmap card shipped; no save/schema changes. Scenario 105 exercises the actual trail stop, paid meal and resume, closed/rejected/distant/steep/unregistered exclusions and no backtracking. Local before/after VM reproduction passes, plus game/test syntax and whitespace checks. Local Chromium remains unavailable; browser scenarios and visuals have not been run here. Automatic full GitHub tests pending; pause for Phil’s results without polling.
+
+
+- Preview candidate: `4a1db691e2ef2cf2c707cdb225a3462422475492`. Full automatic GitHub browser tests pending; pause for Phil’s result.
+
 
 ### 2026-10-29 · ChatGPT · Takeaway warming breaks published
 - Phil reported tests passed and requested Publish. Verified full Tests 40921352334 succeeded at c723882122a301248602ea924a894bd29b44fbb2, then fast-forwarded main to 666fff5576d70daa8b75388d2f362c2ce13f9c72; game/tests identical to the passed candidate, only handoff documentation added. Pages deployment 40923468862 completed successfully. WIP cleared.
