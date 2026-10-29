@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.61: precise whole-degree building/bench/table rotation, overnight Rotate it, and explicit bench/table placement confirmation on desktop and touch.
 - 2.60: edit weekday/weekend/quiet operating plans directly on building and lift cards; choose eight lift colors without interrupting riders.
 - 2.59: connected food-seeking, full-day meal searches, price-cut retries and accurate meal outcomes with original hunger locations. Published Oct 29 after full tests and paired benchmarks passed.
 - 2.58.3: eligible lunch alternatives and lodge how-to. Published Oct 29 after all four GitHub browser shards passed.
@@ -80,7 +81,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT is preparing 2.61 on `precise-placement`: precise rotation and confirmed bench/table placement. Full GitHub suite and phone/desktop rendering checks run on push. Wait for Phil to report results; no test polling or publication without his instruction.
+**Active**: Phil approved publishing 2.61 after reporting passed tests. Candidate ed35e04399ba3506eb0a779d3adc3873ac88e408 has four successful browser groups. Phone/desktop day/night rendering checks passed on the identical game code. Published main at e4be078360185ba5e94c2cba930dbacd1337c8b4; Pages deployment verification pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -94,7 +95,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| precise-placement | ChatGPT | Precise building/bench/table rotation; confirm seat placement | 2026-10-29 |
 
 
 
@@ -213,6 +213,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.61 publication approved
+- Phil reported passed tests and explicitly requested Publish. Verified ed35e04399ba3506eb0a779d3adc3873ac88e408 has all four successful browser groups and descends from current main 8266c7189d320797219baa223d771f5416a3b494 with no divergence. Rendering workflow 40903428654 passed phone/desktop, day/night on the same game code (only tests/handover changed afterward). No manual screenshot review claimed; Phil approved publication.
+- Release includes CHANGES 2.61, player guide, intentional style-guide adjustment, scenario 102 and old-save coverage in the full suite. Local geometry checks passed 9,360 combinations; local Chromium unavailable. No matching roadmap card or database changes. Existing save fields reused with fractional quarter-turn values; old cardinal angles retain exact footprints.
+- Two test-authoring errors were corrected without changing game code or weakening assertions: use stable new-building IDs after terrain refresh reorders neighbors, and select the header close button explicitly in touch tests. Final full suite passed. Cleared WIP row; handover-only publication commit precedes main fast-forward. Pages verification pending.
 
 ### 2026-10-29 · ChatGPT · Precise rotation and confirmed seat placement
 - Corrected test candidate: ed35e04399ba3506eb0a779d3adc3873ac88e408. Updated preview (same game code): https://raw.githack.com/phildbs/mountain-mogul/ed35e04399ba3506eb0a779d3adc3873ac88e408/index.html .
