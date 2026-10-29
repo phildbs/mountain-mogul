@@ -87,7 +87,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62.5 after reporting passed tests. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d. Publishing approved game code unchanged; Pages verification pending.
+**Active**: ChatGPT preparing 2.62.6 on patrol-claim-fairness: claims follow actual rescue outcomes with a 30-minute grace period; no separate severe-glade roll. Preview only. Pause for Phil's GitHub results without polling or publishing.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -101,6 +101,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-claim-fairness | ChatGPT | Tie injury claims to actual rescue outcomes and explain them in reports | 2026-10-29 |
 
 
 
@@ -220,10 +221,18 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Fairer patrol claim candidate
+- Phil approved the proposed claim fairness changes and asked to be told when done. Branch patrol-claim-fairness starts at current main 937021ccac53b869b8ab932b0fde08745235f2a5. Removed the independent 30% serious-glade claim roll. Severity, ability and signing do not themselves create liability in this game rule.
+- noteRescue records actual pickup response or missed help once per injury (injure resets its flag). Rescues within 30 simulated minutes never roll for claims. Later pickup odds rise linearly over 40 minutes to the existing missed-rescue odds (12% with an open hut, 25% with all huts closed; existing clinic mitigation retained). Ordinary missed rescues remain eligible once, not also as glade claims. Existing starter grace before the first hut remains. Claim unit cost stays $9,000 times mountain costs; payroll/upkeep unchanged. Reputation penalties follow actual claims plus existing missed-help/glade effects.
+- Day report rescueClaims breakdown and opsNotes distinguish missed help from waits beyond 30 minutes; old reports explicitly lack a reason breakdown rather than blaming staffing. Advisor suggests reviewing hut coverage, headcounts and locations. CHANGES 2.62.6 and guide updated, including obsolete glade wording. No specific roadmap card newly delivered.
+- Optional today.rescues, guest.rescueLogged and claimExemptMissed persist through the existing simulation serializer. Loading a towing guest retains the fact pickup already happened (also for older saves), so restarted pickup/delivery cannot fabricate a second late/missed claim. Legacy aggregate missed counts remain recognized; no historical delays inferred from average response time. Full suite includes 32-old-saves.
+- Passed source/VM tests: 40 prompt wait/severity/ability combinations with zero claim draws, gradual/capped delay odds, no double glade/missed roll, report reasons/legacy fallback, old-save defaults, starter grace and clinic mitigation. Syntax/whitespace passed. New scenario 108 exercises actual patrol pickups/missed help, day-end cash reconciliation/report causes, new/old towing saves and duplicate suppression. Local Chromium unavailable; no local browser/screenshot success claimed. GitHub full suite runs on push; pause for Phil results without polling.
+
+
 ### 2026-10-29 · ChatGPT · 2.62.5 publication approved
 - Phil reported passed tests and explicitly requested Publish. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d; current main remains starting commit 7aab3febddb6be864fcf9607384d81294b4e7fa6. Only this handoff changes after the passed candidate; fast-forward publication.
 - Release: base-lift trail ends reconsider available lifts, safe shared summit trail entrances, ride-time/operating-speed scoring alongside queues/terrain, matching walking/gliding approach for food routes. CHANGES 2.62.5 and guide included; no newly delivered roadmap card, database changes or serialized-save format change. Full browser suite includes old-save checks and corrected new scenario 107.
-- Local source/VM checks passed; actual browser suite passed after fixing test fixture coordinates (original choices were too steep). No gameplay changes or weakened assertions in fixture correction. Local Chromium unavailable; no screenshot review claimed. Cleared WIP; Pages verification pending. Injury-claim fairness is still unmodified and is the remaining feedback issue.
+- Local source/VM checks passed; actual browser suite passed after fixing test fixture coordinates (original choices were too steep). No gameplay changes or weakened assertions in fixture correction. Local Chromium unavailable; no screenshot review claimed. Cleared WIP; GitHub Pages deployment 40963941439 succeeded. Injury-claim fairness is still unmodified and is the remaining feedback issue.
 
 
 ### 2026-10-29 · ChatGPT · Corrected express regression fixture placement
@@ -244,7 +253,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-29 · ChatGPT · Privacy publication approved; routing next
 - Phil reported passed tests, explicitly requested Publish and authorized work on the next issue: express summit lift versus two-lift transfer choices. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a; main is still starting commit b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. Only this handoff changes after the passed candidate. Footer location was Phil's requested revision.
-- Privacy links and current-data disclosures ready; no new collection, auth/database changes or school compliance claim. Browser link/pop-up checks passed; local static/syntax checks passed. No rendered screenshot review claimed. Cleared privacy WIP. Pages verification pending. Lift routing work follows on a separate branch; injury-claim balance remains unchanged.
+- Privacy links and current-data disclosures ready; no new collection, auth/database changes or school compliance claim. Browser link/pop-up checks passed; local static/syntax checks passed. No rendered screenshot review claimed. Cleared privacy WIP. GitHub Pages deployment 40963941439 succeeded. Lift routing work follows on a separate branch; injury-claim balance remains unchanged.
 
 
 ### 2026-10-29 · ChatGPT · Privacy footer placement revision

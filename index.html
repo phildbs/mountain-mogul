@@ -7368,7 +7368,7 @@ function newToday() {
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, apres: 0, night: 0 },
     apres: { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 },
     night: { guests: 0, stayed: 0, lifts: 0, runs: {} }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
-    injuries: 0, helped: 0, unhelped: 0, patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
+    injuries: 0, helped: 0, unhelped: 0, rescues: [], patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0 }, satSum: 0, satN: 0,
   };
@@ -8478,16 +8478,11 @@ function endDay() {
     today.rowdy = Math.min(0.025, late * 0.0005 * (runOps.dayKind === 'weekend' ? 1 : 1.5));
     if (today.rowdy) state.reputation = clamp(state.reputation - today.rowdy, 0.5, 1.5);
   }
-  // Short-handed patrol: an injury can turn into a claim against the resort.
-  let claims = 0;
-  const patrolCut = hasBld('patrol') && today.unhelped > 0; // missed rescues at an established patrol, not a staffing toggle
-  if (patrolCut) {
-    const odds = (world.buildings.some((B) => B.type === 'patrol' && ops.bld[B.id] !== 'closed') ? 0.12 : 0.25) * (hasBld('clinic') ? 0.5 : 1);
-    for (let k = 0; k < today.unhelped; k++) if (Math.random() < odds) claims++;
-  }
+  // Claims follow missed help or a substantial wait, never the injury itself.
+  const rescueClaims = patrolClaimReview(ops), claims = rescueClaims.unhelpedClaims + rescueClaims.delayedClaims;
+  const patrolCut = hasBld('patrol') && today.unhelped > 0;
   let gladeRep = 0;
   for (const st of Object.values(today.glades || {})) {
-    for (let k = 0; k < st.severe; k++) if (Math.random() < 0.3) claims++;
     gladeRep += st.unhelped * 0.01; // someone left hurt in the trees gets talked about
   }
   if (gladeRep) state.reputation = clamp(state.reputation - gladeRep, 0.5, 1.5);
@@ -8505,7 +8500,7 @@ function endDay() {
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) state.reputation = clamp(state.reputation + (sat - 66) / 900, 0.5, 1.5);
   // When the plan cut the patrol, guests left on the snow, and claims, get talked about.
-  const repHit = patrolCut ? today.unhelped * 0.006 + claims * 0.015 : 0;
+  const repHit = (patrolCut ? today.unhelped * 0.006 : 0) + claims * 0.015;
   if (repHit) state.reputation = clamp(state.reputation - repHit, 0.5, 1.5);
   // Guests who leave early, fed up with the lines, tell their friends.
   if (today.leftLines && today.guests) state.reputation = clamp(state.reputation - today.leftLines / today.guests * 0.05, 0.5, 1.5);
@@ -8538,7 +8533,7 @@ function endDay() {
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
@@ -9590,7 +9585,7 @@ function restoreSim(sim) {
   for (const r of sim.guests) {
     const g = { ...r, T: r.T != null ? trailById(r.T) : null, L: r.L != null ? liftById(r.L) : null };
     if ((g.st === 'ski' && !g.T) || ((g.st === 'ride' || g.st === 'queue') && !g.L)) { g.st = 'walk'; g.then = { k: 'car' }; }
-    if (g.st === 'tow') g.st = 'hurt';
+    if (g.st === 'tow') { g.st = 'hurt'; g.rescueLogged = true; } // pickup already happened, including in older saves
     if (g.st === 'hurt') g.rescuer = false;
     const B = g.bid != null ? bldById(g.bid) : null;
     if ((g.st === 'bq' || g.st === 'inside' || g.st === 'lesson') && !B) { g.st = 'walk'; g.then = { k: 'car' }; g.leaving = true; }
@@ -12045,10 +12040,35 @@ function hungerSummary(h) {
 const hungerOf = (g) => (g.ate && !g.skipped ? 0.12 : clamp((state.time - (g.lunchAt - 160)) / 200, 0, 1));
 
 /* ---------- Ski patrol ---------- */
+const RESCUE_GRACE = 30;
+function noteRescue(g, unhelped, wait = state.time - g.hurtAt) {
+  if (g.rescueLogged) return;
+  g.rescueLogged = true;
+  (today.rescues || (today.rescues = [])).push({ wait: Math.max(0, wait), unhelped: !!unhelped });
+}
+function rescueClaimOdds(wait, unhelped, base) {
+  // Thirty minutes is a grace period, not a five-minute performance target.
+  return unhelped ? base : base * clamp((wait - RESCUE_GRACE) / 40, 0, 1);
+}
+function patrolClaimReview(ops) {
+  const rescues = today.rescues || [], review = { timely: 0, delayed: 0, unhelped: Math.max(0, (today.unhelped || 0) - (today.claimExemptMissed || 0)), grace: RESCUE_GRACE, unhelpedClaims: 0, delayedClaims: 0 };
+  for (const r of rescues) if (!r.unhelped) review[r.wait > RESCUE_GRACE ? 'delayed' : 'timely']++;
+  if (!hasBld('patrol')) return review; // keep existing starter-resort grace before its first hut
+  const open = world.buildings.some(B => B.type === 'patrol' && ops.bld[B.id] !== 'closed');
+  const base = (open ? 0.12 : 0.25) * (hasBld('clinic') ? 0.5 : 1);
+  // The aggregate includes missed rescues recorded by older mid-day saves.
+  for (let i = 0; i < review.unhelped; i++) if (Math.random() < base) review.unhelpedClaims++;
+  for (const r of rescues) if (!r.unhelped) {
+    const odds = rescueClaimOdds(r.wait, false, base);
+    if (odds > 0 && Math.random() < odds) review.delayedClaims++;
+  }
+  return review;
+}
+
 function injure(g, T) {
   const p = guestPos(g), A = T && T.glade ? areaById(T.glade) : null;
   g.x = p.x; g.z = p.z; g.yaw = p.yaw;
-  g.st = 'hurt'; g.hurtAt = state.time; g.T = null; g.rescuer = false;
+  g.st = 'hurt'; g.hurtAt = state.time; g.T = null; g.rescuer = false; g.rescueLogged = false;
   // In a glade it's a tree, not just a fall, and the tighter the trees the likelier it's serious.
   g.glade = A ? A.id : null; g.severe = !!A && Math.random() < T.gladeSevere;
   g.sat = clamp(g.sat - (g.severe ? 25 : 15), 0, 100);
@@ -12144,6 +12164,9 @@ function patrolStep(dt) {
       const clinic = openClinic(g);
       if (g.glade != null) gladeDay(g.glade).unhelped++;
       g.sat = clamp(g.sat - (clinic ? 18 : 25), 0, 100); today.unhelped++;
+      // Loading a tow restarts pickup movement; do not charge a second claim for it.
+      if (g.rescueLogged) today.claimExemptMissed = (today.claimExemptMissed || 0) + 1;
+      noteRescue(g, true);
       if (clinic) clinic.today.visits += AGENT;
       thought(g, clinic ? `Nobody came to help, so I limped down. At least ${clinic.name} looked after me.` : 'Nobody came to help. I had to limp down on my own.');
       g.leaving = true; g.onSkis = false;
@@ -12157,6 +12180,7 @@ function patrolStep(dt) {
       if (!g || g.st !== 'hurt') { c.st = 'back'; continue; }
       if (moveXZ(c, g.x, g.z, PATROL_SPEED * dt * (g.glade != null ? 0.6 : 1))) { // slower going in the trees
         const cl = openClinic(g); c.st = 'tow'; g.st = 'tow'; c.dest = firstAidPoint(g); c.clinic = cl ? cl.id : null; c.resp = state.time - g.hurtAt;
+        noteRescue(g, false, c.resp);
         if (g.glade != null) { const st = gladeDay(g.glade); st.resp += c.resp; st.reached++; }
       }
     } else if (c.st === 'tow') {
@@ -15319,7 +15343,13 @@ function opsReportHtml(r) {
 function opsNotes(r) {
   const o = r.ops, out = [];
   if (!o) return out;
-  if (o.claims) out.push(`<b class="neg">${o.claims === 1 ? 'An injured guest has' : `${o.claims} injured guests have`} filed a claim (${money(r.exp.claims)}).</b> A short-handed patrol was slow to reach them, and word gets around.`);
+  if (o.claims) {
+    const q = r.rescueClaims, why = [];
+    if (q && q.unhelpedClaims) why.push(`${q.unhelpedClaims} followed guests getting down without patrol help.`);
+    if (q && q.delayedClaims) why.push(`${q.delayedClaims} followed waits longer than ${q.grace} minutes before patrol arrived.`);
+    if (!q) why.push('This older report does not include a rescue-outcome breakdown.');
+    out.push(`<b class="neg">${o.claims === 1 ? 'An injured guest has' : `${o.claims} injured guests have`} filed a claim (${money(r.exp.claims)}).</b> ${why.join(' ')} An injury alone does not trigger a claim.`);
+  }
   if (o.lots.away) out.push(`<b>${o.lots.away} guests were turned away</b> with ${o.lots.total - o.lots.open} parking ${o.lots.total - o.lots.open === 1 ? 'section' : 'sections'} closed. That’s about ${money(o.lots.away * ticketOn(r.day))} in tickets.`);
   if (o.letdown >= 4) out.push(`Guests noticed the cutbacks: satisfaction started ${o.letdown} points lower${o.dayKind === 'weekend' ? ', and weekend crowds expect the full resort' : ''}.`);
   else if (o.letdown < 0) out.push(`Guests loved the extra staff: satisfaction started ${-o.letdown} points higher.`);
@@ -15344,7 +15374,7 @@ function opsTips(r) {
     if (B.mode === 'open' && EATS.includes(B.type) && B.profit < 0 && !busy && B.visits < 60) tips.push([-B.profit, `${B.name} lost ${money(-B.profit)} serving ${B.visits} guests. Opening it for lunch only on ${plan} days would cut that.`]);
   }
   if (busy && o.letdown >= 6) tips.push([o.letdown * r.guests * 3, `Weekend guests were let down by the cutbacks. Run more of the resort in the ${plan} plan; reputation is worth more than the savings.`]);
-  if (o.claims) tips.push([r.exp.claims * 2, `Injury claims cost ${money(r.exp.claims)}. More patrollers can help guests get care sooner.`]);
+  if (o.claims) tips.push([r.exp.claims * 2, `Injury claims cost ${money(r.exp.claims)}. Check open patrol huts, headcounts and locations to reduce missed rescues and long waits.`]);
   return tips;
 }
 const VISIT_WORD = { food: 'Having lunch at', warm: 'Warming up at', dine: 'Dining at', apres: 'Enjoying après at', rr: 'Using the restrooms at', rent: 'Getting fitted at' };
@@ -16951,6 +16981,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.62.6', date: 'Oct 29, 2026', title: 'Fairer ski patrol claims', small: true, items: ['Fixed: Serious glade injuries no longer have a separate automatic chance of an injury claim.', 'Rescues within 30 minutes do not trigger claims. Claims can follow missed help or substantial delays, regardless of the skier’s ability.', 'Day reports explain whether claims followed missed rescues or long waits.'] },
   { v: '2.62.5', date: 'Oct 29, 2026', title: 'Smarter lift choices', small: true, items: ['Fixed: Skiers returning to the base compare available lifts instead of automatically rejoining the lift beside their trail’s end.', 'Nearby summit lifts can share an existing trail entrance when the approach is safe, without redrawing the trail.', 'Lift choices now weigh ride time as well as queues, transfers and suitable terrain, so a faster direct route gets credit.'] },
   { v: '2.62.4', date: 'Oct 29, 2026', title: 'Privacy policy within reach', small: true, items: ['Open the privacy policy before playing from the title screen, or from the resort menu while playing.', 'Updated the policy to explain guest accounts, online saves, diagnostics, public sharing and friend invitations.'] },
   { v: '2.62.3', date: 'Oct 29, 2026', title: 'Clearer building rotation', small: true, items: ['Fixed: Left and right rotation buttons now turn buildings, benches and picnic tables in the direction shown.', 'Larger rotation arrows and clear Left 90° and Right 90° labels are easier to use on phones.'] },
