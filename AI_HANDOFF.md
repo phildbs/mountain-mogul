@@ -90,6 +90,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| roadmap-midstations | ChatGPT | Add planned lift/gondola mid-stations roadmap card; ready for publication | 2026-10-28 |
 
 
 ## Known issues
@@ -206,6 +207,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Lift mid-stations roadmap
+- Phil requested “Mid-stations for lifts and gondolas.” Added a Planned card under More mountain on roadmap-midstations, commit a526c7f41d8859c296df70f97099c56434e79dee, based on main 344d9dcca1b1f61ff0e136d6b92044c0f099da4a. New vote key lift-mid-stations; existing card IDs preserved and uniqueness checked. Description covers getting on/off partway up a chairlift or gondola line.
+- Roadmap wording only; no game code, database changes or version bump. Browser tests skipped per docs-only release policy. Ready for Phil’s Publish instruction; not yet on main.
 
 ### 2026-10-28 · ChatGPT · Publish 2.58.1 approved
 - Phil explicitly requested publication. Candidate 328c668faf0cd577392fbc27da05d5da278552a3 passed full GitHub Tests run 40790227508 (success). Main remains 07dc848eeaed7726be7ab4afc82348579835ad04, so publication is a fast-forward without intervening work.
