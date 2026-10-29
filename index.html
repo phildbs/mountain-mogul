@@ -5568,7 +5568,12 @@ const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padSt
 const trailLenFt = (an) => Math.round(an.len * FT_PER_UNIT / 10) * 10;
 const trailVertFt = (an) => Math.round(an.vert * FT_PER_UNIT / 10) * 10;
 
+function sheetContextKey() {
+  return state.tool === 'explore' ? selected && `${selected.kind}:${selected.obj?.id ?? selected.obj}` : `${state.tool}:${draft.btype || ''}:${draft.moving?.id || draft.movingLift?.id || draft.movingTrail?.id || ''}`;
+}
 function renderSheet() {
+  // Live updates must not replace an editor, dropping focus and turning the next letter into a hotkey.
+  if (sheet.contains(document.activeElement) && typingIn(document.activeElement) && sheetContext === sheetContextKey()) return;
   showReserve();
   setTimeout(markNew, 0);
   let html = '';
@@ -5617,7 +5622,7 @@ function clampSheet() {
   Object.assign(sheet.style, { left: sheetPos.x + 'px', top: sheetPos.y + 'px', right: 'auto', bottom: 'auto' });
 }
 function layoutSheet() {
-  const ctx = state.tool === 'explore' ? selected && `${selected.kind}:${selected.obj?.id ?? selected.obj}` : `${state.tool}:${draft.btype || ''}:${draft.moving?.id || draft.movingLift?.id || draft.movingTrail?.id || ''}`;
+  const ctx = sheetContextKey();
   if (ctx !== sheetContext || sheet.hidden) {
     sheetContext = ctx; sheetAuto = true; sheetMode = 'full';
   }
@@ -6147,6 +6152,7 @@ sheet.addEventListener('change', (e) => {
   const v = e.target.value.trim().slice(0, 28);
   if (v) { selected.obj.name = v; labelsDirty = true; renderSheet(); scheduleSave(); }
 });
+sheet.addEventListener('focusout', () => setTimeout(() => renderSheet(), 0));
 sheet.addEventListener('keydown', (e) => {
   if (e.target.id === 'nameInput' && e.key === 'Enter') e.target.blur();
   e.stopPropagation();
@@ -8234,9 +8240,13 @@ function dayKind(day) {
   const d = dateOf(day), m = d.getUTCMonth();
   return (m === 11 && d.getUTCDate() < 20) || (m >= 2 && m < 6) ? 'quiet' : 'weekday';
 }
-// The plan a day runs: its own kind, unless you picked another for it. Event days always run the weekend plan.
+// Friday can use the weekend plan without changing crowd demand or weekend ticket prices.
+function defaultPlanFor(day) {
+  return opsState().fridayWeekend === true && dateOf(day).getUTCDay() === 5 ? 'weekend' : dayKind(day);
+}
+// Event days always run the weekend plan; other days allow a one-day override.
 function planFor(day) {
-  const o = opsState().override, kind = dayKind(day);
+  const o = opsState().override, kind = defaultPlanFor(day);
   return o && o.day === day && !(state.event && state.event.days.includes(day)) ? o.plan : kind;
 }
 const hasBld = (type) => world.buildings.some((B) => B.type === type);
@@ -15226,7 +15236,7 @@ function opsSection() {
   const when = state.phase === 'open'
     ? `<p class="help">Today runs the <b>${OPS_NAME[runOps ? runOps.kind : planFor(state.day)]}</b> plan. Changes apply from tomorrow.</p>`
     : `<div class="field-label">${esc(dateLabel(day))} runs</div><div class="tabs">${pick}</div>
-       <p class="help">${ev ? 'Event days always run the weekend plan.' : planFor(day) !== dayKind(day) ? `Just for this day; it would normally run the ${OPS_NAME[dayKind(day)].toLowerCase()} plan.` : 'Picked by the calendar. Choose another plan for just this day if you like.'}</p>`;
+       <p class="help">${ev ? 'Event days always run the weekend plan.' : planFor(day) !== defaultPlanFor(day) ? `Just for this day; it would normally run the ${OPS_NAME[defaultPlanFor(day)].toLowerCase()} plan.` : 'Picked by the calendar. Choose another plan for just this day if you like.'}</p>`;
   const lifts = world.lifts.map((L) => `<div class="ops-row"><span>${esc(L.name)}${!L.open && !L.planOff ? ' <em>stopped</em>' : ''}</span>${opsSeg('opsLift', L.id, liftModeIn(P, L), LIFT_MODES, L.name)}</div>`).join('');
   const blds = realBlds().map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
     lunchOnlyOk(B) ? [['open', 'Open'], ['lunch', 'Lunch'], ['closed', 'Closed']] : [['open', 'Open'], ['closed', 'Closed']], B.name)}</div>`).join('');
@@ -15235,6 +15245,8 @@ function opsSection() {
   const feel = let0 <= 0 ? (let0 < 0 ? 'Guests will love the extra staff.' : 'Guests won’t notice anything missing.')
     : let0 <= 3 ? 'A few guests will notice the cutbacks.' : let0 <= 8 ? 'Guests will notice the cutbacks, and some won’t be happy.' : 'Guests will be disappointed: expect a hit to satisfaction and reputation.';
   return `${when}
+    <div class="toggle-row"><div><b>Use weekend plan on Fridays</b><span>Every Friday, including quiet season. One-day choices still take priority.${state.phase === 'open' ? ' Changes apply from tomorrow.' : ''}</span></div>
+      <button class="switch" role="switch" aria-checked="${o.fridayWeekend === true}" aria-label="Use weekend plan on Fridays" data-action="opsFriday"><i></i></button></div>
     <div class="field-label">Edit plan</div>
     <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]} plan</button>`).join('')}</div>
     <p class="help">${OPS_KINDS.find(([k]) => k === kind)[2]}.</p>
@@ -15261,7 +15273,8 @@ function opsAction(a, b) {
   const P = o.plans[kind], v = b.dataset.v, id = +b.dataset.id;
   if (a === 'opsOpen') { opsEdit = null; resortTab = 'ops'; select({ kind: 'resort', obj: null }); return true; }
   if (a === 'opsEdit') opsEdit = v;
-  else if (a === 'opsDay') { if (state.phase === 'open') return; o.override = v === dayKind(day) ? null : { day, plan: v }; opsEdit = v; }
+  else if (a === 'opsDay') { if (state.phase === 'open') return; o.override = v === defaultPlanFor(day) ? null : { day, plan: v }; opsEdit = v; }
+  else if (a === 'opsFriday') o.fridayWeekend = !o.fridayWeekend;
   else if (a === 'opsLift') { if (!liftById(id) || !LIFT_MODES.some(([k]) => k === v)) return false; if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
   else if (a === 'opsBld') { const B = bldById(id); if (!B || isDecor(B) || !['open', 'closed', ...(lunchOnlyOk(B) ? ['lunch'] : [])].includes(v)) return false; if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
@@ -15518,7 +15531,7 @@ canvas.addEventListener('wheel', (e) => {
 const typingIn = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 const dialogOpen = () => [...document.querySelectorAll('.modal-bg')].some((m) => !m.hidden);
 window.addEventListener('keydown', (e) => {
-  if (typingIn(e.target) || typingIn(document.activeElement) || dialogOpen()) return;
+  if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.composedPath().some(typingIn) || typingIn(document.activeElement) || dialogOpen()) return;
   if (state.started && (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     if (draft.pts.length && !draft.movingLift) draftUndo(); else if (!draft.movingLift) undoLast();
@@ -16981,6 +16994,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.63', date: 'Oct 29, 2026', title: 'Friday plans and uninterrupted typing', items: ['Choose Use weekend plan on Fridays in Operations to apply that plan automatically every Friday, including quiet season. Individual day choices still take priority; ticket prices and crowd demand are unchanged.', 'Fixed: Live card updates keep text fields focused while you edit. Typing and composing text take priority over game hotkeys.'] },
   { v: '2.62.6', date: 'Oct 29, 2026', title: 'Fairer ski patrol claims', small: true, items: ['Fixed: Serious glade injuries no longer have a separate automatic chance of an injury claim.', 'Rescues within 30 minutes do not trigger claims. Claims can follow missed help or substantial delays, regardless of the skier’s ability.', 'Day reports explain whether claims followed missed rescues or long waits.'] },
   { v: '2.62.5', date: 'Oct 29, 2026', title: 'Smarter lift choices', small: true, items: ['Fixed: Skiers returning to the base compare available lifts instead of automatically rejoining the lift beside their trail’s end.', 'Nearby summit lifts can share an existing trail entrance when the approach is safe, without redrawing the trail.', 'Lift choices now weigh ride time as well as queues, transfers and suitable terrain, so a faster direct route gets credit.'] },
   { v: '2.62.4', date: 'Oct 29, 2026', title: 'Privacy policy within reach', small: true, items: ['Open the privacy policy before playing from the title screen, or from the resort menu while playing.', 'Updated the policy to explain guest accounts, online saves, diagnostics, public sharing and friend invitations.'] },

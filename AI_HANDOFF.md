@@ -68,7 +68,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: nothing in progress.
+**Active**: `friday-plans-text-editing` · 2.63 candidate; Friday weekend-plan default and editor focus/hotkey protection. Await Phil’s GitHub test result; do not poll or publish.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -86,6 +86,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| friday-plans-text-editing | ChatGPT | Friday plan default; preserve text editing before hotkeys | 2026-10-29 |
 
 ## Known issues
 
@@ -232,6 +233,12 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-29 · ChatGPT · Friday plans and text editing candidate
+- Branch `friday-plans-text-editing` starts from current main `8e77bd2`. Adds saved optional `state.ops.fridayWeekend`; absence remains off for older saves. `defaultPlanFor` changes operating-plan selection only, including quiet Fridays; `dayKind`, ticket pricing and demand remain unchanged. One-day overrides win, event days remain forced to weekend, and open-day snapshots are unchanged.
+- Existing input hotkey guards already existed. Hardened composition/default-prevented/composed-path checks; `renderSheet` defers updates in the same card while an editor is focused and refreshes after blur, so DOM replacement cannot drop editing focus. Context switches still render immediately.
+- Added `109-fridays-text-editing` for calendar selection, overrides/events, persistence, open-day snapshots, live refresh while renaming, L in a name, composition and normal L shortcut. Guide and CHANGES updated (2.63); no database or roadmap change.
+- JavaScript syntax and diff checks passed. Related scenarios (109, 15, 47, 103, 32) could not launch: Chromium is absent here. Phone/desktop visual verification remains outstanding. Full GitHub suite will run on push; Phil requested a pause without polling until he reports results. Not published.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
