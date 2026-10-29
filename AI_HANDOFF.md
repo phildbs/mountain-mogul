@@ -96,6 +96,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| takeaway-warmup | ChatGPT | Food-truck takeaway meals, then a separate nearby warm-up | 2026-10-29 |
 
 
 
