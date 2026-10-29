@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.6: injury claims follow missed help or substantial rescue delays; pickups within 30 simulated minutes are protected, with report explanations and save/reload duplicate protection.
 - 2.62.5: returning skiers compare base lifts, nearby summit lifts share safe trail entrances, and route scores account for ride time and operating speed.
 - 2.62.4: privacy policy link in the bottom title-screen footer and resort menu; updated data handling, sharing and deletion disclosures.
 - 2.62.3: corrected left/right rotation, larger SVG arrows, explicit direction labels and larger touch targets for buildings, benches and picnic tables.
@@ -87,7 +88,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT preparing 2.62.6 on patrol-claim-fairness: claims follow actual rescue outcomes with a 30-minute grace period; no separate severe-glade roll. Preview only. Pause for Phil's GitHub results without polling or publishing.
+**Active**: 2.62.6 approved and published; verifying GitHub Pages deployment.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -101,7 +102,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-claim-fairness | ChatGPT | Tie injury claims to actual rescue outcomes and explain them in reports | 2026-10-29 |
 
 
 
@@ -221,7 +221,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · 2.62.6 publication approved
+- Phil reported tests passed and explicitly requested publication. Verified full Tests 40965483681 succeeded at 8dfcc4698e57014cfdb7fd0735d98bddb6c64915. Main remains the starting commit 937021ccac53b869b8ab932b0fde08745235f2a5; fast-forward publication with only this handoff changed after the tested candidate.
+- Release includes fair patrol claim outcomes, 30-minute response grace, report causes and towing save/reload protection. Guide and CHANGES updated; no database change or newly delivered roadmap card. Cleared work-in-progress row. Pages deployment verification pending.
+
 ### 2026-10-29 · ChatGPT · Fairer patrol claim candidate
+- Preview candidate 8dfcc4698e57014cfdb7fd0735d98bddb6c64915: https://raw.githack.com/phildbs/mountain-mogul/8dfcc4698e57014cfdb7fd0735d98bddb6c64915/index.html . Play as guest; preview saves separate; feedback/crashes/votes still live.
 - Phil approved the proposed claim fairness changes and asked to be told when done. Branch patrol-claim-fairness starts at current main 937021ccac53b869b8ab932b0fde08745235f2a5. Removed the independent 30% serious-glade claim roll. Severity, ability and signing do not themselves create liability in this game rule.
 - noteRescue records actual pickup response or missed help once per injury (injure resets its flag). Rescues within 30 simulated minutes never roll for claims. Later pickup odds rise linearly over 40 minutes to the existing missed-rescue odds (12% with an open hut, 25% with all huts closed; existing clinic mitigation retained). Ordinary missed rescues remain eligible once, not also as glade claims. Existing starter grace before the first hut remains. Claim unit cost stays $9,000 times mountain costs; payroll/upkeep unchanged. Reputation penalties follow actual claims plus existing missed-help/glade effects.
 - Day report rescueClaims breakdown and opsNotes distinguish missed help from waits beyond 30 minutes; old reports explicitly lack a reason breakdown rather than blaming staffing. Advisor suggests reviewing hut coverage, headcounts and locations. CHANGES 2.62.6 and guide updated, including obsolete glade wording. No specific roadmap card newly delivered.
