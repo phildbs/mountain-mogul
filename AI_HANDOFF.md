@@ -85,7 +85,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62.3 after reporting passed tests. Verified full Tests 40946437107 succeeded on f0efa1ceb43f177a03217ad52a52644118a177c4. Published main at b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. GitHub Pages deployment 40948879553 succeeded.
+**Active**: ChatGPT preparing 2.62.4 on privacy-access: prominent title-screen and game-menu policy links; updated current-data disclosures. Preview only. Wait for Phil to report GitHub results; do not poll or publish.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -218,6 +218,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Privacy policy visibility and disclosures
+- Preview candidate 690f07b1e4fa139cb08f0a54b8699a752e7e35c4: https://raw.githack.com/phildbs/mountain-mogul/690f07b1e4fa139cb08f0a54b8699a752e7e35c4/index.html ; policy at the same commit /privacy.html. Guest preview saves separate; feedback/crashes/votes still live.
+- Phil approved starting with privacy after three feedback items; lift routing and claim fairness remain unmodified. Branch privacy-access starts at current main b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. Policy link appears immediately beneath the title tagline, before mountain/play choices, and in the resort menu. Both are direct anchors opening a new tab with noopener, preserving gameplay. No sign-in needed for static privacy page; no scripts or third-party font requests on that page.
+- Updated policy from code and schema review: automatic guest accounts and online saves, public-by-default guest resorts, scenic save images, diagnostic reports/local queue, feedback context, community records, invitation progress/rewards, provider requests, developer read-only resort access, local vs online deletion and operational records surviving resort deletion. No new data collection, auth/SQL changes or certification claim. Retention wording describes absence of a published fixed automatic period; no invented deletion deadline. Private in-game feedback route for requests; public GitHub issues warning retained. Schools/families section explains public features and guest-data handling without claiming school approval.
+- CHANGES 2.62.4 added. No gameplay/guide change or matching roadmap item. Scenario 106 checks real phone/desktop policy popups from title and menu, entry visibility/touch size, static policy, layout and unchanged game. Local HTML anchor/no-script/direct-link checks, inline JS and scenario syntax, and diff whitespace checks pass. Chromium absent locally, so no browser/rendering pass claimed. Full GitHub tests on push; pause for Phil results without polling.
+
 
 ### 2026-10-29 · ChatGPT · 2.62.3 publication approved
 - Phil reported tests passed, then explicitly said Publish. Verified Tests 40946437107 succeeded at f0efa1ceb43f177a03217ad52a52644118a177c4; main remains the starting commit 72b20c2de20fbc09dc7e1d38c4455f38d700daa8. Publication by fast-forward with only this handoff change after testing.
