@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-29)
 
-**Live: 2.63.** Phil approved publication after full GitHub Tests run 40971721454 passed on candidate `78fe8571a5e7de3b5900ebe0b208dc738eb29680`.
+**Live: 2.63.1.** Phil approved publication; full GitHub Tests run 40974953065 passed on candidate `111ae1dc1019ee9fa845f510b260a5f4c9e1e88d`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.63.1: one rescue coverage reputation penalty, proportional to missed rescues and capped at 0.05 per day; no extra glade or claim penalty. Reports explain coverage and actual loss.
 - 2.63: optional saved Friday weekend-plan default in Operations; active text editors retain focus across card updates and take priority over hotkeys. Guide and regression scenario 109 updated.
 - 2.62.6: injury claims only follow missed help or long rescue waits (pickups within 30 game-minutes are safe).
 - 2.62.5: smarter lift choices: returning skiers compare base lifts, nearby summit lifts share trail entrances,
@@ -69,7 +70,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: `rescue-reputation` · 2.63.1 candidate; proportionate rescue reputation penalties and report explanations. Await Phil’s GitHub result; do not poll or publish.
+**Active**: nothing in progress.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -87,7 +88,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| rescue-reputation | ChatGPT | One capped rescue coverage penalty and report explanations | 2026-10-29 |
 
 ## Known issues
 
@@ -226,6 +226,7 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
   prices, food revenue falls by about half; that trade-off is intended.
 - **Friday plans:** `state.ops.fridayWeekend` defaults off in old saves; `defaultPlanFor` selects the weekend operating plan for Fridays, including quiet season. Demand and ticket pricing still use the calendar. One-day overrides take priority, except event days always use weekend; open-day snapshots remain unchanged.
 - **Text editors:** `renderSheet` defers updates to the same card while an editor is focused, then refreshes after blur. Preserve this protection alongside the composition and text-input hotkey guards.
+- **Rescue reputation (2.63.1):** one `0.05 * missed / injured` penalty per day, using de-duplicated missed rescues; no extra glade or financial-claim loss. Before the first hut remains protected. Optional report `rescueRep` stores coverage, limit and actual before/after loss at the reputation floor; report points are 100 times the internal factor. Satisfaction remains separate. Historical reputation and old reports are not rewritten.
 - **Injury claims:** come from missed help or slow pickups only, not from severity or glades on their own.
 - **ChatGPT's environment** has no local Chromium, so it relies on the GitHub run. It once pushed a truncated
   `index.html` through its connector: after pushing, compare the GitHub file's blob SHA with your local copy.
@@ -236,12 +237,6 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
-
-### 2026-10-29 · ChatGPT · Rescue reputation candidate
-- Phil authorized only overlapping rescue penalties, a daily rescue reputation limit and report explanations; night operations, demand, prices and historical reputation are unchanged. Branch `rescue-reputation` starts at main `9803588`; version 2.63.1.
-- Removed the separate glade loss and per-financial-claim loss. One penalty is `0.05 * missed / injured` (maximum 0.05 per day), using claim review’s de-duplicated missed count. Equal coverage gives equal loss at any resort size. Missing injury totals use known rescue outcomes safely; before the first hut remains protected.
-- Reports save optional `rescueRep` coverage, limit, requested loss and actual before/after loss after the reputation floor; the high-priority explanation uses reputation points (100 times the internal factor). Satisfaction and other reputation effects remain separate. Old reports retain their original results with no invented breakdown.
-- Standalone rescue reputation tests and all existing controlled claim checks passed; game/scenario syntax and diff checks passed. Added browser scenario 110 for real endDay settlement, glade/claim overlap, scale, cap, floor, satisfaction and report reload. Browser scenarios 110,108,81,32 and visual checks cannot run locally: Chromium is absent. GitHub runs the full suite on push; pause without polling until Phil reports results. Guide and CHANGES updated; no database/roadmap change. Not published.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
