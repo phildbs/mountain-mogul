@@ -208,6 +208,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Patrol expense CI follow-up
+- Initial full run 40792311431 had one failure: 10-advisor expected parking advice, but the broadened ordinary injury-claim rule applied to a starter resort with no patrol hut and displaced its tip. Three other shards passed; 97-patrol-expenses and 89-patrol-teams passed in the failed shard too.
+- Corrected production eligibility to require an existing patrol hut plus actual missed rescues. This preserves the earlier no-hut starter behavior while replacing Full/Skeleton checks with rescue outcomes for established patrol teams. No advisor assertions weakened. Added a deterministic no-hut control to scenario 97 beside its existing positive one-missed-rescue/one-claim case. Payroll changes are unchanged.
+- Follow-up candidate dc8230d3aa720f0618e1977138ba51df96b14072 pushed for a full browser rerun.
+- Local model/inline JS/scenario syntax and whitespace pass. Full GitHub browser rerun required; local Chromium remains unavailable. Not published.
+
 ### 2026-10-28 · ChatGPT · Patrol headcount and expense cleanup
 - Phil requested removal of patrol Full/Skeleton, retention of Lean/Normal/Extra for other employees, and corrected expenses. Branch patrol-expenses from main a526c7f41d8859c296df70f97099c56434e79dee; 2.58.2, guide and What’s new updated. No database changes. One patrol build-menu choice and saved individual/Operations counts retained.
 - Removed legacy patrol mode from new plans/snapshots and from duty, discounts, cutback score and controls. Old saved flags are ignored/removed from plan editors; all selected patrollers are on duty for open huts, zero for closed huts. Missed rescues, rather than an obsolete flag or simply closing one hut, drive ordinary patrol claims; only unhelped guests enter that claim lottery. Serious glade claims remain separate.
