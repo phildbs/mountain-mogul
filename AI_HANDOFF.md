@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; thank-you and simulation-bug feedback note on the welcome card and What’s new.
 - 2.62.1: food-truck takeaway service no longer waits for eating spaces; cold or tired guests finish eating, then can seek a separate nearby warming break.
 - 2.62: movable desktop map cards; full/compact/minimized phone cards; automatic compact placement; persistent Undo point/Clear while minimized.
 - 2.61: precise whole-degree building/bench/table rotation, overnight Rotate it, and explicit bench/table placement confirmation on desktop and touch.
@@ -83,7 +84,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Candidate 2.62.2 on `compare-trailside-food` fixes the reproduced single-venue trail-stop food choice. Preview 4a1db691e2ef2cf2c707cdb225a3462422475492; tests pending. Pause for Phil’s result and publication instruction.
+**Active**: 2.62.2 published at 72b20c2de20fbc09dc7e1d38c4455f38d700daa8 with Phil’s explicit approval. Reviewed gameplay candidate 4a1db691e2ef2cf2c707cdb225a3462422475492 passed full Tests 40943077153. Only the requested player-note wording and handoff changed afterward. GitHub Pages deployment 40944511583 succeeded.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -97,7 +98,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| compare-trailside-food | ChatGPT | Compare nearby reachable trail food venues before queueing | 2026-10-29 |
 
 
 
@@ -216,6 +216,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.62.2 and player feedback note published
+- Phil reported all tests passed, requested publication, and asked us to let visitors know we are doing our best to squash simulation bugs and keep up with feedback. Verified full Tests 40943077153 succeeded on 4a1db691e2ef2cf2c707cdb225a3462422475492. Added wording to existing welcome-screen Feedback & ideas card (compact desktop: “Squashing bugs”) and latest What’s new entry. No simulation/test changes after the passed candidate; exact text-only delta, script syntax and whitespace verified locally.
+- Main fast-forwarded to 72b20c2de20fbc09dc7e1d38c4455f38d700daa8. GitHub Pages deployment 40944511583 succeeded. Guide/changelog and scenario 105 included; no matching roadmap card or save/schema changes. Local Chromium unavailable, no local visual pass claimed. WIP cleared; automatic main-branch test rerun not polled per Phil’s preference.
 
 ### 2026-10-29 · ChatGPT · Compare food stops before joining a trail-side line
 - New player screenshot reports zero casual-restaurant visits beside a busy mid-station café/truck. Exact player resort was not inspected. Reproduced a concrete bug using actual `updateSki`/`bestVisit` functions: passing a café with a 20.6-minute estimated queue selected the café, while comparing the same nearby café and empty restaurant selected the restaurant. Cause: trail stops passed only `[st.B]` to `bestVisit`, so the existing faster-food alternative check had no alternatives. This can explain the report, not proof of that resort’s sole cause.
