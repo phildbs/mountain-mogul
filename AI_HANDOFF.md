@@ -97,6 +97,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| compare-trailside-food | ChatGPT | Compare nearby reachable trail food venues before queueing | 2026-10-29 |
 
 
 
