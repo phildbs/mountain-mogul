@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.4: privacy policy link in the bottom title-screen footer and resort menu; updated data handling, sharing and deletion disclosures.
 - 2.62.3: corrected left/right rotation, larger SVG arrows, explicit direction labels and larger touch targets for buildings, benches and picnic tables.
 - 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; thank-you and simulation-bug feedback note on the welcome card and What’s new.
 - 2.62.1: food-truck takeaway service no longer waits for eating spaces; cold or tired guests finish eating, then can seek a separate nearby warming break.
@@ -85,7 +86,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT preparing 2.62.4 on privacy-access: bottom title-screen footer and game-menu policy links; updated current-data disclosures. Preview only. Wait for Phil to report GitHub results; do not poll or publish.
+**Active**: Phil approved publishing 2.62.4 and starting express-lift routing next. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a. Privacy publication underway; Pages verification pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -99,7 +100,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| privacy-access | ChatGPT | Visible privacy links and current-data policy audit; preview only | 2026-10-29 |
 
 
 
@@ -219,7 +219,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Privacy publication approved; routing next
+- Phil reported passed tests, explicitly requested Publish and authorized work on the next issue: express summit lift versus two-lift transfer choices. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a; main is still starting commit b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. Only this handoff changes after the passed candidate. Footer location was Phil's requested revision.
+- Privacy links and current-data disclosures ready; no new collection, auth/database changes or school compliance claim. Browser link/pop-up checks passed; local static/syntax checks passed. No rendered screenshot review claimed. Cleared privacy WIP. Pages verification pending. Lift routing work follows on a separate branch; injury-claim balance remains unchanged.
+
+
 ### 2026-10-29 · ChatGPT · Privacy footer placement revision
+- Updated preview candidate e0a5aeb194ece12fc86836c7f1f8a9024e84d44a: https://raw.githack.com/phildbs/mountain-mogul/e0a5aeb194ece12fc86836c7f1f8a9024e84d44a/index.html . Guest preview saves separate; feedback/crashes/votes still live.
 - Phil requested the privacy link at the bottom of the title screen. Removed the large above-play entry, placed a simple underlined 44px-tall link beside the version in the bottom footer (after the account card), kept menu link and new-tab behavior. Policy text unchanged.
 - Updated scenario 106 to assert bottom footer placement rather than initial-viewport position, retaining popup, no-script policy and unchanged-game checks. Syntax/whitespace pass; browser validation pending on GitHub. Pause for Phil results without polling.
 
