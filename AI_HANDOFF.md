@@ -210,6 +210,15 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Hunger reliability (2.59 candidate)
+- Phil approved and published 2.58.3 at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2. Tests 40869056378 and post-publication 40870047122 passed; Pages 40870045931 succeeded.
+- New hunger-reliability branch starts there. Hungry daytime skiers seek food through the connected trail/lift network (ability-safe trails, open lifts, trail forks, same-base walking); no straight-line trip across separate bases. Searches continue to sessionEnd, including after 3 PM. Prices/capacities unchanged.
+- Rejected meal categories are excluded for 30 minutes or until their price drops; no more ate+skipped after two rejects/a snack. Older skipped guests can retry. Queue abandonment preserves original lunchAt. Closed venues release queues/reroute arrivals; existing diners finish.
+- Meal outcomes settle once at departure (or daytime-to-night transition): onTime/delayed/missed. Only actual missed meals increment complaints.food and reason totals. Delayed meals retain satisfaction effects. Reports separate outcomes, with a 75-minute delay threshold. Optional fields use existing mid-day save serialization; restore clears obsolete delay-based counters in legacy open-day saves. Historical reports keep legacy rendering.
+- Shared tests/hunger-cases.mjs checks safe routes, closures, timing, prices, reporting and queue clocks. Node tests/hunger.mjs and tests/lodge-lunch.mjs pass; inline/scenario syntax and whitespace pass. Browser 99 covers actual movement, saves and Twin isolation; 100 compares ample vs closed food. Updated 69 and 84 for intentional reporting/retry changes. Full GitHub browser CI pending; local Chromium absent, so no local visual/browser pass claimed. Guide/changelog updated; no matching roadmap item and no database changes. Not published.
+
+- Candidate bcffd8023bbdc0bcb26fd6a8eb8975e5f1275b4b, PR #2, full browser tests in progress. Not published.
+
 ### 2026-10-29 · ChatGPT · Lodge lunch investigation
 - Branch lodge-lunch-check, version 2.58.3. Lodges already offer food, warm-ups, restrooms and après drinks. All three sizes serve lunch; deterministic service checks verify revenue, cost, hunger satisfaction and released seats. Restaurant overflow chooses the large lodge.
 - Found and reproduced a lunch selection bug: bestVisit discarded a busy local lodge because otherEatery saw a faster venue outside the current search radius/list, or a service this guest already rejected on price. Restrict comparison to the current search candidates and honor pricedOut in otherEatery (also used for queue switching). No prices, capacities, saves or database changes.
