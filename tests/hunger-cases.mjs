@@ -26,9 +26,10 @@ export function hungerCases() {
       Object.assign(p, {svc, bid:B.id}); serve(p,B);
       check(!p.ate && !p.skipped && needs(p).includes('lunch'), 'rejecting ' + svc + ' does not end meal search');
     }
-    check(bestVisit(p,L.door,14,true,world.buildings,['lunch']) === null, 'rejects are respected for a short break');
+    check(bestVisit(p,L.door,14,true,world.buildings,['lunch']) === null, 'rejected categories stay excluded at unchanged prices');
     state.prices.food -= 1; check(!rejectedMeal(p,'food'), 'a price cut permits an immediate retry'); state.prices.food += 1;
-    state.time += 31; check(!rejectedMeal(p,'food'), 'reconsiders a price after 30 minutes');
+    state.time += 31; check(rejectedMeal(p,'food'), 'waiting 30 minutes never re-rolls the same price');
+    check(bestVisit(p,L.door,14,false,[L],['warm'])?.B===L, 'rejecting a lodge meal still permits a warm-up in that lodge');
     state.time = 720;
     check(needs(guest({ate:true, skipped:true})).includes('lunch'), 'older saves with skipped lunch can retry');
     // A genuine missed meal is counted at departure, not when hunger first develops.
@@ -49,7 +50,7 @@ export function hungerCases() {
     check(waiting.lunchAt===700 && waiting.foodReason==='line' && !waiting.ate, 'giving up a queue preserves lunch time and hunger');
     // Directed graph: the fun lap loops back to the upper lift; the exit reaches the base lodge.
     world.buildings=[]; const lodge=bld('lodge',0,100); state.time=720;
-    const lift={id:id++,type:'double',open:true,fromBase:false,a:{x:0,z:20},b:{x:0,z:0},upLen:20,queue:[],incoming:0,stats:{cap:1200},transfers:[],departing:[]};
+    const lift={id:id++,name:'Upper test lift',type:'double',open:true,fromBase:false,a:{x:0,z:20},b:{x:0,z:0},upLen:20,queue:[],incoming:0,stats:{cap:1200},transfers:[],departing:[]};
     world.lifts=[lift];
     const trail=(name,end,to)=>({id:id++,name,open:true,sign:0,width:'wide',len:end,an:{rating:0},samples:Array.from({length:end*2+1},(_,i)=>({x:0,z:i/2})),stops:[],branches:[],to,joinIdx:0});
     const lap=trail('Loop',20,{kind:'lift',obj:lift}), exit=trail('Food route',100,{kind:'base'});
@@ -71,6 +72,13 @@ export function hungerCases() {
     route=mealRoute(skier,{k:'top',L:lift});
     check(route?.B===upper && route.first.k==='transfer','food search can use a connected operating lift');
     next.open=false; check(mealRoute(skier,{k:'top',L:lift})===null,'stopped lift breaks that food route');
+    // Hunger occurs at the upper lift, then the skier leaves at the base: preserve the original place and cause.
+    world.lifts=[lift];world.buildings=[lodge];today=newToday();state.time=800;
+    const lost=guest({x:lift.b.x,z:lift.b.z});updateNeeds(lost,1);
+    check(lost.hungerAt.x===lift.b.x && lost.hungerIssue.lift===lift.id,'hungry location is captured at the upper lift');
+    lost.x=0;lost.z=100;lost.foodReason='price';lost.foodPrice=lodge.id;recordMealOutcome(lost);
+    check(today.hungry.nowhere[lift.id]===1 && today.hungry.price===0,'departure preserves the original upper-lift attribution and reason');
+    check(hungerSummary(today.hungry).nowhere[0].name===lift.name,'report names the original upper lift');
     return {lateSearch:true,priceRetries:true,outcomes:true,safeRoutes:true};
   } finally {
     world.buildings=saved.buildings;world.lifts=saved.lifts;world.trails=saved.trails;state.time=saved.time;state.cash=saved.cash;state.prices=saved.prices;

@@ -12,8 +12,8 @@ import { chromium } from 'playwright';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-function debugBuild() {
-  let s = readFileSync(join(ROOT, 'index.html'), 'utf8');
+function debugBuild(source) {
+  let s = source ?? readFileSync(join(ROOT, 'index.html'), 'utf8');
   const boot = 'window.claude?.hot?.ready ? window.claude.hot.ready(boot)';
   const sb = '<script src="vendor/supabase.js"></script>';
   if (!s.includes(boot) || !s.includes(sb)) throw new Error('index.html changed shape; update tests/harness.mjs');
@@ -23,8 +23,8 @@ function debugBuild() {
   return s.replace(sb, sb + '\n<script src="tests/fake-supabase.js"></script>\n' + noRender);
 }
 
-export async function startServer() {
-  const page = debugBuild();
+export async function startServer({ source } = {}) {
+  const page = debugBuild(source);
   const server = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/' || path === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }

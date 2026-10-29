@@ -210,6 +210,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Claude review follow-up
+- Updating hunger-reliability after Claude's review of bcffd80. Price categories now stay rejected at an unchanged price for the rest of the day; only a price cut permits reconsideration. Other meal categories and other services in the same building remain available. Legacy priceRetry.until is ignored; no repeated willingness rolls from waiting. Guide/changelog and focused tests match.
+- Fixed scenario 84 expectation: price rejection excludes the meal category, not the whole lodge (warm-ups/restrooms stay possible). Fixed Twin setup in 99 to call openDay() before makeGuest.
+- First hunger onset records hungerAt and hungerIssue (position, cause, venue/lift); departure aggregation uses that snapshot. Regression moves a skier from an upper lift to the base and checks the original lift's name and cause. These optional fields use existing simulation serialization.
+- Node hunger/lodge checks, inline/scenario syntax and whitespace pass. Local Chromium is absent. New paired browser benchmark compares main/candidate pricing at ×1 and ×1.6 over three seeds; performance uses one canonical validated Twin save, expanded forks, both lift networks, six lot sections and two large lodges. One warm-up pair then three alternating-order measured pairs; reports median total, p95 and worst step with an explicit >25% slowdown gate. Results and full browser CI pending. No release approval requested; branch remains unpublished for Claude's second review.
+
 ### 2026-10-29 · ChatGPT · Hunger reliability (2.59 candidate)
 - Phil approved and published 2.58.3 at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2. Tests 40869056378 and post-publication 40870047122 passed; Pages 40870045931 succeeded.
 - New hunger-reliability branch starts there. Hungry daytime skiers seek food through the connected trail/lift network (ability-safe trails, open lifts, trail forks, same-base walking); no straight-line trip across separate bases. Searches continue to sessionEnd, including after 3 PM. Prices/capacities unchanged.

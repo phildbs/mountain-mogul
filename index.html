@@ -11245,10 +11245,10 @@ const wantsMeal = (g) => (!g.ate || g.skipped) && !g.leaving && !g.night && !g.a
 const sameFoodBase = (a, b) => lotCount() < 2 || baseOf(a) === baseOf(b);
 function rejectedMeal(g, svc) {
   if (!(g.pricedOut || []).includes(svc)) return false;
-  // Older mid-day saves only recorded rejected categories; let those guests retry too.
+  // Keep one price decision per category; a lower price lets this guest reconsider.
   const retries = g.priceRetry || (g.priceRetry = {});
-  const r = retries[svc] || (retries[svc] = { until: state.time + 30, price: svcPrice(svc) });
-  return state.time < r.until && svcPrice(svc) >= r.price;
+  const r = retries[svc] || (retries[svc] = { price: svcPrice(svc) });
+  return svcPrice(svc) >= r.price;
 }
 // Settle at actual departure, once, so a delayed lunch is never reported as leaving unfed.
 function recordMealOutcome(g) {
@@ -11650,10 +11650,10 @@ function serve(g, B) {
     if (!(g.pricedOut && g.pricedOut.length)) { g.sat -= 4; today.complaints.price++; } // one sting per lunch, not one per place they look
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
     if (MEAL_SVCS.includes(svc) && (!g.ate || g.skipped)) {
-      // Try another kind of meal now; reconsider this price later, or immediately after a price cut.
+      // Other categories remain available, including hot drinks and restrooms here. Retry this one only after a price cut.
       g.foodPrice = B.id; g.foodReason = 'price'; g.ate = false; g.skipped = false;
       g.pricedOut = [...new Set([...(g.pricedOut || []), svc])];
-      (g.priceRetry || (g.priceRetry = {}))[svc] = { until: state.time + 30, price };
+      (g.priceRetry || (g.priceRetry = {}))[svc] = { price };
     }
     if (svc === 'warm') g.warmed = true;
     if (svc === 'snack') g.snacked = true;
@@ -11831,21 +11831,36 @@ function updateNeeds(g, dt) {
   const atLunch = g.st === 'lesson' || (['inside', 'bq', 'walk', 'glide'].includes(g.st) && ['food', 'dine', 'finedine', 'snack'].includes(g.svc));
   if ((!g.ate || g.skipped) && !atLunch && state.time > g.lunchAt + 75) {
     g.sat -= dt / 60 * 0.06;
-    if (!g.hungry) { g.hungry = true; thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
+    if (!g.hungry) { g.hungry = true; rememberHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
   }
 }
 // Why a guest went hungry, so the report and What next? can say what would actually help: lunch
 // cost too much, the line was too long (and where), or there was nowhere to eat near where they ski.
+function hungerCause(g) {
+  if (g.foodReason === 'price' || (!g.foodReason && g.foodPrice != null)) return { kind: 'price', bid: g.foodPrice };
+  if (g.foodReason === 'line' || (!g.foodReason && g.foodLine != null)) return { kind: 'line', bid: g.foodLine };
+  if (g.lunchAt > 840) return { kind: 'late' };
+  const p = g.hungerAt || (g.st === 'ski' && g.T ? guestPos(g) : g);
+  let best = null, bd = Infinity, bottom = false;
+  for (const L of world.lifts) for (const end of ['a', 'b']) {
+    const d = distXZ(L[end], p);
+    if (d < bd) { bd = d; best = L; bottom = end === 'a'; }
+  }
+  return { kind: 'nowhere', lift: best && !(best.fromBase && bottom) ? best.id : 'base' };
+}
+function rememberHunger(g) {
+  if (g.hungerAt) return;
+  const p = g.st === 'ski' && g.T ? guestPos(g) : g;
+  g.hungerAt = { x: p.x, z: p.z };
+  g.hungerIssue = hungerCause(g);
+}
 function noteHunger(g) {
   const h = today.hungry || (today.hungry = { price: 0, late: 0, line: {}, nowhere: {} });
-  if (g.foodReason === 'price' || (!g.foodReason && g.foodPrice != null)) { h.price += AGENT; return; }
-  if (g.foodReason === 'line' || (!g.foodReason && g.foodLine != null)) { h.line[g.foodLine] = (h.line[g.foodLine] || 0) + AGENT; return; }
-  if (g.lunchAt > 840) { h.late += AGENT; return; } // wanted lunch as the kitchens were closing
-  const p = g.st === 'ski' && g.T ? guestPos(g) : g;
-  let best = null, bd = Infinity;
-  for (const L of world.lifts) for (const q of [L.a, L.b]) { const d = distXZ(q, p); if (d < bd) { bd = d; best = L; } }
-  const k = best && !(best.fromBase && distXZ(best.a, p) === bd) ? best.id : 'base';
-  h.nowhere[k] = (h.nowhere[k] || 0) + AGENT;
+  const why = g.hungerIssue || hungerCause(g);
+  if (why.kind === 'price') h.price += AGENT;
+  else if (why.kind === 'line') h.line[why.bid] = (h.line[why.bid] || 0) + AGENT;
+  else if (why.kind === 'late') h.late += AGENT;
+  else h.nowhere[why.lift] = (h.nowhere[why.lift] || 0) + AGENT;
 }
 // The day's hungry guests, by reason, with names: for the report and What next?
 function hungerSummary(h) {
@@ -16689,7 +16704,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider after a price cut or a short break. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },
+  { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider a rejected category after you lower its price. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },
   { v: '2.58.3', date: 'Oct 29, 2026', title: 'More reliable lunch choices', small: true, items: ['Fixed: hungry guests no longer pass up a nearby eatery because of a shorter line somewhere outside their search area, or food they already found too expensive.', 'The how-to guide explains lodge meals, lodge sizes, food prices and what to check when a lodge is quiet.'] },
   { v: '2.58.2', date: 'Oct 28, 2026', title: 'Clear patrol staffing and expenses', small: true, items: ['Patrol staffing uses the exact headcount you select. Full and Skeleton controls have been removed; Lean, Normal and Extra affect other employees.', 'Patrollers cost $425 each per operating day, plus $100 hut upkeep. Patrol wages appear once in payroll, with no extra building-staff charge. Operations estimates and day reports use the same expense rules.', 'Patrol claims now follow guests who actually missed rescue help, rather than a staffing toggle.'] },
   { v: '2.58.1', date: 'Oct 28, 2026', title: 'Patrol staffing in Operations', small: true, items: ['Choose 1–6 patrollers for every hut with an override in each Operations plan. Turn it off to use each hut’s saved manual staffing.', 'Select a patrol hut to adjust its individual team overnight. Daily costs and active staff follow the plan in use.'] },

@@ -19,7 +19,7 @@ export default async function ({ browser, url }) {
   assert(path.planned && path.chosen && path.ate && path.meals>0, `hungry skier actually reaches and eats at the lodge: ${JSON.stringify(path)}`);
   // These fields ride in the existing mid-day save, including retry times and settled totals.
   const restored = await g.ev(`(() => {
-    const p=guests.find(p=>p.ate); p.priceRetry={food:{until:state.time+30,price:state.prices.food}}; p.pricedOut=['food'];
+    const p=guests.find(p=>p.ate); p.priceRetry={food:{price:state.prices.food}}; p.pricedOut=['food'];
     recordMealOutcome(p); const before={meals:{...today.meals},retry:p.priceRetry,recorded:p.mealRecorded};
     const id=p.id; restoreSim(JSON.parse(JSON.stringify(serializeSim()))); const q=gById.get(id); recordMealOutcome(q);
     return {before,after:{meals:today.meals,retry:q.priceRetry,recorded:q.mealRecorded}};
@@ -34,7 +34,7 @@ export default async function ({ browser, url }) {
 
   const t=await openGame(browser,url,{mountain:'twin'}); await t.click('#startBtn'); await t.wait(300);
   const isolated=await t.ev(`(() => {
-    state.phase='open';state.time=720;
+    openDay();state.speed=0;state.time=720;
     const a={x:lotSite(0).x,z:lotSite(0).z},b={x:lotSite(1).x,z:lotSite(1).z};
     const B={id:999991,type:'lodge',tier:2,name:'Other base',door:b,seatsW:[],isBase:true};initBldSim(B);
     const p=makeGuest({id:null},a.x,a.z);p.lunchAt=700;
