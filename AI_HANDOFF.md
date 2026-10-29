@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.6: injury claims follow missed help or substantial rescue delays; pickups within 30 simulated minutes are protected, with report explanations and save/reload duplicate protection.
 - 2.62.5: returning skiers compare base lifts, nearby summit lifts share safe trail entrances, and route scores account for ride time and operating speed.
 - 2.62.4: privacy policy link in the bottom title-screen footer and resort menu; updated data handling, sharing and deletion disclosures.
 - 2.62.3: corrected left/right rotation, larger SVG arrows, explicit direction labels and larger touch targets for buildings, benches and picnic tables.
@@ -87,7 +88,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT preparing 2.62.6 on patrol-claim-fairness: claims follow actual rescue outcomes with a 30-minute grace period; no separate severe-glade roll. Preview only. Pause for Phil's GitHub results without polling or publishing.
+**Active**: No active ChatGPT implementation. 2.62.6 is live; await Phil's next priority.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -101,7 +102,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-claim-fairness | ChatGPT | Tie injury claims to actual rescue outcomes and explain them in reports | 2026-10-29 |
 
 
 
@@ -220,6 +220,10 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.62.6 publication approved
+- Phil reported tests passed and explicitly requested publication. Verified full Tests 40965483681 succeeded at 8dfcc4698e57014cfdb7fd0735d98bddb6c64915. Main remains the starting commit 937021ccac53b869b8ab932b0fde08745235f2a5; fast-forward publication with only this handoff changed after the tested candidate.
+- Release includes fair patrol claim outcomes, 30-minute response grace, report causes and towing save/reload protection. Guide and CHANGES updated; no database change or newly delivered roadmap card. Cleared work-in-progress row. Published main 3411b3126483b529b1d30285a78efc212f5a0ee9; GitHub Pages deployment 40966601168 succeeded.
 
 ### 2026-10-29 · ChatGPT · Fairer patrol claim candidate
 - Preview candidate 8dfcc4698e57014cfdb7fd0735d98bddb6c64915: https://raw.githack.com/phildbs/mountain-mogul/8dfcc4698e57014cfdb7fd0735d98bddb6c64915/index.html . Play as guest; preview saves separate; feedback/crashes/votes still live.
