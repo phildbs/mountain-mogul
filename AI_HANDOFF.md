@@ -87,7 +87,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil approved publishing 2.62.5 after reporting passed tests. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d. Published main at 937021ccac53b869b8ab932b0fde08745235f2a5. GitHub Pages deployment 40963941439 succeeded.
+**Active**: ChatGPT preparing 2.62.6 on patrol-claim-fairness: claims follow actual rescue outcomes with a 30-minute grace period; no separate severe-glade roll. Preview only. Pause for Phil's GitHub results without polling or publishing.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -220,6 +220,15 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Fairer patrol claim candidate
+- Preview candidate 8dfcc4698e57014cfdb7fd0735d98bddb6c64915: https://raw.githack.com/phildbs/mountain-mogul/8dfcc4698e57014cfdb7fd0735d98bddb6c64915/index.html . Play as guest; preview saves separate; feedback/crashes/votes still live.
+- Phil approved the proposed claim fairness changes and asked to be told when done. Branch patrol-claim-fairness starts at current main 937021ccac53b869b8ab932b0fde08745235f2a5. Removed the independent 30% serious-glade claim roll. Severity, ability and signing do not themselves create liability in this game rule.
+- noteRescue records actual pickup response or missed help once per injury (injure resets its flag). Rescues within 30 simulated minutes never roll for claims. Later pickup odds rise linearly over 40 minutes to the existing missed-rescue odds (12% with an open hut, 25% with all huts closed; existing clinic mitigation retained). Ordinary missed rescues remain eligible once, not also as glade claims. Existing starter grace before the first hut remains. Claim unit cost stays $9,000 times mountain costs; payroll/upkeep unchanged. Reputation penalties follow actual claims plus existing missed-help/glade effects.
+- Day report rescueClaims breakdown and opsNotes distinguish missed help from waits beyond 30 minutes; old reports explicitly lack a reason breakdown rather than blaming staffing. Advisor suggests reviewing hut coverage, headcounts and locations. CHANGES 2.62.6 and guide updated, including obsolete glade wording. No specific roadmap card newly delivered.
+- Optional today.rescues, guest.rescueLogged and claimExemptMissed persist through the existing simulation serializer. Loading a towing guest retains the fact pickup already happened (also for older saves), so restarted pickup/delivery cannot fabricate a second late/missed claim. Legacy aggregate missed counts remain recognized; no historical delays inferred from average response time. Full suite includes 32-old-saves.
+- Passed source/VM tests: 40 prompt wait/severity/ability combinations with zero claim draws, gradual/capped delay odds, no double glade/missed roll, report reasons/legacy fallback, old-save defaults, starter grace and clinic mitigation. Syntax/whitespace passed. New scenario 108 exercises actual patrol pickups/missed help, day-end cash reconciliation/report causes, new/old towing saves and duplicate suppression. Local Chromium unavailable; no local browser/screenshot success claimed. GitHub full suite runs on push; pause for Phil results without polling.
+
 
 ### 2026-10-29 · ChatGPT · 2.62.5 publication approved
 - Phil reported passed tests and explicitly requested Publish. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d; current main remains starting commit 7aab3febddb6be864fcf9607384d81294b4e7fa6. Only this handoff changes after the passed candidate; fast-forward publication.
