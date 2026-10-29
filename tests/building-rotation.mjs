@@ -17,3 +17,18 @@ for(const [type,t] of Object.entries(BTYPES))for(const [tier,s] of (t.tiers||[t]
   count++;
 }
 console.log(`PASS ${count} building/size/angle combinations: enclosed corners and unchanged cardinal footprints`);
+// Check button meaning against the actual world transform, not just numeric increments.
+const controls = src.slice(src.indexOf('function rotationArrow('), src.indexOf('function setDraftDegrees('));
+const html = runInNewContext(controls+'\nrotationControls()', { visiting:false, draft:{btype:'bench',rot:37/90}, canTurn:()=>true });
+for (const [direction,sign] of [['left',1],['right',-1]]) {
+  const button = html.match(new RegExp('<button[^>]*data-d="(-?1)"[^>]*aria-label="Rotate 90 degrees '+direction+'"[^>]*>([\\s\\S]*?)<\\/button>'));
+  assert(button, `${direction} control has a clear accessible label`);
+  const delta = Number(button[1]);assert.equal(delta,sign,`${direction} button increment`);
+  assert(button[2].includes(direction==='left'?'Left 90°':'Right 90°'), 'visible direction label');
+  for (const deg of [0,37,90,180,270,350]) {
+    const a=toWorld({x:0,z:0,rot:deg/90},1,0),b=toWorld({x:0,z:0,rot:deg/90+delta},1,0);
+    const cross=a.x*b.z-a.z*b.x;
+    assert(Math.abs(cross+sign)<1e-9,`${direction} is ${direction==='left'?'counterclockwise':'clockwise'} from ${deg}° viewed above`);
+  }
+}
+console.log('PASS labeled rotation buttons match actual left/right world rotation at six starting angles');

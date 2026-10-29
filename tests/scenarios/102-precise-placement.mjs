@@ -16,9 +16,12 @@ export default async function ({ browser, url }) {
       // A real input event updates the ghost without replacing a slider mid-gesture.
       eq(await g.ev(`(() => {const el=sheet.querySelector('[data-rotation=range]');el.value='38';el.dispatchEvent(new Event('input',{bubbles:true}));const kept=el===sheet.querySelector('[data-rotation=range]');el.dispatchEvent(new Event('change',{bubbles:true}));return [kept,Math.round(draft.rot*90),world.buildings.length];})()`), [true,38,before.n], 'slider is stable and still only previews');
       await g.ev(`(() => {const el=sheet.querySelector('[data-rotation=number]');el.value='37';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-      await press('#sheet [data-action=rotB][data-d="1"]');
-      eq(await g.ev(`Math.round(draft.rot*90)`),127,'quarter turn preserves the fine angle');
-      await press('#sheet [data-action=rotB][data-d="-1"]');
+      await press('#sheet [aria-label="Rotate 90 degrees left"]');
+      eq(await g.ev(`Math.round(draft.rot*90)`),127,'left quarter turn adds 90 degrees and preserves the fine angle');
+      await press('#sheet [aria-label="Rotate 90 degrees right"]');
+      eq(await g.ev(`Math.round(draft.rot*90)`),37,'right turn reverses the left turn');
+      const targets = await g.page.locator('#sheet .rotation-turns button').evaluateAll(bs => bs.map(b=>{const r=b.getBoundingClientRect(),s=b.querySelector('svg').getBoundingClientRect();return {w:r.width,h:r.height,iw:s.width,ih:s.height};}));
+      assert(targets.length===2 && targets.every(r=>r.w>=44&&r.h>=44&&r.iw>=24&&r.ih>=24),'clear arrows and comfortable touch targets');
       const cost = await g.ev(`draft.info.cost`);
       assert(await g.ev(`!draft.info.problems.length`), `${type} preview is valid`);
       await press('#sheet [data-action=build]');

@@ -49,7 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
-- 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; player-facing thanks and simulation-bug feedback note.
+- 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; thank-you and simulation-bug feedback note on the welcome card and What’s new.
 - 2.62.1: food-truck takeaway service no longer waits for eating spaces; cold or tired guests finish eating, then can seek a separate nearby warming break.
 - 2.62: movable desktop map cards; full/compact/minimized phone cards; automatic compact placement; persistent Undo point/Clear while minimized.
 - 2.61: precise whole-degree building/bench/table rotation, overnight Rotate it, and explicit bench/table placement confirmation on desktop and touch.
@@ -84,7 +84,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Phil reported all tests passed and approved publication of 2.62.2 plus a player-facing feedback note. Verified full Tests 40943077153 succeeded on 4a1db691e2ef2cf2c707cdb225a3462422475492. Only wording and handoff changed afterward; simulation/tests unchanged. Publication underway; Pages verification pending.
+**Active**: ChatGPT preparing 2.62.3 on rotation-controls after player feedback: larger SVG Left/Right 90° buttons, corrected direction mapping. Preview only; wait for Phil to report GitHub results without polling.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -98,6 +98,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| rotation-controls | ChatGPT | Clearer rotation arrows and correct left/right directions; preview only | 2026-10-29 |
 
 
 
@@ -217,10 +218,15 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
-### 2026-10-29 · ChatGPT · 2.62.2 publication approved, with feedback note
-- Phil reported all tests passed, requested Publish, and asked to let visitors know we are doing our best to squash simulation bugs and keep up with feedback. Full Tests 40943077153 succeeded on reviewed candidate 4a1db691e2ef2cf2c707cdb225a3462422475492. Main still 666fff5576d70daa8b75388d2f362c2ce13f9c72 at preparation.
-- Added the requested thank-you note to the existing title-screen Feedback & ideas card (compact desktop line: “Squashing bugs”) and 2.62.2 What’s new entry. Wording only; existing card actions and all simulation/test code unchanged after the passed candidate. Syntax/whitespace checks pass; local Chromium unavailable, no visual pass claimed. Guide/changelog and scenario 105 already included; no matching roadmap card or schema/save changes. WIP cleared for publication; Pages verification pending.
+### 2026-10-29 · ChatGPT · Clearer rotation controls
+- Phil shared feedback that building rotation symbols were too small and turned the wrong way. Confirmed positive model Y turns counterclockwise viewed above, but was labeled right. Swapped button increments so Left is +90° and Right is −90°; saved angles, fine-angle inputs and R shortcut unchanged.
+- Larger 24px line SVG arrows, explicit Left 90°/Right 90° labels and 44px minimum button height. Applies to buildings, benches and picnic tables through shared rotationControls. CHANGES 2.62.3 and guide updated. No roadmap item newly delivered and no save/schema changes.
+- Extended actual-transform checks at six starting headings and browser scenario 102 to click semantic direction labels on mouse/touch and assert comfortable target/icon sizes. Passed inline JS/test syntax, 9,360 footprint cases, direction checks and diff whitespace checks. Browser/visual check remains unavailable locally (Chromium absent); no rendering success claimed. Full GitHub suite runs on push. Pause for Phil results; do not poll or publish.
 
+
+### 2026-10-29 · ChatGPT · 2.62.2 and player feedback note published
+- Phil reported all tests passed, requested publication, and asked us to let visitors know we are doing our best to squash simulation bugs and keep up with feedback. Verified full Tests 40943077153 succeeded on 4a1db691e2ef2cf2c707cdb225a3462422475492. Added wording to existing welcome-screen Feedback & ideas card (compact desktop: “Squashing bugs”) and latest What’s new entry. No simulation/test changes after the passed candidate; exact text-only delta, script syntax and whitespace verified locally.
+- Main fast-forwarded to 72b20c2de20fbc09dc7e1d38c4455f38d700daa8. GitHub Pages deployment 40944511583 succeeded. Guide/changelog and scenario 105 included; no matching roadmap card or save/schema changes. Local Chromium unavailable, no local visual pass claimed. WIP cleared; automatic main-branch test rerun not polled per Phil’s preference.
 
 ### 2026-10-29 · ChatGPT · Compare food stops before joining a trail-side line
 - New player screenshot reports zero casual-restaurant visits beside a busy mid-station café/truck. Exact player resort was not inspected. Reproduced a concrete bug using actual `updateSki`/`bestVisit` functions: passing a café with a 20.6-minute estimated queue selected the café, while comparing the same nearby café and empty restaurant selected the restaurant. Cause: trail stops passed only `[st.B]` to `bestVisit`, so the existing faster-food alternative check had no alternatives. This can explain the report, not proof of that resort’s sole cause.
@@ -229,9 +235,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 - Changelog and guide updated. No matching roadmap card shipped; no save/schema changes. Scenario 105 exercises the actual trail stop, paid meal and resume, closed/rejected/distant/steep/unregistered exclusions and no backtracking. Local before/after VM reproduction passes, plus game/test syntax and whitespace checks. Local Chromium remains unavailable; browser scenarios and visuals have not been run here. Automatic full GitHub tests pending; pause for Phil’s results without polling.
 
 
-### 2026-10-29 · ChatGPT · 2.62.1 publication approved
-- Phil explicitly requested publication and reported passed tests. Verified full Tests 40921352334 succeeded on c723882122a301248602ea924a894bd29b44fbb2; main still 805d9714e1f2dac9b02e56ca1129d0476af99fb1. Fast-forward publication with a documentation-only handoff update; reviewed game and tests unchanged.
-- Changelog/guide and scenario 104 included in the passed candidate. No matching roadmap feature to mark, no save/schema changes. Local Chromium unavailable; no local browser/visual pass claimed. Remove WIP; Pages verification pending.
+- Preview candidate: `4a1db691e2ef2cf2c707cdb225a3462422475492`. Full automatic GitHub browser tests pending; pause for Phil’s result.
+
+
+### 2026-10-29 · ChatGPT · Takeaway warming breaks published
+- Phil reported tests passed and requested Publish. Verified full Tests 40921352334 succeeded at c723882122a301248602ea924a894bd29b44fbb2, then fast-forwarded main to 666fff5576d70daa8b75388d2f362c2ce13f9c72; game/tests identical to the passed candidate, only handoff documentation added. Pages deployment 40923468862 completed successfully. WIP cleared.
+- Version 2.62.1; changelog, guide, scenario 104 and updated queue fixture 90 included. No matching roadmap card, save/schema changes or local browser/visual pass claimed. The main-branch automatic test rerun was not polled, per Phil’s preference.
 
 ### 2026-10-29 · ChatGPT · Takeaway meals, then warming breaks
 - Phil asked for guests to eat first and then seek a lodge or other warm-up spot, following adjacent café/truck feedback. Branch `takeaway-warmup` starts at published main `805d9714e1f2dac9b02e56ca1129d0476af99fb1`; candidate 2.62.1, not published.
@@ -241,10 +250,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 - Passed game/test syntax, whitespace, and a local VM check using extracted actual game functions for takeaway service, billing, warming sequence, route resume and exclusion cases. Chromium is absent, so browser scenarios/screenshots were not run locally; full automatic GitHub suite is pending. Phil prefers preview links and will report test results. No schema/loading changes.
 
 
+- Preview candidate: `c723882122a301248602ea924a894bd29b44fbb2`. Full automatic GitHub tests pending; stop for Phil’s result.
+
+
 ### 2026-10-29 · ChatGPT · 2.62 publication approved
 - Phil reported tests passed, requested crossed-off Mobile roadmap additions, and explicitly approved publication. Verified full Tests 40914666775 succeeded at 9c02c4ab78589d83d31fd2be6e1a4a8d1afc3c58; current main remains the branch's starting commit e4be078360185ba5e94c2cba930dbacd1337c8b4. Added four crossed-off steps under existing phones-and-tablets; status remains Ongoing and vote key unchanged.
 - Only roadmap and handoff change after the passed candidate. Game code is identical to Phil's reviewed preview. Dedicated visual workflow 40913379835 was cancelled; no automated rendering success or manual screenshot review claimed. Phil reviewed the preview and approved publication. Local Chromium unavailable. No save/schema changes.
-- Repaired the old visitor button-list assertion without changing gameplay, while adding stronger checks for unchanged visited resort data and blocked building. Cleared WIP row; publication by fast-forward. Pages verification pending.
+- Repaired the old visitor button-list assertion without changing gameplay, while adding stronger checks for unchanged visited resort data and blocked building. Cleared WIP row; publication by fast-forward. GitHub Pages deployment 40915838253 succeeded.
 
 
 ### 2026-10-29 · ChatGPT · Visitor regression assertion updated
@@ -267,7 +279,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 ### 2026-10-29 · ChatGPT · 2.61 publication approved
 - Phil reported passed tests and explicitly requested Publish. Verified ed35e04399ba3506eb0a779d3adc3873ac88e408 has all four successful browser groups and descends from current main 8266c7189d320797219baa223d771f5416a3b494 with no divergence. Rendering workflow 40903428654 passed phone/desktop, day/night on the same game code (only tests/handover changed afterward). No manual screenshot review claimed; Phil approved publication.
 - Release includes CHANGES 2.61, player guide, intentional style-guide adjustment, scenario 102 and old-save coverage in the full suite. Local geometry checks passed 9,360 combinations; local Chromium unavailable. No matching roadmap card or database changes. Existing save fields reused with fractional quarter-turn values; old cardinal angles retain exact footprints.
-- Two test-authoring errors were corrected without changing game code or weakening assertions: use stable new-building IDs after terrain refresh reorders neighbors, and select the header close button explicitly in touch tests. Final full suite passed. Cleared WIP row; handover-only publication commit precedes main fast-forward. Pages verification pending.
+- Two test-authoring errors were corrected without changing game code or weakening assertions: use stable new-building IDs after terrain refresh reorders neighbors, and select the header close button explicitly in touch tests. Final full suite passed. Cleared WIP row; handover-only publication commit precedes main fast-forward. GitHub Pages deployment 40915838253 succeeded.
 
 ### 2026-10-29 · ChatGPT · Precise rotation and confirmed seat placement
 - Corrected test candidate: ed35e04399ba3506eb0a779d3adc3873ac88e408. Updated preview (same game code): https://raw.githack.com/phildbs/mountain-mogul/ed35e04399ba3506eb0a779d3adc3873ac88e408/index.html .
