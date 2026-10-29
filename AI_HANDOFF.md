@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.60: edit weekday/weekend/quiet operating plans directly on building and lift cards; choose eight lift colors without interrupting riders.
 - 2.59: connected food-seeking, full-day meal searches, price-cut retries and accurate meal outcomes with original hunger locations. Published Oct 29 after full tests and paired benchmarks passed.
 - 2.58.3: eligible lunch alternatives and lodge how-to. Published Oct 29 after all four GitHub browser shards passed.
 - 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
@@ -79,7 +80,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.59 is live. Publication, exact live-file verification, immediate production error check and post-release save capture are complete. Full pre-release browser suite and paired benchmarks passed; all 42 compatibility saves, including six new 2.59 fixtures, load and play. No outstanding release work.
+**Active**: Phil approved publishing 2.60 after checks passed. Candidate 05c83dedf4d539a9112cf357b13f4d27d4cbb989 passed all four browser groups and phone/desktop visual checks. Published main at 70d71f8399b951c8a7307996e1913e675f65a463; Pages deployment follows automatically.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -93,7 +94,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| asset-controls | ChatGPT | Weekday/weekend/quiet plan controls on building/lift cards and lift color picker | 2026-10-29 |
+
 
 
 
@@ -211,6 +212,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.60 publication approved
+- Phil explicitly requested Publish after reporting successful checks. Verified candidate 05c83dedf4d539a9112cf357b13f4d27d4cbb989: four browser test groups and screenshot job all succeeded; main ac3c23078da57cb95c92ba8a72fa120d5467e780 is its ancestor with no divergence. Version/guide/regression coverage included; no matching roadmap item and no database changes.
+- Building cards now edit Open/Closed (plus Lunch for eateries) and lift cards edit Full/Slow/Off independently for weekday/weekend/quiet plans. Shared opsSeg/opsAction and existing plan objects keep Operations synchronized. In-day plan edits apply from tomorrow; manual lift start/stop is separate. Decor/visited resorts do not expose editable plans.
+- Eight existing lift colors, free and immediate. Only the selected lift’s accent references and its own chair material change; shared materials, geometry, queues, riders and phase remain intact. Existing L.color save persistence reused. Scenario 101 covers plan sync, restrictions, runtime deferral, occupied lifts, isolated materials, save/load and read-only visits. Visual job rendered phone/desktop, day/night and checked control fit; local/cloud browser lacked WebGL, so no manual visual review claimed.
+- Phil prefers preview links over interactive browser review. When GitHub tests are running, pause and wait for him to report results; do not poll while waiting. These preferences persist for future work.
+- Handover-only commit added before main fast-forward. Completed WIP row cleared. Published main at 70d71f8399b951c8a7307996e1913e675f65a463 on Phil’s instruction; Pages deployment verification pending.
 
 ### 2026-10-29 · ChatGPT · 2.59 published with Phil’s approval
 - Phil explicitly approved publication without a second Claude review and requested the release procedure. Main fast-forwarded from 5972abd to c215ffd128282a9458c5779d78b6acf23ac98da4 (tested 92f97dfa plus handover-only commit). Pages deployment 40877951630 succeeded. Live index is version 2.59 and its Git blob d5a6040fa37c5a4a7c9727983d635f5de3f1601b exactly matches the tested game.
