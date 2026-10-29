@@ -209,6 +209,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Lodge lunch investigation
+- Branch lodge-lunch-check, version 2.58.3. Lodges already offer food, warm-ups, restrooms and après drinks. All three sizes serve lunch; deterministic service checks verify revenue, cost, hunger satisfaction and released seats. Restaurant overflow chooses the large lodge.
+- Found and reproduced a lunch selection bug: bestVisit discarded a busy local lodge because otherEatery saw a faster venue outside the current search radius/list, or a service this guest already rejected on price. Restrict comparison to the current search candidates and honor pricedOut in otherEatery (also used for queue switching). No prices, capacities, saves or database changes.
+- Added shared regression cases, Node runner tests/lodge-lunch.mjs and browser scenario 98-lodge-lunch. Original main fails the inaccessible-restaurant regression; fixed branch passes Node checks. Local browser scenarios 20/25/84/90 blocked at launch because Chromium is absent. No visual changes; guide wording added. GitHub browser CI pending; not published. Player-specific save was not available, so this does not establish the exact cause of the report.
+
+- Preview candidate 5972abd5ebad8c84098e728edfceeadfbc3c7ec2; PR #1. Game commit 3998d24649196d29bcad41ce6d585e6772a6d1e5 is running GitHub browser CI (40869056378). Not published.
+
 ### 2026-10-28 · ChatGPT · Paintable base clarification
 - Phil clarified that paintable base areas are functional guest traversal zones, not cosmetic village layouts: guests can move freely within them, and a trail ending in the area counts as reaching the base. Updated the existing Exploring card description on roadmap-base-traversal, commit 3bf4d827d11ebd91146d83849b41fbdfd9981cd6. Vote ID paintable-base-area and status remain unchanged.
 - Roadmap wording only; no simulation implementation or version bump. Tests skipped per docs-only policy. Published to main at 3bf4d827d11ebd91146d83849b41fbdfd9981cd6 after Phil’s explicit Publish instruction. Pages deployment pending.
