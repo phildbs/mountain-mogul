@@ -1,5 +1,5 @@
 // Lunch: a guest who finds the lodge too dear looks for something cheaper (a food truck) instead of going
-// without all day; only after turning down a couple of places, or the cheapest, do they skip lunch.
+// without all day; rejecting two categories still leaves other options and later retries available.
 // Lots: a carload picks the lot whose lifts have runs that suit it; runs too hard count for nothing.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 import { build } from '../twin-resort.mjs';
@@ -16,13 +16,13 @@ export default async function ({ browser, url }) {
     serve(G, lodge); Math.random = real;
     const after = { ate: G.ate, skipped: !!G.skipped, priced: G.pricedOut, avoid: G.avoidB === lodge.id };
     const pick = bestVisit(G, lodge.door, 60, true, world.buildings, ['lunch']);
-    // turned down twice: they give up on lunch
+    // turned down twice: they can still try another category or reconsider later
     const H = { ...G, pricedOut: ['food'], ate: false, svc: 'dine' }; Math.random = () => 0.999; serve(H, lodge); Math.random = real; leaveBuilding = lb;
     return { after, pick: pick && pick.B.type, twice: [H.ate, !!H.skipped], truck: !!truck }; })()`).catch((e) => { throw new Error("lunch part: " + e.message.split("\n").slice(0, 3).join(" | ")); });
   assert(r.truck, 'a food truck was placed');
   eq(r.after, { ate: false, skipped: false, priced: ['food'], avoid: true }, 'priced out of the lodge, they are still hungry and steer clear of it');
   eq(r.pick, 'truck', 'they head for the cheaper food truck');
-  eq(r.twice, [true, true], 'after a second place they skip lunch');
+  eq(r.twice, [false, false], 'after a second rejection they keep looking for food');
   await g.page.close();
 
   // Twin Notch: the east lot has the green run; the west lot only harder ones

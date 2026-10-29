@@ -10,7 +10,7 @@ let today = {};
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v)), lerp = (a,b,t) => a+(b-a)*t;
 const distXZ = (a,b) => Math.hypot(a.x-b.x,a.z-b.z);
 const staffLevel = () => ({svc:1}), learningOpen = () => false;
-const closeTime = () => 960, bldMode = () => 'open';
+const closeTime = () => 960, sessionEnd = () => 960, bldMode = () => 'open', lotCount = () => 1;
 const bldById = id => world.buildings.find(B=>B.id===id);
 const thought = () => {};
 ${section('const BTYPES = {', 'const BORDER =')}

@@ -15,8 +15,10 @@ export default async function ({ browser, url }) {
     state.time = 700; today.complaints.food = 0; today.hungry = null;
     const eating = mk({ st: 'inside', svc: 'finedine' }), lesson = mk({ st: 'lesson', svc: 'lesson' }), price = mk({ foodPrice: 1 }), line = mk({ foodLine: world.buildings[0].id }), lost = mk({});
     for (const g of [eating, lesson, price, line, lost]) updateNeeds(g, 1);
+    if (today.complaints.food !== 0) throw Error('A delay is not a missed meal');
+    for (const g of [price, line, lost]) recordMealOutcome(g);
     return { eating: !!eating.hungry, lesson: !!lesson.hungry, n: today.complaints.food, sum: hungerSummary(today.hungry) }; })()`);
-  eq([h.eating, h.lesson, h.n], [false, false, 3], 'guests eating or in a lesson aren’t hungry yet; the other three are');
+  eq([h.eating, h.lesson, h.n], [false, false, 3], 'guests eating or in a lesson aren’t hungry yet; the three departing unfed guests count as missed meals');
   eq([h.sum.price, h.sum.lineN, h.sum.nowhereN], [1, 1, 1], 'each with its reason');
   const adv = await g.ev(`(() => { const out = []; const r = { complaints: { food: 60 }, hungry: { price: 40, late: 0, line: [], nowhere: [{ id: 'base', name: null, n: 20 }], lineN: 0, nowhereN: 20 } };
     hungerAdvice(r, (u, t, b) => out.push([t, b]));
@@ -28,7 +30,7 @@ export default async function ({ browser, url }) {
   assert(/nowhere to eat/.test(adv[2][0]) && adv[2][0].includes(await g.ev(`world.lifts[0].name`)), `nowhere nearby names the lift: ${adv[2]}`);
   await g.ev(SETUPS.finishDay);
   const note = await g.ev(`(() => { const r = state.lastReport; return r.complaints.food ? hungryNote(r) : 'none'; })()`);
-  assert(note === 'none' || /went hungry: \d/.test(note), `the report explains hungry guests: ${note}`);
+  assert(note === 'none' || /left without eating/.test(note), `the report explains hungry guests: ${note}`);
   await g.ev(`(() => { $('report').hidden = true; nextDay(); })()`);
 
   // ---- replant

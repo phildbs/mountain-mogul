@@ -7224,6 +7224,7 @@ function newToday() {
   return {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
+    meals: { onTime: 0, delayed: 0, missed: 0 },
     rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, apres: 0, night: 0 },
     apres: { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 },
     night: { guests: 0, stayed: 0, lifts: 0, runs: {} }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
@@ -7373,7 +7374,7 @@ function goCar(g) {
     // Town bus riders and guests parked off-site walk to the nearest station.
     const st = nearestStation(g);
     if (st) { g.stn = st.id; return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' }); }
-    if (car && car.offsite) { g.gone = true; gById.delete(g.id); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
+    if (car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
   }
   const s = car ? stalls[car.stall] : roadEnd();
   if (car && lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' }); // parked at the other base
@@ -7537,6 +7538,7 @@ function baseDecision(g) {
     if (maybeApres(g)) return; return goCar(g);
   }
   if (maybeVisit(g, g, 14, true, { k: 'base' })) return;
+  if (seekMeal(g, { k: 'base', p: g }, { k: 'base' })) return;
   let best = null, bv = -Infinity;
   const memo = new Map();
   const zg = lotCount() > 1 ? baseOf(g) : 0;
@@ -7556,6 +7558,7 @@ function baseDecision(g) {
 function topDecision(g, L, skipVisit) {
   updateLeaving(g);
   if (!skipVisit && maybeVisit(g, L.b, 10, false, { k: 'top', lid: L.id })) return true;
+  if (!g.leaving && seekMeal(g, { k: 'top', L }, { k: 'top', lid: L.id })) return true;
   const memo = new Map();
   let best = null, bv = -Infinity;
   for (const D of L.departing) {
@@ -7939,7 +7942,7 @@ function arrive(g) {
     startSki(g, T, t.s || 0);
   } else if (t.k === 'car') {
     g.st = 'incar';
-    today.satSum += g.sat; today.satN++;
+    recordMealOutcome(g); today.satSum += g.sat; today.satN++;
     const car = cars.find((c) => c.id === g.car);
     if (car) { car.back++; if (car.back >= car.members.length) carLeave(car); }
     else { g.gone = true; gById.delete(g.id); }
@@ -7992,7 +7995,11 @@ function updateSki(g, dt) {
     if (!runnable(b.trail)) continue;
     const memo = new Map();
     // Both choices include the skiing ahead; the current run still has value after the fork.
-    if (noisy(vTrail(b.trail, 0, g, 0, memo)) > noisy(vTrail(T, b.at + 1, g, 0, memo))) {
+    const foodBranch = wantsMeal(g) ? mealRoute(g, { k: 'trail', T: b.trail, s: 0 }) : null;
+    const foodStay = wantsMeal(g) ? mealRoute(g, { k: 'trail', T, s: (b.at + 1) * 0.5 }) : null;
+    const turn = foodBranch || foodStay ? (foodBranch?.cost ?? Infinity) < (foodStay?.cost ?? Infinity)
+      : noisy(vTrail(b.trail, 0, g, 0, memo)) > noisy(vTrail(T, b.at + 1, g, 0, memo));
+    if (turn) {
       g.seen[T.id] = (g.seen[T.id] || 0) + 1;
       return startSki(g, b.trail, 0);
     }
@@ -8300,6 +8307,7 @@ function closeEarly() {
   toast('Lifts are closing. Guests are heading home.');
 }
 function endDay() {
+  for (const g of guests) recordMealOutcome(g);
   const ops = today.ops || startOps(state.day), lv = STAFF_LEVELS[ops.staff] || STAFF_LEVELS.normal, short = ops.hours === 'short';
   const costs = planCosts(ops, today.guests);
   today.exp.staff = costs.staff;
@@ -8383,6 +8391,7 @@ function endDay() {
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation,
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
+    meals: today.meals ? { ...today.meals } : null,
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
   guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0;
@@ -8924,6 +8933,7 @@ function maybeStayNight(g) {
   if (!nightEnd() || g.night || g.leaving || g.sight || g.ab === 0 || g.fat > g.stam * 0.9 || g.sat < 45) return false;
   if (Math.random() > 0.15 + (g.ab >= 2 ? 0.08 : 0) + (g.sat - 45) / 300) return false;
   g.fat = Math.min(g.fat, g.stam * 0.6); // a second wind
+  recordMealOutcome(g);
   g.night = true; g.stayedNight = true; g.leaveAt = nightEnd() - Math.random() * 60; today.night.stayed += AGENT;
   g.warmed = false; nightSnack(g); // a new session, and it's colder now
   thought(g, 'Staying for night skiing under the lights!');
@@ -9416,6 +9426,7 @@ function restoreSim(sim) {
   for (const B of world.buildings) initBldSim(B);
   if (state.phase !== 'open' || !sim) { if (state.phase === 'open') state.phase = 'closed'; return; }
   today = sim.today; schedule = sim.schedule || [];
+  if (!today.meals) { today.meals = { onTime: 0, delayed: 0, missed: 0 }; today.complaints.food = 0; today.hungry = null; } // old mid-day saves counted delays as missed meals
   today.apres = today.apres || { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 }; today.night = today.night || { guests: 0, stayed: 0, lifts: 0, runs: {} }; // a day saved before après and night skiing
   resumeOps(today.ops); nextGid = sim.nextGid || 1; nextCid = sim.nextCid || 1;
   buses = (sim.buses || []).filter((b) => b.kind !== 'park' || !b.load || Array.isArray(b.load)); busPending = sim.busPending || 0; nextBusAt = sim.nextBusAt || 0;
@@ -11229,6 +11240,97 @@ function priceOf(svc, prices) {
 }
 const svcPrice = (svc) => priceOf(svc, state.prices);
 const svcRef = (svc) => priceOf(svc, PRICE_DEFAULTS);
+const MEAL_SVCS = ['food', 'dine', 'finedine', 'snack'];
+const wantsMeal = (g) => (!g.ate || g.skipped) && !g.leaving && !g.night && !g.apresGuest && !g.sight && state.time >= g.lunchAt && state.time < sessionEnd(g);
+const sameFoodBase = (a, b) => lotCount() < 2 || baseOf(a) === baseOf(b);
+function rejectedMeal(g, svc) {
+  if (!(g.pricedOut || []).includes(svc)) return false;
+  // Older mid-day saves only recorded rejected categories; let those guests retry too.
+  const retries = g.priceRetry || (g.priceRetry = {});
+  const r = retries[svc] || (retries[svc] = { until: state.time + 30, price: svcPrice(svc) });
+  return state.time < r.until && svcPrice(svc) >= r.price;
+}
+// Settle at actual departure, once, so a delayed lunch is never reported as leaving unfed.
+function recordMealOutcome(g) {
+  if (g.mealRecorded || g.night || g.local || g.sight || g.sawView || state.time < g.lunchAt) return;
+  g.mealRecorded = true;
+  const m = today.meals || (today.meals = { onTime: 0, delayed: 0, missed: 0 });
+  const eating = g.st === 'inside' && MEAL_SVCS.includes(g.svc);
+  if ((g.ate && !g.skipped) || eating) {
+    m[g.hungry || (g.mealAt ?? g.lunchAt) > g.lunchAt + 75 ? 'delayed' : 'onTime'] += AGENT;
+  } else {
+    m.missed += AGENT; today.complaints.food++; noteHunger(g);
+  }
+}
+// Search the actual ski network. No straight-line trips to distant buildings or uphill shortcuts.
+// The first step is executed normally; the next decision checks queues, openings and prices again.
+function mealRoute(g, start) {
+  if (!wantsMeal(g)) return null;
+  const todo = [{ ...start, cost: 0, first: null }], seen = new Map();
+  let best = null;
+  const speed = Math.max(0.01, SKI_SPEED[g.ab] * 60), walking = WALK * 60;
+  const add = (n, cost, first) => todo.push({ ...n, cost, first });
+  for (let count = 0; todo.length && count < 400; count++) {
+    todo.sort((a, b) => b.cost - a.cost);
+    const n = todo.pop(), key = n.k === 'trail' ? `t${n.T.id}:${n.s}` : n.k === 'base' ? `b${baseOf(n.p)}` : `${n.k}${n.L.id}`;
+    if ((seen.get(key) ?? Infinity) <= n.cost || state.time + n.cost >= sessionEnd(g) || (best && n.cost >= best.cost)) continue;
+    seen.set(key, n.cost);
+    const consider = (B, travel, first = n.first) => {
+      const svc = svcFor(B, 'lunch');
+      if (!svc || !bldOpenNow(B) || rejectedMeal(g, svc) || (g.avoidB === B.id && state.time + n.cost < g.avoidUntil)) return;
+      const arrival = state.time + n.cost + travel;
+      if (arrival >= sessionEnd(g) || (bldMode(B) === 'lunch' && (arrival < LUNCH_OPEN || arrival >= LUNCH_CLOSE))) return;
+      const cost = n.cost + travel + estWait(B, svc) + Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 8;
+      if (!best || cost < best.cost) best = { B, svc, cost, first: first || { k: 'eat', bid: B.id, svc } };
+    };
+    if (n.k === 'trail') {
+      const T = n.T, at = n.s || 0;
+      if (!runnable(T) || trailSign(T) > g.ab) continue;
+      const first = n.first || { k: 'continue' };
+      for (const stop of T.stops) if (stop.at * 0.5 >= at) {
+        const p = T.samples[Math.min(T.samples.length - 1, stop.at)];
+        consider(stop.B, (stop.at * 0.5 - at) / speed + distXZ(p, stop.B.door) / walking, first);
+      }
+      for (const b of T.branches) if (b.at * 0.5 >= at) add({ k: 'trail', T: b.trail, s: 0 }, n.cost + (b.at * 0.5 - at) / speed + 0.1, first);
+      const cost = n.cost + Math.max(0, T.len - at) / speed + 0.1, to = T.to;
+      if (!to) continue;
+      if (to.kind === 'trail') add({ k: 'trail', T: to.obj, s: T.joinIdx * 0.5 }, cost, first);
+      else if (to.kind === 'base') add({ k: 'base', p: T.samples[T.samples.length - 1] }, cost, first);
+      else add({ k: to.kind === 'top' ? 'top' : 'lift', L: to.obj }, cost, first);
+    } else if (n.k === 'base') {
+      for (const B of world.buildings) if ((B.isBase && sameFoodBase(n.p, B.door)) || distXZ(n.p, B.door) <= 14) consider(B, distXZ(n.p, B.door) / walking);
+      // A food trip never crosses to a disconnected base.
+      for (const L of world.lifts) if (L.fromBase && sameFoodBase(n.p, L.a) && !isVillage(L) && canLoad(L)) add({ k: 'lift', L }, n.cost + distXZ(n.p, L.a) / walking, n.first || { k: 'queue', lid: L.id });
+    } else {
+      const L = n.L, p = n.k === 'top' ? L.b : L.a, radius = n.k === 'top' ? 10 : L.fromBase ? 14 : 9;
+      for (const B of world.buildings) if (distXZ(p, B.door) <= radius || (n.k === 'lift' && L.fromBase && B.isBase && sameFoodBase(p, B.door))) consider(B, distXZ(p, B.door) / walking);
+      if (n.k === 'top') {
+        for (const T of L.departing) add({ k: 'trail', T, s: 0 }, n.cost + distXZ(p, T.samples[0]) / speed, n.first || { k: 'ski', tid: T.id });
+        for (const M of L.transfers || []) if (canLoad(M)) add({ k: 'lift', L: M }, n.cost + distXZ(p, M.a) / walking, n.first || { k: 'transfer', lid: M.id, from: L.id });
+      } else if (canLoad(L) && !isVillage(L)) {
+        const liftSpeed = LIFT_TYPES[L.type].speed / 10 / PACE * (liftMode(L) === 'slow' ? SLOW.speed : 1) * 60;
+        add({ k: 'top', L }, n.cost + liftWait(L) + L.upLen / Math.max(0.01, liftSpeed), n.first || { k: 'queue', lid: L.id });
+      }
+    }
+  }
+  return best;
+}
+function seekMeal(g, start, resume) {
+  const plan = mealRoute(g, start), step = plan && plan.first;
+  if (!step) return false;
+  if (step.k === 'eat') { startVisit(g, plan.B, plan.svc, resume); return true; }
+  if (step.k === 'ski') {
+    const T = trailById(step.tid); g.onSkis = true;
+    setMove(g, T.samples[0], 'glide', { k: 'ski', tid: T.id, s: 0 }); return true;
+  }
+  if (step.k === 'transfer' || step.k === 'queue') {
+    const L = liftById(step.lid), from = liftById(step.from);
+    const mode = from ? liftTransferMode(from, L) || 'glide' : g.onSkis ? 'glide' : 'walk';
+    g.onSkis = mode !== 'walk'; goQueue(g, L, mode); return true;
+  }
+  return false;
+}
+
 function willing(g, svc) {
   const p = svcPrice(svc), r = svcRef(svc);
   return r ? clamp(Math.exp(-(p - r) / r * 2.2) * g.spend, 0.03, 1) : 1;
@@ -11250,7 +11352,7 @@ function estWait(B, svc) {
 function needs(g) {
   const n = [];
   if (g.bl >= 1) n.push('rr');
-  if (!g.ate && state.time >= g.lunchAt && state.time < 900) n.push('lunch');
+  if (wantsMeal(g)) n.push('lunch');
   if (!g.warmed && !g.leaving && g.fat > g.stam * 0.55 && state.time < 870) n.push('warm');
   if (g.wantsGear && !g.leaving && state.time < 900) n.push('gear');
   if (g.shopper && !g.shopped && state.time > 630 && state.time < 960) n.push('shop');
@@ -11271,18 +11373,18 @@ function svcFor(B, need) {
 }
 function bestVisit(g, here, radius, baseToo, list, needList) {
   // A shorter line only helps if this guest can actually choose that place from here.
-  list = list.filter((B) => distXZ(B.door, here) <= radius || (baseToo && B.isBase));
+  list = list.filter((B) => distXZ(B.door, here) <= radius || (baseToo && B.isBase && sameFoodBase(here, B.door)));
   for (const need of needList) {
     let best = null, bv = -Infinity;
     for (const B of list) {
       const svc = svcFor(B, need);
       if (!svc || !bldOpenNow(B)) continue;
       if (g.avoidB === B.id && state.time < g.avoidUntil) continue; // gave up on its line a little while ago
-      if (need === 'lunch' && g.pricedOut && g.pricedOut.includes(svc)) continue; // already found that too dear today
+      if (need === 'lunch' && rejectedMeal(g, svc)) continue; // already found that too dear today
       if ((svc === 'rest' || (svc === 'warm' && B.type === 'firepit')) && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) continue; // free outdoor breaks need an available seat
       if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5, list)) continue; // somewhere else will feed them sooner
       const d = distXZ(B.door, here);
-      if (d > radius && !(baseToo && B.isBase)) continue;
+      if (d > radius && !(baseToo && B.isBase && sameFoodBase(here, B.door))) continue;
       const v = 10 - d * 0.12 - estWait(B, svc) * g.qh * 0.6 + tastes(g, B, svc)
         - Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4 + Math.random();
       if (v > bv) { bv = v; best = { B, svc }; }
@@ -11303,12 +11405,13 @@ function tastes(g, B, svc) {
 }
 // Another open place to eat with a shorter line, counting the trip there: for skipping or leaving a slow food line.
 // Returns { B, svc } or null.
-function otherEatery(g, from, mustBeat = Infinity, list = world.buildings) {
+function otherEatery(g, from, mustBeat = Infinity, list = null) {
+  list ||= world.buildings.filter((B) => distXZ(B.door, from.door || from) <= 20 || (from.isBase && B.isBase && sameFoodBase(from.door, B.door)));
   let best = null, bt = mustBeat;
   for (const B of list) {
     if (B === from || !bldOpenNow(B) || (g.avoidB === B.id && state.time < g.avoidUntil)) continue;
     const svc = svcFor(B, 'lunch');
-    if (!svc || (g.pricedOut && g.pricedOut.includes(svc))) continue;
+    if (!svc || (rejectedMeal(g, svc))) continue;
     const t = estWait(B, svc) + distXZ(B.door, from.door || from) / 5; // about 5 units a minute on skis
     if (t < bt) { bt = t; best = { B, svc }; }
   }
@@ -11466,6 +11569,13 @@ function bldQueueSlot(B, pool, k) {
   return { x: B.door.x + fx * (0.15 + row * 0.27) + sx * side, z: B.door.z + fz * (0.15 + row * 0.27) + sz * side };
 }
 function joinBuildingQueue(g, B) {
+  if (!bldOpenNow(B)) {
+    g.avoidB = B.id; g.avoidUntil = state.time + 15;
+    const need = MEAL_SVCS.includes(g.svc) ? 'lunch' : g.svc;
+    const alt = bestVisit(g, B.door, 20, B.isBase, world.buildings, [need]);
+    if (alt) return startVisit(g, alt.B, alt.svc, g.resume);
+    return leaveBuilding(g, B);
+  }
   if (g.svc === 'warm' && B.type === 'firepit' && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) {
     g.avoidB = B.id; g.avoidUntil = state.time + 15;
     const alt = bestVisit(g, B.door, 20, false, world.buildings, ['warm']);
@@ -11477,6 +11587,15 @@ function joinBuildingQueue(g, B) {
   B.q[POOL[g.svc]].push(g); B.qv++;
 }
 function bldStep(B) {
+  if (!bldOpenNow(B)) {
+    const pending = Object.values(B.q).flat();
+    if (pending.length) {
+      for (const pool in B.q) B.q[pool] = [];
+      B.qv++;
+      for (const g of pending) joinBuildingQueue(g, B);
+    }
+    return; // guests already eating can finish; new service follows the opening plan
+  }
   for (const pool in B.q) {
     const q = B.q[pool], slots = poolSlots(B, pool);
     while (q.length && B.used[pool] < slots) {
@@ -11510,7 +11629,7 @@ function bldStep(B) {
       q.splice(i, 1); B.qv++;
       g.sat -= 6; today.complaints.lines++;
       thought(g, `The line at ${B.name} was too long.`);
-      if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.lunchAt = state.time; g.foodLine = B.id; } // still hungry: eat somewhere else
+      if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.foodLine = B.id; g.foodReason = 'line'; } // still hungry: eat somewhere else
       if (g.svc === 'rr') g.bl = 0.7;
       if (g.svc === 'rent') { g.needsRental = false; g.sat -= 4; thought(g, 'I gave up on the rental line and rented in town.'); }
       shopDone(g, g.svc);
@@ -11530,12 +11649,11 @@ function serve(g, B) {
   if (price > 0 && Math.random() > willing(g, svc)) {
     if (!(g.pricedOut && g.pricedOut.length)) { g.sat -= 4; today.complaints.price++; } // one sting per lunch, not one per place they look
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
-    if (['food', 'dine', 'finedine', 'snack'].includes(svc) && !g.ate) {
-      // Lunch, but not at that price: look for something cheaper (every lodge charges the same, so not another
-      // one of those). Only after turning down a couple of places, or the cheapest, do they skip lunch.
-      g.foodPrice = B.id; g.pricedOut = [...(g.pricedOut || []), svc];
-      if (svc === 'snack' || g.pricedOut.length >= 2) { g.ate = true; g.skipped = true; }
-      else { g.avoidB = B.id; g.avoidUntil = state.time + 60; }
+    if (MEAL_SVCS.includes(svc) && (!g.ate || g.skipped)) {
+      // Try another kind of meal now; reconsider this price later, or immediately after a price cut.
+      g.foodPrice = B.id; g.foodReason = 'price'; g.ate = false; g.skipped = false;
+      g.pricedOut = [...new Set([...(g.pricedOut || []), svc])];
+      (g.priceRetry || (g.priceRetry = {}))[svc] = { until: state.time + 30, price };
     }
     if (svc === 'warm') g.warmed = true;
     if (svc === 'snack') g.snacked = true;
@@ -11559,6 +11677,7 @@ function serve(g, B) {
       today.apres.hours[Math.floor(state.time / 60)].rev += amt;
     } else today.rev[REV_CAT[svc]] += amt;
   }
+  if (MEAL_SVCS.includes(svc) && (!g.ate || g.skipped)) { g.mealAt = state.time; g.skipped = false; }
   B.used[pool]++; B.today.visits += AGENT;
   const services = B.today.services || (B.today.services = {});
   services[svc] = (services[svc] || 0) + AGENT;
@@ -11712,15 +11831,15 @@ function updateNeeds(g, dt) {
   const atLunch = g.st === 'lesson' || (['inside', 'bq', 'walk', 'glide'].includes(g.st) && ['food', 'dine', 'finedine', 'snack'].includes(g.svc));
   if ((!g.ate || g.skipped) && !atLunch && state.time > g.lunchAt + 75) {
     g.sat -= dt / 60 * 0.06;
-    if (!g.hungry) { g.hungry = true; today.complaints.food++; noteHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
+    if (!g.hungry) { g.hungry = true; thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
   }
 }
 // Why a guest went hungry, so the report and What next? can say what would actually help: lunch
 // cost too much, the line was too long (and where), or there was nowhere to eat near where they ski.
 function noteHunger(g) {
   const h = today.hungry || (today.hungry = { price: 0, late: 0, line: {}, nowhere: {} });
-  if (g.foodPrice != null) { h.price += AGENT; return; }
-  if (g.foodLine != null) { h.line[g.foodLine] = (h.line[g.foodLine] || 0) + AGENT; return; }
+  if (g.foodReason === 'price' || (!g.foodReason && g.foodPrice != null)) { h.price += AGENT; return; }
+  if (g.foodReason === 'line' || (!g.foodReason && g.foodLine != null)) { h.line[g.foodLine] = (h.line[g.foodLine] || 0) + AGENT; return; }
   if (g.lunchAt > 840) { h.late += AGENT; return; } // wanted lunch as the kitchens were closing
   const p = g.st === 'ski' && g.T ? guestPos(g) : g;
   let best = null, bd = Infinity;
@@ -12010,7 +12129,7 @@ function busBoard(st) {
     if (g.st !== 'busq' || g.stn !== st.id) continue;
     if (st.type === 'transit') g.sat = Math.min(100, g.sat + 2); // a warm terminal to wait in
     g.gone = true; gById.delete(g.id);
-    today.satSum += g.sat; today.satN++;
+    recordMealOutcome(g); today.satSum += g.sat; today.satN++;
   }
 }
 // A car the main lot couldn't take: it parks off-site and its guests wait there for a shuttle.
@@ -12054,7 +12173,7 @@ function parkBoard(st) {
     if (wait > SHUTTLE_PATIENCE) { g.sat = Math.max(0, g.sat - Math.min(15, (wait - SHUTTLE_PATIENCE) * 0.5)); today.complaints.shuttle = (today.complaints.shuttle || 0) + 1; }
     today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
     g.gone = true; gById.delete(g.id);
-    today.satSum += g.sat; today.satN++;
+    recordMealOutcome(g); today.satSum += g.sat; today.satN++;
     const car = offCars.find((c) => c.id === g.car);
     if (car && ++car.back >= car.members.length) { offCars = offCars.filter((c) => c !== car); today.offUsed--; }
   }
@@ -14054,7 +14173,7 @@ function adviceFor(r) {
     [(c.campFull || 0) * 6, c.campFull ? `${c.campFull} families found the kids’ camp full. A second camp would take them.` : ''],
     [(c.farLot || 0) * 4, c.farLot ? `${c.farLot * AGENT} guests had a long walk from a far parking lot. A shuttle station beside it runs them over.` : ''],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
-    [(c.food || 0) * P.food, `${c.food} guests went hungry. A bigger lodge or a restaurant would feed them, and they’d stay happier.`],
+    [(c.food || 0) * P.food, `${c.food} guests ${r.meals ? 'left without eating' : 'went hungry'}. Check food prices, lines and where guests can reach a meal.`],
     [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
     [r.leftLines ? r.leftLines * 30 + (r.lostSpend || 0) : 0, r.jam ? `${r.leftLines} guests went home early, fed up with lift lines; ${r.jam.name} averaged ${Math.round(r.jam.wait)} minutes.${r.jam.slow ? ` Your plan runs it slow; full speed would help.` : ` Upgrade it to a faster lift (tap it, then Upgrade lift), build a second lift beside it, or add terrain off other lifts to spread the crowd.`}` : ''],
     [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
@@ -14077,6 +14196,10 @@ let rpPast = false;
 // What the day report says about hungry guests: the count, then the reasons, biggest first.
 function hungryNote(r) {
   const c = r.complaints, h = r.hungry, n = c.food;
+  if (r.meals) {
+    const m = r.meals;
+    return `${m.onTime} guests ate without a long delay; ${m.delayed} ate after a long delay; ${m.missed} left without eating.${m.missed && h ? ` Reasons: ${hungryNote({ complaints: c, hungry: h }).replace(/^.*?went hungry: /, '')}` : ''}`;
+  }
   if (!h) return `${n} guests went hungry without finding food.`;
   const parts = [];
   if (h.price) parts.push([h.price, `${h.price} found lunch too expensive and skipped it`]);
@@ -14121,7 +14244,7 @@ function whyToday(r) {
   if (r.offsite && r.offsite.full) leaks.push([r.offsite.full, `off-site parking filled too, turning away ${r.offsite.full.toLocaleString('en-US')}`]);
   if (r.leftLines) leaks.push([r.leftLines, `lift lines sent ${r.leftLines.toLocaleString('en-US')} guests home early${r.busiest && r.busiest.wait >= 10 ? ` (${r.busiest.name} averaged ${Math.round(r.busiest.wait)} min)` : ''}`]);
   if (r.refunded) leaks.push([r.refunded, `${r.refunded.toLocaleString('en-US')} guests never got on a lift and were refunded`]);
-  if (c.food) leaks.push([c.food, `${c.food.toLocaleString('en-US')} guests went hungry`]);
+  if (c.food) leaks.push([c.food, `${c.food.toLocaleString('en-US')} guests ${r.meals ? 'left without eating' : 'went hungry'}`]);
   if (c.rentOut || c.noRental) leaks.push([(c.rentOut || 0) + (c.noRental || 0), `${((c.rentOut || 0) + (c.noRental || 0)).toLocaleString('en-US')} guests couldn’t rent skis here`]);
   const leak = leaks.sort((a, b) => b[0] - a[0])[0];
   const leakLine = leak && leak[0] >= Math.max(10, r.guests * 0.03) ? ` Biggest leak: ${leak[1]}.` : '';
@@ -14177,7 +14300,8 @@ function showReport(r = state.lastReport, past = false) {
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
   if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
-  if (c.food) note(3, hungryNote(r));
+  if (r.meals && r.meals.onTime + r.meals.delayed + r.meals.missed) note(r.meals.missed || r.meals.delayed ? 3 : 1, hungryNote(r));
+  else if (c.food) note(3, hungryNote(r));
   if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
   if (c.price) note(2, `${c.price} guests decided a price was too high.`);
   if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
@@ -16565,6 +16689,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider after a price cut or a short break. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },
   { v: '2.58.3', date: 'Oct 29, 2026', title: 'More reliable lunch choices', small: true, items: ['Fixed: hungry guests no longer pass up a nearby eatery because of a shorter line somewhere outside their search area, or food they already found too expensive.', 'The how-to guide explains lodge meals, lodge sizes, food prices and what to check when a lodge is quiet.'] },
   { v: '2.58.2', date: 'Oct 28, 2026', title: 'Clear patrol staffing and expenses', small: true, items: ['Patrol staffing uses the exact headcount you select. Full and Skeleton controls have been removed; Lean, Normal and Extra affect other employees.', 'Patrollers cost $425 each per operating day, plus $100 hut upkeep. Patrol wages appear once in payroll, with no extra building-staff charge. Operations estimates and day reports use the same expense rules.', 'Patrol claims now follow guests who actually missed rescue help, rather than a staffing toggle.'] },
   { v: '2.58.1', date: 'Oct 28, 2026', title: 'Patrol staffing in Operations', small: true, items: ['Choose 1–6 patrollers for every hut with an override in each Operations plan. Turn it off to use each hut’s saved manual staffing.', 'Select a patrol hut to adjust its individual team overnight. Daily costs and active staff follow the plan in use.'] },

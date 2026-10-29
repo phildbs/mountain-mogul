@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58.3: eligible lunch alternatives and lodge how-to; all GitHub shards passed and Pages deployed Oct 29.
 - 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
 - 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
 - 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
@@ -91,7 +92,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| lodge-lunch-check | ChatGPT | Lodge lunch utilization, eligible alternatives and how-to | 2026-10-29 |
+| hunger-reliability | ChatGPT | Food routes, full-day meals, price retries and meal outcomes | 2026-10-29 |
 
 
 ## Known issues
@@ -208,6 +209,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · Hunger reliability (2.59 candidate)
+- Phil approved and published 2.58.3 at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2. Tests 40869056378 and post-publication 40870047122 passed; Pages 40870045931 succeeded.
+- New hunger-reliability branch starts there. Hungry daytime skiers seek food through the connected trail/lift network (ability-safe trails, open lifts, trail forks, same-base walking); no straight-line trip across separate bases. Searches continue to sessionEnd, including after 3 PM. Prices/capacities unchanged.
+- Rejected meal categories are excluded for 30 minutes or until their price drops; no more ate+skipped after two rejects/a snack. Older skipped guests can retry. Queue abandonment preserves original lunchAt. Closed venues release queues/reroute arrivals; existing diners finish.
+- Meal outcomes settle once at departure (or daytime-to-night transition): onTime/delayed/missed. Only actual missed meals increment complaints.food and reason totals. Delayed meals retain satisfaction effects. Reports separate outcomes, with a 75-minute delay threshold. Optional fields use existing mid-day save serialization; restore clears obsolete delay-based counters in legacy open-day saves. Historical reports keep legacy rendering.
+- Shared tests/hunger-cases.mjs checks safe routes, closures, timing, prices, reporting and queue clocks. Node tests/hunger.mjs and tests/lodge-lunch.mjs pass; inline/scenario syntax and whitespace pass. Browser 99 covers actual movement, saves and Twin isolation; 100 compares ample vs closed food. Updated 69 and 84 for intentional reporting/retry changes. Full GitHub browser CI pending; local Chromium absent, so no local visual/browser pass claimed. Guide/changelog updated; no matching roadmap item and no database changes. Not published.
 
 ### 2026-10-29 · ChatGPT · Lodge lunch investigation
 - Branch lodge-lunch-check, version 2.58.3. Lodges already offer food, warm-ups, restrooms and après drinks. All three sizes serve lunch; deterministic service checks verify revenue, cost, hunger satisfaction and released seats. Restaurant overflow chooses the large lodge.
