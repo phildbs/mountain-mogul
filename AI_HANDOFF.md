@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.5: returning skiers compare base lifts, nearby summit lifts share safe trail entrances, and route scores account for ride time and operating speed.
 - 2.62.4: privacy policy link in the bottom title-screen footer and resort menu; updated data handling, sharing and deletion disclosures.
 - 2.62.3: corrected left/right rotation, larger SVG arrows, explicit direction labels and larger touch targets for buildings, benches and picnic tables.
 - 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; thank-you and simulation-bug feedback note on the welcome card and What’s new.
@@ -86,7 +87,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Privacy update 2.62.4 published at 7aab3febddb6be864fcf9607384d81294b4e7fa6; Pages deployment 40960362483 succeeded. ChatGPT preparing 2.62.5 on express-routing for lift route choices. Preview only; pause for Phil's GitHub result without polling.
+**Active**: Phil approved publishing 2.62.5 after reporting passed tests. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d. Published main at 937021ccac53b869b8ab932b0fde08745235f2a5. GitHub Pages deployment 40963941439 succeeded.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -100,7 +101,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| express-routing | ChatGPT | Reproduce and fix direct express versus transfer lift route choices | 2026-10-29 |
 
 
 
@@ -220,6 +220,12 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · 2.62.5 publication approved
+- Phil reported passed tests and explicitly requested Publish. Verified full Tests 40962674422 succeeded at 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d; current main remains starting commit 7aab3febddb6be864fcf9607384d81294b4e7fa6. Only this handoff changes after the passed candidate; fast-forward publication.
+- Release: base-lift trail ends reconsider available lifts, safe shared summit trail entrances, ride-time/operating-speed scoring alongside queues/terrain, matching walking/gliding approach for food routes. CHANGES 2.62.5 and guide included; no newly delivered roadmap card, database changes or serialized-save format change. Full browser suite includes old-save checks and corrected new scenario 107.
+- Local source/VM checks passed; actual browser suite passed after fixing test fixture coordinates (original choices were too steep). No gameplay changes or weakened assertions in fixture correction. Local Chromium unavailable; no screenshot review claimed. Cleared WIP; GitHub Pages deployment 40963941439 succeeded. Injury-claim fairness is still unmodified and is the remaining feedback issue.
+
+
 ### 2026-10-29 · ChatGPT · Corrected express regression fixture placement
 - Updated preview candidate 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d: https://raw.githack.com/phildbs/mountain-mogul/8e6b8529b5ab64e62e4bfdbe45d191de9c29976d/index.html . Guest preview saves separate; feedback/crashes/votes still live.
 - Phil reported failed Tests 40961212030 at 94f8519219d7e9fb3c0c59646d6540498ae9b9b9. Three groups passed; group 2 failed only scenario 107 while constructing its express lift (before routing assertions). Existing browser scenarios passed, including the known flaky 22-topbar on retry. Standalone source/VM route checks passed in the failed job.
@@ -238,7 +244,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-29 · ChatGPT · Privacy publication approved; routing next
 - Phil reported passed tests, explicitly requested Publish and authorized work on the next issue: express summit lift versus two-lift transfer choices. Verified full Tests 40957503821 succeeded at e0a5aeb194ece12fc86836c7f1f8a9024e84d44a; main is still starting commit b5f6053cb31ff38c95bbb58a9cd2910f83512a7d. Only this handoff changes after the passed candidate. Footer location was Phil's requested revision.
-- Privacy links and current-data disclosures ready; no new collection, auth/database changes or school compliance claim. Browser link/pop-up checks passed; local static/syntax checks passed. No rendered screenshot review claimed. Cleared privacy WIP. Pages verification pending. Lift routing work follows on a separate branch; injury-claim balance remains unchanged.
+- Privacy links and current-data disclosures ready; no new collection, auth/database changes or school compliance claim. Browser link/pop-up checks passed; local static/syntax checks passed. No rendered screenshot review claimed. Cleared privacy WIP. GitHub Pages deployment 40963941439 succeeded. Lift routing work follows on a separate branch; injury-claim balance remains unchanged.
 
 
 ### 2026-10-29 · ChatGPT · Privacy footer placement revision
