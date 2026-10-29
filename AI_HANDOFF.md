@@ -91,6 +91,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| lodge-lunch-check | ChatGPT | Verify lodge meals and fix inaccessible lunch alternatives; guide clarification | 2026-10-29 |
 
 
 ## Known issues
