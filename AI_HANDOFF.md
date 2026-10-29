@@ -93,6 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| asset-controls | ChatGPT | Weekday/weekend/quiet plan controls on building/lift cards and lift color picker | 2026-10-29 |
 
 
 
