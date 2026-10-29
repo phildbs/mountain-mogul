@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.62.3: corrected left/right rotation, larger SVG arrows, explicit direction labels and larger touch targets for buildings, benches and picnic tables.
 - 2.62.2: compare nearby reachable food stops before joining a trail-side lunch line; thank-you and simulation-bug feedback note on the welcome card and What’s new.
 - 2.62.1: food-truck takeaway service no longer waits for eating spaces; cold or tired guests finish eating, then can seek a separate nearby warming break.
 - 2.62: movable desktop map cards; full/compact/minimized phone cards; automatic compact placement; persistent Undo point/Clear while minimized.
@@ -84,7 +85,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: ChatGPT preparing 2.62.3 on rotation-controls after player feedback: larger SVG Left/Right 90° buttons, corrected direction mapping. Preview only; wait for Phil to report GitHub results without polling.
+**Active**: Phil approved publishing 2.62.3 after reporting passed tests. Verified full Tests 40946437107 succeeded on f0efa1ceb43f177a03217ad52a52644118a177c4. Publishing approved game code unchanged; Pages verification pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -98,7 +99,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| rotation-controls | ChatGPT | Clearer rotation arrows and correct left/right directions; preview only | 2026-10-29 |
 
 
 
@@ -218,7 +218,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · 2.62.3 publication approved
+- Phil reported tests passed, then explicitly said Publish. Verified Tests 40946437107 succeeded at f0efa1ceb43f177a03217ad52a52644118a177c4; main remains the starting commit 72b20c2de20fbc09dc7e1d38c4455f38d700daa8. Publication by fast-forward with only this handoff change after testing.
+- Corrected left/right mapping, larger 24px SVG arrows, Left 90°/Right 90° labels and 44px button targets. Shared building, bench and picnic controls; no changes to saved angles or R shortcut. Guide/CHANGES 2.62.3 included; no matching roadmap addition, no save/schema changes.
+- Local direction checks at six headings, 9,360 footprint cases, syntax and whitespace passed. Full browser suite passed, including mouse/touch placement. Local Chromium unavailable; no manual screenshot review or dedicated rendering success claimed. Cleared WIP. Pages verification pending.
+
+
 ### 2026-10-29 · ChatGPT · Clearer rotation controls
+- Preview candidate f0efa1ceb43f177a03217ad52a52644118a177c4: https://raw.githack.com/phildbs/mountain-mogul/f0efa1ceb43f177a03217ad52a52644118a177c4/index.html . Play as guest; separate preview saves; feedback/crashes/votes still live.
 - Phil shared feedback that building rotation symbols were too small and turned the wrong way. Confirmed positive model Y turns counterclockwise viewed above, but was labeled right. Swapped button increments so Left is +90° and Right is −90°; saved angles, fine-angle inputs and R shortcut unchanged.
 - Larger 24px line SVG arrows, explicit Left 90°/Right 90° labels and 44px minimum button height. Applies to buildings, benches and picnic tables through shared rotationControls. CHANGES 2.62.3 and guide updated. No roadmap item newly delivered and no save/schema changes.
 - Extended actual-transform checks at six starting headings and browser scenario 102 to click semantic direction labels on mouse/touch and assert comfortable target/icon sizes. Passed inline JS/test syntax, 9,360 footprint cases, direction checks and diff whitespace checks. Browser/visual check remains unavailable locally (Chromium absent); no rendering success claimed. Full GitHub suite runs on push. Pause for Phil results; do not poll or publish.
