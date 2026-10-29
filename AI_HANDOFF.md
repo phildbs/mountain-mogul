@@ -91,7 +91,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| roadmap-base-traversal | ChatGPT | Clarify paintable base area as a traversable zone and valid trail endpoint | 2026-10-28 |
 
 
 ## Known issues
@@ -211,7 +210,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ### 2026-10-28 · ChatGPT · Paintable base clarification
 - Phil clarified that paintable base areas are functional guest traversal zones, not cosmetic village layouts: guests can move freely within them, and a trail ending in the area counts as reaching the base. Updated the existing Exploring card description on roadmap-base-traversal, commit 3bf4d827d11ebd91146d83849b41fbdfd9981cd6. Vote ID paintable-base-area and status remain unchanged.
-- Roadmap wording only; no simulation implementation or version bump. Tests skipped per docs-only policy. Ready for Publish instruction; not on main yet.
+- Roadmap wording only; no simulation implementation or version bump. Tests skipped per docs-only policy. Published to main at 3bf4d827d11ebd91146d83849b41fbdfd9981cd6 after Phil’s explicit Publish instruction. Pages deployment pending.
 
 ### 2026-10-28 · ChatGPT · Paintable base area roadmap idea
 - Phil requested “Paintable base area” as a possible addition. Added an Exploring card under More mountain on roadmap-paintable-base, commit be02628e9bf8471099b4e019bcd388e5444553e8, based on f425628fc994d477825593cfce15cf15e065a135. New vote ID paintable-base-area; all existing IDs preserved and uniqueness checked. Description covers painting the shape/layout around buildings and lift stations.
