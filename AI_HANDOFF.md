@@ -87,7 +87,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| roadmap-guest-targeting | ChatGPT | Exploring: choose guest audience for extreme or beginner mountains; awaiting Publish | 2026-10-29 |
 
 ## Known issues
 
