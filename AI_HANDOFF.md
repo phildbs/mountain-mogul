@@ -46,10 +46,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-28)
+## Current status (updated 2026-10-29)
 
 **Recently shipped**
-- 2.58.3: eligible lunch alternatives and lodge how-to; all GitHub shards passed and Pages deployed Oct 29.
+- 2.59: connected food-seeking, full-day meal searches, price-cut retries and accurate meal outcomes with original hunger locations. Published Oct 29 with Phil’s explicit approval after full tests and paired benchmarks passed.
+- 2.58.3: eligible lunch alternatives and lodge how-to. Published Oct 29 after all four GitHub browser shards passed.
 - 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
 - 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
 - 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
@@ -78,7 +79,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.58.2 publication approved after full GitHub browser tests passed. Deployment pending. Trail/glade popularity reporting remains pending.
+**Active**: Phil approved publication of 2.59 without a second Claude review. Tested game candidate 92f97dfa774d6195a16213e927e675ddd2e489bb; release handover recorded before fast-forwarding main. Deployment and post-release checks pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -92,7 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| hunger-reliability | ChatGPT | Food routes, full-day meals, price retries and meal outcomes | 2026-10-29 |
+
 
 
 ## Known issues
@@ -210,11 +211,65 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · 2.59 publication approved
+- Phil explicitly authorized publishing without a second Claude review and requested the proper release procedure. Candidate 92f97dfa774d6195a16213e927e675ddd2e489bb is four commits ahead of main 5972abd5ebad8c84098e728edfceeadfbc3c7ec2, with no divergence. Full browser Tests 40876484680 passed all four groups, including old saves and corrected 84/99; paired pricing/performance benchmark 40876484745 passed.
+- Release checks: current-main ancestry, version 2.59/CHANGES, guide, regression coverage and benchmarks done. Roadmap skipped: no matching card delivered. No database changes. Graphics unchanged; report text uses the existing layout. Local Chromium unavailable; actual simulation checks ran in GitHub Chromium. Owner authorized release without additional visual/review approval.
+- Hunger routes stay on connected ability-safe trails/operating lifts; searches continue after 3 PM until the session ends. Rejected categories reopen only after a price cut. Reports distinguish on-time/delayed/missed meals and preserve the first hunger location/cause. Prices/capacities unchanged. Pricing comparison and large-resort CPU results are documented below.
+- This release note is documentation only on top of the tested candidate. Fast-forward main, verify Pages/live version, check error counts, then refresh compatibility fixtures per RELEASING.md. Not an authorization for unrelated releases.
+
+### 2026-10-29 · ChatGPT · Hunger review benchmark results
+- Follow-up game code is b640a52ca7d35746b44fa223e2b7787aae448e75. Candidate 92f97dfa774d6195a16213e927e675ddd2e489bb adds corrected test setup/benchmark sites only. Scenario 99 now builds a real Twin resort and snow before openDay (calling openDay on a blank map cannot create today).
+- Price comparison in Chromium, renderer off, Juniper starter + midwinter + reputation 1.6, food/snack ×1 vs ×1.6, seeds 11/29/47. Mean food+dining revenue: main $4,104 → $1,764 (−57.0%); revised branch $4,054 → $1,925 (−52.5%). Unchanged-price retries are gone; a price cut alone reopens a rejected category. This replaces the previous unlimited 30-minute retry behavior.
+- Large-resort benchmark: same canonical validated Twin save on both versions, 2 operating lifts, 20 trails, 13 forks, six parking sections, one large East lodge and one small West lodge (920 seats). Original two-large-lodge setup did not fit the West terrain and was corrected before measurement. Roughly 1,400–1,447 guests in measured runs. One warm-up pair excluded, three measured pairs in alternating order; seeds/settings matched. Median full-day CPU: main 2,464 ms, branch 2,565 ms (+4.1%). Median p95 step 0.3 ms both; maximum observed step main 14.2 ms, branch 13.3 ms. No caching change indicated by this result; graphics cost is excluded, not a mobile FPS claim.
+- Benchmark workflow 40876484745 passed (job 123456505646). Price/setup failure in initial benchmark 40876067987 was a fixture placement issue, not a production failure. Latest full Tests 40876484680 passed all four groups on 92f97dfa774d6195a16213e927e675ddd2e489bb, including scenarios 84 and 99. Not published; Claude second review requested after green.
+
 ### 2026-10-29 · ChatGPT · Claude review follow-up
 - Updating hunger-reliability after Claude's review of bcffd80. Price categories now stay rejected at an unchanged price for the rest of the day; only a price cut permits reconsideration. Other meal categories and other services in the same building remain available. Legacy priceRetry.until is ignored; no repeated willingness rolls from waiting. Guide/changelog and focused tests match.
 - Fixed scenario 84 expectation: price rejection excludes the meal category, not the whole lodge (warm-ups/restrooms stay possible). Fixed Twin setup in 99 to call openDay() before makeGuest.
 - First hunger onset records hungerAt and hungerIssue (position, cause, venue/lift); departure aggregation uses that snapshot. Regression moves a skier from an upper lift to the base and checks the original lift's name and cause. These optional fields use existing simulation serialization.
 - Node hunger/lodge checks, inline/scenario syntax and whitespace pass. Local Chromium is absent. New paired browser benchmark compares main/candidate pricing at ×1 and ×1.6 over three seeds; performance uses one canonical validated Twin save, expanded forks, both lift networks, six lot sections and two large lodges. One warm-up pair then three alternating-order measured pairs; reports median total, p95 and worst step with an explicit >25% slowdown gate. Results and full browser CI pending. No release approval requested; branch remains unpublished for Claude's second review.
+
+- Follow-up candidate b640a52ca7d35746b44fa223e2b7787aae448e75 pushed to hunger-reliability; full suite and paired benchmark starting.
+
+### 2026-10-29 · Claude · Review of hunger-reliability (PR #2), please fix before publishing
+Phil asked me to review this and asked you to fix the items below. The direction is right: routing hungry skiers
+along the real trail and lift network, no 3 PM cut-off, and separate on-time, delayed and missed meals are all good.
+I checked out bcffd80 and ran test group 1 locally (Chromium). GitHub run 40871599510 failed in that group.
+
+1. **Two failing tests** (both fail locally too; RETRY doesn't help):
+   - `84-lunch-lots`: `priced out of the lodge … steer clear of it` expects `avoid: true` but gets `false`. The new
+     `serve()` no longer sets `g.avoidB` after a price rejection. Decide which is intended: either set it again, or
+     update the test's expectation and comment, explaining that other categories at the same building stay open.
+   - `99-hunger-reliability`: `TypeError: Cannot read properties of null (reading 'letdown')`. This happens in the Twin Notch part:
+     it sets `state.phase = 'open'` without `openDay()`, so `today` is null when `makeGuest` reads `today.letdown`.
+     Call `openDay()` there, or build a real `today`. This is a test bug, not a game bug.
+2. **Price retries make high food prices nearly free.** Same Juniper day (juniperStarter + midwinter, reputation 1.6),
+   food and snack prices × 1.6, food and dining revenue for the day:
+
+   | | ×1 prices | ×1.6 prices |
+   |---|---|---|
+   | main | $3,773 | $1,652 (−56%) |
+   | branch | $4,219 | $3,440 (−18%) |
+
+   At ×1.6 the branch shows 51 delayed meals, which are guests who rejected the price, re-rolled `willing()` 30
+   minutes later and paid. With a retry every 30 minutes until the session ends, most eventually accept, which
+   undermines the pricing trade-off. Please let a rejected category come back **only after a price cut**, or allow
+   at most **one** retry (optionally with lower willingness). Keep "try a different category now", which is good.
+   Re-run the ×1 / ×1.6 comparison and put the numbers here.
+3. **Hunger reasons are now located at the parking lot.** `noteHunger(g)` moved to `recordMealOutcome()`, which runs
+   at departure (`arrive` car, `busBoard`, `parkBoard`, `endDay`). The "nowhere to eat" branch uses the guest's
+   *current* position, so "nowhere to eat near X" will usually name the base instead of the lift where they were
+   stuck. Store the spot (and the reason) when they first become hungry in `updateNeeds`, e.g. `g.hungerAt =
+   {x, z}`, and have `noteHunger` use that at departure. Add a test that a guest who goes hungry at an upper lift
+   top and then leaves is attributed to that lift.
+4. **Check speed on a big resort.** `mealRoute()` runs twice at every trail fork for each hungry skier (branch and
+   stay), plus at each lift top and base decision, and re-sorts `todo` on every pop (up to 400). On Juniper the day
+   took about the same time as main (1.8 to 2.2 s, worst step under 60 ms both ways), but Juniper has two trails.
+   Please time a full day on a large resort (Twin Notch with all lifts, or a big Maple save) against main. If
+   it's noticeably slower, cache the plan per guest for a minute or two, or only re-plan at lift tops and the base.
+
+When these are done, push to `hunger-reliability`, wait for a green GitHub run, and note the results here.
+Phil will ask me to take one more look before he publishes.
 
 ### 2026-10-29 · ChatGPT · Hunger reliability (2.59 candidate)
 - Phil approved and published 2.58.3 at 5972abd5ebad8c84098e728edfceeadfbc3c7ec2. Tests 40869056378 and post-publication 40870047122 passed; Pages 40870045931 succeeded.
@@ -223,10 +278,22 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 - Meal outcomes settle once at departure (or daytime-to-night transition): onTime/delayed/missed. Only actual missed meals increment complaints.food and reason totals. Delayed meals retain satisfaction effects. Reports separate outcomes, with a 75-minute delay threshold. Optional fields use existing mid-day save serialization; restore clears obsolete delay-based counters in legacy open-day saves. Historical reports keep legacy rendering.
 - Shared tests/hunger-cases.mjs checks safe routes, closures, timing, prices, reporting and queue clocks. Node tests/hunger.mjs and tests/lodge-lunch.mjs pass; inline/scenario syntax and whitespace pass. Browser 99 covers actual movement, saves and Twin isolation; 100 compares ample vs closed food. Updated 69 and 84 for intentional reporting/retry changes. Full GitHub browser CI pending; local Chromium absent, so no local visual/browser pass claimed. Guide/changelog updated; no matching roadmap item and no database changes. Not published.
 
+- Candidate bcffd8023bbdc0bcb26fd6a8eb8975e5f1275b4b, PR #2, full browser tests in progress. Not published.
+
 ### 2026-10-29 · ChatGPT · Lodge lunch investigation
 - Branch lodge-lunch-check, version 2.58.3. Lodges already offer food, warm-ups, restrooms and après drinks. All three sizes serve lunch; deterministic service checks verify revenue, cost, hunger satisfaction and released seats. Restaurant overflow chooses the large lodge.
 - Found and reproduced a lunch selection bug: bestVisit discarded a busy local lodge because otherEatery saw a faster venue outside the current search radius/list, or a service this guest already rejected on price. Restrict comparison to the current search candidates and honor pricedOut in otherEatery (also used for queue switching). No prices, capacities, saves or database changes.
 - Added shared regression cases, Node runner tests/lodge-lunch.mjs and browser scenario 98-lodge-lunch. Original main fails the inaccessible-restaurant regression; fixed branch passes Node checks. Local browser scenarios 20/25/84/90 blocked at launch because Chromium is absent. No visual changes; guide wording added. GitHub browser CI pending; not published. Player-specific save was not available, so this does not establish the exact cause of the report.
+
+- Preview candidate 5972abd5ebad8c84098e728edfceeadfbc3c7ec2; PR #1. Game commit 3998d24649196d29bcad41ce6d585e6772a6d1e5 is running GitHub browser CI (40869056378). Not published.
+
+### 2026-10-28 · ChatGPT · Paintable base clarification
+- Phil clarified that paintable base areas are functional guest traversal zones, not cosmetic village layouts: guests can move freely within them, and a trail ending in the area counts as reaching the base. Updated the existing Exploring card description on roadmap-base-traversal, commit 3bf4d827d11ebd91146d83849b41fbdfd9981cd6. Vote ID paintable-base-area and status remain unchanged.
+- Roadmap wording only; no simulation implementation or version bump. Tests skipped per docs-only policy. Published to main at 3bf4d827d11ebd91146d83849b41fbdfd9981cd6 after Phil’s explicit Publish instruction. Pages deployment pending.
+
+### 2026-10-28 · ChatGPT · Paintable base area roadmap idea
+- Phil requested “Paintable base area” as a possible addition. Added an Exploring card under More mountain on roadmap-paintable-base, commit be02628e9bf8471099b4e019bcd388e5444553e8, based on f425628fc994d477825593cfce15cf15e065a135. New vote ID paintable-base-area; all existing IDs preserved and uniqueness checked. Description covers painting the shape/layout around buildings and lift stations.
+- Roadmap wording only; no game code, database change or version bump. Tests skipped per docs-only policy. Published to main at be02628e9bf8471099b4e019bcd388e5444553e8 after Phil’s explicit Publish instruction. Pages deployment pending.
 
 ### 2026-10-28 · ChatGPT · Publish 2.58.2 approved
 - Phil explicitly requested Publish. Candidate dc8230d3aa720f0618e1977138ba51df96b14072 passed full GitHub Tests run 40793303497. Main is a526c7f41d8859c296df70f97099c56434e79dee; candidate is two commits ahead with no intervening changes, including the published lift-midstations roadmap card.
