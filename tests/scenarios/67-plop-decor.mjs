@@ -1,4 +1,4 @@
-// Trees, benches and picnic tables go down with one tap overnight. Planted trees draw in one batch and
+// Trees plant with one tap; seats require confirmation. Planted trees draw in one batch and
 // are saved; tired guests stop for a rest at benches, picnic tables and fire pits all day, without
 // queueing, and get some energy back.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';

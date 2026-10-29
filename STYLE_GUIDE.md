@@ -111,7 +111,7 @@ Reuse these; don't invent new kinds of control.
   A themed model must match the classic one's footprint, seats (same count and order), door and sign.
 - **People:** tiny figures in bright jackets. Staff wear their uniform colours (patrol red, school green).
 - **Placement feedback:** green footprint means OK, red means a problem; the ghost model sits where it will be built.
-- **Decor** (trees, benches, lamps, fire pits) places with a tap and repeats; keep new decor small and cheap.
+- **Decor:** trees plant with a tap and repeat. Benches and picnic tables show a position/rotation preview and require confirmation for each placement, including on touchscreens. Keep new decor small and cheap.
 
 ## 7. Writing
 

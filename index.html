@@ -902,6 +902,10 @@ a.vtag { text-decoration: none; }
 .costs span:nth-child(even) { color: var(--ink); font-weight: 600; text-align: right; }
 .sheet .row { display: flex; gap: 6px; }
 .sheet .row .btn { flex: 1; }
+.b-rotation { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.b-rotation input[type=range] { flex: 1; min-width: 0; min-height: 34px; accent-color: var(--accent); }
+.b-rotation label { display: flex; align-items: center; gap: 3px; }
+.b-rotation input[type=number] { width: 66px; min-height: 34px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: 600 15px var(--ui); background: #fff; }
 .btn.secondary { background: rgba(20, 36, 58, 0.07); color: var(--ink); box-shadow: none; font-size: 13.5px; padding: 9px 10px; }
 .btn.secondary:hover { background: rgba(20, 36, 58, 0.12); }
 .btn.danger { background: var(--steep); box-shadow: none; font-size: 13.5px; padding: 9px 10px; }
@@ -4810,8 +4814,9 @@ function clearDraftVisuals() {
   if (draft.kind !== 'bld' || !draft.bpos) clearGhost();
 }
 function resetDraft() {
+  clearGhost();
   draft.movingTrail = null;
-  draft.pts = []; draft.info = null; draft.bpos = null;
+  draft.pts = []; draft.info = null; draft.bpos = null; draft.turnOnly = false;
   clearGhost();
   clearDraftVisuals();
   syncHandles();
@@ -5177,10 +5182,10 @@ function upgradeLift(L, type) {
 }
 // Moving a building costs a fifth of what it took to build (at least $500), plus any clearing and leveling.
 const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost) * 0.2 / 100) * 100);
-function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0) {
+function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0, turnOnly = false) {
   if (mover) tier = mover.tier;
   const v = validateBuilding(type, tier, x, z, rot, mover ? mover.id : undefined);
-  v.padY = padHeight(v.bb);
+  v.padY = turnOnly && mover && mover.padY != null ? mover.padY : padHeight(v.bb);
   if (BTYPES[type].noPad) v.padY = null; // trees and seats sit on the ground as it is
   v.grading = BTYPES[type].noPad ? 0 : levelRect(v.bb, v.padY, 2.5, true).cost;
   if (allowPlans) {
@@ -5188,7 +5193,7 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0) {
     const clash = world.plans.find((p) => p !== selfPlan && p.kind === 'bld' && boxOverlap(bAABB(p.type, p.tier || 0, p.x, p.z, p.rot, 0.4), bb));
     if (clash) v.problems.push('That overlaps another planned building.');
   }
-  const build = mover ? moveFee(mover) : sizeCost(type, tier);
+  const build = mover ? (turnOnly ? 0 : moveFee(mover)) : sizeCost(type, tier);
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot, style) {
@@ -5410,12 +5415,12 @@ function planSheet(p) {
 function draftTap(p) {
   if (!p) return;
   if (draft.kind === 'bld') {
-    if (!draft.btype) return;
+    if (!draft.btype || visiting || draft.turnOnly) return;
     if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); draft.bpos = { x: sn.x, z: sn.z }; draft.rot = sn.rot; }
     else draft.bpos = { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2 };
     draft.dirty = true;
-    // Trees and seats go down with one tap overnight; while open they become blueprints as usual.
-    if (BTYPES[draft.btype].plop && !draft.moving && !planning()) {
+    // Only trees plant immediately. Seats wait for an explicit confirmation on every device.
+    if (draft.btype === 'tree' && !draft.moving && !planning()) {
       if (draft.btype === 'tree') draft.rot = Math.floor(Math.random() * 4);
       recomputeBldDraft(); draft.dirty = false;
       if (draft.info && !draft.info.problems.length && draft.info.cost <= state.cash) buildBuildingDraft();
@@ -5853,9 +5858,10 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'bTab') { setBTab(b.dataset.v); renderSheet(); }
   else if (a === 'bTheme') { setBTheme(b.dataset.v); if (draft.bpos) recomputeBldDraft(); renderSheet(); hover.dirty = true; }
   else if (a === 'bldTheme' && obj && state.phase === 'closed') { const st = styleOf(obj.type, b.dataset.v); if (st !== obj.style) { pushUndo(`restyling ${obj.name}`); obj.style = st; restyleBuilding(obj); scheduleSave(); } renderSheet(); }
-  else if (a === 'pickB') { if (b.dataset.v) setBTab((BGROUPS.find((g) => g[2].includes(b.dataset.v)) || [])[0]); draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); draft.moving = null; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
+  else if (a === 'pickB') { if (b.dataset.v) setBTab((BGROUPS.find((g) => g[2].includes(b.dataset.v)) || [])[0]); draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); clearGhost(); draft.moving = null; draft.turnOnly = false; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'moveBld' && obj) startMove(obj);
-  else if (a === 'rotB' && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 4 + +b.dataset.d) % 4; draft.dirty = true; hover.dirty = true; }
+  else if (a === 'turnBld' && obj) startMove(obj, true);
+  else if (a === 'rotB') setDraftDegrees(draft.rot * 90 + Number(b.dataset.d) * 90);
   else if (a === 'upgrade' && obj) upgradeTier(obj);
   else if (a === 'patrolStaff') setPatrolStaff(obj, Number(b.dataset.d));
   else if (a === 'firepitBase' && obj && obj.type === 'firepit') { obj.bare = !obj.bare; restyleBuilding(obj); renderSheet(); scheduleSave(); }
@@ -9506,7 +9512,7 @@ const BTYPES = {
     desc: 'A warm pool of light on the snow after dark. Line a path, light up the base, mark a lift.' },
   firepit: { name: 'Fire pit', where: 'any', cost: 12000, accent: 0xe0702a, seats: 14, w: 2.4, d: 2.4, upkeep: 110, decor: true,
     desc: 'Benches around a fire. Tired guests stop for a rest and a free warm-up by day; after the lifts close it draws an après crowd, most of all beside a bar or lodge.' },
-  // Plopped with one tap: trees for looks, and seats where tired guests stop for a breather.
+  // Trees plant with one tap; seats wait for confirmation and let tired guests take a breather.
   tree: { name: 'Tree', where: 'any', cost: 400, accent: 0x2e6b45, w: 0.8, d: 0.8, upkeep: 0, decor: true, plop: true, noPad: true,
     desc: 'Plant a tree anywhere off the trails. Frame the base village, screen the parking lot, or soften a bare slope.' },
   bench: { name: 'Bench', where: 'any', cost: 1500, accent: 0x8a5a36, seats: 2, w: 0.8, d: 0.5, upkeep: 5, decor: true, plop: true, noPad: true,
@@ -10950,7 +10956,8 @@ function setBTheme(k) { if (!THEMES[k]) return; bThemeNow = k; try { localStorag
 
 /* =====================================================================
    BUILDINGS: placement
-   Buildings turn in quarter steps, so their footprints stay axis-aligned.
+   Rotation is saved in quarter-turn units (including fractions for precise angles).
+   Footprints enclose every rotated corner, including foundations and clearance.
    ===================================================================== */
 world.buildings = [];
 const bldGroup = new THREE.Group();
@@ -10958,7 +10965,9 @@ scene.add(bldGroup);
 const bldById = (id) => world.buildings.find((b) => b.id === id);
 function bDims(type, tier, rot) {
   const s = BTYPES[type].tiers ? BTYPES[type].tiers[tier] : BTYPES[type];
-  return rot % 2 ? { w: s.d, d: s.w } : { w: s.w, d: s.d };
+  if (Number.isInteger(rot || 0)) return rot % 2 ? { w: s.d, d: s.w } : { w: s.w, d: s.d };
+  const a = (rot || 0) * Math.PI / 2, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+  return { w: s.w * c + s.d * sn, d: s.w * sn + s.d * c };
 }
 function bAABB(type, tier, x, z, rot, pad = 0) {
   const d = bDims(type, tier, rot);
@@ -11185,6 +11194,7 @@ let ghost = null, ghostKey = '', footMesh = null;
 const FOOT_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
 const FOOT_BAD = new THREE.MeshBasicMaterial({ color: 0xc8322b, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
 function clearGhost() {
+  if (draft.turnOnly && draft.moving && draft.moving.group) draft.moving.group.visible = true;
   if (ghost) { scene.remove(ghost); ghost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); ghost = null; ghostKey = ''; }
   if (footMesh) { scene.remove(footMesh); footMesh.geometry.dispose(); footMesh = null; }
   if (ghostDrive) { scene.remove(ghostDrive); ghostDrive.geometry.dispose(); ghostDrive = null; }
@@ -11192,8 +11202,9 @@ function clearGhost() {
 let ghostDrive = null;
 const DRIVE_GHOST = new THREE.MeshLambertMaterial({ map: APRON_TEX, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 function showGhost(type, tier, x, z, rot, ok, padY, style) {
+  if (draft.turnOnly && draft.moving) draft.moving.group.visible = false;
   style = style === undefined ? (draft.moving ? draft.moving.style : styleOf(type, bTheme())) : style;
-  const key = `${type}:${tier}:${rot}:${style || ''}`;
+  const key = `${type}:${tier}:${style || ''}`;
   const b = { type, tier, x, z, rot, style };
   if (key !== ghostKey) {
     if (ghost) { scene.remove(ghost); ghost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
@@ -12236,7 +12247,7 @@ function capOf(type, s) {
 }
 function recomputeBldDraft() {
   if (!draft.btype || !draft.bpos) { draft.info = null; clearGhost(); return; }
-  const v = evalBuilding(draft.btype, draft.bpos.x, draft.bpos.z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0);
+  const v = evalBuilding(draft.btype, draft.bpos.x, draft.bpos.z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0, !!draft.turnOnly);
   draft.info = v;
   showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, draft.bpos.x, draft.bpos.z, draft.rot, !v.problems.length, v.padY);
 }
@@ -12244,7 +12255,7 @@ function hoverGhost(p) {
   if (!p || !draft.btype || draft.bpos) return;
   let x = Math.round(p.x * 2) / 2, z = Math.round(p.z * 2) / 2;
   if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); x = sn.x; z = sn.z; draft.rot = sn.rot; }
-  const v = evalBuilding(draft.btype, x, z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0);
+  const v = evalBuilding(draft.btype, x, z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0, !!draft.turnOnly);
   showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, x, z, draft.rot, !v.problems.length, v.padY);
 }
 // The theme picker: in the build menu (for tabs with themed buildings) and while placing one.
@@ -12257,6 +12268,42 @@ function themeSeg(show, act = 'bTheme', cur = bTheme(), type = null) {
     return `<button data-action="${act}" data-v="${k}" aria-pressed="${ok && cur === k}" ${ok ? '' : 'disabled'} title="${ok ? T.note : `No ${T.label.toLowerCase()} version of this building yet`}">${T.label}</button>`;
   }).join('')}</div>`;
 }
+// Degrees in the controls; fractional quarter-turns on disk keep every old save facing the same way.
+const canTurn = (type) => !!BTYPES[type] && !BY_ROAD.includes(type) && !['tree', 'tlight'].includes(type);
+function rotationControls() {
+  if (!canTurn(draft.btype) || visiting) return '';
+  const deg = Math.round((draft.rot || 0) * 90) % 360;
+  return `<div class="field-label">Rotation</div><div class="b-rotation">
+    <input type="range" min="0" max="359" step="1" value="${deg}" data-rotation="range" aria-label="Rotation in degrees">
+    <label><input type="number" min="0" max="359" step="1" value="${deg}" data-rotation="number" aria-label="Exact rotation in degrees">°</label></div>
+    <div class="row"><button class="btn secondary" data-action="rotB" data-d="-1" aria-label="Rotate 90 degrees left">⟲ 90°</button><button class="btn secondary" data-action="rotB" data-d="1" aria-label="Rotate 90 degrees right">90° ⟳</button></div>`;
+}
+function setDraftDegrees(value, redraw = true) {
+  if (visiting || draft.kind !== 'bld' || !canTurn(draft.btype) || !Number.isFinite(value)) return;
+  draft.rot = ((Math.round(value) % 360 + 360) % 360) / 90;
+  draft.dirty = false; hover.dirty = true;
+  recomputeBldDraft();
+  if (redraw) renderSheet(); else refreshRotationResult();
+}
+function refreshRotationResult() {
+  const current = sheet.querySelector('.b-preview-result');
+  if (!current) return;
+  const next = document.createElement('div'); next.innerHTML = bldDraftSheet();
+  const result = next.querySelector('.b-preview-result');
+  if (result && result.innerHTML !== current.innerHTML) current.innerHTML = result.innerHTML;
+}
+// Keep the input alive while dragging or typing; update costs and validation beside it.
+sheet.addEventListener('input', (e) => {
+  if (!e.target.dataset.rotation || e.target.value === '') return;
+  setDraftDegrees(Number(e.target.value), false);
+  for (const el of sheet.querySelectorAll('[data-rotation]')) if (el !== e.target) el.value = Math.round(draft.rot * 90);
+});
+sheet.addEventListener('change', (e) => {
+  if (!e.target.dataset.rotation) return;
+  if (e.target.value !== '') setDraftDegrees(Number(e.target.value), false);
+  for (const el of sheet.querySelectorAll('[data-rotation]')) el.value = Math.round(draft.rot * 90);
+});
+
 function bldDraftSheet() {
   if (!draft.btype) {
     const tab = BGROUPS.find(([k]) => k === bTab()) || BGROUPS[0];
@@ -12274,12 +12321,12 @@ function bldDraftSheet() {
       ${themeSeg(tab[2].some(themed))}
       <div class="btabs" role="tablist">${BGROUPS.map(([k, label]) => `<button role="tab" data-action="bTab" data-v="${k}" aria-selected="${k === tab[0]}">${label}</button>`).join('')}</div>
       ${BGROUPS.map((g) => `<div class="bpick rows" data-tab="${g[0]}" ${g === tab ? '' : 'hidden'}>${cards(g)}</div>`).join('')}
-      <p class="help">${tab[0] === 'decor' ? 'Decor places with each tap; keep tapping to add more.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
+      <p class="help">${tab[0] === 'decor' ? 'Trees plant with each tap. Benches and picnic tables let you adjust their position and angle before confirming.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name;
-  const help = t.plop && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
-    : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to move it, or rotate it so the front faces the guests.';
+  const help = draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
+    : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
   let body = '';
   if (info) {
     body = `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
@@ -12294,33 +12341,40 @@ function bldDraftSheet() {
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>${draft.btype === 'patrol' ? 'Daily cost' : 'Upkeep'}</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
-    ${BY_ROAD.includes(draft.btype) || draft.btype === 'tree' ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
+    ${rotationControls()}
+    <div class="b-preview-result">
     ${body}
     ${plan ? PLAN_NOTE : ''}
-    ${t.plop && !plan ? '' : `<button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}`}
-    <button class="link" data-action="pickB" data-v="">Choose a different building</button>`;
+    ${draft.btype === 'tree' && !plan ? '' : `<button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : ['bench', 'picnic'].includes(draft.btype) ? 'Confirm placement' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}`}
+    </div><button class="link" data-action="pickB" data-v="">Choose a different building</button>`;
 }
 // Moving a building: pick a new spot like placing a new one; it keeps its name, size and history.
 function moveDraftSheet() {
-  const B = draft.moving, t = BTYPES[B.type], info = draft.info;
-  const help = !draft.bpos ? `Click where ${esc(B.name)} should go.${BY_ROAD.includes(B.type) ? ' It snaps to the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to try another spot, or rotate it.';
+  const B = draft.moving, t = BTYPES[B.type], info = draft.info, turn = draft.turnOnly;
+  const help = turn ? 'Adjust the angle, then confirm. Its position stays the same.' : !draft.bpos ? `Click where ${esc(B.name)} should go.${BY_ROAD.includes(B.type) ? ' It snaps to the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to try another spot, or rotate it.';
   const short = info && info.cost > state.cash;
-  return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>Move ${esc(B.name)}</h3><button class="x" data-action="exitTool" aria-label="Cancel the move" title="Cancel (Esc)">✕</button></div>
-    <p class="help">It keeps its name, size and history. Moving costs ${money(moveFee(B))}, plus clearing trees and leveling the new site.</p>
+  return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>${turn ? 'Rotate' : 'Move'} ${esc(B.name)}</h3><button class="x" data-action="exitTool" aria-label="Cancel the move" title="Cancel (Esc)">✕</button></div>
+    <p class="help">${turn ? 'Turning is free; only any extra tree clearing and ground leveling cost money.' : `It keeps its name, size and history. Moving costs ${money(moveFee(B))}, plus clearing trees and leveling the new site.`}</p>
     <p class="help"><b>${help}</b></p>
-    ${BY_ROAD.includes(B.type) ? '' : '<div class="row"><button class="btn secondary" data-action="rotB" data-d="-1">⟲ Rotate</button><button class="btn secondary" data-action="rotB" data-d="1">Rotate ⟳</button></div>'}
-    ${info ? `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}<div class="costs"><span>Moving</span><span>${money(info.build)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span><span>Leveling the site</span><span>${money(info.grading || 0)}</span></div>` : ''}
-    <button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Pick a spot on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `Move here · ${money(info.cost)}`}</button>
-    <button class="link" data-action="exitTool">Keep it where it is</button>`;
+    ${rotationControls()}
+    <div class="b-preview-result">
+    ${info ? `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}<div class="costs"><span>${turn ? 'Turning' : 'Moving'}</span><span>${money(info.build)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span><span>Leveling the site</span><span>${money(info.grading || 0)}</span></div>` : ''}
+    <button class="btn wide" data-action="build" ${info && !info.problems.length && !short && (!turn || draft.rot !== B.rot) ? '' : 'disabled'}>${!info ? 'Pick a spot on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${turn ? 'Confirm rotation' : 'Move here'} · ${money(info.cost)}`}</button>
+    </div><button class="link" data-action="exitTool">Keep it where it is</button>`;
 }
-function startMove(B) {
+function startMove(B, turnOnly = false) {
+  if (!B || !world.buildings.includes(B) || (turnOnly && !canTurn(B.type))) return;
   if (state.phase !== 'closed' || visiting) return;
   setTool('bld');
-  draft.btype = B.type; draft.moving = B; draft.rot = B.rot; draft.bpos = null; draft.info = null; clearGhost();
+  draft.btype = B.type; draft.moving = B; draft.rot = B.rot; draft.turnOnly = turnOnly; draft.bpos = turnOnly ? { x: B.x, z: B.z } : null; draft.info = null; clearGhost();
+  if (turnOnly) recomputeBldDraft();
   renderSheet();
 }
 function moveBuildingDraft() {
+  if (visiting || state.phase !== 'closed' || !draft.moving || !world.buildings.includes(draft.moving)) return;
+  recomputeBldDraft();
   const info = draft.info, B = draft.moving;
+  if (draft.turnOnly && draft.rot === B.rot) return;
   if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
   pushUndo(`moving ${B.name}`);
   clearTreeSet(info.treeSet);
@@ -12335,12 +12389,14 @@ function moveBuildingDraft() {
   addBuilding(B); B.yday = y;
   if (res) refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, B);
   computeNetwork(); syncLabels(); updateCash(true);
-  toast(`Moved ${B.name} · −${money(info.cost)}`);
-  draft.moving = null; draft.bpos = null; draft.info = null; clearGhost();
+  toast(`${draft.turnOnly ? 'Rotated' : 'Moved'} ${B.name}${info.cost ? ` · −${money(info.cost)}` : ''}`);
+  draft.moving = null; draft.turnOnly = false; draft.bpos = null; draft.info = null; clearGhost();
   setTool('explore'); select({ kind: 'bld', obj: B });
   scheduleSave();
 }
 function buildBuildingDraft() {
+  if (visiting || draft.kind !== 'bld' || !draft.btype || !draft.bpos) return;
+  recomputeBldDraft();
   if (draft.moving) return moveBuildingDraft();
   const info = draft.info;
   if (!info || info.problems.length) return;
@@ -12480,7 +12536,7 @@ function bldSheet(B) {
     ${staffing}
     ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
-    ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
+    ${state.phase !== 'closed' || visiting ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
 }
 
@@ -15295,7 +15351,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '4') openLandscape();
   else if (k === '5') setTool('bld');
   else if (k === 'b') { state.landMode = 'doze'; openLandscape(); }
-  else if (k === 'r' && draft.kind === 'bld' && draft.btype && !BY_ROAD.includes(draft.btype)) { draft.rot = (draft.rot + 1) % 4; draft.dirty = true; hover.dirty = true; }
+  else if (k === 'r' && draft.kind === 'bld') setDraftDegrees(draft.rot * 90 + 90);
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
   else if (k === 'enter' && draft.kind) buildDraft();
   else if (k === 'h') recenter();
@@ -16739,6 +16795,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.61', date: 'Oct 29, 2026', title: 'Precise rotation and careful placement', items: ['Turn buildings, benches and picnic tables to any whole-degree angle with a slider or exact degree entry. Keep the quick quarter-turn buttons, or select an existing building overnight and choose Rotate it. Bus stations still face the road.', 'Tap or click to preview a bench or picnic table, adjust its position and angle, then confirm placement. Each new seat waits for confirmation, including on touchscreens.'] },
   { v: '2.60', date: 'Oct 29, 2026', title: 'Plan from building and lift cards', items: ['Select a building to set Open, Closed or Lunch only for each operating plan. Select a lift to set Full, Slow or Off. These controls share the same settings as Operations; changes made during an open day apply from tomorrow.', 'Choose from eight lift colors directly on the lift card. Changes are free, saved with your resort and apply immediately without interrupting riders.'] },
   { v: '2.59', date: 'Oct 29, 2026', title: 'Hungry skiers seek out meals', items: ['Hungry skiers follow connected trails and operating lifts toward food, choosing routes suitable for their ability. Meal searches continue through their ski session, including after 3 PM.', 'Guests try other meal options after rejecting a price and can reconsider a rejected category after you lower its price. An unsuccessful snack purchase no longer ends their lunch search.', 'Day reports distinguish meals without a long delay, delayed meals and guests who left without eating. Food prices, venue capacities and Operations opening choices are unchanged.'] },
   { v: '2.58.3', date: 'Oct 29, 2026', title: 'More reliable lunch choices', small: true, items: ['Fixed: hungry guests no longer pass up a nearby eatery because of a shorter line somewhere outside their search area, or food they already found too expensive.', 'The how-to guide explains lodge meals, lodge sizes, food prices and what to check when a lodge is quiet.'] },
