@@ -220,6 +220,13 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Corrected express regression fixture placement
+- Updated preview candidate 8e6b8529b5ab64e62e4bfdbe45d191de9c29976d: https://raw.githack.com/phildbs/mountain-mogul/8e6b8529b5ab64e62e4bfdbe45d191de9c29976d/index.html . Guest preview saves separate; feedback/crashes/votes still live.
+- Phil reported failed Tests 40961212030 at 94f8519219d7e9fb3c0c59646d6540498ae9b9b9. Three groups passed; group 2 failed only scenario 107 while constructing its express lift (before routing assertions). Existing browser scenarios passed, including the known flaky 22-topbar on retry. Standalone source/VM route checks passed in the failed job.
+- Reproduced the fixture problem locally using the actual Juniper height function, grid/grade interpolation, lift layout and placement validation: all original usable summit sites exceeded the 0.5 station-grade limit. Located eight natural nearby alternatives that pass the unchanged placement/approach constraints. Scenario 107 now tries those checked coordinates and includes full rejection reasons if setup fails. No game-code changes, terrain flattening or weakened assertions.
+- Corrected scenario syntax, standalone route checks and diff whitespace pass. Local browser remains unavailable; new GitHub suite runs on push. Pause for Phil results without polling. Preview-only routing candidate; privacy update remains live.
+
+
 ### 2026-10-29 · ChatGPT · Express-lift routing candidate
 - Preview candidate 94f8519219d7e9fb3c0c59646d6540498ae9b9b9: https://raw.githack.com/phildbs/mountain-mogul/94f8519219d7e9fb3c0c59646d6540498ae9b9b9/index.html . Play as guest; separate preview saves; feedback/crashes/votes still live.
 - Phil authorized the next feedback issue after privacy publication. Candidate 2.62.5 on express-routing starts at main 7aab3febddb6be864fcf9607384d81294b4e7fa6. Reproduced a first-built summit ownership bug with the actual network functions in a controlled VM: upper lift saw a trail, nearby express did not. Reporter-specific saved resort was not retrieved; candidate addresses the observed code paths, not a claimed reproduction of their exact map.
