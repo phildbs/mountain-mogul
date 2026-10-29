@@ -11,17 +11,20 @@ export default async function({browser,url}) {
     const pts=[[upper.b.x+3,upper.b.z+2],[upper.b.x+8,(upper.b.z+15)/2],[23,16]].map(([x,z])=>({x,z,y:heightAt(x,z)}));
     const ti=evalTrail(pts,'medium',false,true);if(ti.an.problems.length)throw Error('Summit trail: '+ti.an.problems.join('|'));
     const summit=commitTrail(ti,pts,'medium');computeNetwork();
-    let express=null;
-    for(const [dx,dz] of [[5,0],[4.5,0],[0,-5],[0,5],[-5,0]]) {
+    // The east-facing summit candidates used originally sit on a >50% slope.
+    // These nearby sites were checked against the real Juniper height/grade grids.
+    let express=null;const rejected=[];
+    for(const [dx,dz] of [[0,4],[-0.5,4],[-1,4],[-1.5,4],[-2,4],[-2.5,4],[-2,3.5],[-2.5,3.5]]) {
       const b={x:upper.b.x+dx,z:upper.b.z+dz};
       if(!liftTrailMode({type:'hsq',b},summit))continue;
       for(const [x,z] of [[24,56],[28,56],[22,60],[30,62],[18,64]]) {
         const i=evalLift({x,z},b,'hsq');
         if(!i.problems.length&&i.fromBase){express=commitLift(i,'hsq');break;}
+        rejected.push({a:{x,z},b,base:i.fromBase,problems:i.problems});
       }
       if(express)break;
     }
-    if(!express)throw Error('No valid shared-summit express placement');
+    if(!express)throw Error('No valid shared-summit express placement: '+JSON.stringify(rejected));
     computeNetwork();window.routeFixture={lower:lower.id,upper:upper.id,express:express.id,summit:summit.id,base:realTrails().find(t=>t!==summit).id};
     return {shared:upper.departing.includes(summit)&&express.departing.includes(summit),canonical:summit.from.obj===upper,panel:liftSheet(express).includes(summit.name),reachable:summit.reachable&&express.reachable&&express.returns};
   })()`);
