@@ -76,7 +76,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.58.1 publication approved after full GitHub browser tests passed. Published main at 344d9dcca1b1f61ff0e136d6b92044c0f099da4a; deployment verification pending. Trail/glade popularity reporting remains pending.
+**Active**: Patrol staffing/expense cleanup 2.58.2 awaits GitHub browser tests and Phil’s review. Not published. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -90,6 +90,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| patrol-expenses | ChatGPT | Remove Full/Skeleton; separate headcount payroll and reconcile expense estimates/reports | 2026-10-28 |
 
 
 ## Known issues
@@ -206,6 +207,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-28 · ChatGPT · Patrol headcount and expense cleanup
+- Phil requested removal of patrol Full/Skeleton, retention of Lean/Normal/Extra for other employees, and corrected expenses. Branch patrol-expenses from main a526c7f41d8859c296df70f97099c56434e79dee; 2.58.2, guide and What’s new updated. No database changes. One patrol build-menu choice and saved individual/Operations counts retained.
+- Removed legacy patrol mode from new plans/snapshots and from duty, discounts, cutback score and controls. Old saved flags are ignored/removed from plan editors; all selected patrollers are on duty for open huts, zero for closed huts. Missed rescues, rather than an obsolete flag or simply closing one hut, drive ordinary patrol claims; only unhelped guests enter that claim lottery. Serious glade claims remain separate.
+- Patrol used to incur both $425/person inside upkeep and the generic $600/building staffing charge. Now $425/person is paid once in payroll outside all general staffing multipliers, plus $100/hut in upkeep (even when closed). Closed huts pay no patroller wages. Rates are per operating day, including night sessions; generic night crew remains separately priced. Shared planCosts calculates general payroll, patrol payroll, upkeep, parking and buses for estimates and final settlement; lift power remains estimated in Operations and metered in play. Manually stopped lifts are excluded from staffing/estimate counts.
+- Report payroll.other + payroll.patrol equals exp.staff; history without the optional payroll breakdown retains its original single staff line. All report/cash/season totals still use exp.staff once. Hut daily cost/profit includes its patrol wages and upkeep exactly once; build and building-list labels distinguish combined patrol costs. Operations shows the base expense breakdown before guest-driven costs.
+- Updated scenarios 89/95 to prove legacy skeleton flags cannot halve headcount; balance helper uses a one-person override for gutted staffing. New 97-patrol-expenses covers absence of old controls, retained staffing buttons, all 1–6 counts across Lean/Normal/Extra, no duplicate $600 charge, closed huts, missed-rescue eligibility, plan-vs-actual payroll, payroll breakdown, cash-vs-expenses and hut profit. Existing 15/32/89/95/96 remain relevant.
+- Local production-helper payroll checks, inline JS/scenario syntax, 19 building-model contracts and whitespace pass. Local browser scenarios could not launch because Chromium is absent; no visual/browser pass claimed. Push full GitHub CI and pause for Phil’s result. Not published.
 
 ### 2026-10-28 · ChatGPT · Lift mid-stations roadmap
 - Phil requested “Mid-stations for lifts and gondolas.” Added a Planned card under More mountain on roadmap-midstations, commit a526c7f41d8859c296df70f97099c56434e79dee, based on main 344d9dcca1b1f61ff0e136d6b92044c0f099da4a. New vote key lift-mid-stations; existing card IDs preserved and uniqueness checked. Description covers getting on/off partway up a chairlift or gondola line.
