@@ -1,5 +1,6 @@
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 import { hungerCases } from '../hunger-cases.mjs';
+import { build } from '../twin-resort.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(300);
@@ -33,8 +34,9 @@ export default async function ({ browser, url }) {
   eq(g.errors, [], 'no page errors'); await g.page.close();
 
   const t=await openGame(browser,url,{mountain:'twin'}); await t.click('#startBtn'); await t.wait(300);
+  await t.ev(build); await t.ev(SETUPS.midwinter);
   const isolated=await t.ev(`(() => {
-    openDay();state.speed=0;state.time=720;
+    openDay();if(!today)throw Error('Twin test needs an operating resort');state.speed=0;state.time=720;
     const a={x:lotSite(0).x,z:lotSite(0).z},b={x:lotSite(1).x,z:lotSite(1).z};
     const B={id:999991,type:'lodge',tier:2,name:'Other base',door:b,seatsW:[],isBase:true};initBldSim(B);
     const p=makeGuest({id:null},a.x,a.z);p.lunchAt=700;
