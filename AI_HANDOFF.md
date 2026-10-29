@@ -46,9 +46,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-28)
+## Current status (updated 2026-10-29)
 
 **Recently shipped**
+- 2.59: connected food-seeking, full-day meal searches, price-cut retries and accurate meal outcomes with original hunger locations. Published Oct 29 after full tests and paired benchmarks passed.
 - 2.58.3: eligible lunch alternatives and lodge how-to. Published Oct 29 after all four GitHub browser shards passed.
 - 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
 - 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
@@ -78,7 +79,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: 2.58.3 is live. Hunger reliability (2.59) is ready for Claude's second review on hunger-reliability at 92f97dfa774d6195a16213e927e675ddd2e489bb: all four browser test groups and paired pricing/performance benchmark passed. Not published.
+**Active**: 2.59 is live at mtmogul.com, main c215ffd128282a9458c5779d78b6acf23ac98da4. Pages deployment 40877951630 succeeded; exact live version confirmed. Post-release compatibility fixture capture underway; immediate error baseline is zero for 2.59.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -92,7 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| hunger-reliability | ChatGPT | Food-seeking, full-day meals, price retries and accurate hunger outcomes | 2026-10-29 |
+| release-2-59-saves | ChatGPT | Post-release compatibility save capture and verification | 2026-10-29 |
 
 
 ## Known issues
@@ -209,6 +210,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
   simplest kind of new type.
 
 ## AI collaboration notes
+
+### 2026-10-29 · ChatGPT · 2.59 published with Phil’s approval
+- Phil explicitly approved publication without another Claude review. Fast-forwarded main from 5972abd to c215ffd128282a9458c5779d78b6acf23ac98da4, including the tested candidate 92f97dfa plus a release-handover-only commit. Pages run 40877951630 succeeded; live index reports 2.59. Full tests 40876484680 and benchmark 40876484745 were green before release.
+- Version/CHANGES, guide, regression/save tests, price/performance comparisons and current-main ancestry checked. No database changes, no matching roadmap card. New report text reuses existing layout; no graphic changes. Chromium functional verification ran in GitHub; owner authorized proceeding without additional review.
+- Initial production error count for 2.59 was zero. Release fixture capture/32-old-saves verification is running on release-2-59-saves using the fake database, per RELEASING.md. No real player saves are being used or changed. Follow up with final deployment/error/fixture results.
 
 ### 2026-10-29 · ChatGPT · Hunger review benchmark results
 - Follow-up game code is b640a52ca7d35746b44fa223e2b7787aae448e75. Candidate 92f97dfa774d6195a16213e927e675ddd2e489bb adds corrected test setup/benchmark sites only. Scenario 99 now builds a real Twin resort and snow before openDay (calling openDay on a blank map cannot create today).
