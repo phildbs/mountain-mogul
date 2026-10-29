@@ -215,6 +215,11 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-29 · ChatGPT · Keep drawing controls visible when minimized
+- Phil reviewed the card preview and requested persistent Undo/Clear. The original Undo point/Clear row now stays visible in minimized trail/lift drawing cards, with its existing disabled states and actions. Selection and other minimized content remain unchanged. Guide and 2.62 changelog updated; scenario 103 checks real mouse/touch presses, empty-draft disabled state and remaining minimized after Clear.
+- Syntax and whitespace checks pass. Local Chromium still unavailable. Updated GitHub full suite/render workflow will run; wait for Phil to report results without polling. Preview only, no publication.
+
+
 ### 2026-10-29 · ChatGPT · Movable and collapsible map cards
 - Branch movable-cards starts at main e4be078360185ba5e94c2cba930dbacd1337c8b4. Shared sheet controls preserve selection/drafts, original inputs/actions and disabled states; session-only layout, no save/schema changes. Phone header swipes resize; desktop header drag clamps to viewport and reclamps on resize. Auto compact placement can be manually expanded or minimized.
 - CHANGES 2.62, guide and intentional style-guide addition included; no matching roadmap item. Added scenario 103 for phone/desktop draft preservation, controls, dragging, resizing and touch buttons; new rendering workflow captures day/night full/compact/minimized cards. Full GitHub suite runs automatically: pause for Phil's results, do not poll.

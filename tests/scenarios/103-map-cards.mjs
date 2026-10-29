@@ -43,6 +43,21 @@ export default async function ({ browser, url }) {
     eq(await g.ev('sheetMode'),'full','new selection opens fully');
     await g.click('#sheet [data-sheet=min]');
     eq(await g.ev(`selected.obj.id`),await g.ev('world.lifts[0].id'),'selection stays active');
+    for (const tool of ['trail', 'lift']) {
+      await g.ev(`setTool('${tool}');draftTap({x:12,z:-8});recomputeDraft()`);
+      await g.click('#sheet [data-sheet=min]');
+      for (const action of ['undo', 'cancel']) assert(await g.page.locator(`#sheet [data-action=${action}]`).isVisible(), `${tool}: ${action} visible when minimized`);
+      const press = async action => phone ? g.page.locator(`#sheet [data-action=${action}]`).tap() : g.page.locator(`#sheet [data-action=${action}]`).click();
+      await press('undo');
+      eq(await g.ev('draft.pts.length'),0,`${tool}: minimized undo removes point`);
+      await g.ev('recomputeDraft();renderSheet()');
+      eq(await g.ev('sheetMode'),'min','undo leaves card minimized');
+      assert(await g.page.locator('#sheet [data-action=undo]').isDisabled(),'undo disabled with no points');
+      await g.ev('draftTap({x:12,z:-8});recomputeDraft();renderSheet()');
+      await press('cancel');
+      eq(await g.ev('[draft.pts.length,sheetMode,state.tool]'),[0,'min',tool],'clear resets points without expanding or leaving tool');
+      assert(await g.page.locator('#sheet [data-action=cancel]').isVisible(),'clear stays visible after clearing');
+    }
     await g.ev(`pickBuilding('bench')`);
     if(phone) {
       eq(await g.ev('sheetMode'),'compact','building placement shrinks');
