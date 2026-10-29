@@ -8111,8 +8111,16 @@ function updateSki(g, dt) {
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 <= g.s) {
     const st = T.stops[g.ns++], n = needs(g);
     if (!n.length) continue;
-    const v = bestVisit(g, st.B.door, 99, false, [st.B], n);
-    if (v) { const p = guestPos(g); g.x = p.x; g.z = p.z; return startVisit(g, v.B, v.svc, { k: 'ski', tid: T.id, s: Math.min(T.len, st.at * 0.5 + 1) }); }
+    // Compare food venues in this local trail cluster before joining the first one's line.
+    // Every alternative must already be a stop on this trail, without a steep climb or drop between doors.
+    const nearby = n.includes('lunch') ? T.stops.filter((s) => s === st || (distXZ(s.B.door, st.B.door) <= 20
+      && Math.abs(trueY(s.B.door.x, s.B.door.z) - trueY(st.B.door.x, st.B.door.z)) <= APRES_CLIMB)) : [st];
+    const v = bestVisit(g, st.B.door, 20, false, nearby.map((s) => s.B), n);
+    if (v) {
+      const p = guestPos(g), stop = nearby.find((s) => s.B === v.B);
+      g.x = p.x; g.z = p.z;
+      return startVisit(g, v.B, v.svc, { k: 'ski', tid: T.id, s: Math.min(T.len, Math.max(g.s, stop.at * 0.5 + 1)) });
+    }
   }
   while (g.nb < T.branches.length && T.branches[g.nb].at * 0.5 <= g.s) {
     const b = T.branches[g.nb++];
@@ -16918,6 +16926,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.62.2', date: 'Oct 29, 2026', title: 'Compare nearby lunch spots', small: true, items: [
+    'Fixed: skiers passing a group of food venues compare nearby reachable choices before joining a line, so an empty restaurant can take lunch overflow from a busy café or food truck.',
+  ] },
   { v: '2.62.1', date: 'Oct 29, 2026', title: 'Takeaway meals and warming breaks', small: true, items: [
     'Fixed: food trucks keep serving takeaway meals while earlier customers eat nearby. The window still sets the serving speed.',
     'After eating at a food truck, cold or tired guests can find a nearby lodge, café or fire pit for a separate warming break before returning to skiing.',
