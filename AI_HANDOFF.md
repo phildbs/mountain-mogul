@@ -49,6 +49,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 ## Current status (updated 2026-10-28)
 
 **Recently shipped**
+- 2.58.2: exact patrol headcounts without Full/Skeleton; separate payroll and hut upkeep, no duplicate building-staff charge, shared expense estimates/settlement and payroll breakdowns.
 - 2.58.1: Operations plans can override all patrol huts with a 1–6 team size, or restore each hut’s saved manual choice.
 - 2.58: one Ski patrol build-menu choice, adjustable 1–6 patrollers per hut overnight, saved team sizes and staffing-based upkeep.
 - 2.57.2: all ski lifts stop boarding at night closing time; lights remain on until the mountain clears, with actual extension costs.
@@ -76,7 +77,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Recent before that: roadmap page with votes and a "new" badge, lift upgrades, sandbox mode, Maple Notch as
   the default first mountain, custom-mountain creation paused.
 
-**Active**: Patrol staffing/expense cleanup 2.58.2 awaits GitHub browser tests and Phil’s review. Not published. Trail/glade popularity reporting remains pending.
+**Active**: 2.58.2 publication approved after full GitHub browser tests passed. Deployment pending. Trail/glade popularity reporting remains pending.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -90,7 +91,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| patrol-expenses | ChatGPT | Remove Full/Skeleton; separate headcount payroll and reconcile expense estimates/reports | 2026-10-28 |
 
 
 ## Known issues
@@ -208,9 +208,14 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Publish 2.58.2 approved
+- Phil explicitly requested Publish. Candidate dc8230d3aa720f0618e1977138ba51df96b14072 passed full GitHub Tests run 40793303497. Main is a526c7f41d8859c296df70f97099c56434e79dee; candidate is two commits ahead with no intervening changes, including the published lift-midstations roadmap card.
+- Release removes patrol Full/Skeleton, retains Lean/Normal/Extra for other employees, pays patrol wages exactly once and uses shared expense calculations. Corrected ordinary claim eligibility preserves starter no-hut behavior. Guide, What’s new, regression tests and this handoff included. No database changes. Pages deployment pending.
+
 ### 2026-10-28 · ChatGPT · Patrol expense CI follow-up
 - Initial full run 40792311431 had one failure: 10-advisor expected parking advice, but the broadened ordinary injury-claim rule applied to a starter resort with no patrol hut and displaced its tip. Three other shards passed; 97-patrol-expenses and 89-patrol-teams passed in the failed shard too.
 - Corrected production eligibility to require an existing patrol hut plus actual missed rescues. This preserves the earlier no-hut starter behavior while replacing Full/Skeleton checks with rescue outcomes for established patrol teams. No advisor assertions weakened. Added a deterministic no-hut control to scenario 97 beside its existing positive one-missed-rescue/one-claim case. Payroll changes are unchanged.
+- Follow-up candidate dc8230d3aa720f0618e1977138ba51df96b14072 pushed for a full browser rerun.
 - Local model/inline JS/scenario syntax and whitespace pass. Full GitHub browser rerun required; local Chromium remains unavailable. Not published.
 
 ### 2026-10-28 · ChatGPT · Patrol headcount and expense cleanup
