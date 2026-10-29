@@ -1,0 +1,33 @@
+name: Capture 2.59 compatibility saves
+on:
+  push:
+    branches: [release-2-59-saves]
+    paths: ['.github/workflows/release-2-59-saves.yml']
+permissions:
+  contents: write
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install browser
+        working-directory: tests
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Capture released saves using the fake database
+        run: node tests/capture-saves.mjs "$GITHUB_WORKSPACE" 2.59
+      - name: Verify captured and existing saves
+        working-directory: tests
+        run: node run.mjs 32-old-saves
+      - name: Commit verified release fixtures to this maintenance branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/fixtures/saves/v2.59-*.json.gz
+          git commit -m "Capture verified 2.59 save compatibility fixtures"
+          git push origin HEAD:release-2-59-saves
