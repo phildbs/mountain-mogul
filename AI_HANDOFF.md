@@ -99,6 +99,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| privacy-access | ChatGPT | Visible privacy links and current-data policy audit; preview only | 2026-10-29 |
 
 
 
