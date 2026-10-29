@@ -208,12 +208,18 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 
 ## AI collaboration notes
 
+### 2026-10-28 · ChatGPT · Patrol expense CI follow-up
+- Initial full run 40792311431 had one failure: 10-advisor expected parking advice, but the broadened ordinary injury-claim rule applied to a starter resort with no patrol hut and displaced its tip. Three other shards passed; 97-patrol-expenses and 89-patrol-teams passed in the failed shard too.
+- Corrected production eligibility to require an existing patrol hut plus actual missed rescues. This preserves the earlier no-hut starter behavior while replacing Full/Skeleton checks with rescue outcomes for established patrol teams. No advisor assertions weakened. Added a deterministic no-hut control to scenario 97 beside its existing positive one-missed-rescue/one-claim case. Payroll changes are unchanged.
+- Local model/inline JS/scenario syntax and whitespace pass. Full GitHub browser rerun required; local Chromium remains unavailable. Not published.
+
 ### 2026-10-28 · ChatGPT · Patrol headcount and expense cleanup
 - Phil requested removal of patrol Full/Skeleton, retention of Lean/Normal/Extra for other employees, and corrected expenses. Branch patrol-expenses from main a526c7f41d8859c296df70f97099c56434e79dee; 2.58.2, guide and What’s new updated. No database changes. One patrol build-menu choice and saved individual/Operations counts retained.
 - Removed legacy patrol mode from new plans/snapshots and from duty, discounts, cutback score and controls. Old saved flags are ignored/removed from plan editors; all selected patrollers are on duty for open huts, zero for closed huts. Missed rescues, rather than an obsolete flag or simply closing one hut, drive ordinary patrol claims; only unhelped guests enter that claim lottery. Serious glade claims remain separate.
 - Patrol used to incur both $425/person inside upkeep and the generic $600/building staffing charge. Now $425/person is paid once in payroll outside all general staffing multipliers, plus $100/hut in upkeep (even when closed). Closed huts pay no patroller wages. Rates are per operating day, including night sessions; generic night crew remains separately priced. Shared planCosts calculates general payroll, patrol payroll, upkeep, parking and buses for estimates and final settlement; lift power remains estimated in Operations and metered in play. Manually stopped lifts are excluded from staffing/estimate counts.
 - Report payroll.other + payroll.patrol equals exp.staff; history without the optional payroll breakdown retains its original single staff line. All report/cash/season totals still use exp.staff once. Hut daily cost/profit includes its patrol wages and upkeep exactly once; build and building-list labels distinguish combined patrol costs. Operations shows the base expense breakdown before guest-driven costs.
 - Updated scenarios 89/95 to prove legacy skeleton flags cannot halve headcount; balance helper uses a one-person override for gutted staffing. New 97-patrol-expenses covers absence of old controls, retained staffing buttons, all 1–6 counts across Lean/Normal/Extra, no duplicate $600 charge, closed huts, missed-rescue eligibility, plan-vs-actual payroll, payroll breakdown, cash-vs-expenses and hut profit. Existing 15/32/89/95/96 remain relevant.
+- Candidate 4610087d2f96dde6458f8b8a3cdef39999dc162a pushed for full GitHub browser tests.
 - Local production-helper payroll checks, inline JS/scenario syntax, 19 building-model contracts and whitespace pass. Local browser scenarios could not launch because Chromium is absent; no visual/browser pass claimed. Push full GitHub CI and pause for Phil’s result. Not published.
 
 ### 2026-10-28 · ChatGPT · Lift mid-stations roadmap

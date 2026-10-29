@@ -57,5 +57,13 @@ export default async function ({ browser, url }) {
     return state.lastReport.exp.claims;
   })()`);
   eq(missed,9000,'one missed rescue can produce one claim, without a skeleton flag or double-counting the injury');
+  const starter=await g.ev(`(() => {
+    state.phase='closed';state.day=37;
+    for(const B of [...world.buildings])if(B.type==='patrol')removeBuilding(B);
+    openDay();schedule=[];today.injuries=1;today.helped=0;today.unhelped=1;today.glades={};
+    const random=Math.random;try { Math.random=()=>0;endDay(); } finally { Math.random=random; }
+    return state.lastReport.exp.claims;
+  })()`);
+  eq(starter,0,'starter resorts without patrol huts retain their previous ordinary-claim behavior');
   eq(g.errors,[],'no page errors');await g.page.close();
 }
