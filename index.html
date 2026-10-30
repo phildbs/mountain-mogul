@@ -3769,6 +3769,97 @@ function setTrailEdges(on) {
 }
 const trailSign = (t) => (t.sign == null ? t.an.rating : t.sign);
 
+
+/* ---------- Freestyle park features (trail-relative, save-friendly) ---------- */
+const PARK_TYPES = {
+  roller: { name:'Roller', cost:2000, upkeep:12, grade:0 },
+  box: { name:'Flat box', cost:4000, upkeep:20, grade:0 },
+  jump: { name:'Small jump', cost:6000, upkeep:35, grade:1 },
+  rail: { name:'Straight rail', cost:5000, upkeep:25, grade:1 },
+  rainbow: { name:'Rainbow rail', cost:9000, upkeep:40, grade:2 },
+  tabletop: { name:'Large tabletop', cost:18000, upkeep:90, grade:2 }
+};
+function parkLocation(t, f) {
+  const n = Math.max(0, Math.min(t.samples.length-2, Math.round((t.samples.length-1)*f.at)));
+  const p=t.samples[n], q=t.samples[Math.min(t.samples.length-1,n+2)];
+  const dx=q.x-p.x,dz=q.z-p.z, len=Math.hypot(dx,dz)||1;
+  return {x:p.x+dz/len*(f.side||0), z:p.z-dx/len*(f.side||0), heading:Math.atan2(dx,dz)};
+}
+function refreshParkFeatures(t) {
+  if(t.parkGroup){trailGroup.remove(t.parkGroup);t.parkGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
+  const group=new THREE.Group();t.parkGroup=group;trailGroup.add(group);
+  const snow=new THREE.MeshLambertMaterial({color:0xe9f4fa});
+  const metal=new THREE.MeshLambertMaterial({color:0x6b8590});
+  const accent=new THREE.MeshLambertMaterial({color:0xd9a255});
+  for(const f of (t.parkFeatures||[])){
+    const cfg=PARK_TYPES[f.type];if(!cfg)continue;
+    const loc=parkLocation(t,f), root=new THREE.Group();
+    root.position.set(loc.x,heightAt(loc.x,loc.z)+0.15,loc.z);
+    root.rotation.y=loc.heading+(f.rot||0)*Math.PI/180;
+    const part=(geo,mat,x,y,z)=>{const mesh=new THREE.Mesh(geo,mat);mesh.position.set(x,y,z);root.add(mesh);};
+    if(f.type==='box'){
+      part(new THREE.BoxGeometry(0.85,0.23,2.4),metal,0,0.36,0);
+      for(const x of [-0.27,0.27])part(new THREE.BoxGeometry(0.10,0.33,1.8),accent,x,0.13,0);
+    }else if(f.type==='rail'||f.type==='rainbow'){
+      for(const z of [-0.9,0.9])part(new THREE.CylinderGeometry(0.045,0.045,0.56,6),metal,0,0.3,z);
+      if(f.type==='rainbow'){
+        for(let i=0;i<8;i++){const z=-0.9+i*0.26;part(new THREE.BoxGeometry(0.10,0.09,0.30),accent,0,0.62+0.27*Math.sin(Math.PI*i/7),z);}
+      }else part(new THREE.BoxGeometry(0.12,0.10,2.2),accent,0,0.62,0);
+    }else{
+      const big=f.type==='tabletop', roller=f.type==='roller';
+      const w=big?2.6:1.6, l=big?3.7:roller?1.2:2.1, h=big?1.2:roller?0.26:0.67;
+      const geo=new THREE.BoxGeometry(w,h,l);
+      const mesh=new THREE.Mesh(geo,snow);
+      mesh.position.set(0,h/2-0.04,0);mesh.rotation.x=roller?0:-0.14;root.add(mesh);
+      part(new THREE.BoxGeometry(w+0.08,0.08,0.17),accent,0,h*0.85,l*0.3);
+    }
+    group.add(root);
+  }
+}
+function parkAction(t, action, button) {
+  if(state.phase!=='closed'||visiting||t.virtual)return;
+  t.parkFeatures=t.parkFeatures||[];
+  if(action==='parkToggle'){t.terrainPark=!t.terrainPark;}
+  if(action==='parkAdd'){
+    const type=button.dataset.v, info=PARK_TYPES[type];
+    if(!info||state.cash<info.cost){toast('Not enough cash for this park feature.',true);return;}
+    const at=Math.min(.91,Math.max(.09,.15+(t.parkFeatures.length%7)*.115));
+    t.parkFeatures.push({id:world.nextId++,type,at,side:0,rot:0});
+    state.cash-=info.cost;updateCash(true);
+  }
+  if(action==='parkEdit'||action==='parkRemove'){
+    const f=t.parkFeatures.find(f=>f.id===+button.dataset.id);if(!f)return;
+    if(action==='parkRemove'){t.parkFeatures=t.parkFeatures.filter(x=>x!==f);}
+    else{const d=button.dataset.d;
+      if(d==='up')f.at=Math.max(.06,Math.round((f.at-.05)*100)/100);
+      if(d==='down')f.at=Math.min(.94,Math.round((f.at+.05)*100)/100);
+      if(d==='left')f.side=Math.max(-TRAIL_WIDTHS[t.width].hw*.55,(f.side||0)-.4);
+      if(d==='right')f.side=Math.min(TRAIL_WIDTHS[t.width].hw*.55,(f.side||0)+.4);
+      if(d==='rotate')f.rot=((f.rot||0)+15)%360;
+    }
+  }
+  refreshParkFeatures(t);renderSheet();scheduleSave();
+}
+function parkSheet(t){
+  if(t.virtual)return '';
+  const fs=t.parkFeatures||[];
+  return `<div class="field-label">Freestyle features</div>
+    <div class="status"><span class="pill ${t.terrainPark?'on':'off'}">${t.terrainPark?'Terrain park':'Regular trail'}</span>
+    <button class="link" data-action="parkToggle" ${state.phase!=='closed'||visiting?'disabled':''}>${t.terrainPark?'Remove designation':'Designate terrain park'}</button></div>
+    <p class="help">Jumps and rails can be built on any trail. Designating this run advertises it as a freestyle park. Turning it off keeps your features.</p>
+    ${fs.length?`<p class="conn">${fs.length} placed feature${fs.length===1?'':'s'}</p>`:''}
+    ${fs.map(f=>`<div class="field-label">${PARK_TYPES[f.type]?.name||'Feature'} · ${Math.round(f.at*100)}% down trail</div>
+    ${state.phase==='closed'&&!visiting?`<div class="seg">
+      <button data-action="parkEdit" data-id="${f.id}" data-d="up" title="Move uphill">↑</button>
+      <button data-action="parkEdit" data-id="${f.id}" data-d="down" title="Move downhill">↓</button>
+      <button data-action="parkEdit" data-id="${f.id}" data-d="left" title="Move left">←</button>
+      <button data-action="parkEdit" data-id="${f.id}" data-d="right" title="Move right">→</button>
+      <button data-action="parkEdit" data-id="${f.id}" data-d="rotate" title="Rotate 15 degrees">↻</button>
+      <button data-action="parkRemove" data-id="${f.id}" title="Remove feature">✕</button></div>`:''}`).join('')}
+    ${state.phase==='closed'&&!visiting?`<div class="field-label">Add a feature</div><div class="seg" style="flex-wrap:wrap">
+       ${Object.entries(PARK_TYPES).map(([key,f])=>`<button data-action="parkAdd" data-v="${key}" title="${money(f.cost)}">${f.name} · ${money(f.cost)}</button>`).join('')}</div>`:''}`;
+}
+
 function addTrail(t) {
   t.samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw);
   t.an = analyzeTrail(t.samples);
@@ -3787,6 +3878,7 @@ function addTrail(t) {
   trailGroup.add(t.mesh);
   world.trails.push(t);
   buildBridges(t);
+  refreshParkFeatures(t);
   styleTrail(t);
 }
 const BARE_TINT = new THREE.Color(0x8a7a5e);
@@ -3812,6 +3904,7 @@ function refreshTrailMesh(t, idx) {
   t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
 }
 function removeTrail(t) {
+  if(t.parkGroup){trailGroup.remove(t.parkGroup);t.parkGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
   trailGroup.remove(t.mesh);
   t.mesh.geometry.dispose(); t.mesh.material.dispose();
@@ -5895,6 +5988,7 @@ function trailSheet(t) {
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${guests.filter((g) => g.st === 'ski' && g.T === t).length * AGENT}</b> skiing now · <b>${(today.trailRuns[t.id] || 0) * AGENT}</b> runs so far</p>` : ''}
     ${trailSnowSection(t)}
     ${trailNightSection(t)}
+    ${parkSheet(t)}
     <div class="field-label">Signed as</div>
     <div class="seg" role="group" aria-label="Trail sign">${RATINGS.map((r, i) =>
       `<button data-action="sign" data-v="${i}" aria-pressed="${sign === i}" aria-label="${r.name}" title="${r.name}">${ratingSymbol(i)}</button>`).join('')}</div>
@@ -6119,6 +6213,7 @@ sheet.addEventListener('click', (e) => {
     toast(`Closed off-site parking · +${money(back)} back`); renderSheet(); scheduleSave();
   }
   else if (a === 'liftColor' && selected?.kind === 'lift') setLiftColor(obj, +b.dataset.v);
+  else if (['parkToggle','parkAdd','parkEdit','parkRemove'].includes(a) && selected?.kind === 'trail' && obj) parkAction(obj,a,b);
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; computeNetwork(); scheduleSave(); renderSheet(); }
   else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
@@ -6755,7 +6850,7 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, terrainPark: !!t.terrainPark, parkFeatures: (t.parkFeatures||[]).map(f=>({id:f.id,type:f.type,at:f.at,side:f.side,rot:f.rot})) })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
@@ -17102,6 +17197,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.65-preview', date: 'Oct 30, 2026', title: 'Freestyle park builder preview', items: ['Try jumps, boxes and rails on any trail; move and rotate them from its trail card.', 'Designate any trail as a terrain park without losing placed features.'] },
   { v: '2.64.1', date: 'Oct 30, 2026', title: 'Faster busy days', small: true, items: ['Fixed: Busy resorts run much more smoothly. The day simulates more than twice as fast, so 4× keeps up and Skip to report finishes sooner.', 'Fixed: Saving a day in progress is quicker and the save is about 40% smaller, with fewer pauses on crowded days.'] },
   { v: '2.64', date: 'Oct 29, 2026', title: 'Track your reputation', items: ['Open Business → Reputation to see your score, the last operating day’s gains and losses, and a trend for the last 14 operating days. On phones, find Reputation under More.', 'See actual changes from satisfaction, missed rescues, lift lines, rowdiness, events and emergency bank borrowing. Earlier saves keep their scores; detailed reasons are recorded from this update onward.'] },
   { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },
