@@ -92,6 +92,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
+| `feature/paintable-guest-hubs-preview` | ChatGPT | **EXPERIMENTAL PREVIEW ONLY** — standalone interactive concept for paintable top, mid-mountain, and base guest hubs. Drag to paint zones, place sample lift terminals/services, and see illustrative guest routes. This is not integrated with the game simulation and is not a release candidate. | Oct 30, 2026 |
 
 ## Known issues
 
