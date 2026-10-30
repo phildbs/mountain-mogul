@@ -18,11 +18,12 @@ const ctx={world,state,STATION_R:6,TRANSFER_R:22,PACE:4,SLOW:{speed:0.65},
  liftWait:L=>(L.queue.length+L.incoming)/10,liftMode:L=>L.mode||'normal',
  todayWx:()=>({hi:35}),trailFit:t=>t.fit,lotCount:()=>1,baseOf:()=>0,crossCost:()=>Infinity,cars:[],stalls:[],
 };
-const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','computeNetwork','vTrail','vRest','vEnd','vLift','vBase'];
+const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','computeNetwork','vTrail','vRest','vEnd','vLift','vBase','cacheHubs','hubFlood','hubDistance','hubChoices','vHub'];
 // Expressions shared with the game (the prior build has no ride-time helper).
 const transfer=src.match(/^const liftTransferCost = .*;$/m)[0];
 const ride=src.match(/^const liftRideMinutes = .*;$/m)?.[0]||'';
-const api=runInNewContext(transfer+'\n'+ride+'\n'+funcs.map(fn).join('\n')+'\n({computeNetwork,vLift,vEnd'+(fn('liftTrailMode')?',liftTrailMode':'')+(ride?',liftRideMinutes':'')+'})',ctx);
+const hubShared=['cellKey','isHub','hubAt','HUB_STEPS'].map(name=>src.match(new RegExp('^const '+name+' = .*;$','m'))[0]).join('\n');
+const api=runInNewContext(hubShared+'\n'+transfer+'\n'+ride+'\n'+funcs.map(fn).join('\n')+'\n({computeNetwork,vLift,vEnd'+(fn('liftTrailMode')?',liftTrailMode':'')+(ride?',liftRideMinutes':'')+'})',ctx);
 const lift=(id,type,a,b,len)=>({id,type,a,b,upLen:len,open:true,windHold:false,queue:[],incoming:0,stats:{cap:1200},departing:[],transfers:[]});
 const lower=lift(1,'double',{x:0,z:60},{x:0,z:0},60),upper=lift(2,'double',{x:10,z:0},{x:10,z:-30},30),express=lift(3,'hsq',{x:8,z:60},{x:15,z:-30},90);
 const trail=(id,samples,fit)=>({id,samples,fit,width:'medium',open:true,an:{rating:1},branches:[]});

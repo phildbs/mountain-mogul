@@ -8,6 +8,7 @@ export default async function({browser,url}) {
     eq(await g.ev(`state.landMode`),'hub','Guest area is in the real Trail build tool');
     assert(await g.ev(`$('sheet').textContent.includes('Free for now')`),'launch offer is visible');
     const draft=await g.ev(`(() => {
+      window.__hubGround={height:Array.from(HT),snow:Array.from(NS),trees:Array.from(trees.alive)};
       state.brushR=2;const before=state.cash;areaPaintAt({x:0,z:10});const cells=[...areaDraft.cells];
       areaDraft.history=[cells];areaPaintAt({x:20,z:10});const disconnected=areaDraftInfo().problems.some(s=>s.includes('connected'));
       renderSheet();return {disconnected,before,n:cells.length};
@@ -24,6 +25,16 @@ export default async function({browser,url}) {
     await g.page.locator('[data-action=areaBuild]').click();
     eq(await g.ev(`({n:world.areas.length,kind:world.areas[0].kind,cash:state.cash})`),{n:1,kind:'hub',cash:draft.before},'painting commits a real area and costs nothing');
     eq(await g.ev(`selected.kind`),'area','new area opens its real detail card');
+    eq(await g.ev(`({height:HT.every((v,i)=>v===__hubGround.height[i]),snow:NS.every((v,i)=>v===__hubGround.snow[i]),trees:trees.alive.every((v,i)=>v===__hubGround.trees[i]),surface:!world.areas[0].mesh.isMesh,fence:world.areas[0].fence.children.length})`),{height:true,snow:true,trees:true,surface:true,fence:0},'painting preserves terrain, snow and trees, with no filled overlay or default fence');
+    const extended=await g.ev(`(() => {const A=world.areas[0],n=A.cells.length;openHubTool();areaPaintAt({x:0,z:10});areaPaintAt({x:3,z:10});const info=areaDraftInfo();if(info.problems.length)throw Error(info.problems.join('; '));commitArea();return world.areas.length===1&&world.areas[0]===A&&A.cells.length>n;})()`);
+    eq(extended,true,'starting on an existing guest area extends it without overlap errors');
+    await g.click('[data-action=hubFence]');
+    eq(await g.ev(`world.areas[0].fenced && world.areas[0].fence.children.length>0`),true,'fence toggle adds the real boundary fence');
+    await g.ev('saveNow()');await g.page.reload();await g.reloaded();await g.click('#startBtn');
+    eq(await g.ev(`world.areas[0].fenced`),true,'fence preference survives reload');
+    await g.ev(`select({kind:'area',obj:world.areas[0]})`);await g.click('[data-action=hubFence]');
+    eq(await g.ev(`world.areas[0].fence.children.length`),0,'fence toggle removes the real fence');
+
     await g.page.locator('#nameInput').fill('My guest area');await g.page.locator('#nameInput').blur();
     eq(await g.ev(`world.areas[0].name`),'My guest area','players can rename the area');
     assert(await g.ev(`$('sheet').scrollWidth <= $('sheet').clientWidth+1`),'detail card fits');

@@ -3107,7 +3107,7 @@ function treesInBrush(p, r, cb) {
 }
 function countInBrush(p, r) { let n = 0; treesInBrush(p, r, () => n++); return n; }
 
-const stroke = { active: false, trees: 0, cost: 0, broke: false, last: null };
+const stroke = { active: false, trees: 0, cost: 0, broke: false, last: null, areaWhy: '', areaChanged: false };
 /* ---------- Replant: regrow the mountain's own trees where they were cleared ----------
    Never inside a trail, a learning area, a lift line or station clearing, a building's footprint,
    the parking lot or the road. The blocked ground is worked out once per stroke. */
@@ -3158,7 +3158,7 @@ function replantAt(p) {
 function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks)) n++; }); return n; }
 function clearAt(p) {
   if (state.landMode === 'level') return levelAt(p);
-  if (paintingArea()) return areaPaintAt(p);
+  if (paintingArea()) return areaPaintAt(p, !stroke.active);
   if (state.landMode === 'plant') return replantAt(p);
   if (!inProperty(p.x, p.z)) return;
   const r = state.brushR;
@@ -3197,13 +3197,14 @@ function strokeTo(p) {
   }
   clearAt(p);
   stroke.last = p.clone();
+  if (paintingArea()) drawAreaDraft();
 }
 function endStroke() {
   if (!stroke.active) return;
   stroke.active = false;
-  if (!stroke.cost) dropUndo();
+  if (!stroke.cost && !paintingArea()) dropUndo();
   if (paintingArea()) {
-    if (stroke.areaWhy && !(areaDraft && areaDraft.erase)) toast(`Some ground was left out: ${stroke.areaWhy}.`);
+    if (stroke.areaWhy && !(areaDraft && areaDraft.erase) && (state.landMode !== 'hub' || !stroke.areaChanged)) toast(`Some ground was left out: ${stroke.areaWhy}.`);
     stroke.areaWhy = ''; stroke.last = null;
     renderSheet();
     return;
@@ -4409,11 +4410,23 @@ function cellsGeo(cells, lift, edgeCol) {
   geo.computeVertexNormals();
   return geo;
 }
+const HUB_DRAFT_MAT = new THREE.LineBasicMaterial({ color: 0x3d8bfd });
+function cellsEdgeGeo(cells) {
+  const points = [];
+  for (const k of cells) {
+    const x = keyX(k), z = keyZ(k);
+    for (const [dx, dz, ax, az, bx, bz] of [[1,0,.5,-.5,.5,.5],[-1,0,-.5,-.5,-.5,.5],[0,1,-.5,.5,.5,.5],[0,-1,-.5,-.5,.5,-.5]]) {
+      if (cells.has(cellKey(x + dx, z + dz))) continue;
+      points.push(new THREE.Vector3(x + ax, heightAt(x + ax, z + az) + 0.18, z + az), new THREE.Vector3(x + bx, heightAt(x + bx, z + bz) + 0.18, z + bz));
+    }
+  }
+  return new THREE.BufferGeometry().setFromPoints(points);
+}
 // Learning areas are left open, with no fence: an empty group keeps the area code simple.
 const FENCE_ON = false;
 const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
 function areaFence(a) {
-  if (!FENCE_ON && !isHub(a)) return new THREE.Group();
+  if (isHub(a) ? !a.fenced : !FENCE_ON) return new THREE.Group();
   const posts = [], rope = [], seen = new Set();
   const gap = (x, z) => (isHub(a) && world.trails.some((T) => [T.samples[0], T.samples[T.samples.length - 1]].some((p) => distXZ({ x, z }, p) < TRAIL_WIDTHS[T.width].hw + 1))) || world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
   for (const k of a.set) {
@@ -4435,8 +4448,8 @@ function areaFence(a) {
 const GLADE_TINT = () => new THREE.MeshBasicMaterial({ color: 0x2f7d55, transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function addArea(a) {
   a.set = new Set(a.cells);
-  a.mesh = isHub(a) ? new THREE.Mesh(cellsGeo(a.set, 0.18, [0.55, 0.34, 0.15]), new THREE.MeshLambertMaterial({ color: 0xe9b96e, vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
-  if (isGlade(a)) a.mesh.visible = false;
+  a.mesh = isHub(a) ? new THREE.LineSegments(cellsEdgeGeo(a.set), new THREE.LineBasicMaterial({ color: 0xdf562c })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  if (isGlade(a) || isHub(a)) a.mesh.visible = false;
   a.fence = areaFence(a); areaGroup.add(a.fence);
   a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
   areaGroup.add(a.mesh);
@@ -4445,7 +4458,7 @@ function addArea(a) {
 }
 function refreshAreaMesh(a) {
   a.mesh.geometry.dispose();
-  a.mesh.geometry = isHub(a) ? cellsGeo(a.set, 0.18, [0.55, 0.34, 0.15]) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
+  a.mesh.geometry = isHub(a) ? cellsEdgeGeo(a.set) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
   areaGroup.remove(a.fence); disposeFence(a.fence);
   a.fence = areaFence(a); areaGroup.add(a.fence);
 }
@@ -4458,6 +4471,7 @@ function removeArea(a) {
   areaSig = null;
 }
 function styleArea(a) {
+  if (isHub(a)) { a.mesh.visible = !!(selected && selected.obj === a) || (state.tool === 'clear' && state.landMode === 'hub' && !(areaDraft && areaDraft.editId === a.id)); return; }
   if (isGlade(a)) { a.mesh.visible = !!(selected && selected.obj === a) || (state.tool === 'clear' && state.landMode === 'glade'); return; }
   a.mesh.material.emissive.set(selected && selected.obj === a ? 0x6a2a12 : 0x000000);
 }
@@ -4465,23 +4479,26 @@ function styleArea(a) {
 /* Painting a new area with the Landscape brush. */
 let areaDraft = null, areaDraftMesh = null;
 const AREA_DRAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x3d8bfd, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-function areaPaintAt(p) {
+function areaPaintAt(p, draw = true) {
+  // Start on an existing guest area to extend it, rather than rejecting every overlapping cell.
+  const hit = state.landMode === 'hub' && (!areaDraft || (!areaDraft.cells.size && areaDraft.editId == null)) && hubAt(p);
+  if (hit) { areaDraft = { cells: new Set(hit.cells), erase: false, editId: hit.id, blocks: hubBlocks(hit), history: [[...hit.cells]] }; hit.mesh.visible = false; }
   if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
   if (!areaDraft.blocks) areaDraft.blocks = state.landMode === 'hub' ? hubBlocks(areaById(areaDraft.editId)) : areaBlocks(areaDraft.editId == null ? null : areaById(areaDraft.editId));
   const r = state.brushR;
   for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
     const k = cellKey(x, z);
-    if (areaDraft.erase) { areaDraft.cells.delete(k); continue; }
+    if (areaDraft.erase) { if (areaDraft.cells.delete(k)) stroke.areaChanged = true; continue; }
     const why = (state.landMode === 'hub' ? hubCellProblem : state.landMode === 'glade' ? gladeCellProblem : cellProblem)(x, z, areaDraft.blocks);
-    if (why) stroke.areaWhy = why; else areaDraft.cells.add(k);
+    if (why) stroke.areaWhy = why; else if (!areaDraft.cells.has(k)) { areaDraft.cells.add(k); stroke.areaChanged = true; }
   }
-  drawAreaDraft();
+  if (draw) drawAreaDraft();
 }
 function drawAreaDraft() {
   if (areaDraftMesh) { scene.remove(areaDraftMesh); areaDraftMesh.geometry.dispose(); areaDraftMesh = null; }
   if (!areaDraft || !areaDraft.cells.size) return;
-  areaDraftMesh = new THREE.Mesh(cellsGeo(areaDraft.cells, 0.16, null), AREA_DRAFT_MAT);
+  areaDraftMesh = state.landMode === 'hub' ? new THREE.LineSegments(cellsEdgeGeo(areaDraft.cells), HUB_DRAFT_MAT) : new THREE.Mesh(cellsGeo(areaDraft.cells, 0.16, null), AREA_DRAFT_MAT);
   areaDraftMesh.renderOrder = 4;
   scene.add(areaDraftMesh);
 }
@@ -4596,9 +4613,7 @@ function commitHub(info) {
   state.cash -= info.cost;
   const A = info.old || { id: world.nextId++, name: hubName(areaDraft.cells), kind: 'hub', cost: 0 };
   A.center = null; A.cells = [...areaDraft.cells]; A.cost = (A.cost || 0) + info.cost;
-  // Clear the walking ground as part of the launch offer. Painting never levels the terrain.
-  const cut = new Set(); for (const k of A.cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.71, (t) => cut.add(t));
-  clearTreeSet(cut);
+  // Guest areas define travel only; terrain, snow and trees keep their existing appearance.
   if (info.old) { A.set = new Set(A.cells); refreshAreaMesh(A); A.mesh.visible = true; } else addArea(A);
   clearAreaDraft(); computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   setTool('explore'); select({ kind: 'area', obj: A });
@@ -4618,7 +4633,7 @@ function hubPaintSheet() {
   const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), editing = !!(areaDraft && areaDraft.editId != null);
   return `<div class="sheet-title"><h3>${editing ? 'Edit guest area' : 'New guest area'}</h3><button class="x" data-action="exitTool" aria-label="Close">✕</button></div>
     ${TRAIL_MODES('hub')}
-    <p class="help">Paint one connected patch over trail ends, entrances, lift stations and building doors. Guests walk between them. Paint separate areas one at a time.</p>
+    <p class="help">Paint one connected patch over trail ends, entrances, lift stations and building doors. Guests walk between them. Start on an existing area to extend it, or paint separate areas one at a time. The ground keeps its original look.</p>
     <div class="status"><span class="pill on">Free for now</span><span class="muted">base, mid-mountain or summit</span></div>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
     ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Location</dt><dd>${hubName(areaDraft.cells)}</dd></div></dl>${problemsHtml(info.problems)}${info.smExtra ? `<p class="help">Extra snowmaking equipment · ${money(info.smExtra)}</p>` : ''}` : ''}
@@ -4632,6 +4647,7 @@ function hubSheet(A) {
     <p class="help">${hubName(A.set)} · ${fmtAcres(acresOf(A.cells.length), 1)}. Guests walk freely between the trails, lifts and services inside it.</p>
     <p class="conn">${A.basePoint ? 'Connects to the base.' : A.returns ? 'Connected to a route home.' : 'Needs a trail or lift leading back to the base.'}</p>
     <dl class="kv"><div><dt>Lift stations</dt><dd>${A.loads.length + A.tops.length}</dd></div><div><dt>Trail entrances</dt><dd>${A.starts.length}</dd></div><div><dt>Buildings</dt><dd>${A.buildings.length}</dd></div><div><dt>Snow underfoot</dt><dd>${inch(hubDepth(A))}</dd></div></dl>
+    <div class="toggle-row"><div><b>Boundary fence</b><span>${A.fenced ? 'Orange fence around this area' : 'No fence; ground keeps its original look'}</span></div><button class="switch" role="switch" aria-checked="${!!A.fenced}" data-action="hubFence" aria-label="Boundary fence" ${visiting ? 'disabled' : ''}><i></i></button></div>
     <div class="field-label">Snowmaking</div>
     ${sm && sm.on ? `<div class="seg" role="group" aria-label="Snowmaking mode">${[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([k, label]) => `<button data-action="smMode" data-v="${k}" aria-pressed="${sm.mode === k}">${label}</button>`).join('')}</div><p class="help">${gunCount(A)} guns · about ${money(gunCount(A) * GUN_NIGHT)} per cold night. Auto keeps ${inch(sm.target)} underfoot.</p>` : `<p class="help">Works on natural snow. Optional snowmaking keeps the ground white: ${gunCount(A)} guns, about ${money(gunCount(A) * GUN_NIGHT)} per cold night.</p><button class="btn secondary" data-action="smInstall" ${closed && state.cash >= snowmakingCost(A) ? '' : 'disabled'}>Add snowmaking · ${money(snowmakingCost(A))}</button>`}
     ${closed ? '<button class="btn secondary" data-action="editArea">Edit painted area</button>' + removeBlock('this guest area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
@@ -6179,6 +6195,7 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'areaBuild') commitArea();
   else if (a === 'hubUndo') undoHubStroke();
+  else if (a === 'hubFence' && isHub(obj)) { pushUndo('changing an area fence'); obj.fenced = !obj.fenced; refreshAreaMesh(obj); renderSheet(); scheduleSave(); }
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
     const cost = snowmakingCost(obj);
@@ -6909,7 +6926,7 @@ function serializeWorld() {
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
-    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
@@ -15806,8 +15823,8 @@ canvas.addEventListener('pointerdown', (e) => {
     const paint = state.tool === 'clear' && state.landMode !== 'doze' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
     if (paint) {
       gesture = { type: 'paint' };
-      pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
-      stroke.active = true;
+      if (!paintingArea()) pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
+      stroke.active = true; stroke.areaWhy = ''; stroke.areaChanged = false;
       if (state.landMode === 'hub') {
         if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
         (areaDraft.history || (areaDraft.history = [])).push([...areaDraft.cells]);
@@ -17360,6 +17377,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.65', date: 'Oct 30, 2026', title: 'Paint your guest areas', items: [
     'Paint and name connected guest areas at the base, mid-mountain or summit. Painting is free for now.',
+    'Keep the ground’s original look, and choose whether each guest area has a boundary fence.',
     'Guests walk between every trail entrance, trail end, lift station and building door inside an area. Areas touching the base bring skiers home.',
     'Add optional snowmaking to an area, with installation and nightly costs based on its size.'
   ] },
