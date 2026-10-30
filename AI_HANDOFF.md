@@ -99,7 +99,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 ## Known issues
 
-- Test `22-topbar` is flaky (fails about 1 in 3 runs at 900 px wide, on `main` as well). Not investigated.
 - Custom mountain creation is disabled (`CUSTOM_OFF = true`): Gentle/Easy settings could still make
   cliffs. Existing custom mountains still play.
 - Twin Notch has mostly been played in automated runs; watch feedback for balance and pathing.
@@ -273,6 +272,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   same speed. Long base-lift joins rose 8–22%: the seat change alone does that (guests ski instead of standing in seat lines).
   That resort's mid-mountain lifts never had long lines, so lift switching (13–42 a day there) is proven by test 120,
   not by a big resort.
+- **`22-topbar` flake fixed:** random fresh snow adds "+2″" to the weather, and at 900 px the tightest one-row layout then
+  fits with only 16 px spare, short of the 24 px a fresh fit wanted, so `fitTopBar` dropped to `tb-low`. The step before
+  `tb-low` now accepts a plain fit. Main failed the first try about 1 in 3; 8 of 8 first-try passes after.
 
 ### 2026-10-30 · Claude · Guest areas taken over (`claude/guest-areas`)
 - Phil handed ChatGPT's `feature/paintable-areas` to Claude; ChatGPT has stopped on it. Leave that branch as is. Its GitHub
