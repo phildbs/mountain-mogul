@@ -52,11 +52,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-29)
+## Current status (updated 2026-10-30)
 
-**Live: 2.64.** Phil approved publication; full GitHub Tests run 40977107951 passed on candidate `3548ad066ed722c30c2edb241535955f48e2c1e0`.
+**Live: 2.64.1.** Phil approved publication; full GitHub Tests run 41070756026 passed on candidate `f837deccac4b071c5035dff3b5f1a95f61e46fb4`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.64.1: faster busy days after a Firefox player's report (Skip no faster than 4×). One guest object shape makes a
+  busy day about 2.4× faster with identical results; mid-day saves about 40% smaller; big saves autosave every 45 s.
 - 2.64: Business → Reputation (More on phones): current score, actual daily gains/losses, 14-day trend and recent changes including overnight borrowing. Older scores retained without invented causes.
 - 2.63.1: one rescue coverage reputation penalty, proportional to missed rescues and capped at 0.05 per day; no extra glade or claim penalty. Reports explain coverage and actual loss.
 - 2.63: optional saved Friday weekend-plan default in Operations; active text editors retain focus across card updates and take priority over hotkeys. Guide and regression scenario 109 updated.
@@ -89,7 +91,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-203c4231-e3rk7h` | Claude | 2.64.1 faster busy days (sim speed, smaller mid-day saves) | 2026-10-30 |
 
 ## Known issues
 
