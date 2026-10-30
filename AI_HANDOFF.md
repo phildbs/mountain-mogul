@@ -272,6 +272,11 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   through the trees (273 moves in test 119's day on the old code, 0 now). `viaHub` sends them to the nearest base-edge
   cell (`A.baseCells`) first; `goCar` walks inside the area down to its base edge. Routes to uncommon cells are computed
   lazily by `hubRoute` and cached until the next `computeNetwork`; don't precompute every base cell (hundreds of floods).
+- **Speed (2.65.1 candidate):** on the 26-lift, 110-trail resort with 18 areas, route scoring through areas made a busy
+  half hour 3x slower (2.9 s vs 1.0 s). `hubOptions` now scores an area's exits once per area and depth within a
+  decision (the old memo keyed on the guest's cell, so big areas were rescored for every spot); `hubAt` uses a
+  cell → area map (`hubCells`, reset in addArea/refreshAreaMesh/removeArea/cacheHubs); trails cache `hubStart`.
+  After: about 1.1 s per busy half hour, same crowd. Profile with the CDP Profiler before guessing.
 - **Audit results:** network checks see areas first; Twin Notch with painted areas at both bases plays normally (no strandings,
   walkers stay inside); trail/lift/building moves rebuild the network only on confirm. Injured skiers out on a trail still
   walk straight down (existing behaviour, not area-related).

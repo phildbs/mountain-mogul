@@ -4483,6 +4483,7 @@ function areaFence(a, trailCells) {
 }
 const GLADE_TINT = () => new THREE.MeshBasicMaterial({ color: 0x2f7d55, transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function addArea(a) {
+  hubCells = null;
   const trailCells = isHub(a) ? fenceTrailCells() : null;
   a.set = new Set(a.cells);
   a.mesh = isHub(a) ? new THREE.LineSegments(cellsEdgeGeo(a.set, trailCells, new Set(a.noFence || [])), new THREE.LineBasicMaterial({ color: 0xdf562c })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
@@ -4494,6 +4495,7 @@ function addArea(a) {
   areaSig = null;
 }
 function refreshAreaMesh(a, trailCells) {
+  hubCells = null;
   if (isHub(a)) trailCells ||= fenceTrailCells();
   a.mesh.geometry.dispose();
   a.mesh.geometry = isHub(a) ? cellsEdgeGeo(a.set, trailCells, new Set(a.noFence || [])) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
@@ -4502,6 +4504,7 @@ function refreshAreaMesh(a, trailCells) {
 }
 function disposeFence(f) { f.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material !== FENCE_MAT) o.material.dispose(); }); }
 function removeArea(a) {
+  hubCells = null;
   areaGroup.remove(a.fence); disposeFence(a.fence);
   areaGroup.remove(a.mesh);
   a.mesh.geometry.dispose(); a.mesh.material.dispose();
@@ -4611,7 +4614,10 @@ const hubCellCost = (n) => Math.round(n * HUB_ACRE_COST * 100 / 4046.86 / 100) *
 const hubCellsUsed = (skip) => world.areas.reduce((n, A) => n + (isHub(A) && A !== skip ? A.cells.length : 0), 0);
 const hubSteep = (k) => GR[(keyZ(k) + HALF) * NV + keyX(k) + HALF] > HUB_MAX_GRADE;
 const isHub = (A) => !!A && A.kind === 'hub';
-const hubAt = (p) => world.areas.find((A) => isHub(A) && A.set.has(cellKey(Math.round(p.x), Math.round(p.z))));
+// Which guest area a point is in: one lookup per call (it runs in the busiest guest loops), rebuilt when areas change.
+let hubCells = null;
+function buildHubCells() { hubCells = new Map(); for (const A of world.areas) if (isHub(A)) for (const k of A.set) hubCells.set(k, A); return hubCells; }
+const hubAt = (p) => (hubCells || buildHubCells()).get(cellKey(Math.round(p.x), Math.round(p.z)));
 const sameHub = (p, q) => { const A = hubAt(p); return A && hubAt(q) === A ? A : null; };
 const HUB_STEPS = [4096, -4096, 1, -1];
 function hubFlood(cells, target) {
@@ -4773,7 +4779,9 @@ function cacheHubs() {
     A.routes = new Map();
     for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.set, k)); }
   }
+  hubCells = null;
   for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); }
+  for (const T of world.trails) T.hubStart = hubAt(T.samples[0]); // route scoring checks this for every departing trail
   for (const B of world.buildings) B.isBase = isBase(B.door) || !!(hubAt(B.door)?.basePoint);
 }
 // Walking routes to the usual spots are cached with the network; any other painted spot is worked out when first needed.
@@ -7838,7 +7846,7 @@ function vLift(L, g, depth, memo) {
     if (depth < 4) {
       let b = -30;
       if (L.hubTop) b = Math.max(b, vHub(L.hubTop, g, depth + 1, memo, L.b));
-      for (const D of L.departing) if (runnable(D) && !(L.hubTop && hubAt(D.samples[0]) === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
+      for (const D of L.departing) if (runnable(D) && !(L.hubTop && D.hubStart === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
       for (const M of L.transfers || []) if (canLoad(M) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth + 1, memo) - liftTransferCost(L, M));
       v += 0.85 * b;
     }
@@ -7847,27 +7855,37 @@ function vLift(L, g, depth, memo) {
   return v;
 }
 // A shared junction is scored like other routes, with a short walk charged for each choice.
-function hubChoices(A, g, depth, memo, here) {
-  const out = [], cost = (p) => 0.5 + hubDistance(A, here, p) * 0.04;
-  if (A.basePoint) out.push({ k: 'base', p: A.basePoint, v: vBase(g, depth + 1, memo, A.basePoint) - cost(A.basePoint) });
+// What each way out of an area is worth, before the walk to it. Scored once per area and depth within a decision:
+// a big area has many lifts and trails, and every spot inside it shares the same options.
+function hubOptions(A, g, depth, memo) {
+  const key = `ho${A.id}:${depth}`;
+  if (memo.has(key)) return memo.get(key);
+  memo.set(key, null); // still being scored: a route that loops back here counts as a dead end
+  const out = [];
+  if (A.basePoint) out.push({ k: 'base', p: A.basePoint, v: vBase(g, depth + 1, memo, A.basePoint) });
   if (depth < 4) {
-    for (const T of A.starts) if (runnable(T)) { const p = T.samples[0]; out.push({ k: 'ski', T, p, v: vTrail(T, 0, g, depth + 1, memo) - cost(p) }); }
-    for (const L of A.loads) if (canLoad(L)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) - cost(L.a) });
+    for (const T of A.starts) if (runnable(T)) out.push({ k: 'ski', T, p: T.samples[0], v: vTrail(T, 0, g, depth + 1, memo) });
+    for (const L of A.loads) if (canLoad(L)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) });
     // Lift tops are exits too: an existing nearby trail/transfer outside the patch still works.
     for (const L of A.tops) {
-      for (const T of L.departing) if (hubAt(T.samples[0]) !== A && runnable(T)) out.push({ k: 'top', L, p: L.b, v: vTrail(T, 0, g, depth + 1, memo) - cost(L.b) });
-      for (const M of L.transfers || []) if (M.hubBottom !== A && canLoad(M)) out.push({ k: 'top', L, p: L.b, v: vLift(M, g, depth + 1, memo) - cost(L.b) - liftTransferCost(L, M) });
+      for (const T of L.departing) if (T.hubStart !== A && runnable(T)) out.push({ k: 'top', L, p: L.b, v: vTrail(T, 0, g, depth + 1, memo) });
+      for (const M of L.transfers || []) if (M.hubBottom !== A && canLoad(M)) out.push({ k: 'top', L, p: L.b, v: vLift(M, g, depth + 1, memo) - liftTransferCost(L, M) });
     }
   }
-  return out;
+  memo.set(key, out); return out;
+}
+// The ways out from where a guest stands, with a short walk charged for each.
+function hubChoices(A, g, depth, memo, here) {
+  const opts = hubOptions(A, g, depth, memo) || [];
+  return opts.map((o) => ({ ...o, v: o.v - (0.5 + hubDistance(A, here, o.p) * 0.04) }));
 }
 function vHub(A, g, depth, memo, here) {
   if (depth >= 4) return A.returns ? 0 : -40;
-  const key = `h${A.id}:${Math.round(here.x)},${Math.round(here.z)}:${depth}`;
-  if (memo.has(key)) return memo.get(key);
-  memo.set(key, -99);
-  const v = Math.max(-40, ...hubChoices(A, g, depth, memo, here).map((c) => c.v));
-  memo.set(key, v); return v;
+  const opts = hubOptions(A, g, depth, memo);
+  if (!opts) return -99;
+  let v = -40;
+  for (const o of opts) v = Math.max(v, o.v - (0.5 + hubDistance(A, here, o.p) * 0.04));
+  return v;
 }
 function hubDecision(g, A, skipVisit = false) {
   if (!A) return hikeOut(g);
@@ -8120,7 +8138,7 @@ function topDecision(g, L, skipVisit, skipHub = false) {
   const memo = new Map();
   let best = null, bv = -Infinity;
   for (const D of L.departing) {
-    if (skipHub && hubAt(D.samples[0]) === L.hubTop) continue;
+    if (skipHub && D.hubStart === L.hubTop) continue;
     if (!runnable(D)) continue;
     const v = noisy(vTrail(D, 0, g, 0, memo));
     if (v > bv) { bv = v; best = D; }
@@ -17558,6 +17576,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.65.1', date: 'Oct 30, 2026', title: 'Faster guest areas', small: true, items: ['Fixed: Busy resorts with guest areas run as smoothly as resorts without them. Guests deciding where to go from a large area no longer slow the day down.'] },
   { v: '2.65', date: 'Oct 30, 2026', title: 'Paint your guest areas', items: [
     'Paint connected guest areas at the base, mid-mountain or summit (Trail › Guest area). Guests walk freely inside them between lifts, trail ends, trail entrances and building doors.',
     'A trail ending in an area that touches the base counts as reaching the base, and a lift starting in one counts as a base lift. Guests arriving from the lot walk up through the area to reach it.',
