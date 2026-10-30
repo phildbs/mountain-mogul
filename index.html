@@ -3281,7 +3281,7 @@ function toast(msg, bad, act) {
 }
 
 function setTool(tool) {
-  if (tool !== 'park') parkPlacement=null;
+  if (tool !== 'park'){parkPlacement=null;clearParkGhost();}
   if (tool === 'park' && (visiting || state.phase !== 'closed')) { toast('Place park features while the resort is closed.', true); return; }
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
@@ -3839,7 +3839,7 @@ function parkTap(p){
   const site=nearestParkSite(p);
   if(!site){toast('Tap inside an existing ski trail.',true);return;}
   parkPlacement.site=site;
-  renderSheet();
+  showParkGhost();renderSheet();
   toast('Position selected. Confirm placement in the Trail Features card.');
 }
 function parkConfirm(){
@@ -3849,7 +3849,7 @@ function parkConfirm(){
   if(state.cash<cfg.cost){toast('Not enough cash for this feature.',true);return;}
   t.parkFeatures=t.parkFeatures||[];
   t.parkFeatures.push({id:world.nextId++,type:parkPlacement.type,at:site.at,side:site.side,rot:site.rot});
-  state.cash-=cfg.cost;refreshParkFeatures(t);parkPlacement.site=null;
+  state.cash-=cfg.cost;refreshParkFeatures(t);parkPlacement.site=null;clearParkGhost();
   updateCash(true);scheduleSave();renderSheet();toast(cfg.name+' built on '+t.name);
 }
 function parkDraftSheet(){
@@ -4975,6 +4975,9 @@ function computeNetwork() {
    DRAFTS: trails and lifts being planned
    ===================================================================== */
 let parkPlacement = null;
+let parkGhost = null;
+function clearParkGhost(){if(parkGhost){trailGroup.remove(parkGhost);parkGhost.traverse(o=>{if(o.geometry)o.geometry.dispose();});parkGhost=null;}}
+function showParkGhost(){clearParkGhost();if(!parkPlacement?.site)return;const f={type:parkPlacement.type,...parkPlacement.site};parkGhost=createParkFeatureModel(f.type);fitParkFeature(parkGhost,parkPlacement.site.trail,f);parkGhost.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.transparent=true;o.material.opacity=.58;}});trailGroup.add(parkGhost);}
 const draft = { kind: null, pts: [], width: 'medium', liftType: 'quad', info: null, dirty: false, btype: null, bpos: null, rot: 0, grade: false };
 let draftMesh = null, draftLift = null;
 const bandGeo = new THREE.BufferGeometry();
@@ -6153,9 +6156,9 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'parkChoose') { if (PARK_TYPES[b.dataset.v]) { parkPlacement={type:b.dataset.v,site:null}; renderSheet(); } }
+  else if (a === 'parkChoose') { if (PARK_TYPES[b.dataset.v]) { parkPlacement={type:b.dataset.v,site:null}; clearParkGhost();renderSheet(); } }
   else if (a === 'parkConfirm') parkConfirm();
-  else if (a === 'parkCancel') { if(parkPlacement)parkPlacement.site=null; renderSheet(); }
+  else if (a === 'parkCancel') { if(parkPlacement)parkPlacement.site=null; clearParkGhost();renderSheet(); }
   else if (a === 'trailMode') { if (b.dataset.v === 'park') setTool('park'); else { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else setTool('trail'); } for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
