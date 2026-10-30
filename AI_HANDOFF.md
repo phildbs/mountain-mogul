@@ -54,9 +54,12 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-30)
 
-**Live: 2.64.1.** Phil approved publication; full GitHub Tests run 41070756026 passed on candidate `f837deccac4b071c5035dff3b5f1a95f61e46fb4`.
+**Live: 2.65.** Phil approved publication; full GitHub Tests run 41112233305 passed on `14d81baa1cecb4941799ebf363e34ad954c8d11c`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.65: paintable guest areas at the base, mid-mountain and summit (started by ChatGPT, finished by Claude). Guests walk
+  freely inside them; 30% walking limit with a Level button; 15 free acres per resort then $5,000/acre; base-only shops
+  allowed in areas touching the base; arrivals reach village lifts through the area. See Claude's 2026-10-30 note.
 - 2.64.1: faster busy days after a Firefox player's report (Skip no faster than 4×). One guest object shape makes a
   busy day about 2.4× faster with identical results; mid-day saves about 40% smaller; big saves autosave every 45 s.
 - 2.64: Business → Reputation (More on phones): current score, actual daily gains/losses, 14-day trend and recent changes including overnight borrowing. Older scores retained without invented causes.
@@ -75,8 +78,6 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 **Active:** ChatGPT's `feature/terrain-parks-preview` branch is parked for future testing and brainstorming; **work is paused** at Phil's request. No terrain park release is approved.
 
-**Candidate:** `claude/guest-areas` (Claude, taken over from ChatGPT's `feature/paintable-areas`) builds real guest areas for 2.65. Not published; awaiting the full GitHub run and Phil's review.
-
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch. Also the special decoration earned for 3 invited friends (milestone is saved;
@@ -93,7 +94,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `claude/guest-areas` | Claude | **Taken over from ChatGPT's `feature/paintable-areas`** at Phil's request (ChatGPT has stopped on it; leave that branch as is). Improving how guests walk inside painted guest areas (freer, less single-file), then review fixes. Not yet a release candidate. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
