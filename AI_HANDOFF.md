@@ -91,7 +91,13 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| feature/terrain-parks-preview | ChatGPT | Terrain park feature shapes refined; shared models and standalone 3D viewer added; awaits visual and full-suite testing | Oct 30 |
+| feature/terrain-parks-preview | ChatGPT | Grounded park models and Trails → Trail Features on-map placement with confirm; awaits visual and full-suite testing | Oct 30 |
+
+## Terrain park slope/placement update (Oct 30)
+
+- Trail feature choices moved from individual trail cards to Trails → Trail features. Select a feature, tap a valid trail, inspect the translucent preview, then Confirm to pay and build. Trail cards retain designation toggle and editing/removal for installed features.
+- Models now use four-corner terrain height sampling and a slope-aligned basis; embedded snow features have a lower grounding offset, while rails/boxes remain level with the averaged slope rather than isolated bumps.
+- This is a gameplay/placement change requiring full GitHub suite, old-save regression and phone/desktop visual review. Pause for Phil to report test results; do not publish without his approval.
 
 ## Terrain park visual refresh (Oct 30)
 
