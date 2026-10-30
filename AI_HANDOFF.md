@@ -93,7 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `feature/paintable-areas` | ChatGPT | Real painted guest areas at base, mid-mountain and summit; network, walking, snowmaking and saves. New branch from main; ignores the guest-hubs experiment. Awaiting full suite and Phil’s review. | Oct 30, 2026 |
+| `claude/guest-areas` | Claude | **Taken over from ChatGPT's `feature/paintable-areas`** at Phil's request (ChatGPT has stopped on it; leave that branch as is). Improving how guests walk inside painted guest areas (freer, less single-file), then review fixes. Not yet a release candidate. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
