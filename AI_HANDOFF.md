@@ -93,6 +93,12 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 |---|---|---|---|
 | feature/terrain-parks-preview | ChatGPT | Grounded park models and Trails → Trail Features on-map placement with confirm; awaits visual and full-suite testing | Oct 30 |
 
+## Terrain park menu and lateral placement follow-up (Oct 30)
+
+- Replaced text-heavy Trail Features picker with compact two-column icon/name/price grid.
+- On-map placement records lateral offset from the exact tap position instead of snapping all items to trail centerline; leaves a footprint clearance from the trail edge. Existing confirmation and ghost preview retained.
+- Still no guest interaction or feature-linked operating expenses: needs approach/exit trigger, safe bypass routing, short animations, testing, and balance/reporting. Await owner review and full GitHub tests; do not publish.
+
 ## Terrain park slope/placement update (Oct 30)
 
 - Trail feature choices moved from individual trail cards to Trails → Trail features. Select a feature, tap a valid trail, inspect the translucent preview, then Confirm to pay and build. Trail cards retain designation toggle and editing/removal for installed features.
