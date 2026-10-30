@@ -3375,7 +3375,8 @@ function showReadout(p, px, py, pinned) {
   }
   else if (state.tool === 'clear' && state.landMode === 'hub') {
     const why = hubCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
-    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Paint a guest area here · Free for now';
+    const steep = !why && hubSteep(cellKey(Math.round(p.x), Math.round(p.z)));
+    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : steep ? `<br><span class="warn">Too steep to walk (over ${Math.round(HUB_MAX_GRADE * 100)}%). Level it before building.</span>` : '<br>Gentle enough to walk';
   }
   else if (state.tool === 'clear' && state.landMode === 'glade') {
     const why = gladeCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
@@ -4421,6 +4422,7 @@ function cellsGeo(cells, lift, edgeCol) {
   return geo;
 }
 const HUB_DRAFT_MAT = new THREE.LineBasicMaterial({ color: 0x3d8bfd });
+const HUB_STEEP_MAT = new THREE.MeshBasicMaterial({ color: 0xd8342c, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function cellsEdgeGeo(cells, gaps, removed) {
   const points = [];
   for (const k of cells) {
@@ -4532,9 +4534,12 @@ function areaPaintAt(p, draw = true) {
   if (draw) drawAreaDraft();
 }
 function drawAreaDraft() {
-  if (areaDraftMesh) { scene.remove(areaDraftMesh); areaDraftMesh.geometry.dispose(); areaDraftMesh = null; }
+  if (areaDraftMesh) { scene.remove(areaDraftMesh); areaDraftMesh.traverse((o) => o.geometry && o.geometry.dispose()); areaDraftMesh = null; }
   if (!areaDraft || !areaDraft.cells.size) return;
   areaDraftMesh = state.landMode === 'hub' ? new THREE.LineSegments(cellsEdgeGeo(areaDraft.cells), HUB_DRAFT_MAT) : new THREE.Mesh(cellsGeo(areaDraft.cells, 0.16, null), AREA_DRAFT_MAT);
+  // Ground too steep to walk shows red until it is leveled or erased.
+  const steep = state.landMode === 'hub' ? new Set([...areaDraft.cells].filter(hubSteep)) : null;
+  if (steep && steep.size) { const m = new THREE.Mesh(cellsGeo(steep, 0.17, null), HUB_STEEP_MAT); m.renderOrder = 4; areaDraftMesh.add(m); }
   areaDraftMesh.renderOrder = 4;
   scene.add(areaDraftMesh);
 }
@@ -4599,7 +4604,12 @@ function commitArea() {
 }
 
 /* Guest areas: one connected patch, with its exits and walking routes cached when the network changes. */
-const HUB_CELL_COST = 0; // limited-time launch offer; keep future paint pricing in one place
+// Every resort paints its first 15 acres of guest areas free (players already built unofficial bases), then about
+// $5,000 an acre. Guests walk here, so ground over 30% has to be eased first.
+const HUB_FREE_CELLS = Math.round(15 * 4046.86 / 100), HUB_ACRE_COST = 5000, HUB_MAX_GRADE = 0.3;
+const hubCellCost = (n) => Math.round(n * HUB_ACRE_COST * 100 / 4046.86 / 100) * 100;
+const hubCellsUsed = (skip) => world.areas.reduce((n, A) => n + (isHub(A) && A !== skip ? A.cells.length : 0), 0);
+const hubSteep = (k) => GR[(keyZ(k) + HALF) * NV + keyX(k) + HALF] > HUB_MAX_GRADE;
 const isHub = (A) => !!A && A.kind === 'hub';
 const hubAt = (p) => world.areas.find((A) => isHub(A) && A.set.has(cellKey(Math.round(p.x), Math.round(p.z))));
 const sameHub = (p, q) => { const A = hubAt(p); return A && hubAt(q) === A ? A : null; };
@@ -4626,6 +4636,45 @@ function hubCellProblem(x, z, blocks) {
   if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
   return '';
 }
+// Ease the steep ground in a guest area to 30% or less: cut-and-fill inside the area, with the extra drop taken by a
+// short bank just outside it. Trails, lift stations, buildings, the lot, the road and the creek never move.
+// dry: only work out the cost and what would stay too steep.
+function hubLevel(cells, dry) {
+  const at = (k) => (keyZ(k) + HALF) * NV + keyX(k) + HALF, inside = new Set([...cells].map(at)), free = new Set(inside);
+  const fixed = new Set();
+  for (const k of fenceTrailCells()) fixed.add(at(k));
+  let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
+  for (const v of inside) { const i = v % NV, j = (v - i) / NV; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
+  i0 = Math.max(LAND.i0, i0 - 4); i1 = Math.min(LAND.i1, i1 + 4); j0 = Math.max(LAND.j0, j0 - 4); j1 = Math.min(LAND.j1, j1 + 4);
+  const lots = lotBoxes(), blds = world.buildings.map((B) => boxOf(B, 0.8));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const v = j * NV + i, p = { x: i - HALF, z: j - HALF };
+    if (creekKeep(v) < 1 || roadDist(p.x, p.z) < 2.5 || lots.some((b) => boxDist(p, b) < 1.5) || blds.some((b) => boxDist(p, b) < 0.5)
+      || world.lifts.some((L) => distXZ(p, L.a) < 3.5 || distXZ(p, L.b) < 3.5)) fixed.add(v);
+  }
+  // A ring up to three points wide around the area may change too: that is the bank.
+  for (let r = 0; r < 3; r++) for (const v of [...free]) for (const d of [1, -1, NV, -NV]) { const u = v + d, i = u % NV, j = (u - i) / NV; if (i >= i0 && i <= i1 && j >= j0 && j <= j1) free.add(u); }
+  for (const v of fixed) free.delete(v);
+  const h = new Map(); for (let j = j0 - 1; j <= j1 + 1; j++) for (let i = i0 - 1; i <= i1 + 1; i++) h.set(j * NV + i, HT[j * NV + i]);
+  const H = (v) => h.get(v), grade = (v) => Math.hypot((H(v + 1) - H(v - 1)) / 2, (H(v + NV) - H(v - NV)) / 2);
+  const ease = (a, b, f) => { // shrink the rise from a to b by f, moving whichever ends are free to move
+    const fa = free.has(a), fb = free.has(b); if (!fa && !fb) return;
+    const d = H(b) - H(a), nd = d * f;
+    if (fa && fb) { const m = (H(a) + H(b)) / 2; h.set(a, m - nd / 2); h.set(b, m + nd / 2); } else if (fa) h.set(a, H(b) - nd); else h.set(b, H(a) + nd);
+  };
+  const target = HUB_MAX_GRADE * 0.97;
+  for (let it = 0; it < 400; it++) {
+    let worst = 0;
+    for (const v of inside) { const g = grade(v); if (g <= target) continue; worst = Math.max(worst, g); const f = target / g; ease(v - 1, v + 1, f); ease(v - NV, v + NV, f); }
+    if (!worst) break;
+  }
+  let cost = 0; const left = [];
+  for (const [v, nh] of h) cost += Math.abs(nh - HT[v]) * GRADE_COST;
+  for (const v of inside) if (grade(v) > HUB_MAX_GRADE) left.push(v);
+  cost = Math.round(cost / 100) * 100;
+  if (!dry && cost) { for (const [v, nh] of h) HT[v] = nh; applyTerrainChange(i0, j0, i1, j1); refreshOnTerrain(i0, j0, i1, j1); }
+  return { cost, left: left.length };
+}
 function hubName(cells) {
   let high = 0, base = false;
   for (const k of cells) {
@@ -4640,9 +4689,14 @@ function hubDraftInfo() {
   if (hubFlood(cells, cells.values().next().value).parent.size !== n) problems.push('Join the painted ground into one connected area, or build separate areas.');
   const blocks = hubBlocks(old);
   for (const k of cells) { const why = hubCellProblem(keyX(k), keyZ(k), blocks); if (why) { problems.push(`Some ground is ${why}. Erase it before building.`); break; } }
+  const steep = [...cells].filter(hubSteep);
+  if (steep.length) problems.push(`${steep.length === 1 ? 'One square is' : `${steep.length} squares are`} too steep to walk (over ${Math.round(HUB_MAX_GRADE * 100)}%). Level the steep ground, or erase it.`);
+  // Free acres first; only ground beyond the allowance is charged, and only once.
+  const others = hubCellsUsed(old), before = others + (old ? old.cells.length : 0), after = others + n;
+  const paint = hubCellCost(Math.max(0, Math.max(0, after - HUB_FREE_CELLS) - Math.max(0, before - HUB_FREE_CELLS)));
   // Enlarging installed snowmaking also pays for the extra guns and pipes.
   const smExtra = old && old.sm && old.sm.on ? Math.max(0, snowmakingCost({ kind: 'hub', cells: [...cells] }) - snowmakingCost(old)) : 0;
-  return { hub: true, n, old, problems, cost: [...cells].filter((k) => !old || !old.set.has(k)).length * HUB_CELL_COST + smExtra, smExtra };
+  return { hub: true, n, old, problems, steep, paint, freeLeft: Math.max(0, HUB_FREE_CELLS - after), cost: paint + smExtra, smExtra };
 }
 function commitHub(info) {
   pushUndo(info.old ? 'editing a guest area' : 'painting a guest area');
@@ -4653,7 +4707,7 @@ function commitHub(info) {
   if (info.old) { A.set = new Set(A.cells); refreshAreaMesh(A); A.mesh.visible = true; } else addArea(A);
   clearAreaDraft(); computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   setTool('explore'); select({ kind: 'area', obj: A });
-  toast(`${info.old ? 'Updated' : 'Painted'} ${A.name}${info.cost ? ` · −${money(info.cost)}` : ' · Free for now'}`);
+  toast(`${info.old ? 'Updated' : 'Painted'} ${A.name}${info.cost ? ` · −${money(info.cost)}` : ''}`);
 }
 function openHubTool() {
   if (visiting) return;
@@ -4670,11 +4724,24 @@ function hubPaintSheet() {
   return `<div class="sheet-title"><h3>${editing ? 'Edit guest area' : 'New guest area'}</h3><button class="x" data-action="exitTool" aria-label="Close">✕</button></div>
     ${TRAIL_MODES('hub')}
     <p class="help">Paint one connected patch over trail ends, entrances, lift stations and building doors. Guests walk between them. Start on an existing area to extend it, or paint separate areas one at a time. The ground keeps its original look.</p>
-    <div class="status"><span class="pill on">Free for now</span><span class="muted">base, mid-mountain or summit</span></div>
+    <div class="status">${hubAllowancePill(info)}<span class="muted">then ${money(HUB_ACRE_COST)} an acre</span></div>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
-    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Location</dt><dd>${hubName(areaDraft.cells)}</dd></div></dl>${problemsHtml(info.problems)}${info.smExtra ? `<p class="help">Extra snowmaking equipment · ${money(info.smExtra)}</p>` : ''}` : ''}
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Location</dt><dd>${hubName(areaDraft.cells)}</dd></div></dl>${problemsHtml(info.problems)}${info.steep.length ? hubLevelRow() : ''}${info.smExtra ? `<p class="help">Extra snowmaking equipment · ${money(info.smExtra)}</p>` : ''}` : ''}
     <div class="row"><button class="btn secondary" data-action="hubUndo" ${areaDraft && areaDraft.history && areaDraft.history.length ? '' : 'disabled'}>Undo</button><button class="btn secondary" data-action="areaClear">${editing ? 'Cancel' : 'Clear'}</button></div>
-    <button class="btn wide" data-action="areaBuild" ${!info || info.problems.length || info.cost > state.cash ? 'disabled' : ''}>${editing ? 'Apply changes' : 'Paint area'}${info && info.cost ? ` · ${money(info.cost)}` : ' · Free for now'}</button>`;
+    <button class="btn wide" data-action="areaBuild" ${!info || info.problems.length || info.cost > state.cash ? 'disabled' : ''}>${editing ? 'Apply changes' : 'Paint area'}${info && info.cost ? ` · ${money(info.cost)}` : info ? ' · Free' : ''}</button>`;
+}
+function hubAllowancePill(info) {
+  const left = info ? info.freeLeft : Math.max(0, HUB_FREE_CELLS - hubCellsUsed(areaDraft && areaById(areaDraft.editId)));
+  return `<span class="pill ${left ? 'on' : ''}">${left ? `${fmtAcres(acresOf(left), 1)} free left` : 'Free acres used'}</span>`;
+}
+// The leveling estimate runs the whole cut-and-fill, so it is worked out once per draft shape and terrain.
+let hubLevelEst = { sig: '', est: null };
+function hubLevelRow() {
+  const sig = `${[...areaDraft.cells].reduce((a, k) => (a * 31 + k) | 0, areaDraft.cells.size)}:${terrainRev}`;
+  if (hubLevelEst.sig !== sig) hubLevelEst = { sig, est: hubLevel(areaDraft.cells, true) };
+  const e = hubLevelEst.est, ok = e.cost && e.cost <= state.cash;
+  return `<p class="help">${e.left ? `Leveling eases most of it; ${e.left === 1 ? 'one square' : `${e.left} squares`} beside trails, lifts or buildings would stay steep, so erase ${e.left === 1 ? 'it' : 'them'} afterwards.` : 'Leveling eases the red ground to a walkable slope, with a short bank just outside the area. Trails, lifts and buildings stay put.'}</p>
+    <button class="btn secondary wide" data-action="hubLevel" ${ok ? '' : 'disabled'}>Level steep ground · ${money(e.cost)}</button>`;
 }
 function hubDepth(A) { return A.cells.reduce((n, k) => n + sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF), 0) / Math.max(1, A.cells.length); }
 function hubSheet(A) {
@@ -4695,8 +4762,10 @@ function cacheHubs() {
     A.starts = world.trails.filter((T) => hubAt(T.samples[0]) === A);
     A.ends = world.trails.filter((T) => hubAt(T.samples[T.samples.length - 1]) === A);
     A.buildings = world.buildings.filter((B) => hubAt(B.door) === A);
-    A.basePoint = null;
-    for (const k of A.cells) if (isBase({ x: keyX(k), z: keyZ(k) }) || HUB_STEPS.some((d) => isBase({ x: keyX(k + d), z: keyZ(k + d) }))) { A.basePoint = { x: keyX(k), z: keyZ(k) }; break; }
+    // Where the area meets the natural base: guests coming from the car or heading back to it cross here.
+    A.baseCells = A.cells.filter((k) => isBase({ x: keyX(k), z: keyZ(k) }) || HUB_STEPS.some((d) => isBase({ x: keyX(k + d), z: keyZ(k + d) })));
+    A.baseSet = new Set(A.baseCells);
+    A.basePoint = A.baseCells.length ? { x: keyX(A.baseCells[0]), z: keyZ(A.baseCells[0]) } : null;
     const pts = [...A.loads.map((L) => L.a), ...A.tops.map((L) => L.b), ...A.starts.map((T) => T.samples[0]), ...A.buildings.map((B) => B.door), ...(A.basePoint ? [A.basePoint] : [])];
     A.routes = new Map();
     for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.set, k)); }
@@ -4704,8 +4773,15 @@ function cacheHubs() {
   for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); }
   for (const B of world.buildings) B.isBase = isBase(B.door) || !!(hubAt(B.door)?.basePoint);
 }
+// Walking routes to the usual spots are cached with the network; any other painted spot is worked out when first needed.
+function hubRoute(A, q) {
+  const k = cellKey(Math.round(q.x), Math.round(q.z));
+  let route = A.routes.get(k);
+  if (!route && A.set.has(k)) { route = hubFlood(A.set, k); A.routes.set(k, route); }
+  return route;
+}
 function hubDistance(A, p, q) {
-  const route = A.routes.get(cellKey(Math.round(q.x), Math.round(q.z)));
+  const route = hubRoute(A, q);
   return route ? route.distance.get(cellKey(Math.round(p.x), Math.round(p.z))) ?? Infinity : Infinity;
 }
 // Can a guest walk straight from a to b without leaving the painted cells?
@@ -4717,8 +4793,22 @@ function hubSees(A, a, b) {
 // Cached cell parents keep guests inside even a U-shaped area. Each guest then cuts straight across open ground,
 // keeps a lane of their own, drifts on longer stretches and walks at their own pace, so crowds spread out
 // instead of marching single file from square to square.
+// The cell where an area meets the natural base that is closest to p.
+function hubBaseCell(A, p) {
+  let best = null, bd = Infinity;
+  for (const k of A.baseCells || []) { const d = (keyX(k) - p.x) ** 2 + (keyZ(k) - p.z) ** 2; if (d < bd) { bd = d; best = { x: keyX(k), z: keyZ(k) }; } }
+  return best;
+}
+// A place up in a guest area that touches the base (a lift, a lodge above the natural base): guests from the lot
+// walk to the area's edge first and on inside it, rather than straight through the trees.
+function viaHub(g, p, then) {
+  const A = hubAt(p);
+  if (!A || !A.baseCells || !A.baseCells.length || isBase(p) || hubAt(g) === A) return false;
+  const e = hubBaseCell(A, g); if (!e) return false;
+  setMove(g, e, g.onSkis ? 'glide' : 'walk', { k: 'hubEnter', aid: A.id, x: p.x, z: p.z, next: then }); return true;
+}
 function walkHub(g, A, p, then) {
-  const route = A.routes.get(cellKey(Math.round(p.x), Math.round(p.z))), cells = [];
+  const route = hubRoute(A, p), cells = [];
   let k = cellKey(Math.round(g.x), Math.round(g.z));
   if (!route || !route.parent.has(k)) return false;
   while (route.parent.get(k) != null) { k = route.parent.get(k); cells.push({ x: keyX(k), z: keyZ(k) }); }
@@ -6266,6 +6356,14 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'areaBuild') commitArea();
   else if (a === 'hubUndo') undoHubStroke();
+  else if (a === 'hubLevel' && areaDraft && !visiting && state.phase === 'closed') {
+    const est = hubLevel(areaDraft.cells, true);
+    if (!est.cost || est.cost > state.cash) return;
+    pushUndo('leveling a guest area');
+    const res = hubLevel(areaDraft.cells, false);
+    state.cash -= res.cost; hubLevelEst.sig = ''; drawAreaDraft(); updateCash(true); renderSheet(); scheduleSave();
+    toast(`Leveled the steep ground · −${money(res.cost)}`);
+  }
   else if (a === 'hubFence' && isHub(obj)) { pushUndo('changing an area fence'); obj.fenced = !obj.fenced; refreshAreaMesh(obj); renderSheet(); scheduleSave(); }
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
@@ -7813,6 +7911,7 @@ function queueSlot(L, k) {
   return { x: lx + px * side + dx * along, z: lz + pz * side + dz * along };
 }
 function goQueue(g, L, mode) {
+  if (viaHub(g, L.a, { k: 'hubQueue', lid: L.id, aid: L.hubBottom ? L.hubBottom.id : 0 })) return;
   L.incoming++;
   g.L = L;
   setMove(g, queueSlot(L, L.queue.length + L.incoming - 1), mode, { k: 'queue', lid: L.id });
@@ -7828,6 +7927,8 @@ function goCar(g) {
     if (car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
   }
   const s = car ? stalls[car.stall] : roadEnd();
+  // Up in a guest area that touches the base: walk inside it down to the base edge first.
+  const A = hubAt(g); if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
   if (car && lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' }); // parked at the other base
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
 }
@@ -8403,6 +8504,8 @@ function arrive(g) {
     g.then = t.next; return arrive(g);
   }
   if (t.k === 'hubBase') return baseDecision(g, true);
+  if (t.k === 'hubEnter') { const A = areaById(t.aid); if (A && walkHub(g, A, { x: t.x, z: t.z }, t.next)) return; return setMove(g, { x: t.x, z: t.z }, 'walk', t.next); }
+  if (t.k === 'hubCar') return goCar(g);
   if (t.k === 'hubTop') { const L = liftById(t.lid); return L && topDecision(g, L, true, true) || hikeOut(g); }
   if (t.k === 'hubQueue') { const L = liftById(t.lid); return L && canLoad(L) ? goQueue(g, L, 'walk') : hubDecision(g, areaById(t.aid)); }
   if (t.k === 'queue') {
@@ -11478,7 +11581,7 @@ function footprintStats(bb) {
 function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
   if ([[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x0, bb.z1], [bb.x1, bb.z1]].some(([cx, cz]) => !inProperty(cx, cz))) problems.push('It has to be on your property.');
-  if (t.where === 'base' && !isBase({ x, z })) problems.push(`The ${t.name.toLowerCase()} belongs in the base area, where guests arrive.`);
+  if (t.where === 'base' && !isBase({ x, z }) && !(hubAt({ x, z }) || {}).basePoint) problems.push(`The ${t.name.toLowerCase()} belongs in the base area, where guests arrive, or in a guest area that touches it.`);
   const fs = footprintStats(bb);
   if (fs.hmax - fs.hmin > 3.2) problems.push('The ground is too steep to level here. Look for a gentler spot.');
   if (fs.creek) problems.push('Too close to the creek.');
@@ -12081,6 +12184,7 @@ function startVisit(g, B, svc, resume) {
   g.svc = svc; g.bid = B.id; g.resume = resume;
   const A = sameHub(g, B.door);
   if (A && walkHub(g, A, B.door, { k: 'bld', bid: B.id })) return;
+  if (viaHub(g, B.door, { k: 'bld', bid: B.id })) return;
   setMove(g, B.door, g.onSkis ? 'glide' : 'walk', { k: 'bld', bid: B.id });
 }
 function bldQueueSlot(B, pool, k) {

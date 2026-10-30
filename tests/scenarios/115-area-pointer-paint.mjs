@@ -9,7 +9,7 @@ export default async function({browser,url}) {
     const before=await g.ev('undoStack.length');
     if(width===390) await g.page.touchscreen.tap(p.x,p.y);
     else {await g.page.mouse.move(p.x,p.y);await g.page.mouse.down();await g.page.mouse.move(p.x+24,p.y+8,{steps:8});await g.page.mouse.up();}
-    assert(await g.ev(`areaDraft && areaDraft.cells.size>0 && !stroke.active && !areaDraftInfo().problems.length`),'real pointer stroke paints valid connected cells without an error');
+    assert(await g.ev(`areaDraft && areaDraft.cells.size>0 && !stroke.active && areaDraftInfo().problems.every((p)=>p.includes('too steep'))`),'real pointer stroke paints connected cells without an error (steep ground is only flagged)');
     eq(await g.ev(`undoStack.length`),before,'draft strokes avoid unnecessary whole-resort save snapshots');
     eq(await g.ev(`areaDraftMesh.isLineSegments`),true,'draft is an outline, leaving the ground visible');
     await g.click('[data-action=hubUndo]');eq(await g.ev('areaDraft.cells.size'),0,'real pointer stroke can be undone');

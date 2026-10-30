@@ -6,11 +6,14 @@ export default async function({browser,url}) {
     const g=await openGame(browser,url,{width,height,hasTouch:width===390,render:!!process.env.SHOTS});await g.click('#startBtn');
     await g.click('#tTrail');await g.click('[data-action=trailMode][data-v=hub]');
     eq(await g.ev(`state.landMode`),'hub','Guest area is in the real Trail build tool');
-    assert(await g.ev(`$('sheet').textContent.includes('Free for now')`),'launch offer is visible');
+    assert(await g.ev(`$('sheet').textContent.includes('free left')`),'the free-acre allowance is visible');
     const draft=await g.ev(`(() => {
       window.__hubGround={height:Array.from(HT),snow:Array.from(NS),trees:Array.from(trees.alive)};
-      state.brushR=2;const before=state.cash;areaPaintAt({x:0,z:10});const cells=[...areaDraft.cells];
-      areaDraft.history=[cells];areaPaintAt({x:20,z:10});const disconnected=areaDraftInfo().problems.some(s=>s.includes('connected'));
+      // Gentle ground, so steep squares don't block building: a spot whose whole brush (and the one 3 east) is walkable.
+      const gentle=(x,z)=>{for(let i=-3;i<=6;i++)for(let j=-3;j<=3;j++)if(hubSteep(cellKey(x+i,z+j))||hubCellProblem(x+i,z+j,hubBlocks(null)))return false;return true;};
+      let S=null;for(let z=40;z>=-40&&!S;z-=2)for(let x=-60;x<=40&&!S;x+=2)if(gentle(x,z)&&gentle(x+20,z))S={x,z};window.__S=S;
+      state.brushR=2;const before=state.cash;areaPaintAt({x:S.x,z:S.z});const cells=[...areaDraft.cells];
+      areaDraft.history=[cells];areaPaintAt({x:S.x+20,z:S.z});const disconnected=areaDraftInfo().problems.some(s=>s.includes('connected'));
       renderSheet();return {disconnected,before,n:cells.length};
     })()`);
     eq(draft.disconnected,true,'disconnected patches cannot be committed as one area');
@@ -26,7 +29,7 @@ export default async function({browser,url}) {
     eq(await g.ev(`({n:world.areas.length,kind:world.areas[0].kind,cash:state.cash})`),{n:1,kind:'hub',cash:draft.before},'painting commits a real area and costs nothing');
     eq(await g.ev(`selected.kind`),'area','new area opens its real detail card');
     eq(await g.ev(`({height:HT.every((v,i)=>v===__hubGround.height[i]),snow:NS.every((v,i)=>v===__hubGround.snow[i]),trees:trees.alive.every((v,i)=>v===__hubGround.trees[i]),surface:!world.areas[0].mesh.isMesh,fence:world.areas[0].fence.children.length})`),{height:true,snow:true,trees:true,surface:true,fence:0},'painting preserves terrain, snow and trees, with no filled overlay or default fence');
-    const extended=await g.ev(`(() => {const A=world.areas[0],n=A.cells.length;openHubTool();areaPaintAt({x:0,z:10});areaPaintAt({x:3,z:10});const info=areaDraftInfo();if(info.problems.length)throw Error(info.problems.join('; '));commitArea();return world.areas.length===1&&world.areas[0]===A&&A.cells.length>n;})()`);
+    const extended=await g.ev(`(() => {const A=world.areas[0],n=A.cells.length;openHubTool();areaPaintAt({x:__S.x,z:__S.z});areaPaintAt({x:__S.x+3,z:__S.z});const info=areaDraftInfo();if(info.problems.length)throw Error(info.problems.join('; '));commitArea();return world.areas.length===1&&world.areas[0]===A&&A.cells.length>n;})()`);
     eq(extended,true,'starting on an existing guest area extends it without overlap errors');
     await g.click('[data-action=hubFence]');
     eq(await g.ev(`world.areas[0].fenced && world.areas[0].fence.children.length>0`),true,'fence toggle adds the real boundary fence');
