@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-30)
 
-**Live: 2.65.** Phil approved publication; full GitHub Tests run 41112233305 passed on `14d81baa1cecb4941799ebf363e34ad954c8d11c`.
+**Live: 2.66.** Phil approved publication; full GitHub Tests run 41120287487 passed on `436be200029af1c584a040f7669703ec4677e65e`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.66: no lines at benches, picnic tables and fire pits (a free seat nearby, or rest later); skiers switch to a lift loading
+  beside a long line, before joining or from far back in it; time bar stays on one row at 900 px (the `22-topbar` flake). See Claude's note.
 - 2.65: paintable guest areas at the base, mid-mountain and summit (started by ChatGPT, finished by Claude). Guests walk
   freely inside them; 30% walking limit with a Level button; 15 free acres per resort then $5,000/acre; base-only shops
   allowed in areas touching the base; arrivals reach village lifts through the area. See Claude's 2026-10-30 note.
@@ -94,7 +96,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4d0b9233-x4dk4k` | Claude | 2.66 preview: no lines at benches, picnic tables and fire pits; skiers switch to a lift beside a long line. Waiting for Phil. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -255,7 +256,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-30 · Claude · Seats and lift lines (2.66 preview, `ccr-4d0b9233-x4dk4k`)
+### 2026-10-30 · Claude · Seats and lift lines (shipped in 2.66)
 - **Phil's decisions:** seats have no line at all ("skip the line", not a shared waiting area); for lifts, both a check
   before joining a long mid-mountain line and switching from far back in a slow line.
 - **Seats:** `outdoorSeat(B, svc)` (decor + seat pool) and `seatTaken` in `joinBuildingQueue`: a full bench, table or
