@@ -2906,12 +2906,15 @@ function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 500);
 }
+let lastSaveLen = 0;
 function saveNow() {
   if (REFERRAL_PREVIEW) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   try {
-    localStorage.setItem(saveKey(), JSON.stringify(saveData(true)));
+    const text = JSON.stringify(saveData(true));
+    lastSaveLen = text.length;
+    localStorage.setItem(saveKey(), text);
   } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
   const s = !practice && activeSlot();
   if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); writeSlots(); }
@@ -6424,7 +6427,7 @@ function updateLandMarks() {
     const under = !sheet.hidden && q.y > sheet.getBoundingClientRect().top - 8 && q.x > sheet.getBoundingClientRect().left - 8 && q.x < sheet.getBoundingClientRect().right + 8;
     const vis = q.ok && q.x > -40 && q.x < W + 40 && q.y > 20 && q.y < H + 20 && !under;
     el.hidden = !vis;
-    if (vis) el.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`;
+    if (vis) setTransform(el, `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`);
   }
 }
 
@@ -6475,7 +6478,7 @@ function updateChips() {
     const el = chipEls.get(c.key); if (!el) continue;
     const p = project(c.x, heightAt(c.x, c.z) + 3.2, c.z), vis = p.ok && p.x > -60 && p.x < W + 60 && p.y > 20 && p.y < H + 20;
     el.hidden = !vis;
-    if (vis) el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+    if (vis) setTransform(el, `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`);
   }
 }
 // Middle of the parking lot, where its tag floats.
@@ -6564,6 +6567,8 @@ function updateLabels() {
   }
   declutterLabels();
 }
+// Labels and chips are placed every frame; writing an unchanged position still makes some browsers restyle the page.
+function setTransform(el, tf) { if (el._tf !== tf) { el._tf = tf; el.style.transform = tf; } }
 // Rewrites a label only when its text changes; it's measured again before it's next placed.
 function setLabel(el, html) {
   if (el._src === html) return;
@@ -6597,7 +6602,7 @@ function declutterLabels() {
     }
     const keep = ok || el.classList.contains('sel');
     if (el.hidden === keep) el.hidden = !keep;
-    if (keep) el.style.transform = `translate(${Math.round(el._x)}px, ${Math.round(ok ? y : el._y)}px) translate(-50%, -100%)`;
+    if (keep) setTransform(el, `translate(${Math.round(el._x)}px, ${Math.round(ok ? y : el._y)}px) translate(-50%, -100%)`);
   }
 }
 
@@ -6959,7 +6964,7 @@ function updateLotMarks() {
     const q = project(x, heightAt(x, z) + 0.8, z), r = sheet.hidden ? null : sheet.getBoundingClientRect();
     const vis = q.ok && q.x > -60 && q.x < W + 60 && q.y > 20 && q.y < H + 20 && !(r && q.y > r.top - 8 && q.x > r.left - 8 && q.x < r.right + 8);
     el.hidden = !vis;
-    if (vis) el.style.transform = `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`;
+    if (vis) setTransform(el, `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`);
   }
 }
 // Bring the lot and its next spots into view, above the panel.
@@ -7959,6 +7964,18 @@ function makeGuest(car, x, z) {
     lunchAt: clamp(735 + gaussian() * 35, 670, 830), ate: false, skipped: false, bl: Math.random() * 0.4, blRate: 150 + Math.random() * 110,
     warmed: false, needsRental: Math.random() < [0.75, 0.3, 0.1, 0.04][ab], wantsLesson: ab === 0 && Math.random() < 0.45, lessoned: false,
     bus: false, bid: null, svc: null, resume: null, deck: -1,
+    // Fields set later in the day, declared up front (undefined reads exactly as a missing field and is not saved)
+    // so every guest keeps one object shape; dozens of shapes made each guest update much slower in browsers.
+    sight: undefined, paid: undefined, pass: undefined, qv: undefined, qT: undefined, qSince: undefined, qLook: undefined,
+    until: undefined, balkUntil: undefined, waitOver: undefined, leftEarly: undefined, restT: undefined,
+    mealAt: undefined, snackAt: undefined, snacked: undefined, shopped: undefined, mealRecorded: undefined,
+    noLearnSaid: undefined, rrComplained: undefined, hungry: undefined, hungerAt: undefined, hungerIssue: undefined,
+    foodLine: undefined, foodPrice: undefined, foodReason: undefined, pricedOut: undefined, priceRetry: undefined,
+    avoidB: undefined, avoidUntil: undefined, hurtAt: undefined, rescuer: undefined, rescueLogged: undefined,
+    severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
+    rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
+    stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
+    xUntil: undefined, xZone: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined
   };
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -8004,7 +8021,7 @@ function initLiftSim(L) {
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
 function stepLift(L, dt) {
-  const staff = patrolCrew().filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
+  const staff = stepCrew.filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
   const riding = L.riders.some((r) => r.length) || staff.some((c) => c.st === 'returnride');
   if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
@@ -8028,7 +8045,7 @@ function stepLift(L, dt) {
   }
 }
 function unloadTop(L, i) {
-  for (const c of patrolCrew()) if (c.st === 'returnride' && c.lift === L.id && c.chair === i) {
+  for (const c of stepCrew) if (c.st === 'returnride' && c.lift === L.id && c.chair === i) {
     c.x = L.b.x; c.z = L.b.z; c.st = 'back'; c.lift = null; c.chair = -1;
   }
   const keep = [];
@@ -8061,7 +8078,7 @@ function loadBottom(L, i) {
   // Lean crews miss the odd seat when loading a busy line.
   const seats = LIFT_TYPES[L.type].seats - (L.queue.length > 6 && Math.random() < staffLevel().miss ? 1 : 0);
   let n = 0;
-  for (const c of patrolCrew()) if (n < seats && c.st === 'returnqueue' && c.lift === L.id) {
+  for (const c of stepCrew) if (n < seats && c.st === 'returnqueue' && c.lift === L.id) {
     c.st = 'returnride'; c.chair = i; c.seat = n++;
   }
   while (L.queue.length && n < seats) {
@@ -8386,6 +8403,7 @@ function simStep(dt) {
     if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size, e.night, e.evening);
   }
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
+  stepCrew = patrolCrew(); // the lifts check it for every chair; gathering it once a step saves thousands of small lists
   for (const L of world.lifts) stepLift(L, dt);
   for (const B of world.buildings) bldStep(B);
   patrolStep(dt);
@@ -9578,14 +9596,22 @@ function pickGuest(x, y) {
 }
 
 /* ---------- Saving a day in progress ---------- */
+// Mid-day saves run every few seconds; full-precision decimals made a busy resort's save several
+// times larger and slower to write. Thousandths are far finer than anything a guest does.
+function saveGuest(g) {
+  const o = { ...g, T: g.T ? g.T.id : null, L: g.L ? g.L.id : null };
+  for (const k in o) { const v = o[k]; if (typeof v === 'number' && !Number.isInteger(v)) o[k] = Math.round(v * 1000) / 1000; }
+  return o;
+}
 function serializeSim() {
   if (state.phase !== 'open') return null;
   return {
     today, schedule, nextGid, nextCid, buses, busPending, nextBusAt, nextParkAt, offCars,
     buildingToday: world.buildings.map((B) => ({ id: B.id, today: { ...B.today, services: { ...B.today.services } } })),
     offQueue: offQueue.map((q) => ({ car: q.car.id, since: q.since })),
-    guests: guests.map((g) => ({ ...g, T: g.T ? g.T.id : null, L: g.L ? g.L.id : null })),
-    cars: cars.map((c) => ({ ...c })),
+    guests: guests.map(saveGuest),
+    // A parked car finds its road again when it leaves (carLeave), so only moving cars keep a path.
+    cars: cars.map((c) => { const { path, ...rest } = c; return c.st === 'parked' ? rest : { ...rest, path }; }),
     lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), incoming: L.incoming, riders: L.riders })),
   };
 }
@@ -12011,6 +12037,7 @@ function campDropOff(g) {
   g.sat += 6; g.leaveAt += 25;
   thought(g, `Dropped the kids at ${camp.name}. Time for some real skiing!`);
 }
+const LUNCH_STS = new Set(['inside', 'bq', 'walk', 'glide']), LUNCH_SVCS = new Set(['food', 'dine', 'finedine', 'snack']);
 function updateNeeds(g, dt) {
   g.bl += dt / 60 / g.blRate;
   if (g.bl > 1.7) {
@@ -12018,7 +12045,7 @@ function updateNeeds(g, dt) {
     if (!g.rrComplained) { g.rrComplained = true; today.complaints.rr++; thought(g, 'I really need a restroom.'); }
   }
   // Not hungry yet: eating, in line or on the way to eat, or in a lesson (they eat after).
-  const atLunch = g.st === 'lesson' || (['inside', 'bq', 'walk', 'glide'].includes(g.st) && ['food', 'dine', 'finedine', 'snack'].includes(g.svc));
+  const atLunch = g.st === 'lesson' || (LUNCH_STS.has(g.st) && LUNCH_SVCS.has(g.svc));
   if ((!g.ate || g.skipped) && !atLunch && state.time > g.lunchAt + 75) {
     g.sat -= dt / 60 * 0.06;
     if (!g.hungry) { g.hungry = true; rememberHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
@@ -12140,6 +12167,7 @@ function firstAidPoint(p) {
   return hut ? hut.door : roadEnd();
 }
 const patrolCrew = () => world.buildings.filter((B) => B.type === 'patrol').flatMap((B) => B.crew || []);
+let stepCrew = [];
 // Staff can ski downhill or traverse gentle ground; a return route never treats a climb as skiing.
 function patrolGlide(a, b) {
   const start = trueY(a.x, a.z), n = Math.max(1, Math.ceil(distXZ(a, b)));
@@ -17075,6 +17103,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.64.1', date: 'Oct 30, 2026', title: 'Faster busy days', small: true, items: ['Fixed: Busy resorts run much more smoothly. The day simulates more than twice as fast, so 4× keeps up and Skip to report finishes sooner.', 'Fixed: Saving a day in progress is quicker and the save is about 40% smaller, with fewer pauses on crowded days.'] },
   { v: '2.64', date: 'Oct 29, 2026', title: 'Track your reputation', items: ['Open Business → Reputation to see your score, the last operating day’s gains and losses, and a trend for the last 14 operating days. On phones, find Reputation under More.', 'See actual changes from satisfaction, missed rescues, lift lines, rowdiness, events and emergency bank borrowing. Earlier saves keep their scores; detailed reasons are recorded from this update onward.'] },
   { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },
   { v: '2.63', date: 'Oct 29, 2026', title: 'Friday plans and uninterrupted typing', items: ['Choose Use weekend plan on Fridays in Operations to apply that plan automatically every Friday, including quiet season. Individual day choices still take priority; ticket prices and crowd demand are unchanged.', 'Fixed: Live card updates keep text fields focused while you edit. Typing and composing text take priority over game hotkeys.'] },
@@ -18313,7 +18342,8 @@ function frame(now) {
     let gdt = dt * GS_PER_REAL * (showSlow() ? Math.min(1, state.speed) : state.speed);
     while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }
     autosaveT += dt;
-    if (autosaveT > 15) { autosaveT = 0; saveNow(); }
+    // A crowded day makes a big save that pauses the game while it's written: save it less often.
+    if (autosaveT > (lastSaveLen > 1.5e6 ? 45 : 15)) { autosaveT = 0; saveNow(); }
   }
   liveT += dt;
   if (liveT > 0.5) {

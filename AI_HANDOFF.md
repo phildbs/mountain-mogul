@@ -89,6 +89,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-203c4231-e3rk7h` | Claude | 2.64.1 faster busy days (sim speed, smaller mid-day saves) | 2026-10-30 |
 
 ## Known issues
 
@@ -233,6 +234,15 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 - **ChatGPT's environment** has no local Chromium, so it relies on the GitHub run. It once pushed a truncated
   `index.html` through its connector: after pushing, compare the GitHub file's blob SHA with your local copy.
 - **Feedback investigations** may read players' public saves, but keep player details out of the repo.
+- **Simulation speed (2.64.1):** the biggest cost was guests gaining properties at different times (84 object
+  shapes by noon), which makes every property read slow in V8 and SpiderMonkey. `makeGuest` now declares
+  late fields as `undefined` (reads the same as missing, and JSON skips it): one shape, a full busy day about
+  2.4x faster with identical results. **Add any new per-guest field to that list.** Guests restored from a mid-day
+  save still have mixed shapes for the rest of that day. Real public resorts reach 8,000+ guests, 26 lifts and
+  110 trails; benchmark with that scale, not the small test resorts. Mid-day saves drop parked cars' road paths
+  (rebuilt in `carLeave`) and round guest decimals to thousandths; a save over 1.5 MB autosaves every 45 s
+  instead of 15 s. At 4x the day needs about 160 sim steps a second; once a step costs over ~6 ms, 4x and
+  Skip run at the same pace, which is what a Firefox player reported.
 
 ## AI collaboration notes
 
