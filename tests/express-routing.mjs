@@ -18,7 +18,7 @@ const ctx={world,state,STATION_R:6,TRANSFER_R:22,PACE:4,SLOW:{speed:0.65},
  liftWait:L=>(L.queue.length+L.incoming)/10,liftMode:L=>L.mode||'normal',
  todayWx:()=>({hi:35}),trailFit:t=>t.fit,lotCount:()=>1,baseOf:()=>0,crossCost:()=>Infinity,cars:[],stalls:[],
 };
-const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','computeNetwork','vTrail','vRest','vEnd','vLift','vBase','cacheHubs','hubFlood','hubDistance','hubChoices','vHub'];
+const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','computeNetwork','vTrail','vRest','vEnd','vLift','vBase','cacheHubs','refreshHubEdges','hubFlood','hubDistance','hubChoices','vHub'];
 // Expressions shared with the game (the prior build has no ride-time helper).
 const transfer=src.match(/^const liftTransferCost = .*;$/m)[0];
 const ride=src.match(/^const liftRideMinutes = .*;$/m)?.[0]||'';

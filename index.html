@@ -3315,15 +3315,17 @@ function dozeTarget(sx, sy) {
     const back = Math.round((B.spent || 0) * 0.25);
     consider({ kind: 'bld', B, x: B.x, z: B.z, r: B.type === 'firepit' ? 1.5 : 0.7, label: `${esc(B.name)} · ${money(back)} back` }, B.baseY + (B.type === 'firepit' ? 0.4 : 1.2), 1);
   }
+  for (const A of world.areas) for (const q of A.fenceSections || []) consider({ kind: 'fence', A, key: q.key, x: q.x, z: q.z, r: 0.55, label: 'Fence section · free' }, heightAt(q.x, q.z) + 0.3, 1);
+  for (const q of gunSpots) if (!q.hidden) consider({ kind: 'gun', key: q.key, x: q.x, z: q.z, r: 0.6, label: 'Snow gun model · free; snowmaking stays on' }, q.y + 0.66, 1);
   for (const q of autoPoles) consider({ kind: 'pole', x: q.x, z: q.z, r: 0.7, label: 'Trail light (automatic) · free' }, heightAt(q.x, q.z) + 1.2, 1);
   // trees count as a little farther away, so a light standing among them is easy to pick
   if (p) treesInBrush(p, 6, (k) => consider({ kind: 'tree', k, x: trees.x[k], z: trees.z[k], r: 0.8, label: `Tree · ${money(TREE_COST)}` }, trees.y[k] + trees.s[k] * 0.6, 1.25));
   return best;
 }
 function dozeAt(sx, sy) {
-  if (state.phase !== 'closed') return;
+  if (visiting || state.phase !== 'closed') return;
   const o = dozeTarget(sx, sy);
-  if (!o) { toast('Nothing to bulldoze there. Tap a tree, a light or a fire pit.'); return; }
+  if (!o) { toast('Nothing to bulldoze there. Tap a tree, light, seat, fence section or snow gun.'); return; }
   if (o.kind === 'tree') {
     if (state.cash < TREE_COST) { toast('Not enough cash to clear this tree.', true); return; }
     pushUndo('bulldozing a tree');
@@ -3334,6 +3336,14 @@ function dozeAt(sx, sy) {
     (world.noPoles || (world.noPoles = [])).push([Math.round(o.x * 10) / 10, Math.round(o.z * 10) / 10]);
     rebuildLights();
     spawnPuff(o.x, heightAt(o.x, o.z) + 1, o.z);
+  } else if (o.kind === 'fence') {
+    pushUndo('removing a fence section');
+    (o.A.noFence || (o.A.noFence = [])).push(o.key);
+    refreshAreaMesh(o.A);
+  } else if (o.kind === 'gun') {
+    pushUndo('hiding a snow gun model');
+    (world.noGuns || (world.noGuns = [])).push(o.key);
+    rebuildGuns();
   } else {
     pushUndo(`removing ${o.B.name}`);
     state.cash += Math.round((o.B.spent || 0) * 0.25);
@@ -4411,30 +4421,54 @@ function cellsGeo(cells, lift, edgeCol) {
   return geo;
 }
 const HUB_DRAFT_MAT = new THREE.LineBasicMaterial({ color: 0x3d8bfd });
-function cellsEdgeGeo(cells) {
+function cellsEdgeGeo(cells, gaps, removed) {
   const points = [];
   for (const k of cells) {
     const x = keyX(k), z = keyZ(k);
     for (const [dx, dz, ax, az, bx, bz] of [[1,0,.5,-.5,.5,.5],[-1,0,-.5,-.5,-.5,.5],[0,1,-.5,.5,.5,.5],[0,-1,-.5,-.5,.5,-.5]]) {
       if (cells.has(cellKey(x + dx, z + dz))) continue;
+      if (gaps && gaps.has(cellKey(Math.round(x + (ax + bx) / 2), Math.round(z + (az + bz) / 2)))) continue;
+      if (removed && removed.has(fenceKey(x + ax, z + az, x + bx, z + bz))) continue;
       points.push(new THREE.Vector3(x + ax, heightAt(x + ax, z + az) + 0.18, z + az), new THREE.Vector3(x + bx, heightAt(x + bx, z + bz) + 0.18, z + bz));
     }
   }
   return new THREE.BufferGeometry().setFromPoints(points);
 }
+// Trail samples are half a unit apart. A conservative cell mask leaves the entire ribbon clear.
+function fenceTrailCells() {
+  const out = new Set();
+  for (const T of realTrails()) {
+    const r = TRAIL_WIDTHS[T.width].hw + 1.5;
+    for (const p of T.samples) for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++)
+      if (Math.hypot(x - p.x, z - p.z) <= r) out.add(cellKey(x, z));
+  }
+  return out;
+}
+const fenceKey = (ax, az, bx, bz) => ax < bx || (ax === bx && az < bz) ? `${Math.round(ax * 2)},${Math.round(az * 2)}:${Math.round(bx * 2)},${Math.round(bz * 2)}` : `${Math.round(bx * 2)},${Math.round(bz * 2)}:${Math.round(ax * 2)},${Math.round(az * 2)}`;
+const gunModelKey = (o, x, z) => `${isHub(o) ? 'a' : 't'}${o.id}:${Math.round(x * 10)},${Math.round(z * 10)}`;
+function refreshHubEdges() {
+  const hubs = world.areas.filter(isHub);
+  if (!hubs.length) return;
+  const trailCells = fenceTrailCells();
+  for (const A of hubs) refreshAreaMesh(A, trailCells);
+}
 // Learning areas are left open, with no fence: an empty group keeps the area code simple.
 const FENCE_ON = false;
 const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
-function areaFence(a) {
+function areaFence(a, trailCells) {
+  a.fenceSections = [];
   if (isHub(a) ? !a.fenced : !FENCE_ON) return new THREE.Group();
-  const posts = [], rope = [], seen = new Set();
-  const gap = (x, z) => (isHub(a) && world.trails.some((T) => [T.samples[0], T.samples[T.samples.length - 1]].some((p) => distXZ({ x, z }, p) < TRAIL_WIDTHS[T.width].hw + 1))) || world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
+  const posts = [], rope = [], seen = new Set(), gone = new Set(a.noFence || []);
+  trailCells ||= fenceTrailCells();
+  const gap = (x, z) => (isHub(a) && trailCells.has(cellKey(Math.round(x), Math.round(z)))) || world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
   for (const k of a.set) {
     const x = keyX(k), z = keyZ(k);
     for (const [dx, dz, x0, z0, x1, z1] of [[1, 0, 0.5, -0.5, 0.5, 0.5], [-1, 0, -0.5, -0.5, -0.5, 0.5], [0, 1, -0.5, 0.5, 0.5, 0.5], [0, -1, -0.5, -0.5, 0.5, -0.5]]) {
       if (a.set.has(cellKey(x + dx, z + dz))) continue;
       const ax = x + x0, az = z + z0, bx = x + x1, bz = z + z1;
-      if (gap((ax + bx) / 2, (az + bz) / 2)) continue;
+      const key = fenceKey(ax, az, bx, bz), mx = (ax + bx) / 2, mz = (az + bz) / 2;
+      if (gone.has(key) || gap(mx, mz)) continue;
+      a.fenceSections.push({ key, x: mx, z: mz });
       rope.push(new THREE.Vector3(ax, heightAt(ax, az) + 0.3, az), new THREE.Vector3(bx, heightAt(bx, bz) + 0.3, bz));
       const pk = Math.round(ax * 2) + ',' + Math.round(az * 2);
       if (!seen.has(pk) && (Math.round(ax) + Math.round(az)) % 2 === 0) { seen.add(pk); posts.push(new THREE.BoxGeometry(0.05, 0.36, 0.05).translate(ax, heightAt(ax, az) + 0.16, az)); }
@@ -4447,20 +4481,22 @@ function areaFence(a) {
 }
 const GLADE_TINT = () => new THREE.MeshBasicMaterial({ color: 0x2f7d55, transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function addArea(a) {
+  const trailCells = isHub(a) ? fenceTrailCells() : null;
   a.set = new Set(a.cells);
-  a.mesh = isHub(a) ? new THREE.LineSegments(cellsEdgeGeo(a.set), new THREE.LineBasicMaterial({ color: 0xdf562c })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  a.mesh = isHub(a) ? new THREE.LineSegments(cellsEdgeGeo(a.set, trailCells, new Set(a.noFence || [])), new THREE.LineBasicMaterial({ color: 0xdf562c })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
   if (isGlade(a) || isHub(a)) a.mesh.visible = false;
-  a.fence = areaFence(a); areaGroup.add(a.fence);
+  a.fence = areaFence(a, trailCells); areaGroup.add(a.fence);
   a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
   areaGroup.add(a.mesh);
   world.areas.push(a);
   areaSig = null;
 }
-function refreshAreaMesh(a) {
+function refreshAreaMesh(a, trailCells) {
+  if (isHub(a)) trailCells ||= fenceTrailCells();
   a.mesh.geometry.dispose();
-  a.mesh.geometry = isHub(a) ? cellsEdgeGeo(a.set) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
+  a.mesh.geometry = isHub(a) ? cellsEdgeGeo(a.set, trailCells, new Set(a.noFence || [])) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
   areaGroup.remove(a.fence); disposeFence(a.fence);
-  a.fence = areaFence(a); areaGroup.add(a.fence);
+  a.fence = areaFence(a, trailCells); areaGroup.add(a.fence);
 }
 function disposeFence(f) { f.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material !== FENCE_MAT) o.material.dispose(); }); }
 function removeArea(a) {
@@ -4876,7 +4912,6 @@ function syncAreaLines() {
     + (glades.length ? `#${glades.map((A) => `${A.id}:${A.cells.length}`).join(',')}#${realTrails().map((t) => `${t.id}:${t.samples.length}`).join(',')}#${world.lifts.map((L) => `${L.id}:${L.a.x},${L.b.x}`).join(',')}` : '');
   if (sig === areaSig) return;
   areaSig = sig;
-  for (const A of world.areas) { areaGroup.remove(A.fence); disposeFence(A.fence); A.fence = areaFence(A); areaGroup.add(A.fence); }
   for (const t of world.trails.filter((o) => o.virtual)) removeTrail(t);
   for (const [A, L] of want) for (let k = 0; k < AREA_LINES; k++) {
     addTrail({ id: -(A.id * 1000 + L.id * 10 + k), name: A.name, pts: areaLinePts(A, L, k), width: 'medium', open: true, sign: 0, virtual: true, area: A.id, lift: L.id });
@@ -4890,6 +4925,7 @@ function syncAreaLines() {
 }
 function computeNetwork() {
   syncAreaLines();
+  refreshHubEdges();
   cacheHubs();
   for (const t of world.trails) {
     if (t.virtual && !t.glade) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
@@ -6926,7 +6962,8 @@ function serializeWorld() {
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
-    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
+    noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
@@ -6941,6 +6978,7 @@ function rebuildWorld(data) {
   selected = null;
   world.nextId = (data && data.nextId) || 1;
   world.noPoles = ((data && data.noPoles) || []).slice();
+  world.noGuns = ((data && data.noGuns) || []).slice();
   if (data) {
     for (const L of data.lifts || []) addLift({ ...L });
     for (const B of data.buildings || []) {
@@ -13411,11 +13449,14 @@ function rebuildGuns() {
       gunSpots.push({ x, y: heightAt(x, z), z, aim: i * 2.4, t: A });
     }
   }
-  gunSpots.forEach((g, i) => {
+  const hidden = new Set(world.noGuns || []); let visible = 0;
+  gunSpots.forEach((g) => {
+    g.key = gunModelKey(g.t, g.x, g.z); g.hidden = hidden.has(g.key);
+    if (g.hidden) return;
     dummy.position.set(g.x, g.y, g.z); dummy.rotation.set(0, g.aim, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
-    gunMesh.setMatrixAt(i, dummy.matrix);
+    gunMesh.setMatrixAt(visible++, dummy.matrix);
   });
-  gunMesh.count = gunSpots.length;
+  gunMesh.count = visible;
   gunMesh.instanceMatrix.needsUpdate = true;
   renderer.shadowMap.needsUpdate = true;
 }
@@ -14463,7 +14504,7 @@ function landSheet() {
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
   }
   if (doze) return `${head}
-    <p class="help">Tap a single tree, trail light, lamp post or fire pit to remove it. Trees cost ${money(TREE_COST)} to clear; lights and fire pits you placed return a quarter of their price. Automatic trail lights along a lit trail are free to remove and stay gone; the trail stays lit.</p>
+    <p class="help">Tap a tree, seat, light, fence section or snow gun model to remove it. Fence sections and snow gun models are free to remove and stay gone after saving; hiding a snow gun keeps its snowmaking and running costs. Undo puts it back. Trees cost ${money(TREE_COST)} to clear; lights and fire pits you placed return a quarter of their price. Automatic trail lights along a lit trail are free to remove and stay gone; the trail stays lit.</p>
     <p class="help">Ctrl+Z puts back the last one. Bigger things (lifts, trails, buildings) are removed from their own panel.</p>`;
   return `${head}
     <p class="help">${plant
@@ -17378,6 +17419,7 @@ const CHANGES = [
   { v: '2.65', date: 'Oct 30, 2026', title: 'Paint your guest areas', items: [
     'Paint and name connected guest areas at the base, mid-mountain or summit. Painting is free for now.',
     'Keep the ground’s original look, and choose whether each guest area has a boundary fence.',
+    'Fences leave trails clear. Use Bulldoze to remove individual fence sections or hide snow gun models without changing their snowmaking.',
     'Guests walk between every trail entrance, trail end, lift station and building door inside an area. Areas touching the base bring skiers home.',
     'Add optional snowmaking to an area, with installation and nightly costs based on its size.'
   ] },
