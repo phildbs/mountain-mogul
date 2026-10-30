@@ -3282,7 +3282,7 @@ function toast(msg, bad, act) {
 function setTool(tool) {
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
-    toast(state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
+    toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
   if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
@@ -3361,6 +3361,10 @@ function showReadout(p, px, py, pinned) {
   else if (state.tool === 'clear' && state.landMode === 'area') {
     const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
     html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Gentle enough for a learning area';
+  }
+  else if (state.tool === 'clear' && state.landMode === 'hub') {
+    const why = hubCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
+    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Paint a guest area here · Free for now';
   }
   else if (state.tool === 'clear' && state.landMode === 'glade') {
     const why = gladeCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
@@ -4264,7 +4268,9 @@ function clearTreeSet(set) {
 const STATION_R = 6, TRANSFER_R = 22;
 // Nearby stations can also connect by a short uphill walk: at most 100 m across and 20 m up.
 function liftTransferMode(L, M) {
-  if (L === M || M.fromBase || isVillage(L) || isVillage(M)) return null;
+  if (L === M || isVillage(L) || isVillage(M)) return null;
+  if (L.hubTop && L.hubTop === M.hubBottom) return 'walk';
+  if (M.fromBase) return null;
   const d = distXZ(L.b, M.a);
   if (d >= TRANSFER_R) return null;
   const y = trueY(L.b.x, L.b.z), rise = trueY(M.a.x, M.a.z) - y;
@@ -4282,7 +4288,9 @@ function liftTransferMode(L, M) {
 // Nearby summit stations can serve the same existing trail entrance. Keep its saved owner;
 // only the extra approach needs the same terrain check as a short station transfer.
 function liftTrailMode(L, T) {
-  if (!T.from || T.from.kind !== 'lift' || isVillage(L)) return null;
+  if (isVillage(L)) return null;
+  if (L.hubTop && T.from && T.from.kind === 'hub' && T.from.obj === L.hubTop) return 'walk';
+  if (!T.from || T.from.kind !== 'lift') return null;
   if (T.from.obj === L) return 'glide';
   const a = T.samples[0];
   return distXZ(L.b, a) < STATION_R ? liftTransferMode(L, { type: L.type, a }) : null;
@@ -4303,6 +4311,7 @@ function trailNear(p, exclude) {
 }
 // Where a trail end leads when no other trail can take the skier on: a lift close by, else the base.
 function dryEnd(p) {
+  const A = hubAt(p); if (A) return { kind: 'hub', obj: A };
   let best = null, bd = TRANSFER_R;
   for (const L of world.lifts) {
     if (isVillage(L)) continue; // runs between bases, not part of the ski network
@@ -4314,6 +4323,7 @@ function dryEnd(p) {
   return isBase(p) ? { kind: 'base' } : null;
 }
 function connAt(p, self, which) {
+  const A = hubAt(p); if (A) return { kind: 'hub', obj: A };
   for (const L of world.lifts) {
     if (isVillage(L)) continue; // the village gondola links the bases; trails near it simply end at the base
     if (which === 'start' && distXZ(p, L.b) < STATION_R) return { kind: 'lift', obj: L };
@@ -4377,7 +4387,7 @@ function gladeCellProblem(x, z, blocks) {
   if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
   return '';
 }
-const paintingArea = () => state.landMode === 'area' || state.landMode === 'glade';
+const paintingArea = () => ['area', 'glade', 'hub'].includes(state.landMode);
 // A flat grid of cells draped on the ground, lit like the snow; the outer cells take the edge colour.
 function cellsGeo(cells, lift, edgeCol) {
   const pos = [], uv = [], col = [], idx = [];
@@ -4403,9 +4413,9 @@ function cellsGeo(cells, lift, edgeCol) {
 const FENCE_ON = false;
 const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
 function areaFence(a) {
-  if (!FENCE_ON) return new THREE.Group();
+  if (!FENCE_ON && !isHub(a)) return new THREE.Group();
   const posts = [], rope = [], seen = new Set();
-  const gap = (x, z) => world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
+  const gap = (x, z) => (isHub(a) && world.trails.some((T) => [T.samples[0], T.samples[T.samples.length - 1]].some((p) => distXZ({ x, z }, p) < TRAIL_WIDTHS[T.width].hw + 1))) || world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
   for (const k of a.set) {
     const x = keyX(k), z = keyZ(k);
     for (const [dx, dz, x0, z0, x1, z1] of [[1, 0, 0.5, -0.5, 0.5, 0.5], [-1, 0, -0.5, -0.5, -0.5, 0.5], [0, 1, -0.5, 0.5, 0.5, 0.5], [0, -1, -0.5, -0.5, 0.5, -0.5]]) {
@@ -4425,7 +4435,7 @@ function areaFence(a) {
 const GLADE_TINT = () => new THREE.MeshBasicMaterial({ color: 0x2f7d55, transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function addArea(a) {
   a.set = new Set(a.cells);
-  a.mesh = isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
+  a.mesh = isHub(a) ? new THREE.Mesh(cellsGeo(a.set, 0.18, [0.55, 0.34, 0.15]), new THREE.MeshLambertMaterial({ color: 0xe9b96e, vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })) : isGlade(a) ? new THREE.Mesh(cellsGeo(a.set, 0.16, null), GLADE_TINT()) : new THREE.Mesh(cellsGeo(a.set, 0.13, edgeTint(0)), trailMaterial());
   if (isGlade(a)) a.mesh.visible = false;
   a.fence = areaFence(a); areaGroup.add(a.fence);
   a.mesh.receiveShadow = true; a.mesh.renderOrder = 2;
@@ -4435,7 +4445,7 @@ function addArea(a) {
 }
 function refreshAreaMesh(a) {
   a.mesh.geometry.dispose();
-  a.mesh.geometry = isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
+  a.mesh.geometry = isHub(a) ? cellsGeo(a.set, 0.18, [0.55, 0.34, 0.15]) : isGlade(a) ? cellsGeo(a.set, 0.16, null) : cellsGeo(a.set, 0.13, edgeTint(0));
   areaGroup.remove(a.fence); disposeFence(a.fence);
   a.fence = areaFence(a); areaGroup.add(a.fence);
 }
@@ -4457,13 +4467,13 @@ let areaDraft = null, areaDraftMesh = null;
 const AREA_DRAFT_MAT = new THREE.MeshBasicMaterial({ color: 0x3d8bfd, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function areaPaintAt(p) {
   if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
-  if (!areaDraft.blocks) areaDraft.blocks = areaBlocks(areaDraft.editId == null ? null : areaById(areaDraft.editId));
+  if (!areaDraft.blocks) areaDraft.blocks = state.landMode === 'hub' ? hubBlocks(areaById(areaDraft.editId)) : areaBlocks(areaDraft.editId == null ? null : areaById(areaDraft.editId));
   const r = state.brushR;
   for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
     const k = cellKey(x, z);
     if (areaDraft.erase) { areaDraft.cells.delete(k); continue; }
-    const why = (state.landMode === 'glade' ? gladeCellProblem : cellProblem)(x, z, areaDraft.blocks);
+    const why = (state.landMode === 'hub' ? hubCellProblem : state.landMode === 'glade' ? gladeCellProblem : cellProblem)(x, z, areaDraft.blocks);
     if (why) stroke.areaWhy = why; else areaDraft.cells.add(k);
   }
   drawAreaDraft();
@@ -4484,9 +4494,9 @@ function clearAreaDraft() {
 function editArea(A) {
   if (!A || isGlade(A) || visiting || state.phase !== 'closed') return;
   clearAreaDraft();
-  state.landMode = 'area';
+  state.landMode = isHub(A) ? 'hub' : 'area';
   setTool('clear');
-  areaDraft = { cells: new Set(A.cells), erase: false, editId: A.id, blocks: areaBlocks(A) };
+  areaDraft = { cells: new Set(A.cells), erase: false, editId: A.id, blocks: isHub(A) ? hubBlocks(A) : areaBlocks(A) };
   A.mesh.visible = false;
   drawAreaDraft();
   $('sizes').hidden = false;
@@ -4496,6 +4506,7 @@ function editArea(A) {
 function areaDraftInfo() {
   if (!areaDraft || !areaDraft.cells.size) return null;
   if (state.landMode === 'glade') return gladeDraftInfo();
+  if (state.landMode === 'hub') return hubDraftInfo();
   const n = areaDraft.cells.size, treeSet = new Set(), problems = [], old = areaDraft.editId == null ? null : areaById(areaDraft.editId);
   const added = old ? [...areaDraft.cells].filter((k) => !old.set.has(k)) : [...areaDraft.cells];
   for (const k of added) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
@@ -4508,6 +4519,8 @@ function areaDraftInfo() {
 function commitArea() {
   const info = areaDraftInfo();
   if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  if (visiting) return;
+  if (info.hub) return commitHub(info);
   if (info.glade) return commitGlade(info);
   pushUndo(info.old ? 'editing a learning area' : 'building a learning area');
   clearTreeSet(info.treeSet);
@@ -4530,6 +4543,128 @@ function commitArea() {
   computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   toast(`Built ${a.name} · −${money(info.cost)}. Add a magic carpet or T-bar with both stations in it.`);
   renderSheet();
+}
+
+/* Guest areas: one connected patch, with its exits and walking routes cached when the network changes. */
+const HUB_CELL_COST = 0; // limited-time launch offer; keep future paint pricing in one place
+const isHub = (A) => !!A && A.kind === 'hub';
+const hubAt = (p) => world.areas.find((A) => isHub(A) && A.set.has(cellKey(Math.round(p.x), Math.round(p.z))));
+const sameHub = (p, q) => { const A = hubAt(p); return A && hubAt(q) === A ? A : null; };
+const HUB_STEPS = [4096, -4096, 1, -1];
+function hubFlood(cells, target) {
+  const parent = new Map([[target, null]]), distance = new Map([[target, 0]]), todo = [target];
+  for (let i = 0; i < todo.length; i++) for (const d of HUB_STEPS) {
+    const k = todo[i] + d;
+    if (!cells.has(k) || parent.has(k)) continue;
+    parent.set(k, todo[i]); distance.set(k, distance.get(todo[i]) + 1); todo.push(k);
+  }
+  return { parent, distance };
+}
+function hubBlocks(skip) {
+  const m = new Map();
+  for (const A of world.areas) if (A !== skip) for (const k of A.cells) m.set(k, 'already part of another area');
+  for (const b of lotBoxes()) for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) m.set(cellKey(x, z), 'on the parking lot');
+  return m;
+}
+function hubCellProblem(x, z, blocks) {
+  if (!inProperty(x, z)) return 'outside your property';
+  if (blocks && blocks.has(cellKey(x, z))) return blocks.get(cellKey(x, z));
+  if (roadDist(x, z) < 2) return 'on the road';
+  if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
+  return '';
+}
+function hubName(cells) {
+  let high = 0, base = false;
+  for (const k of cells) {
+    const p = { x: keyX(k), z: keyZ(k) };
+    base ||= isBase(p) || HUB_STEPS.some((d) => isBase({ x: keyX(k + d), z: keyZ(k + d) }));
+    high += elevFrac(trueY(p.x, p.z));
+  }
+  return base ? 'Base area' : high / cells.size >= 0.65 ? 'Summit area' : 'Mid-mountain area';
+}
+function hubDraftInfo() {
+  const cells = areaDraft.cells, old = areaById(areaDraft.editId), n = cells.size, problems = [];
+  if (hubFlood(cells, cells.values().next().value).parent.size !== n) problems.push('Join the painted ground into one connected area, or build separate areas.');
+  const blocks = hubBlocks(old);
+  for (const k of cells) { const why = hubCellProblem(keyX(k), keyZ(k), blocks); if (why) { problems.push(`Some ground is ${why}. Erase it before building.`); break; } }
+  // Enlarging installed snowmaking also pays for the extra guns and pipes.
+  const smExtra = old && old.sm && old.sm.on ? Math.max(0, snowmakingCost({ kind: 'hub', cells: [...cells] }) - snowmakingCost(old)) : 0;
+  return { hub: true, n, old, problems, cost: [...cells].filter((k) => !old || !old.set.has(k)).length * HUB_CELL_COST + smExtra, smExtra };
+}
+function commitHub(info) {
+  pushUndo(info.old ? 'editing a guest area' : 'painting a guest area');
+  state.cash -= info.cost;
+  const A = info.old || { id: world.nextId++, name: hubName(areaDraft.cells), kind: 'hub', cost: 0 };
+  A.center = null; A.cells = [...areaDraft.cells]; A.cost = (A.cost || 0) + info.cost;
+  // Clear the walking ground as part of the launch offer. Painting never levels the terrain.
+  const cut = new Set(); for (const k of A.cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.71, (t) => cut.add(t));
+  clearTreeSet(cut);
+  if (info.old) { A.set = new Set(A.cells); refreshAreaMesh(A); A.mesh.visible = true; } else addArea(A);
+  clearAreaDraft(); computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
+  setTool('explore'); select({ kind: 'area', obj: A });
+  toast(`${info.old ? 'Updated' : 'Painted'} ${A.name}${info.cost ? ` · −${money(info.cost)}` : ' · Free for now'}`);
+}
+function openHubTool() {
+  if (visiting) return;
+  if (state.phase !== 'closed') { toast('Guest areas are painted overnight, while the resort is closed.', true); return; }
+  clearAreaDraft(); state.landMode = 'hub'; setTool('clear'); renderSheet();
+}
+function undoHubStroke() {
+  if (visiting || state.phase !== 'closed') return;
+  if (!areaDraft || !areaDraft.history || !areaDraft.history.length) return;
+  areaDraft.cells = new Set(areaDraft.history.pop()); drawAreaDraft(); renderSheet();
+}
+function hubPaintSheet() {
+  const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), editing = !!(areaDraft && areaDraft.editId != null);
+  return `<div class="sheet-title"><h3>${editing ? 'Edit guest area' : 'New guest area'}</h3><button class="x" data-action="exitTool" aria-label="Close">✕</button></div>
+    ${TRAIL_MODES('hub')}
+    <p class="help">Paint one connected patch over trail ends, entrances, lift stations and building doors. Guests walk between them. Paint separate areas one at a time.</p>
+    <div class="status"><span class="pill on">Free for now</span><span class="muted">base, mid-mountain or summit</span></div>
+    <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Location</dt><dd>${hubName(areaDraft.cells)}</dd></div></dl>${problemsHtml(info.problems)}${info.smExtra ? `<p class="help">Extra snowmaking equipment · ${money(info.smExtra)}</p>` : ''}` : ''}
+    <div class="row"><button class="btn secondary" data-action="hubUndo" ${areaDraft && areaDraft.history && areaDraft.history.length ? '' : 'disabled'}>Undo</button><button class="btn secondary" data-action="areaClear">${editing ? 'Cancel' : 'Clear'}</button></div>
+    <button class="btn wide" data-action="areaBuild" ${!info || info.problems.length || info.cost > state.cash ? 'disabled' : ''}>${editing ? 'Apply changes' : 'Paint area'}${info && info.cost ? ` · ${money(info.cost)}` : ' · Free for now'}</button>`;
+}
+function hubDepth(A) { return A.cells.reduce((n, k) => n + sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF), 0) / Math.max(1, A.cells.length); }
+function hubSheet(A) {
+  const closed = state.phase === 'closed' && !visiting, sm = A.sm;
+  return `<div class="sheet-title"><input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name" ${visiting ? 'readonly' : ''}>${NAME_DICE}<button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">${hubName(A.set)} · ${fmtAcres(acresOf(A.cells.length), 1)}. Guests walk freely between the trails, lifts and services inside it.</p>
+    <p class="conn">${A.basePoint ? 'Connects to the base.' : A.returns ? 'Connected to a route home.' : 'Needs a trail or lift leading back to the base.'}</p>
+    <dl class="kv"><div><dt>Lift stations</dt><dd>${A.loads.length + A.tops.length}</dd></div><div><dt>Trail entrances</dt><dd>${A.starts.length}</dd></div><div><dt>Buildings</dt><dd>${A.buildings.length}</dd></div><div><dt>Snow underfoot</dt><dd>${inch(hubDepth(A))}</dd></div></dl>
+    <div class="field-label">Snowmaking</div>
+    ${sm && sm.on ? `<div class="seg" role="group" aria-label="Snowmaking mode">${[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([k, label]) => `<button data-action="smMode" data-v="${k}" aria-pressed="${sm.mode === k}">${label}</button>`).join('')}</div><p class="help">${gunCount(A)} guns · about ${money(gunCount(A) * GUN_NIGHT)} per cold night. Auto keeps ${inch(sm.target)} underfoot.</p>` : `<p class="help">Works on natural snow. Optional snowmaking keeps the ground white: ${gunCount(A)} guns, about ${money(gunCount(A) * GUN_NIGHT)} per cold night.</p><button class="btn secondary" data-action="smInstall" ${closed && state.cash >= snowmakingCost(A) ? '' : 'disabled'}>Add snowmaking · ${money(snowmakingCost(A))}</button>`}
+    ${closed ? '<button class="btn secondary" data-action="editArea">Edit painted area</button>' + removeBlock('this guest area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
+}
+function cacheHubs() {
+  for (const A of world.areas.filter(isHub)) {
+    A.loads = world.lifts.filter((L) => !isVillage(L) && hubAt(L.a) === A);
+    A.tops = world.lifts.filter((L) => !isVillage(L) && hubAt(L.b) === A);
+    A.starts = world.trails.filter((T) => hubAt(T.samples[0]) === A);
+    A.ends = world.trails.filter((T) => hubAt(T.samples[T.samples.length - 1]) === A);
+    A.buildings = world.buildings.filter((B) => hubAt(B.door) === A);
+    A.basePoint = null;
+    for (const k of A.cells) if (isBase({ x: keyX(k), z: keyZ(k) }) || HUB_STEPS.some((d) => isBase({ x: keyX(k + d), z: keyZ(k + d) }))) { A.basePoint = { x: keyX(k), z: keyZ(k) }; break; }
+    const pts = [...A.loads.map((L) => L.a), ...A.tops.map((L) => L.b), ...A.starts.map((T) => T.samples[0]), ...A.buildings.map((B) => B.door), ...(A.basePoint ? [A.basePoint] : [])];
+    A.routes = new Map();
+    for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.set, k)); }
+  }
+  for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); }
+  for (const B of world.buildings) B.isBase = isBase(B.door) || !!(hubAt(B.door)?.basePoint);
+}
+function hubDistance(A, p, q) {
+  const route = A.routes.get(cellKey(Math.round(q.x), Math.round(q.z)));
+  return route ? route.distance.get(cellKey(Math.round(p.x), Math.round(p.z))) ?? Infinity : Infinity;
+}
+// Follow cached cell parents, so even a U-shaped area never sends guests across unpainted ground.
+function walkHub(g, A, p, then) {
+  const route = A.routes.get(cellKey(Math.round(p.x), Math.round(p.z))), path = [];
+  let k = cellKey(Math.round(g.x), Math.round(g.z));
+  if (!route || !route.parent.has(k)) return false;
+  while (route.parent.get(k) != null) { k = route.parent.get(k); path.push([keyX(k), keyZ(k)]); }
+  path.push([p.x, p.z]);
+  g.onSkis = false;
+  const [x, z] = path.shift(); setMove(g, { x, z }, 'walk', { k: 'hubWalk', path, next: then }); return true;
 }
 
 /* ---------- Glades ----------
@@ -4701,7 +4836,7 @@ function nearCell(A, p, r) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 <= r * r && A.set.has(cellKey(x, z))) return true;
   return false;
 }
-const servesArea = (A, L) => nearCell(A, L.a, 3) && nearCell(A, L.b, 3);
+const servesArea = (A, L) => !isHub(A) && nearCell(A, L.a, 3) && nearCell(A, L.b, 3);
 const areaLifts = (A) => world.lifts.filter((L) => servesArea(A, L));
 function areaLinePts(A, L, k) {
   const top = L.b, bot = L.a, dx = bot.x - top.x, dz = bot.z - top.z, len = Math.hypot(dx, dz) || 1;
@@ -4739,6 +4874,7 @@ function syncAreaLines() {
 }
 function computeNetwork() {
   syncAreaLines();
+  cacheHubs();
   for (const t of world.trails) {
     if (t.virtual && !t.glade) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
     if (t.glade) { const A = areaById(t.glade), G = GLADE_THIN[A ? gladeLevel(A) : 'classic']; t.sign = Math.min(3, Math.max(t.an.rating + G.bump, G.floor)); t.gladeRisk = G.risk; t.gladeSevere = G.severe; t.open = !(A && A.closed); }
@@ -4779,8 +4915,8 @@ function computeNetwork() {
     t.stops.sort((p, q) => p.at - q.at);
   }
   for (const L of world.lifts) {
-    L.fromBase = isBase(L.a);
-    L.feeders = world.trails.filter((t) => t.to && t.to.kind === 'lift' && t.to.obj === L);
+    L.fromBase = isBase(L.a) || !!(L.hubBottom && L.hubBottom.basePoint);
+    L.feeders = world.trails.filter((t) => t.to && ((t.to.kind === 'lift' && t.to.obj === L) || (t.to.kind === 'hub' && t.to.obj === L.hubBottom)));
     L.departing = world.trails.filter((t) => liftTrailMode(L, t));
   }
   // Nearby loading stations: glide across level/downhill ground, or walk a short gentle rise.
@@ -4790,9 +4926,15 @@ function computeNetwork() {
   for (const M of world.lifts) M.transferFrom = world.lifts.filter((L) => L.transfers.includes(M));
   // Which lifts and trails a guest arriving at the base can reach.
   const liftR = new Set(world.lifts.filter((L) => L.fromBase));
-  const trailR = new Set();
+  const trailR = new Set(), hubR = new Set(world.areas.filter((A) => isHub(A) && A.basePoint));
   for (let changed = true; changed;) {
     changed = false;
+    for (const L of liftR) if (L.hubTop && !hubR.has(L.hubTop)) { hubR.add(L.hubTop); changed = true; }
+    for (const T of trailR) if (T.to && T.to.kind === 'hub' && !hubR.has(T.to.obj)) { hubR.add(T.to.obj); changed = true; }
+    for (const A of hubR) {
+      for (const L of A.loads) if (!liftR.has(L)) { liftR.add(L); changed = true; }
+      for (const T of A.starts) if (!trailR.has(T)) { trailR.add(T); changed = true; }
+    }
     for (const L of liftR) for (const t of L.departing) if (!trailR.has(t)) { trailR.add(t); changed = true; }
     for (const t of world.trails) {
       if (trailR.has(t) || !t.from) continue;
@@ -4809,27 +4951,30 @@ function computeNetwork() {
     }
   }
   // Which trails lead somewhere a skier can ride up from again.
-  const drains = new Set();
+  const drains = new Set(), hubDrains = new Set(world.areas.filter((A) => isHub(A) && (A.basePoint || A.loads.length)));
   for (let changed = true; changed;) {
     changed = false;
+    for (const A of world.areas.filter(isHub)) if (!hubDrains.has(A) && (A.starts.some((T) => drains.has(T)) || A.tops.some((L) => L.departing.some((T) => drains.has(T)) || L.transfers.length))) { hubDrains.add(A); changed = true; }
     for (const t of world.trails) {
       if (drains.has(t) || !t.to) continue;
-      if (t.to.kind === 'lift' || t.to.kind === 'base' || (t.to.kind === 'trail' && drains.has(t.to.obj)) || (t.to.kind === 'top' && (t.to.obj.departing.some((D) => drains.has(D)) || t.to.obj.transfers.length))) { drains.add(t); changed = true; }
+      if ((t.to.kind === 'hub' && hubDrains.has(t.to.obj)) || t.to.kind === 'lift' || t.to.kind === 'base' || (t.to.kind === 'trail' && drains.has(t.to.obj)) || (t.to.kind === 'top' && (t.to.obj.departing.some((D) => drains.has(D)) || t.to.obj.transfers.length))) { drains.add(t); changed = true; }
     }
   }
   // Which trails eventually bring skiers back to the base area, directly, via other
   // trails, or via a lift whose own trails do.
-  const ret = new Set(), liftRet = new Set(world.lifts.filter((L) => L.fromBase));
+  const ret = new Set(), hubRet = new Set(world.areas.filter((A) => isHub(A) && A.basePoint)), liftRet = new Set(world.lifts.filter((L) => L.fromBase));
   for (let changed = true; changed;) {
     changed = false;
+    for (const A of world.areas.filter(isHub)) if (!hubRet.has(A) && (A.starts.some((T) => ret.has(T)) || A.loads.some((L) => liftRet.has(L)) || A.tops.some((L) => liftRet.has(L)))) { hubRet.add(A); changed = true; }
     for (const t of world.trails) {
       if (ret.has(t) || !t.to) continue;
-      if (t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
+      if ((t.to.kind === 'hub' && hubRet.has(t.to.obj)) || t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
     }
     for (const L of world.lifts) {
-      if (!liftRet.has(L) && (L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)))) { liftRet.add(L); changed = true; }
+      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)))) { liftRet.add(L); changed = true; }
     }
   }
+  for (const A of world.areas.filter(isHub)) { A.reachable = hubR.has(A); A.returns = hubRet.has(A); }
   for (const t of world.trails) { t.reachable = trailR.has(t); t.drains = drains.has(t); t.returns = ret.has(t); }
   for (const L of world.lifts) { L.reachable = liftR.has(L); L.returns = liftRet.has(L); }
   rebuildPads();
@@ -4855,7 +5000,7 @@ function snapEnd(p) {
   // A trail end connects when it sits in a lift station's clearing, on another
   // trail, or in the base area. The point stays where it was placed.
   const snap = world.lifts.some((L) => distXZ(p, L.a) < STATION_R || distXZ(p, L.b) < STATION_R)
-    || !!trailNear(p, null) || isBase(p);
+    || !!trailNear(p, null) || !!hubAt(p) || isBase(p);
   return { x: p.x, z: p.z, snap };
 }
 
@@ -4875,6 +5020,7 @@ function resetDraft() {
 }
 
 function describeConn(c, which) {
+  if (c && c.kind === 'hub') return `${which === 'start' ? 'Starts in' : 'Walk to lifts, trails and services in'} ${c.obj.name}.`;
   if (which === 'start') {
     if (!c || c.kind === 'base') return 'Starts on an open slope with no lift.';
     return c.kind === 'lift' ? `Starts at the top of ${c.obj.name}.` : `Branches off ${c.obj.name}.`;
@@ -5039,8 +5185,8 @@ function evalTrail(pts, width, allowPlans, grade) {
   const problems = an.problems.slice();
   const blocker = buildingInTheWay(samples, hw * 0.85);
   if (blocker) problems.push(`The trail runs into ${blocker.name}.`);
-  let startOk = from && (from.kind === 'lift' || from.kind === 'trail');
-  let endOk = to && (to.kind === 'base' || ((to.kind === 'trail' || to.kind === 'lift' || to.kind === 'top') && to.obj.returns));
+  let startOk = from && (from.kind === 'lift' || from.kind === 'trail' || from.kind === 'hub');
+  let endOk = to && (to.kind === 'base' || ((to.kind === 'trail' || to.kind === 'lift' || to.kind === 'top' || to.kind === 'hub') && to.obj.returns));
   if (allowPlans && !startOk && nearPlan(samples[0], 'start')) startOk = true;
   if (allowPlans && !endOk && nearPlan(last, 'end')) endOk = true;
   if (!startOk) problems.push('Start the trail in the clearing at the top of a lift, or on another trail.');
@@ -5134,7 +5280,7 @@ function evalLift(a0, b0, type, allowPlans, self) {
   const build = Math.round((t.base + t.perUnit * lay.slopeM / 10) / 1000) * 1000;
   const cost = build + treeSet.size * TREE_COST;
   const stats = liftStats({ type }, lay);
-  return { a, b, lay, problems, treeSet, build, cost, stats, fromBase: isBase(a), lotWarn: reserveHitsLift(a, b) };
+  return { a, b, lay, problems, treeSet, build, cost, stats, fromBase: isBase(a) || !!hubAt(a)?.basePoint, lotWarn: reserveHitsLift(a, b) };
 }
 function commitLift(info, type) {
   clearTreeSet(info.treeSet);
@@ -5643,8 +5789,8 @@ function layoutSheet() {
   if (ctx !== sheetContext || sheet.hidden) {
     sheetContext = ctx; sheetAuto = true; sheetMode = 'full';
   }
-  const placing = state.tool === 'trail' || state.tool === 'lift' || (state.tool === 'bld' && draft.btype);
-  if (sheetAuto && phoneSheet() && placing && (draft.pts.length || draft.btype)) sheetMode = 'compact';
+  const placing = state.tool === 'trail' || state.tool === 'lift' || (state.tool === 'clear' && state.landMode === 'hub') || (state.tool === 'bld' && draft.btype);
+  if (sheetAuto && phoneSheet() && placing && (draft.pts.length || draft.btype || (areaDraft && areaDraft.cells.size))) sheetMode = 'compact';
   const head = sheet.querySelector('.sheet-title');
   if (head && !head.querySelector('[data-sheet]')) {
     head.title = 'Drag to move; on phones swipe up or down to resize';
@@ -5659,11 +5805,11 @@ function layoutSheet() {
     const keep = el => { while (el && el.parentElement !== sheet) el = el.parentElement; if (el) el.classList.add('sheet-keep'); };
     if (help) keep(help);
     // Leave the original point-editing row usable even in the smallest card.
-    sheet.querySelectorAll('[data-action="undo"], [data-action="cancel"]').forEach(el => {
+    sheet.querySelectorAll('[data-action="undo"], [data-action="cancel"], [data-action="hubUndo"], [data-action="areaClear"]').forEach(el => {
       const row = el.closest('.row');
       if (row && row.parentElement === sheet) row.classList.add('sheet-min-keep');
     });
-    sheet.querySelectorAll('[data-action="rotB"], [data-action="build"], [data-action="undo"], [data-action="cancel"], [data-action="trailMoveCancel"], [data-action="trailMoveReset"], [data-action="liftMoveReset"], .problems, .b-rotation').forEach(keep);
+    sheet.querySelectorAll('[data-action="rotB"], [data-action="build"], [data-action="areaBuild"], [data-action="hubUndo"], [data-action="areaClear"], [data-action="areaErase"], [data-action="undo"], [data-action="cancel"], [data-action="trailMoveCancel"], [data-action="trailMoveReset"], [data-action="liftMoveReset"], .problems, .b-rotation').forEach(keep);
   }
   if (!placing) sheet.querySelectorAll(':scope > .help, :scope > .kv').forEach(el => el.classList.add('sheet-keep'));
   sheetSize(sheetMode, false);
@@ -5722,7 +5868,7 @@ function buildRow(info, ok) {
 }
 
 // The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
-const TRAIL_MODES = (cur) => `<div class="seg" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button></div>`;
+const TRAIL_MODES = (cur) => `<div class="seg lifts" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button><button data-action="trailMode" data-v="hub" aria-pressed="${cur === 'hub'}">Guest area<small>base, mid-mountain or summit</small></button></div>`;
 function openAreaTool() {
   if (visiting) return;
   if (state.phase !== 'closed') { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
@@ -5853,6 +5999,7 @@ function gladeSheet(A) {
     ${state.phase === 'closed' ? removeBlock('this glade', `Remove ${esc(A.name)}? The trees stay as they are; you get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function areaSheet(A) {
+  if (isHub(A)) return hubSheet(A);
   if (isGlade(A)) return gladeSheet(A);
   const lifts = areaLifts(A), lines = world.trails.filter((t) => t.virtual && t.area === A.id), open = state.phase === 'open' && today;
   const skiing = open ? lines.reduce((n, t) => n + (t.count || 0), 0) * AGENT : 0;
@@ -6019,7 +6166,7 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
+  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
@@ -6031,12 +6178,14 @@ sheet.addEventListener('click', (e) => {
     renderSheet();
   }
   else if (a === 'areaBuild') commitArea();
+  else if (a === 'hubUndo') undoHubStroke();
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
     const cost = snowmakingCost(obj);
-    if (state.phase !== 'closed' || state.cash < cost) return;
+    if (state.phase !== 'closed' || state.cash < cost || (obj.sm && obj.sm.on)) return;
     pushUndo(`snowmaking on ${obj.name}`);
-    state.cash -= cost; obj.sm = { on: true, mode: 'auto', target: Math.max(needOf(obj) + 12, 30) };
+    state.cash -= cost; obj.sm = { on: true, mode: 'auto', target: isHub(obj) ? 18 : Math.max(needOf(obj) + 12, 30) };
+    if (isHub(obj)) obj.cost = (obj.cost || 0) + cost;
     rebuildGuns(); updateCash(true); renderSheet(); scheduleSave();
     toast(`Snowmaking added to ${obj.name} · −${money(cost)}`);
   }
@@ -6161,7 +6310,7 @@ const NAME_DICE = '<button type="button" class="dice namedice" data-action="rero
 function suggestName(kind, o) {
   if (kind === 'trail') return trailNameFor(o.samples, trailSign(o), o.width, o.name);
   if (kind === 'lift') return liftNameFor(o.type, o.a, o.b, o.name);
-  if (kind === 'area') return nextAreaName(o.name, o.kind);
+  if (kind === 'area') return isHub(o) ? hubName(o.set) : nextAreaName(o.name, o.kind);
   return nextBuildingName(o.type, o.x, o.z, o.name);
 }
 sheet.addEventListener('change', (e) => {
@@ -6532,7 +6681,9 @@ function updateLabels() {
     for (const A of world.areas) {
       if (!A.labelEl) continue;
       const n = open ? world.trails.reduce((m, t) => m + (t.virtual && t.area === A.id ? t.count || 0 : 0), 0) * AGENT : 0;
-      if (isGlade(A)) {
+      if (isHub(A)) {
+        setLabel(A.labelEl, `<i class="bdot" style="background:#b58b51"></i><span>${esc(A.name)}</span>`);
+      } else if (isGlade(A)) {
         const signs = world.trails.filter((t) => t.glade === A.id).map(trailSign), sg = signs.length ? Math.max(...signs) : null;
         setLabel(A.labelEl, `${sg != null ? `<span class="rsym">${ratingSymbol(sg, 12)}</span>` : '<i class="bdot" style="background:#2f7d55"></i>'}<span>${esc(A.name)}</span>${A.closed ? '<em>Closed</em>' : open ? `<span class="cnt"><b>${n}</b> in the trees</span>` : ''}`);
       } else setLabel(A.labelEl, `<i class="bdot" style="background:#2f9e6a"></i><span>${esc(A.name)}</span>${open ? `<span class="cnt"><b>${n}</b> learning</span>` : ''}`);
@@ -6758,7 +6909,7 @@ function serializeWorld() {
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
-    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
@@ -7471,6 +7622,7 @@ function vRest(T, idx, g, depth, memo) {
 function vEnd(T, g, depth, memo) {
   const to = T.to;
   if (!to) return -40;
+  if (to.kind === 'hub') return vHub(to.obj, g, depth + 1, memo, T.samples[T.samples.length - 1]);
   if (to.kind === 'base') return vBase(g, depth + 1, memo, T.samples[T.samples.length - 1]);
   if (to.kind === 'trail') return depth < 4 ? vTrail(to.obj, T.joinIdx, g, depth + 1, memo) : 0;
   if (to.kind === 'top') { // the best way on from the top of that lift
@@ -7494,14 +7646,54 @@ function vLift(L, g, depth, memo) {
     if (L.type === 'gondola' && todayWx().hi < 20) v += 2.5; // a warm ride on a cold day
     if (depth < 4) {
       let b = -30;
-      for (const D of L.departing) if (runnable(D)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
-      for (const M of L.transfers || []) if (canLoad(M)) b = Math.max(b, vLift(M, g, depth + 1, memo) - liftTransferCost(L, M));
+      if (L.hubTop) b = Math.max(b, vHub(L.hubTop, g, depth + 1, memo, L.b));
+      for (const D of L.departing) if (runnable(D) && !(L.hubTop && hubAt(D.samples[0]) === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
+      for (const M of L.transfers || []) if (canLoad(M) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth + 1, memo) - liftTransferCost(L, M));
       v += 0.85 * b;
     }
   }
   memo.set(key, v);
   return v;
 }
+// A shared junction is scored like other routes, with a short walk charged for each choice.
+function hubChoices(A, g, depth, memo, here) {
+  const out = [], cost = (p) => 0.5 + hubDistance(A, here, p) * 0.04;
+  if (A.basePoint) out.push({ k: 'base', p: A.basePoint, v: vBase(g, depth + 1, memo, A.basePoint) - cost(A.basePoint) });
+  if (depth < 4) {
+    for (const T of A.starts) if (runnable(T)) { const p = T.samples[0]; out.push({ k: 'ski', T, p, v: vTrail(T, 0, g, depth + 1, memo) - cost(p) }); }
+    for (const L of A.loads) if (canLoad(L)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) - cost(L.a) });
+    // Lift tops are exits too: an existing nearby trail/transfer outside the patch still works.
+    for (const L of A.tops) {
+      for (const T of L.departing) if (hubAt(T.samples[0]) !== A && runnable(T)) out.push({ k: 'top', L, p: L.b, v: vTrail(T, 0, g, depth + 1, memo) - cost(L.b) });
+      for (const M of L.transfers || []) if (M.hubBottom !== A && canLoad(M)) out.push({ k: 'top', L, p: L.b, v: vLift(M, g, depth + 1, memo) - cost(L.b) - liftTransferCost(L, M) });
+    }
+  }
+  return out;
+}
+function vHub(A, g, depth, memo, here) {
+  if (depth >= 4) return A.returns ? 0 : -40;
+  const key = `h${A.id}:${Math.round(here.x)},${Math.round(here.z)}:${depth}`;
+  if (memo.has(key)) return memo.get(key);
+  memo.set(key, -99);
+  const v = Math.max(-40, ...hubChoices(A, g, depth, memo, here).map((c) => c.v));
+  memo.set(key, v); return v;
+}
+function hubDecision(g, A, skipVisit = false) {
+  if (!A) return hikeOut(g);
+  updateLeaving(g);
+  const resume = { k: 'hub', aid: A.id };
+  if (!g.leaving && !skipVisit) { const v = bestVisit(g, g, Infinity, false, A.buildings, needs(g)); if (v) { startVisit(g, v.B, v.svc, resume); return; } }
+  if (!g.leaving && seekMeal(g, { k: 'hub', A, p: { x: g.x, z: g.z } }, resume)) return;
+  const choices = hubChoices(A, g, 0, new Map(), g);
+  let best = null, value = -Infinity;
+  for (const c of choices) { const v = noisy(c.v); if (v > value) { value = v; best = c; } }
+  if (!best) return hikeOut(g);
+  if (best.k === 'base') return walkHub(g, A, best.p, { k: 'hubBase' });
+  if (best.k === 'ski') return walkHub(g, A, best.p, { k: 'ski', tid: best.T.id, s: 0 });
+  if (best.k === 'top') return walkHub(g, A, best.p, { k: 'hubTop', lid: best.L.id });
+  return walkHub(g, A, best.p, { k: 'hubQueue', lid: best.L.id, aid: A.id });
+}
+
 function vBase(g, depth, memo, here = g) {
   const zone = lotCount() > 1 ? baseOf(here) : 0;
   if (g.leaving) {
@@ -7700,7 +7892,8 @@ function balk(g, L, resume) {
   startVisit(g, v.B, v.svc, resume);
   return true;
 }
-function baseDecision(g) {
+function baseDecision(g, skipHub = false) {
+  const A = hubAt(g); if (A && !skipHub) return hubDecision(g, A);
   updateLeaving(g);
   if (g.leaving) {
     if (!g.runs) refundGuest(g, today.closed ? 'I never made it onto a lift. Getting a refund.' : null);
@@ -7722,15 +7915,18 @@ function baseDecision(g) {
   if (!best) { refundGuest(g, world.lifts.some((L) => L.fromBase && L.windHold) ? 'Wind hold on the lifts. Getting my money back.' : null); return goCar(g); }
   if (balk(g, best, { k: 'base' })) return;
   if (g.leaving) return baseDecision(g);
+  if (A && best.hubBottom === A && walkHub(g, A, best.a, { k: 'hubQueue', lid: best.id, aid: A.id })) return;
   goQueue(g, best, g.onSkis ? 'glide' : 'walk');
 }
-function topDecision(g, L, skipVisit) {
+function topDecision(g, L, skipVisit, skipHub = false) {
+  if (L.hubTop && !skipHub) { hubDecision(g, L.hubTop, skipVisit); return true; }
   updateLeaving(g);
   if (!skipVisit && maybeVisit(g, L.b, 10, false, { k: 'top', lid: L.id })) return true;
   if (!g.leaving && seekMeal(g, { k: 'top', L }, { k: 'top', lid: L.id })) return true;
   const memo = new Map();
   let best = null, bv = -Infinity;
   for (const D of L.departing) {
+    if (skipHub && hubAt(D.samples[0]) === L.hubTop) continue;
     if (!runnable(D)) continue;
     const v = noisy(vTrail(D, 0, g, 0, memo));
     if (v > bv) { bv = v; best = D; }
@@ -7738,6 +7934,7 @@ function topDecision(g, L, skipVisit) {
   // Or glide over to a lift that loads near this one's top.
   let hop = null;
   for (const M of L.transfers || []) {
+    if (skipHub && M.hubBottom === L.hubTop) continue;
     if (!canLoad(M) || g.leaving) continue;
     const v = noisy(vLift(M, g, 1, memo) - liftTransferCost(L, M));
     if (v > bv) { bv = v; hop = M; }
@@ -7797,6 +7994,7 @@ function endOfTrail(g) {
   const end = T.samples[T.samples.length - 1];
   g.x = end.x; g.z = end.z; g.T = null;
   if (!to) return hikeOut(g);
+  if (to.kind === 'hub') return hubDecision(g, to.obj);
   if (to.kind === 'trail') return startSki(g, to.obj, T.joinIdx * 0.5);
   if (to.kind === 'base') return baseDecision(g);
   if (to.kind === 'top') return topDecision(g, to.obj, true) || hikeOut(g);
@@ -8110,6 +8308,13 @@ function moveToward(g, speed, dt) {
 function arrive(g) {
   const t = g.then; g.then = null;
   if (!t) return;
+  if (t.k === 'hubWalk') {
+    if (t.path.length) { const [x, z] = t.path.shift(); return setMove(g, { x, z }, 'walk', t); }
+    g.then = t.next; return arrive(g);
+  }
+  if (t.k === 'hubBase') return baseDecision(g, true);
+  if (t.k === 'hubTop') { const L = liftById(t.lid); return L && topDecision(g, L, true, true) || hikeOut(g); }
+  if (t.k === 'hubQueue') { const L = liftById(t.lid); return L && canLoad(L) ? goQueue(g, L, 'walk') : hubDecision(g, areaById(t.aid)); }
   if (t.k === 'queue') {
     const L = liftById(t.lid);
     if (!L) return baseDecision(g);
@@ -11472,7 +11677,7 @@ function mealRoute(g, start) {
   const add = (n, cost, first) => todo.push({ ...n, cost, first });
   for (let count = 0; todo.length && count < 400; count++) {
     todo.sort((a, b) => b.cost - a.cost);
-    const n = todo.pop(), key = n.k === 'trail' ? `t${n.T.id}:${n.s}` : n.k === 'base' ? `b${baseOf(n.p)}` : `${n.k}${n.L.id}`;
+    const n = todo.pop(), key = n.k === 'trail' ? `t${n.T.id}:${n.s}` : n.k === 'base' ? `b${baseOf(n.p)}` : n.k === 'hub' ? `h${n.A.id}:${Math.round(n.p.x)},${Math.round(n.p.z)}` : `${n.k}${n.L.id}${n.outside ? ':outside' : ''}`;
     if ((seen.get(key) ?? Infinity) <= n.cost || state.time + n.cost >= sessionEnd(g) || (best && n.cost >= best.cost)) continue;
     seen.set(key, n.cost);
     const consider = (B, travel, first = n.first) => {
@@ -11496,15 +11701,27 @@ function mealRoute(g, start) {
       if (!to) continue;
       if (to.kind === 'trail') add({ k: 'trail', T: to.obj, s: T.joinIdx * 0.5 }, cost, first);
       else if (to.kind === 'base') add({ k: 'base', p: T.samples[T.samples.length - 1] }, cost, first);
+      else if (to.kind === 'hub') add({ k: 'hub', A: to.obj, p: T.samples[T.samples.length - 1] }, cost, first);
       else add({ k: to.kind === 'top' ? 'top' : 'lift', L: to.obj }, cost, first);
+    } else if (n.k === 'hub') {
+      const A = n.A, walk = (p) => hubDistance(A, n.p, p) / walking;
+      for (const B of A.buildings) consider(B, walk(B.door));
+      for (const T of A.starts) add({ k: 'trail', T, s: 0 }, n.cost + walk(T.samples[0]), n.first || { k: 'ski', tid: T.id, aid: A.id });
+      for (const L of A.loads) if (canLoad(L)) add({ k: 'lift', L }, n.cost + walk(L.a), n.first || { k: 'queue', lid: L.id, aid: A.id });
+      if (A.basePoint) add({ k: 'base', p: A.basePoint }, n.cost + walk(A.basePoint), n.first || { k: 'hubBase', aid: A.id });
+      for (const L of A.tops) add({ k: 'top', L, outside: true }, n.cost + walk(L.b), n.first || { k: 'hubTop', lid: L.id, aid: A.id });
     } else if (n.k === 'base') {
+      const A = hubAt(n.p); if (A) add({ k: 'hub', A, p: n.p }, n.cost, n.first);
       for (const B of world.buildings) if ((B.isBase && sameFoodBase(n.p, B.door)) || distXZ(n.p, B.door) <= 14) consider(B, distXZ(n.p, B.door) / walking);
       // A food trip never crosses to a disconnected base.
       for (const L of world.lifts) if (L.fromBase && sameFoodBase(n.p, L.a) && !isVillage(L) && canLoad(L)) add({ k: 'lift', L }, n.cost + distXZ(n.p, L.a) / walking, n.first || { k: 'queue', lid: L.id });
     } else {
       const L = n.L, p = n.k === 'top' ? L.b : L.a, radius = n.k === 'top' ? 10 : L.fromBase ? 14 : 9;
+      const A = n.k === 'top' ? L.hubTop : L.hubBottom;
+      if (A && !n.outside) add({ k: 'hub', A, p }, n.cost, n.first);
       for (const B of world.buildings) if (distXZ(p, B.door) <= radius || (n.k === 'lift' && L.fromBase && B.isBase && sameFoodBase(p, B.door))) consider(B, distXZ(p, B.door) / walking);
       if (n.k === 'top') {
+        if (A && !n.outside) continue;
         for (const T of L.departing) add({ k: 'trail', T, s: 0 }, n.cost + distXZ(p, T.samples[0]) / (liftTrailMode(L, T) === 'walk' ? walking : speed), n.first || { k: 'ski', tid: T.id, from: L.id });
         for (const M of L.transfers || []) if (canLoad(M)) add({ k: 'lift', L: M }, n.cost + distXZ(p, M.a) / walking, n.first || { k: 'transfer', lid: M.id, from: L.id });
       } else if (canLoad(L) && !isVillage(L)) {
@@ -11518,6 +11735,14 @@ function mealRoute(g, start) {
 function seekMeal(g, start, resume) {
   const plan = mealRoute(g, start), step = plan && plan.first;
   if (!step) return false;
+  if (step.aid) {
+    const A = areaById(step.aid); let p, then;
+    if (step.k === 'ski') { const T = trailById(step.tid); p = T.samples[0]; then = { k: 'ski', tid: T.id, s: 0 }; }
+    else if (step.k === 'queue') { const L = liftById(step.lid); p = L.a; then = { k: 'hubQueue', lid: L.id, aid: A.id }; }
+    else if (step.k === 'hubBase') { p = A.basePoint; then = { k: 'hubBase' }; }
+    else if (step.k === 'hubTop') { p = liftById(step.lid).b; then = { k: 'hubTop', lid: step.lid }; }
+    if (p) return walkHub(g, A, p, then);
+  }
   if (step.k === 'eat') { startVisit(g, plan.B, plan.svc, resume); return true; }
   if (step.k === 'ski') {
     const T = trailById(step.tid), from = liftById(step.from);
@@ -11576,7 +11801,7 @@ function svcFor(B, need) {
 }
 function bestVisit(g, here, radius, baseToo, list, needList) {
   // A shorter line only helps if this guest can actually choose that place from here.
-  list = list.filter((B) => distXZ(B.door, here) <= radius || (baseToo && B.isBase && sameFoodBase(here, B.door)));
+  list = list.filter((B) => sameHub(here, B.door) || distXZ(B.door, here) <= radius || (baseToo && B.isBase && sameFoodBase(here, B.door)));
   for (const need of needList) {
     let best = null, bv = -Infinity;
     for (const B of list) {
@@ -11586,8 +11811,8 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
       if (need === 'lunch' && rejectedMeal(g, svc)) continue; // already found that too dear today
       if ((svc === 'rest' || (svc === 'warm' && B.type === 'firepit')) && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) continue; // free outdoor breaks need an available seat
       if (need === 'lunch' && estWait(B, svc) > Math.max(12, g.pat * 1.5) && otherEatery(g, B, estWait(B, svc) - 5, list)) continue; // somewhere else will feed them sooner
-      const d = distXZ(B.door, here);
-      if (d > radius && !(baseToo && B.isBase && sameFoodBase(here, B.door))) continue;
+      const A = sameHub(here, B.door), d = A ? hubDistance(A, here, B.door) : distXZ(B.door, here);
+      if (d > radius && !sameHub(here, B.door) && !(baseToo && B.isBase && sameFoodBase(here, B.door))) continue;
       const v = 10 - d * 0.12 - estWait(B, svc) * g.qh * 0.6 + tastes(g, B, svc)
         - Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4 + Math.random();
       if (v > bv) { bv = v; best = { B, svc }; }
@@ -11764,6 +11989,8 @@ function maybeApres(g) {
 }
 function startVisit(g, B, svc, resume) {
   g.svc = svc; g.bid = B.id; g.resume = resume;
+  const A = sameHub(g, B.door);
+  if (A && walkHub(g, A, B.door, { k: 'bld', bid: B.id })) return;
   setMove(g, B.door, g.onSkis ? 'glide' : 'walk', { k: 'bld', bid: B.id });
 }
 function bldQueueSlot(B, pool, k) {
@@ -11968,6 +12195,7 @@ function resumeGuest(g) {
   const r = g.resume;
   g.resume = null;
   if (!r) return baseDecision(g);
+  if (r.k === 'hub') return hubDecision(g, areaById(r.aid), true);
   if (r.k === 'arrive') return arrivalFlow(g);
   if (r.k === 'car') { if (anotherRound(g)) return; return goCar(g); }
   if (r.k === 'top') { const L = liftById(r.lid); if (L && topDecision(g, L, true)) return; return baseDecision(g); }
@@ -12185,12 +12413,12 @@ function patrolReturnLift(p, home) {
     if (at < 0 || !Number.isFinite(costs[at])) break;
     seen.add(at);
     const a = nodes[at];
-    if (patrolGlide(a, home)) {
+    if (sameHub(a, home) || patrolGlide(a, home)) {
       const cost = costs[at] + distXZ(a, home) / PATROL_SPEED;
       if (cost < best) { best = cost; result = first[at]; }
     }
     lifts.forEach((L, j) => {
-      if (seen.has(j + 1) || !patrolGlide(a, L.a)) return;
+      if (seen.has(j + 1) || !(sameHub(a, L.a) || patrolGlide(a, L.a))) return;
       const speed = LIFT_TYPES[L.type].speed / 10 / PACE * (liftMode(L) === 'slow' ? SLOW.speed : 1);
       const cost = costs[at] + distXZ(a, L.a) / PATROL_SPEED + (L.upLen + L.total / L.chairCount) / speed;
       if (cost < costs[j + 1]) { costs[j + 1] = cost; first[j + 1] = first[at] || L; }
@@ -12207,7 +12435,7 @@ function patrolReturn(c, B, dt) {
     if (c.st === 'returnwalk' && moveXZ(c, L.a.x, L.a.z, PATROL_SPEED * dt)) c.st = 'returnqueue';
     return;
   }
-  if (c.st === 'returnhome' || patrolGlide(c, home)) {
+  if (c.st === 'returnhome' || sameHub(c, home) || patrolGlide(c, home)) {
     c.st = 'returnhome';
     if (moveXZ(c, home.x, home.z, PATROL_SPEED * dt)) { c.st = 'idle'; c.target = null; }
     return;
@@ -12999,8 +13227,8 @@ function refreshSnowState(w) {
 }
 
 /* ---------- Snowmaking ---------- */
-function gunCount(t) { return Math.max(2, Math.ceil(t.an.len / GUN_SPACING)); }
-function snowmakingCost(t) { return gunCount(t) * GUN_COST + Math.round(t.an.len * PIPE_PER_UNIT / 100) * 100; }
+function gunCount(t) { return isHub(t) ? Math.max(1, Math.ceil(t.cells.length / 60)) : Math.max(2, Math.ceil(t.an.len / GUN_SPACING)); }
+function snowmakingCost(t) { return gunCount(t) * GUN_COST + Math.round((isHub(t) ? t.cells.length : t.an.len) * PIPE_PER_UNIT / 100) * 100; }
 function smWants(t) {
   const sm = t.sm;
   if (!sm || !sm.on) return false;
@@ -13022,6 +13250,19 @@ function runSnowmaking(lo) {
     t.machine = (t.machine || 0) + add;
     cost += g * GUN_NIGHT * (0.5 + 0.5 * eff);
     made++; guns += g; t.smRanTonight = true;
+  }
+  for (const A of world.areas.filter(isHub)) {
+    A.smRanTonight = false;
+    const sm = A.sm;
+    if (!sm || !sm.on || sm.mode === 'off' || (sm.mode === 'auto' && hubDepth(A) >= sm.target)) continue;
+    let madeSnow = 0;
+    for (const k of A.cells) {
+      const x = keyX(k), z = keyZ(k), eff = clamp((28 - tempAt(lo, trueY(x, z))) / 12, 0, 1);
+      NS[Math.round(z + HALF) * NV + Math.round(x + HALF)] += 5 * eff; madeSnow += eff;
+    }
+    if (!madeSnow) { tooWarm++; continue; }
+    const g = gunCount(A); cost += g * GUN_NIGHT * (0.5 + 0.5 * madeSnow / A.cells.length);
+    guns += g; A.smRanTonight = true;
   }
   return { cost: Math.round(cost), trails: made, tooWarm, guns };
 }
@@ -13146,6 +13387,13 @@ function rebuildGuns() {
       gunSpots.push({ x, y: heightAt(x, z), z, aim: Math.atan2(dz * side, -dx * side), t });
     }
   }
+  for (const A of world.areas.filter(isHub)) if (A.sm && A.sm.on) {
+    const n = gunCount(A);
+    for (let i = 0; i < n && gunSpots.length < MAX_GUNS; i++) {
+      const k = A.cells[Math.floor(i * A.cells.length / n)], x = keyX(k), z = keyZ(k);
+      gunSpots.push({ x, y: heightAt(x, z), z, aim: i * 2.4, t: A });
+    }
+  }
   gunSpots.forEach((g, i) => {
     dummy.position.set(g.x, g.y, g.z); dummy.rotation.set(0, g.aim, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
     gunMesh.setMatrixAt(i, dummy.matrix);
@@ -13192,7 +13440,7 @@ function finishNight() {
   const w = todayWx();
   let groom = 0;
   for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += Math.round(t.an.len * GROOM_PER_UNIT); t.icy = false; }
-  for (const a of world.areas) if (!isGlade(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
+  for (const a of world.areas) if (!isGlade(a) && !isHub(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
   for (const t of world.trails) if (t.virtual && !t.glade) t.icy = false;
   state.cash -= groom;
   state.nightCost = { ...(state.nightCost || {}), grooming: groom };
@@ -14162,6 +14410,8 @@ function levelAt(p) {
   updateCash(true);
 }
 function landSheet() {
+  const hub = state.landMode === 'hub';
+  if (hub) return hubPaintSheet();
   const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant', glade = state.landMode === 'glade';
   const head = area || glade ? `<div class="sheet-title"><h3>${glade ? 'New glade' : 'New learning area'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES(glade ? 'glade' : 'area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
@@ -15558,6 +15808,11 @@ canvas.addEventListener('pointerdown', (e) => {
       gesture = { type: 'paint' };
       pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
       stroke.active = true;
+      if (state.landMode === 'hub') {
+        if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
+        (areaDraft.history || (areaDraft.history = [])).push([...areaDraft.cells]);
+        if (areaDraft.history.length > UNDO_MAX) areaDraft.history.shift();
+      }
       const p = pickTerrain(e.clientX, e.clientY);
       stroke.target = p ? trueY(p.x, p.z) : 0;
       stroke.box = null;
@@ -16089,6 +16344,7 @@ function syncUndo() {
   b.title = last ? `Undo ${last.label} (Ctrl+Z)` : 'Nothing to undo';
 }
 function undoLast() {
+  if (state.tool === 'clear' && state.landMode === 'hub' && areaDraft && areaDraft.history && areaDraft.history.length) { undoHubStroke(); return; }
   if (refClaimBusy) return;
   const u = undoStack.pop();
   if (!u || state.phase !== 'closed' || visiting) { syncUndo(); return; }
@@ -17102,6 +17358,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.65', date: 'Oct 30, 2026', title: 'Paint your guest areas', items: [
+    'Paint and name connected guest areas at the base, mid-mountain or summit. Painting is free for now.',
+    'Guests walk between every trail entrance, trail end, lift station and building door inside an area. Areas touching the base bring skiers home.',
+    'Add optional snowmaking to an area, with installation and nightly costs based on its size.'
+  ] },
   { v: '2.64.1', date: 'Oct 30, 2026', title: 'Faster busy days', small: true, items: ['Fixed: Busy resorts run much more smoothly. The day simulates more than twice as fast, so 4× keeps up and Skip to report finishes sooner.', 'Fixed: Saving a day in progress is quicker and the save is about 40% smaller, with fewer pauses on crowded days.'] },
   { v: '2.64', date: 'Oct 29, 2026', title: 'Track your reputation', items: ['Open Business → Reputation to see your score, the last operating day’s gains and losses, and a trend for the last 14 operating days. On phones, find Reputation under More.', 'See actual changes from satisfaction, missed rescues, lift lines, rowdiness, events and emergency bank borrowing. Earlier saves keep their scores; detailed reasons are recorded from this update onward.'] },
   { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },

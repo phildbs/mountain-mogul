@@ -75,6 +75,8 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 **Active:** ChatGPT's `feature/terrain-parks-preview` branch is parked for future testing and brainstorming; **work is paused** at Phil's request. No terrain park release is approved.
 
+**Candidate:** `feature/paintable-areas` builds real guest areas in the game for 2.65. Not published; full GitHub suite and browser verification are pending.
+
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch. Also the special decoration earned for 3 invited friends (milestone is saved;
@@ -91,6 +93,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `feature/paintable-areas` | ChatGPT | Real painted guest areas at base, mid-mountain and summit; network, walking, snowmaking and saves. New branch from main; ignores the guest-hubs experiment. Awaiting full suite and Phil’s review. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -251,6 +254,13 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-30 · ChatGPT · Painted guest areas (2.65 candidate)
+- New branch from current main, ignoring `feature/paintable-guest-hubs-preview`. `kind: 'hub'` areas use the real terrain brush, connected-cell validation, free launch pricing (`HUB_CELL_COST`), rename/edit, per-stroke Undo/Clear and a tinted/fenced boundary.
+- `computeNetwork` caches each area’s endpoints, buildings and cell-parent walking routes. Hub reachability/return propagation covers trail/lift chains and base-touching areas. Guests use existing `then`/`resume` fields for serializable walking, with no added per-guest fields. Food routing includes areas; Twin Notch’s base/crossing rules remain in use.
+- Area snowmaking uses `gunCount`/`snowmakingCost`, adds ground snow like base guns, and joins the existing snowmaking expense accumulator/report. Saved optional `areas[].sm`; older saves need no migration. Expanding an equipped area charges for additional equipment.
+- Added 113 (mid/summit/base transfers, cost/report, reload) and 114 (390×844 and desktop cards, free paint, rename/edit, equipment, visit guard). Optional `SHOTS=1` captures real rendered day/night views in `/tmp/painted-area-shots`.
+- Local JavaScript syntax and focused extracted-game-function checks passed (network chains, route values, connected paths, area snowmaking, and food reached via an upper lift). Browser scenarios including `32-old-saves` could not start: Chromium is absent and its download failed. Full GitHub suite is required; phone/desktop visual QA remains pending. Pause for Phil’s test result after pushing; do not merge.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
