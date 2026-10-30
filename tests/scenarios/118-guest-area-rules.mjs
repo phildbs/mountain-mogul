@@ -1,5 +1,6 @@
-// Guest areas: 15 free acres per resort then a price per acre; ground over 30% shows as steep and blocks building
-// until leveled (trails and lifts never move); base-only buildings may go in an area that touches the base.
+// Guest areas: 15 free acres per resort then a price per acre; ground over 30% shows as steep but can still be painted
+// (guests walk up it slowly), with optional leveling (trails and lifts never move); base-only buildings may go in an
+// area that touches the base.
 import {openGame,eq,assert,SETUPS} from '../harness.mjs';
 export default async function({browser,url}) {
   const g=await openGame(browser,url);await g.click('#startBtn');await g.ev(SETUPS.juniperStarter);await g.ev(SETUPS.midwinter);
@@ -28,10 +29,15 @@ export default async function({browser,url}) {
     const button=!!document.querySelector('[data-action=hubLevel]'),blocked=document.querySelector('[data-action=areaBuild]').disabled;
     const trailH=world.trails.flatMap((t)=>t.samples.map((p)=>trueY(p.x,p.z))),liftH=world.lifts.map((L)=>[trueY(L.a.x,L.a.z),trueY(L.b.x,L.b.z)]);
     const G0=Float32Array.from(GR),inside=new Set(best.cells.map((k)=>(keyZ(k)+HALF)*NV+keyX(k)+HALF));
+    // Walking pace: up the steepest square's slope slower the steeper it is, full pace downhill.
+    const k0=best.cells.reduce((a,k)=>GR[(keyZ(k)+HALF)*NV+keyX(k)+HALF]>GR[(keyZ(a)+HALF)*NV+keyX(a)+HALF]?k:a),x0=keyX(k0),z0=keyZ(k0),gr=GR[(z0+HALF)*NV+x0+HALF];
+    let up=null;for(let a=0;a<Math.PI*2;a+=Math.PI/16){const p={x:x0+Math.cos(a)*0.5,z:z0+Math.sin(a)*0.5};if(!up||trueY(p.x,p.z)>trueY(up.x,up.z))up=p;}
+    const pace=(tx,tz)=>climbPace({x:x0,z:z0,tx,tz});
+    const climb={grade:+gr.toFixed(2),up:+pace(x0+(up.x-x0)*8,z0+(up.z-z0)*8).toFixed(2),down:pace(x0-(up.x-x0)*8,z0-(up.z-z0)*8),expect:+(1/(1+2.3*gr)).toFixed(2)};
     const est=hubLevel(areaDraft.cells,true),cash=state.cash;
     document.querySelector('[data-action=hubLevel]').click();
     const after=areaDraftInfo();
-    return {steepBefore:info.steep.length,said:info.problems.some((p)=>p.includes('too steep to walk')),button,blocked,est:est.cost,paid:cash-state.cash,
+    return {steepBefore:info.steep.length,said:document.body.textContent.includes('walk up steep ground slowly'),problems:info.problems,button,blocked,climb,est:est.cost,paid:cash-state.cash,
       steepAfter:after.steep.length,left:est.left,canBuild:!after.problems.length,
       // The bank around it is no steeper than a natural embankment, or than the slope already was.
       bankOk:best.cells.every((k)=>{const ci=keyX(k)+HALF,cj=keyZ(k)+HALF;for(let j=cj-8;j<=cj+8;j++)for(let i=ci-8;i<=ci+8;i++){const v=j*NV+i;if(!inside.has(v)&&GR[v]>Math.max(0.9,G0[v])+0.05)return false;}return true;}),
@@ -39,9 +45,10 @@ export default async function({browser,url}) {
       liftsKept:world.lifts.every((L,i)=>Math.abs(trueY(L.a.x,L.a.z)-liftH[i][0])<1e-6&&Math.abs(trueY(L.b.x,L.b.z)-liftH[i][1])<1e-6)};
   })()`);
   assert(steep.steepBefore>=10,`the fixture has real steep ground: ${JSON.stringify(steep)}`);
-  eq({said:steep.said,button:steep.button,blocked:steep.blocked},{said:true,button:true,blocked:true},'steep ground is explained, offers leveling and blocks building');
+  eq({said:steep.said,button:steep.button,blocked:steep.blocked,problems:steep.problems},{said:true,button:true,blocked:false,problems:[]},'steep ground is explained and offers leveling, but painting it is allowed');
+  assert(steep.climb.down===1&&steep.climb.up<0.75&&Math.abs(steep.climb.up-steep.climb.expect)<0.15,`guests walk up steep ground slowly and down it at full pace: ${JSON.stringify(steep.climb)}`);
   assert(steep.est>0&&steep.paid===steep.est,`leveling charges exactly its estimate: ${JSON.stringify(steep)}`);
-  eq({after:steep.steepAfter,canBuild:steep.canBuild},{after:steep.left,canBuild:steep.left===0},'leveling leaves only the squares it said it could not ease');
+  eq({after:steep.steepAfter,canBuild:steep.canBuild},{after:steep.left,canBuild:true},'leveling leaves only the squares it said it could not ease');
   assert(steep.steepAfter<=steep.steepBefore*0.1,`leveling eases nearly all steep ground: ${steep.steepBefore} → ${steep.steepAfter}`);
   eq({trails:steep.trailsKept,lifts:steep.liftsKept},{trails:true,lifts:true},'trails and lift stations keep their height');
   eq(steep.bankOk,true,'the bank outside the area is no steeper than a natural embankment or the original slope');
@@ -63,5 +70,5 @@ export default async function({browser,url}) {
   eq(base.inArea,[],'a rental shop can go in a guest area that touches the base');
   eq(base.midProblems,true,'a mid-mountain guest area still does not take base-only buildings');
   eq(g.errors,[],'no page errors');await g.page.close();
-  return `allowance ${cost.free} squares; steep ${steep.steepBefore} → ${steep.steepAfter} for $${steep.paid}`;
+  return `allowance ${cost.free} squares; steep ${steep.steepBefore} → ${steep.steepAfter} for $${steep.paid}; ${Math.round(steep.climb.grade*100)}% climb at ${Math.round(steep.climb.up*100)}% pace`;
 }

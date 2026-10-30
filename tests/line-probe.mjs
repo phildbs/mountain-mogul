@@ -21,8 +21,20 @@ console.log('seating', JSON.stringify(await g.ev(`(() => {
   if (!stations().length) for (let x = -80; x <= 80 && !stations().length; x += 2) for (let z = 50; z <= 80 && !stations().length; z += 2) { const p = snapToRoad('transit', { x, z }), i = evalBuilding('transit', p.x, p.z, p.rot); if (i && !i.problems?.length) { commitBuilding(i, 'transit', p.x, p.z, p.rot); n.transit = 1; } }
   computeNetwork(); syncLabels(); return n;
 })()`)));
+// HUBS=1 paints a guest area around each cluster of lift stations, steep ground included (as hub-walk-probe does).
+if (process.env.HUBS) console.log('areas', JSON.stringify(await g.ev(`(() => {
+  const used = new Set(), groups = [];
+  for (const p of [...world.lifts.map((L) => L.a), ...world.lifts.map((L) => L.b)]) { const q = groups.find((q) => q.some((r) => distXZ(p, r) < 22)); if (q) q.push(p); else groups.push([p]); }
+  const blocks = hubBlocks(null);
+  for (const pts of groups) {
+    const cells = new Set(); for (const p of pts) for (let z = Math.floor(p.z - 9); z <= Math.ceil(p.z + 9); z++) for (let x = Math.floor(p.x - 9); x <= Math.ceil(p.x + 9); x++) if ((x - p.x) ** 2 + (z - p.z) ** 2 <= 81 && !used.has(cellKey(x, z)) && !hubCellProblem(x, z, blocks)) cells.add(cellKey(x, z));
+    if (cells.size < 20) continue; const keep = [...hubFlood(cells, cells.values().next().value).parent.keys()]; keep.forEach((k) => used.add(k));
+    addArea({ id: world.nextId++, kind: 'hub', name: hubName(new Set(keep)), cells: keep, cost: 0 });
+  }
+  computeNetwork(); syncLabels(); return { hubs: world.areas.filter(isHub).length, cells: used.size, steep: [...used].filter(hubSteep).length };
+})()`)));
 console.log(JSON.stringify(await g.ev(`(() => {
-  ${process.env.NOHOP ? 'shorterLift = () => null;' : ''}
+  ${process.env.NOHOP ? 'shorterLift = () => null;' : ''} ${process.env.FLAT ? 'climbPace = () => 1;' : ''}
   demandForDay = () => ${+(process.env.GUESTS || 8000)}; state.cash = 1e9; state.day = 41; openDay(); state.speed = 0;
   const SEAT = ['bench', 'picnic', 'firepit'], seatOf = (B) => B && SEAT.includes(B.type);
   const free = (B) => B.used.seat + B.q.seat.length < poolSlots(B, 'seat');
@@ -36,18 +48,20 @@ console.log(JSON.stringify(await g.ev(`(() => {
   let seatServed = 0, seatWait = 0, seatWait5 = 0; const os = serve; serve = (gg, B) => { if (seatOf(B)) { seatServed++; const w = state.time - gg.qT; seatWait += w; if (w > 5) seatWait5++; } return os(gg, B); };
   let gaveUp = 0; const seatNames = new Set(world.buildings.filter(seatOf).map((B) => B.name)); const ot = thought; thought = (gg, t) => { const m = /^The line at (.*) was too long\.$/.exec(t); if (m && seatNames.has(m[1])) gaveUp++; return ot(gg, t); };
   const t0 = performance.now();
+  let walkers = 0, climbing = 0, paceSum = 0;
   let samples = 0, inSeatLine = 0, lineWithFreeNearby = 0, seatedPeak = 0, n = 0;
   while (state.phase === 'open' && n++ < 200000) {
     simStep(1.5);
     if (n % 100) continue;
     samples++;
+    for (const w of guests) if (w.st === 'walk' && w.then && w.then.k === 'hubWalk') { walkers++; if (typeof climbPace === 'function') { const p = climbPace(w); if (p < 0.95) { climbing++; paceSum += p; } } }
     for (const B of world.buildings) if (seatOf(B)) {
       for (const q of B.q.seat) { inSeatLine++; if (world.buildings.some((C) => C !== B && seatOf(C) && distXZ(C.door, B.door) < 15 && bldOpenNow(C) && free(C) && offers(C).includes(q.svc))) lineWithFreeNearby++; }
     }
   }
   const visits = {}; for (const B of world.buildings) if (seatOf(B)) visits[B.type] = (visits[B.type] || 0) + (B.today.visits || 0);
   const r = state.lastReport, lw = Object.values(r.liftWaits || {});
-  return { simSeconds: +((performance.now() - t0) / 1000).toFixed(1), guests: r.guests, turnedAway: r.turnedAway, sat: r.sat, seatServed, avgSeatLineMin: +(seatWait / Math.max(1, seatServed)).toFixed(1), seatWaitsOver5min: seatWait5, seatGaveUp: gaveUp, seatLineGuestSamples: inSeatLine, ofWhichFreeSeatWithin15: lineWithFreeNearby,
+  return { hubWalkerSamples: walkers, climbingSamples: climbing, avgClimbPace: +(paceSum / Math.max(1, climbing)).toFixed(2), stranded: r.complaints?.stranded, simSeconds: +((performance.now() - t0) / 1000).toFixed(1), guests: r.guests, turnedAway: r.turnedAway, sat: r.sat, seatServed, avgSeatLineMin: +(seatWait / Math.max(1, seatServed)).toFixed(1), seatWaitsOver5min: seatWait5, seatGaveUp: gaveUp, seatLineGuestSamples: inSeatLine, ofWhichFreeSeatWithin15: lineWithFreeNearby,
     liftJoins: joins, avgWaitAtJoin: +(waitSum / Math.max(1, joins)).toFixed(1), joins10minPlus: longJoin, ofWhichOtherLiftUnderAThird: emptyNear, longBy: why, altBy, altDistMedian: altD.sort((a, b) => a - b)[altD.length >> 1],
     avgLiftWait: +(lw.reduce((a, v) => a + v, 0) / Math.max(1, lw.length)).toFixed(1), maxLiftWait: Math.round(Math.max(0, ...lw)), lineHops: today.lineHops || 0, restSkips: 0, complaints: { wait: r.complaints?.wait, lines: r.complaints?.lines, lineQuit: r.complaints?.lineQuit } };
 })()`)));

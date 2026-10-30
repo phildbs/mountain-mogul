@@ -96,6 +96,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-4d0b9233-x4dk4k` | Claude | 2.66.1 preview: guest areas on any slope (slow uphill walking), lunchtime loop fix at area lift tops. Waiting for Phil. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -256,6 +257,19 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
+### 2026-10-30 · Claude · Guest areas on any slope (2.66.1 preview, `ccr-4d0b9233-x4dk4k`)
+- **Phil's request:** players with base villages built on slopes before 2.65 couldn't paint them. Steep ground no longer
+  blocks painting; it shows amber (`HUB_STEEP_MAT`) and **Level steep ground** stays optional. `climbPace(g)` slows walkers
+  on `hubWalk` legs uphill: `1 / (1 + 2.3 × grade)` over the next unit (about 60% pace at 30%, 30% at 100%), full pace
+  downhill. No new fields. Test 118.
+- **Bug found while testing (live since 2.65):** a hungry skier arriving at a lift top inside a guest area (`hubTop`) ran
+  `topDecision → seekMeal({k:'top'})`, whose plan re-entered the area and chose "walk to this top": the same spot, every
+  step. Loopers piled up from lunch (39 by 11:45) until a 26-lift resort with areas around every lift froze the browser
+  (main too). Fix: start the plan from `outside: skipHub`. Test 121 reproduces it on 2.66 (79 decisions in 40 steps).
+- **Big resort with 18 areas (8,151 squares, half steep), 5,000 guests:** whole day runs in about 60 s (it never finished
+  before); slow climbing changes satisfaction 86 → 86. About 280 "stranded" complaints appear with or without slow climbing,
+  so they come from something else: not investigated yet. Worth a look next.
+
 ### 2026-10-30 · Claude · Seats and lift lines (shipped in 2.66)
 - **Phil's decisions:** seats have no line at all ("skip the line", not a shared waiting area); for lifts, both a check
   before joining a long mid-mountain line and switching from far back in a slow line.
@@ -284,8 +298,8 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   `walkHub` now keeps only the corners (`hubSees` line-of-sight over painted cells), shifts corners by a per-walk lane,
   bends long legs and stores a pace `sp` in the walk's `then` (no new guest fields; `case 'walk'` multiplies `WALK`).
   Every leg is checked to stay painted; the destination is exact. Test 117.
-- **Phil's decisions:** 30% walking limit (`HUB_MAX_GRADE`, same `GR` the game uses); steep squares show red, block building,
-  and `hubLevel` cut-and-fills the area to 30% with a bank up to 6 points outside (capped at 90% or the original slope,
+- **Phil's decisions:** 30% walking limit (`HUB_MAX_GRADE`, same `GR` the game uses), **lifted in 2.66.1** (see the note above);
+  `hubLevel` cut-and-fills the area to 30% with a bank up to 6 points outside (capped at 90% or the original slope,
   whichever is steeper; a 3-point bank made 214% cliffs), never moving trail ribbons, lift
   stations (3.5), buildings, lot, road or creek; cost uses `GRADE_COST`. 15 free acres per resort across all guest areas
   (`HUB_FREE_CELLS`), then $5,000/acre; a free allowance instead of a cash gift, so balances and leaderboards are untouched.

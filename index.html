@@ -3376,7 +3376,7 @@ function showReadout(p, px, py, pinned) {
   else if (state.tool === 'clear' && state.landMode === 'hub') {
     const why = hubCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
     const steep = !why && hubSteep(cellKey(Math.round(p.x), Math.round(p.z)));
-    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : steep ? `<br><span class="warn">Too steep to walk (over ${Math.round(HUB_MAX_GRADE * 100)}%). Level it before building.</span>` : '<br>Gentle enough to walk';
+    html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : steep ? `<br>Steep: guests walk up it slowly. Level it to speed them up.` : '<br>Gentle enough to walk';
   }
   else if (state.tool === 'clear' && state.landMode === 'glade') {
     const why = gladeCellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
@@ -4422,7 +4422,7 @@ function cellsGeo(cells, lift, edgeCol) {
   return geo;
 }
 const HUB_DRAFT_MAT = new THREE.LineBasicMaterial({ color: 0x3d8bfd });
-const HUB_STEEP_MAT = new THREE.MeshBasicMaterial({ color: 0xd8342c, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+const HUB_STEEP_MAT = new THREE.MeshBasicMaterial({ color: 0xe0a21b, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 function cellsEdgeGeo(cells, gaps, removed) {
   const points = [];
   for (const k of cells) {
@@ -4537,7 +4537,7 @@ function drawAreaDraft() {
   if (areaDraftMesh) { scene.remove(areaDraftMesh); areaDraftMesh.traverse((o) => o.geometry && o.geometry.dispose()); areaDraftMesh = null; }
   if (!areaDraft || !areaDraft.cells.size) return;
   areaDraftMesh = state.landMode === 'hub' ? new THREE.LineSegments(cellsEdgeGeo(areaDraft.cells), HUB_DRAFT_MAT) : new THREE.Mesh(cellsGeo(areaDraft.cells, 0.16, null), AREA_DRAFT_MAT);
-  // Ground too steep to walk shows red until it is leveled or erased.
+  // Steep ground (slow to walk up) shows amber; leveling it is optional.
   const steep = state.landMode === 'hub' ? new Set([...areaDraft.cells].filter(hubSteep)) : null;
   if (steep && steep.size) { const m = new THREE.Mesh(cellsGeo(steep, 0.17, null), HUB_STEEP_MAT); m.renderOrder = 4; areaDraftMesh.add(m); }
   areaDraftMesh.renderOrder = 4;
@@ -4692,8 +4692,7 @@ function hubDraftInfo() {
   if (hubFlood(cells, cells.values().next().value).parent.size !== n) problems.push('Join the painted ground into one connected area, or build separate areas.');
   const blocks = hubBlocks(old);
   for (const k of cells) { const why = hubCellProblem(keyX(k), keyZ(k), blocks); if (why) { problems.push(`Some ground is ${why}. Erase it before building.`); break; } }
-  const steep = [...cells].filter(hubSteep);
-  if (steep.length) problems.push(`${steep.length === 1 ? 'One square is' : `${steep.length} squares are`} too steep to walk (over ${Math.round(HUB_MAX_GRADE * 100)}%). Level the steep ground, or erase it.`);
+  const steep = [...cells].filter(hubSteep); // allowed: guests just walk up it slowly
   // Free acres first; only ground beyond the allowance is charged, and only once.
   const others = hubCellsUsed(old), before = others + (old ? old.cells.length : 0), after = others + n;
   const paint = hubCellCost(Math.max(0, Math.max(0, after - HUB_FREE_CELLS) - Math.max(0, before - HUB_FREE_CELLS)));
@@ -4743,7 +4742,8 @@ function hubLevelRow() {
   const sig = `${[...areaDraft.cells].reduce((a, k) => (a * 31 + k) | 0, areaDraft.cells.size)}:${terrainRev}`;
   if (hubLevelEst.sig !== sig) hubLevelEst = { sig, est: hubLevel(areaDraft.cells, true) };
   const e = hubLevelEst.est, ok = e.cost && e.cost <= state.cash;
-  return `<p class="help">${e.left ? `Leveling eases most of it; ${e.left === 1 ? 'one square' : `${e.left} squares`} beside trails, lifts or buildings would stay steep, so erase ${e.left === 1 ? 'it' : 'them'} afterwards.` : 'Leveling eases the red ground to a walkable slope, with a gentle bank just outside the area. Trails, lifts and buildings stay put.'}</p>
+  const n = areaDraft.cells.size && [...areaDraft.cells].filter(hubSteep).length;
+  return `<p class="help">${n === 1 ? 'One square is' : `${n} squares are`} steeper than ${Math.round(HUB_MAX_GRADE * 100)}% (amber). Guests walk up steep ground slowly. Leveling is optional: it eases ${e.left ? `most of it (${e.left === 1 ? 'one square' : `${e.left} squares`} beside trails, lifts or buildings would stay steep)` : 'it to an easy walk'}, with a gentle bank just outside the area. Trails, lifts and buildings stay put.</p>
     <button class="btn secondary wide" data-action="hubLevel" ${ok ? '' : 'disabled'}>Level steep ground · ${money(e.cost)}</button>`;
 }
 function hubDepth(A) { return A.cells.reduce((n, k) => n + sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF), 0) / Math.max(1, A.cells.length); }
@@ -7933,6 +7933,13 @@ const noisy = (v) => v + (Math.random() * 2 - 1) * 1.6;
 function thought(g, text) { g.th.unshift(text); if (g.th.length > 4) g.th.pop(); }
 
 /* ---------- Movement helpers ---------- */
+// Walking up steep ground in a guest area is slow: about 60% of normal pace at a 30% grade, 30% at 100%.
+function climbPace(g) {
+  const d = Math.hypot(g.tx - g.x, g.tz - g.z);
+  if (d < 0.05) return 1;
+  const ahead = Math.min(1, d) / d, rise = trueY(g.x + (g.tx - g.x) * ahead, g.z + (g.tz - g.z) * ahead) - trueY(g.x, g.z);
+  return rise > 0 ? 1 / (1 + 2.3 * rise / Math.min(1, d)) : 1;
+}
 function setMove(g, p, mode, then) { g.st = mode; g.tx = p.x; g.tz = p.z; g.then = then; }
 function queueSlot(L, k) {
   const dx = L.lay.dx / L.lay.hlen, dz = L.lay.dz / L.lay.hlen, px = -dz, pz = dx;
@@ -8146,7 +8153,9 @@ function topDecision(g, L, skipVisit, skipHub = false) {
   if (L.hubTop && !skipHub) { hubDecision(g, L.hubTop, skipVisit); return true; }
   updateLeaving(g);
   if (!skipVisit && maybeVisit(g, L.b, 10, false, { k: 'top', lid: L.id })) return true;
-  if (!g.leaving && seekMeal(g, { k: 'top', L }, { k: 'top', lid: L.id })) return true;
+  // Arriving from the guest area at its top, they're already heading out: planning from inside it again sent hungry
+  // skiers straight back to this spot, every step, all afternoon.
+  if (!g.leaving && seekMeal(g, { k: 'top', L, outside: skipHub }, { k: 'top', lid: L.id })) return true;
   const memo = new Map();
   let best = null, bv = -Infinity;
   for (const D of L.departing) {
@@ -8632,7 +8641,7 @@ function updateSki(g, dt) {
 }
 function updateGuest(g, dt) {
   switch (g.st) {
-    case 'walk': if (moveToward(g, WALK * (g.then && g.then.sp || 1), dt)) arrive(g); break;
+    case 'walk': if (moveToward(g, WALK * (g.then && g.then.sp || 1) * (g.then && g.then.k === 'hubWalk' ? climbPace(g) : 1), dt)) arrive(g); break;
     case 'glide': if (moveToward(g, GLIDE, dt)) arrive(g); break;
     case 'ski': updateSki(g, dt); break;
     case 'queue': {
@@ -17618,6 +17627,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.66.1', date: 'Oct 30, 2026', title: 'Guest areas on any slope', items: [
+    'Guest areas can now be painted on ground of any steepness, so base villages built on a slope can become guest areas. Guests just walk up steep ground more slowly.',
+    'Steep ground shows amber while painting. Level steep ground is still there if you want guests to walk faster.',
+    'Fixed: hungry skiers arriving at a lift top inside a guest area could get stuck there for the rest of the day, slowing big resorts to a crawl.',
+  ] },
   { v: '2.66', date: 'Oct 30, 2026', title: 'Smarter seats and lift lines', items: [
     'Benches, picnic tables and fire pits no longer have lines. A guest who finds a seat taken sits at a free one nearby, or heads back out and rests later.',
     'Skiers facing a long line at a mid-mountain lift take a lift loading right beside it when its line is much shorter.',
