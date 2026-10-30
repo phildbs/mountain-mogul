@@ -4708,15 +4708,50 @@ function hubDistance(A, p, q) {
   const route = A.routes.get(cellKey(Math.round(q.x), Math.round(q.z)));
   return route ? route.distance.get(cellKey(Math.round(p.x), Math.round(p.z))) ?? Infinity : Infinity;
 }
-// Follow cached cell parents, so even a U-shaped area never sends guests across unpainted ground.
+// Can a guest walk straight from a to b without leaving the painted cells?
+function hubSees(A, a, b) {
+  const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(d / 0.4);
+  for (let i = 1; i < n; i++) { const f = i / n; if (!A.set.has(cellKey(Math.round(a.x + (b.x - a.x) * f), Math.round(a.z + (b.z - a.z) * f)))) return false; }
+  return true;
+}
+// Cached cell parents keep guests inside even a U-shaped area. Each guest then cuts straight across open ground,
+// keeps a lane of their own, drifts on longer stretches and walks at their own pace, so crowds spread out
+// instead of marching single file from square to square.
 function walkHub(g, A, p, then) {
-  const route = A.routes.get(cellKey(Math.round(p.x), Math.round(p.z))), path = [];
+  const route = A.routes.get(cellKey(Math.round(p.x), Math.round(p.z))), cells = [];
   let k = cellKey(Math.round(g.x), Math.round(g.z));
   if (!route || !route.parent.has(k)) return false;
-  while (route.parent.get(k) != null) { k = route.parent.get(k); path.push([keyX(k), keyZ(k)]); }
-  path.push([p.x, p.z]);
+  while (route.parent.get(k) != null) { k = route.parent.get(k); cells.push({ x: keyX(k), z: keyZ(k) }); }
+  cells.push({ x: p.x, z: p.z });
+  // Keep only the corners: jump to the farthest point in a straight, fully painted line.
+  const corners = []; let at = { x: g.x, z: g.z };
+  for (let i = 0; i < cells.length;) {
+    let j = cells.length - 1;
+    while (j > i && !hubSees(A, at, cells[j])) j--;
+    corners.push(cells[j]); at = cells[j]; i = j + 1;
+  }
+  const lane = (Math.random() - 0.5) * 2.4, path = [];
+  let prev = { x: g.x, z: g.z };
+  corners.forEach((q, i) => {
+    const last = i === corners.length - 1, next = last ? null : corners[i + 1], len = Math.hypot(q.x - prev.x, q.z - prev.z);
+    // A long stretch bends a little through a point off to one side.
+    if (len > 8) {
+      const bend = (Math.random() - 0.5) * Math.min(4, len * 0.25), f = 0.35 + Math.random() * 0.3, nx = -(q.z - prev.z) / len, nz = (q.x - prev.x) / len;
+      const m = { x: prev.x + (q.x - prev.x) * f + nx * (bend + lane), z: prev.z + (q.z - prev.z) * f + nz * (bend + lane) };
+      if (hubAt(m) === A && hubSees(A, prev, m) && hubSees(A, m, q)) { path.push([m.x, m.z]); prev = m; }
+    }
+    // Corners shift sideways by this guest's lane; the destination itself stays exact (lift line, door).
+    let c = q;
+    if (!last) {
+      const dx = next.x - prev.x, dz = next.z - prev.z, d = Math.hypot(dx, dz) || 1, s = { x: q.x - dz / d * lane, z: q.z + dx / d * lane };
+      if (hubAt(s) === A && hubSees(A, prev, s) && hubSees(A, s, next)) c = s;
+    }
+    path.push([c.x, c.z]); prev = c;
+  });
   g.onSkis = false;
-  const [x, z] = path.shift(); setMove(g, { x, z }, 'walk', { k: 'hubWalk', path, next: then }); return true;
+  const [x, z] = path.shift();
+  setMove(g, { x, z }, 'walk', { k: 'hubWalk', path, next: then, sp: Math.round((0.82 + Math.random() * 0.36) * 100) / 100 });
+  return true;
 }
 
 /* ---------- Glades ----------
@@ -8457,7 +8492,7 @@ function updateSki(g, dt) {
 }
 function updateGuest(g, dt) {
   switch (g.st) {
-    case 'walk': if (moveToward(g, WALK, dt)) arrive(g); break;
+    case 'walk': if (moveToward(g, WALK * (g.then && g.then.sp || 1), dt)) arrive(g); break;
     case 'glide': if (moveToward(g, GLIDE, dt)) arrive(g); break;
     case 'ski': updateSki(g, dt); break;
     case 'queue': {

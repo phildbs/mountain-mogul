@@ -2,7 +2,7 @@
 import {openGame,eq,assert} from '../harness.mjs';
 export default async function({browser,url}) {
   for(const [width,height] of [[390,844],[1280,900]]) {
-    const g=await openGame(browser,url,{width,height,hasTouch:width===390});await g.click('#startBtn');
+    const g=await openGame(browser,url,{width,height,hasTouch:width===390});await g.click('#startBtn');await g.wait(800); // let the title screen fade off the map
     await g.ev(`openHubTool();sheetSize('min');cam.target.set(0,heightAt(0,10),10);updateCamera();`);
     const p=await g.ev(`(() => {const p=project(0,heightAt(0,10),10);return {x:p.x,y:p.y,canvas:document.elementFromPoint(p.x,p.y)===canvas};})()`);
     assert(p.canvas,'the painting spot is exposed on the real canvas');
