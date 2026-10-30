@@ -4,7 +4,9 @@ export default async function({browser,url}) {
   const g=await openGame(browser,url);await g.click('#startBtn');await g.ev(SETUPS.juniperStarter);await g.ev(SETUPS.midwinter);
   await g.click('#manage [data-m=biz]');await g.click('#bizFly [data-m=reputation]');
   eq(await g.ev('selected.obj'),'reputation','Business submenu opens reputation');
-  assert((await g.ev(`$('sheet').innerText`)).includes('Current reputation'),'current score visible before first day');
+  eq(await g.ev(`$('sheet').querySelector('.kv dt').textContent`),'Current reputation','current score label exists independent of uppercase styling');
+  assert(await g.page.locator('#sheet .rep-score').isVisible(),'current score is visible before first day');
+  eq(await g.ev(`parseFloat($('sheet').querySelector('.rep-score').textContent)`),await g.ev(`Number((state.reputation*100).toFixed(1))`),'displayed current score matches the resort');
   await g.ev(`(() => {
     state.cash=1e8;const base=world.buildings[0];let B;
     for(let dz=-12;dz<=16&&!B;dz+=4)for(let dx=-20;dx<=20&&!B;dx+=4){const x=base.x+dx,z=base.z+dz,i=evalBuilding('patrol',x,z,0);if(!i.problems.length)B=commitBuilding(i,'patrol',x,z,0);}
