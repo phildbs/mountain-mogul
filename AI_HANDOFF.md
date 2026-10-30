@@ -91,7 +91,13 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| feature/terrain-parks-preview | ChatGPT | First playable trail-card park designation and feature placement; awaits visual and full-suite testing; no guest stunts or new visitor-demand effects yet | Oct 30 |
+| feature/terrain-parks-preview | ChatGPT | Terrain park feature shapes refined; shared models and standalone 3D viewer added; awaits visual and full-suite testing | Oct 30 |
+
+## Terrain park visual refresh (Oct 30)
+
+- New shared `park-models.js` provides six polished feature meshes in both the game and `park-model-viewer.html`: shaped snow kickers/tabletops/roller, metal box, and continuous tube rails.
+- No park placement, save, cost, guest movement, or business changes in this visual-only pass. New file loads before the game main script.
+- Need phone/desktop visual verification and GitHub suite results from Phil. **Do not publish until he approves.**
 
 ## Terrain park preview scope
 
