@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-30)
 
-**Live: 2.66.** Phil approved publication; full GitHub Tests run 41120287487 passed on `436be200029af1c584a040f7669703ec4677e65e`.
+**Live: 2.66.1.** Phil approved publication; full GitHub Tests run 41128533386 passed on `22ea815cb929177649f661da15aab09ce08120f3`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.66.1: guest areas on any slope (amber hint, optional leveling, slower uphill walking); fixed hungry skiers looping
+  at lift tops inside guest areas, which froze big resorts. See Claude's note.
 - 2.66: no lines at benches, picnic tables and fire pits (a free seat nearby, or rest later); skiers switch to a lift loading
   beside a long line, before joining or from far back in it; time bar stays on one row at 900 px (the `22-topbar` flake). See Claude's note.
 - 2.65: paintable guest areas at the base, mid-mountain and summit (started by ChatGPT, finished by Claude). Guests walk
@@ -96,7 +98,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4d0b9233-x4dk4k` | Claude | 2.66.1 preview: guest areas on any slope (slow uphill walking), lunchtime loop fix at area lift tops. Waiting for Phil. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -257,7 +258,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-30 · Claude · Guest areas on any slope (2.66.1 preview, `ccr-4d0b9233-x4dk4k`)
+### 2026-10-30 · Claude · Guest areas on any slope (shipped in 2.66.1)
 - **Phil's request:** players with base villages built on slopes before 2.65 couldn't paint them. Steep ground no longer
   blocks painting; it shows amber (`HUB_STEEP_MAT`) and **Level steep ground** stays optional. `climbPace(g)` slows walkers
   on `hubWalk` legs uphill: `1 / (1 + 2.3 × grade)` over the next unit (about 60% pace at 30%, 30% at 100%), full pace
