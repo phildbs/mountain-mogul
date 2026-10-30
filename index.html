@@ -8020,8 +8020,8 @@ function initLiftSim(L) {
   L.queue = []; L.incoming = 0; L.qVersion = 0; L.xq = null; L.xBudget = null;
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
-function stepLift(L, dt) {
-  const staff = stepCrew.filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
+function stepLift(L, dt, crew = patrolCrew()) {
+  const staff = crew.filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
   const riding = L.riders.some((r) => r.length) || staff.some((c) => c.st === 'returnride');
   if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
@@ -8033,8 +8033,8 @@ function stepLift(L, dt) {
   L.phase = (L.phase + dp) % total;
   for (let i = 0; i < L.chairCount; i++) {
     const p0 = ((old + i * gap) % total + total) % total, p1 = p0 + dp;
-    if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i);
-    if (p1 >= total) loadBottom(L, i);
+    if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i, staff);
+    if (p1 >= total) loadBottom(L, i, staff);
   }
   // Lifts draw power while they run: all day, then at night only for night skiing or to bring riders up.
   if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || riding || staffWaiting)) {
@@ -8044,8 +8044,8 @@ function stepLift(L, dt) {
     if (today.liftCost) today.liftCost[L.id] = (today.liftCost[L.id] || 0) + c;
   }
 }
-function unloadTop(L, i) {
-  for (const c of stepCrew) if (c.st === 'returnride' && c.lift === L.id && c.chair === i) {
+function unloadTop(L, i, staff = patrolCrew()) {
+  for (const c of staff) if (c.st === 'returnride' && c.lift === L.id && c.chair === i) {
     c.x = L.b.x; c.z = L.b.z; c.st = 'back'; c.lift = null; c.chair = -1;
   }
   const keep = [];
@@ -8062,7 +8062,7 @@ function unloadTop(L, i) {
   }
   L.riders[i] = keep;
 }
-function loadBottom(L, i) {
+function loadBottom(L, i, staff = patrolCrew()) {
   for (const id of L.riders[i]) {
     // Guests who rode back down get off at the bottom.
     const g = gById.get(id);
@@ -8078,7 +8078,7 @@ function loadBottom(L, i) {
   // Lean crews miss the odd seat when loading a busy line.
   const seats = LIFT_TYPES[L.type].seats - (L.queue.length > 6 && Math.random() < staffLevel().miss ? 1 : 0);
   let n = 0;
-  for (const c of stepCrew) if (n < seats && c.st === 'returnqueue' && c.lift === L.id) {
+  for (const c of staff) if (n < seats && c.st === 'returnqueue' && c.lift === L.id) {
     c.st = 'returnride'; c.chair = i; c.seat = n++;
   }
   while (L.queue.length && n < seats) {
@@ -8403,8 +8403,8 @@ function simStep(dt) {
     if (e.bus && stations().length) busPending += e.size; else spawnCar(e.size, e.night, e.evening);
   }
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
-  stepCrew = patrolCrew(); // the lifts check it for every chair; gathering it once a step saves thousands of small lists
-  for (const L of world.lifts) stepLift(L, dt);
+  const crew = patrolCrew(); // gathered once a step, not for every lift and chair
+  for (const L of world.lifts) stepLift(L, dt, crew);
   for (const B of world.buildings) bldStep(B);
   patrolStep(dt);
   busStep(dt);
@@ -12167,7 +12167,6 @@ function firstAidPoint(p) {
   return hut ? hut.door : roadEnd();
 }
 const patrolCrew = () => world.buildings.filter((B) => B.type === 'patrol').flatMap((B) => B.crew || []);
-let stepCrew = [];
 // Staff can ski downhill or traverse gentle ground; a return route never treats a climb as skiing.
 function patrolGlide(a, b) {
   const start = trueY(a.x, a.z), n = Math.max(1, Math.ceil(distXZ(a, b)));
