@@ -4637,7 +4637,7 @@ function hubCellProblem(x, z, blocks) {
   return '';
 }
 // Ease the steep ground in a guest area to 30% or less: cut-and-fill inside the area, with the extra drop taken by a
-// short bank just outside it. Trails, lift stations, buildings, the lot, the road and the creek never move.
+// bank just outside it, kept no steeper than a natural embankment where it can be. Trails, lift stations, buildings, the lot, the road and the creek never move.
 // dry: only work out the cost and what would stay too steep.
 function hubLevel(cells, dry) {
   const at = (k) => (keyZ(k) + HALF) * NV + keyX(k) + HALF, inside = new Set([...cells].map(at)), free = new Set(inside);
@@ -4645,26 +4645,29 @@ function hubLevel(cells, dry) {
   for (const k of fenceTrailCells()) fixed.add(at(k));
   let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
   for (const v of inside) { const i = v % NV, j = (v - i) / NV; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
-  i0 = Math.max(LAND.i0, i0 - 4); i1 = Math.min(LAND.i1, i1 + 4); j0 = Math.max(LAND.j0, j0 - 4); j1 = Math.min(LAND.j1, j1 + 4);
+  i0 = Math.max(LAND.i0, i0 - 8); i1 = Math.min(LAND.i1, i1 + 8); j0 = Math.max(LAND.j0, j0 - 8); j1 = Math.min(LAND.j1, j1 + 8);
   const lots = lotBoxes(), blds = world.buildings.map((B) => boxOf(B, 0.8));
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const v = j * NV + i, p = { x: i - HALF, z: j - HALF };
     if (creekKeep(v) < 1 || roadDist(p.x, p.z) < 2.5 || lots.some((b) => boxDist(p, b) < 1.5) || blds.some((b) => boxDist(p, b) < 0.5)
       || world.lifts.some((L) => distXZ(p, L.a) < 3.5 || distXZ(p, L.b) < 3.5)) fixed.add(v);
   }
-  // A ring up to three points wide around the area may change too: that is the bank.
-  for (let r = 0; r < 3; r++) for (const v of [...free]) for (const d of [1, -1, NV, -NV]) { const u = v + d, i = u % NV, j = (u - i) / NV; if (i >= i0 && i <= i1 && j >= j0 && j <= j1) free.add(u); }
+  // A ring up to six points wide around the area may change too: that is the bank.
+  for (let r = 0; r < 6; r++) for (const v of [...free]) for (const d of [1, -1, NV, -NV]) { const u = v + d, i = u % NV, j = (u - i) / NV; if (i >= i0 && i <= i1 && j >= j0 && j <= j1) free.add(u); }
   for (const v of fixed) free.delete(v);
   const h = new Map(); for (let j = j0 - 1; j <= j1 + 1; j++) for (let i = i0 - 1; i <= i1 + 1; i++) h.set(j * NV + i, HT[j * NV + i]);
   const H = (v) => h.get(v), grade = (v) => Math.hypot((H(v + 1) - H(v - 1)) / 2, (H(v + NV) - H(v - NV)) / 2);
+  const HT_G0 = new Map([...free].map((v) => [v, grade(v)]));
   const ease = (a, b, f) => { // shrink the rise from a to b by f, moving whichever ends are free to move
     const fa = free.has(a), fb = free.has(b); if (!fa && !fb) return;
     const d = H(b) - H(a), nd = d * f;
     if (fa && fb) { const m = (H(a) + H(b)) / 2; h.set(a, m - nd / 2); h.set(b, m + nd / 2); } else if (fa) h.set(a, H(b) - nd); else h.set(b, H(a) + nd);
   };
-  const target = HUB_MAX_GRADE * 0.97;
-  for (let it = 0; it < 400; it++) {
+  const target = HUB_MAX_GRADE * 0.97, bank = [...free].filter((v) => !inside.has(v)), BANK = 0.9;
+  for (let it = 0; it < 600; it++) {
     let worst = 0;
+    // The bank spreads the drop outwards (never steeper than it was, or about 42 degrees); the walkable area wins.
+    for (const v of bank) { const g = grade(v), cap = Math.max(BANK, (HT_G0.get(v) || 0)); if (g > cap) { const f = cap / g; ease(v - 1, v + 1, f); ease(v - NV, v + NV, f); } }
     for (const v of inside) { const g = grade(v); if (g <= target) continue; worst = Math.max(worst, g); const f = target / g; ease(v - 1, v + 1, f); ease(v - NV, v + NV, f); }
     if (!worst) break;
   }
@@ -4740,7 +4743,7 @@ function hubLevelRow() {
   const sig = `${[...areaDraft.cells].reduce((a, k) => (a * 31 + k) | 0, areaDraft.cells.size)}:${terrainRev}`;
   if (hubLevelEst.sig !== sig) hubLevelEst = { sig, est: hubLevel(areaDraft.cells, true) };
   const e = hubLevelEst.est, ok = e.cost && e.cost <= state.cash;
-  return `<p class="help">${e.left ? `Leveling eases most of it; ${e.left === 1 ? 'one square' : `${e.left} squares`} beside trails, lifts or buildings would stay steep, so erase ${e.left === 1 ? 'it' : 'them'} afterwards.` : 'Leveling eases the red ground to a walkable slope, with a short bank just outside the area. Trails, lifts and buildings stay put.'}</p>
+  return `<p class="help">${e.left ? `Leveling eases most of it; ${e.left === 1 ? 'one square' : `${e.left} squares`} beside trails, lifts or buildings would stay steep, so erase ${e.left === 1 ? 'it' : 'them'} afterwards.` : 'Leveling eases the red ground to a walkable slope, with a gentle bank just outside the area. Trails, lifts and buildings stay put.'}</p>
     <button class="btn secondary wide" data-action="hubLevel" ${ok ? '' : 'disabled'}>Level steep ground · ${money(e.cost)}</button>`;
 }
 function hubDepth(A) { return A.cells.reduce((n, k) => n + sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF), 0) / Math.max(1, A.cells.length); }

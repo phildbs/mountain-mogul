@@ -75,7 +75,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 **Active:** ChatGPT's `feature/terrain-parks-preview` branch is parked for future testing and brainstorming; **work is paused** at Phil's request. No terrain park release is approved.
 
-**Candidate:** `feature/paintable-areas` builds real guest areas in the game for 2.65. Not published; full GitHub suite and browser verification are pending.
+**Candidate:** `claude/guest-areas` (Claude, taken over from ChatGPT's `feature/paintable-areas`) builds real guest areas for 2.65. Not published; awaiting the full GitHub run and Phil's review.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -254,6 +254,31 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-30 · Claude · Guest areas taken over (`claude/guest-areas`)
+- Phil handed ChatGPT's `feature/paintable-areas` to Claude; ChatGPT has stopped on it. Leave that branch as is. Its GitHub
+  runs were red; locally 115 raced the 0.6 s title fade (fixed with a wait).
+- **Walking:** guests used to step cell by cell along one shared BFS tree per destination (single file, on grid lines).
+  `walkHub` now keeps only the corners (`hubSees` line-of-sight over painted cells), shifts corners by a per-walk lane,
+  bends long legs and stores a pace `sp` in the walk's `then` (no new guest fields; `case 'walk'` multiplies `WALK`).
+  Every leg is checked to stay painted; the destination is exact. Test 117.
+- **Phil's decisions:** 30% walking limit (`HUB_MAX_GRADE`, same `GR` the game uses); steep squares show red, block building,
+  and `hubLevel` cut-and-fills the area to 30% with a bank up to 6 points outside (capped at 90% or the original slope,
+  whichever is steeper; a 3-point bank made 214% cliffs), never moving trail ribbons, lift
+  stations (3.5), buildings, lot, road or creek; cost uses `GRADE_COST`. 15 free acres per resort across all guest areas
+  (`HUB_FREE_CELLS`), then $5,000/acre; a free allowance instead of a cash gift, so balances and leaderboards are untouched.
+  Base-only buildings (`where: 'base'`) may go in an area with a base edge. Test 118.
+- **Integration fix:** guests arriving from the lot used to glide straight to a lift or shop up in a base-touching area
+  through the trees (273 moves in test 119's day on the old code, 0 now). `viaHub` sends them to the nearest base-edge
+  cell (`A.baseCells`) first; `goCar` walks inside the area down to its base edge. Routes to uncommon cells are computed
+  lazily by `hubRoute` and cached until the next `computeNetwork`; don't precompute every base cell (hundreds of floods).
+- **Audit results:** network checks see areas first; Twin Notch with painted areas at both bases plays normally (no strandings,
+  walkers stay inside); trail/lift/building moves rebuild the network only on confirm. Injured skiers out on a trail still
+  walk straight down (existing behaviour, not area-related).
+- **Rollback warning:** a version before 2.65 loads `kind: 'hub'` areas as learning areas (groomed nightly, beginner
+  routing). If 2.65 ever needs rolling back, say so to Phil first.
+- Tools: `tests/big-resort.mjs` builds a 26-lift, 110-trail Juniper resort (about 3 minutes; Juniper's lot caps near 576
+  spaces); `tests/hub-bench.mjs` compares main, the old branch and this one on it; `tests/hub-walk-probe.mjs` measures walkers.
 
 ### 2026-10-30 · ChatGPT · Painted guest areas (2.65 candidate)
 - Further preview edits: fences and selected orange outlines now leave gaps across entire trail ribbons, refreshed on every network rebuild (including new/moved trails). A shared spatial mask avoids repeated full-trail searches for each boundary section.

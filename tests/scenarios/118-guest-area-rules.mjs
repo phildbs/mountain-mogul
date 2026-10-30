@@ -27,11 +27,14 @@ export default async function({browser,url}) {
     areaDraft={cells:new Set(best.cells),erase:false,editId:null};const info=areaDraftInfo();renderSheet();
     const button=!!document.querySelector('[data-action=hubLevel]'),blocked=document.querySelector('[data-action=areaBuild]').disabled;
     const trailH=world.trails.flatMap((t)=>t.samples.map((p)=>trueY(p.x,p.z))),liftH=world.lifts.map((L)=>[trueY(L.a.x,L.a.z),trueY(L.b.x,L.b.z)]);
+    const G0=Float32Array.from(GR),inside=new Set(best.cells.map((k)=>(keyZ(k)+HALF)*NV+keyX(k)+HALF));
     const est=hubLevel(areaDraft.cells,true),cash=state.cash;
     document.querySelector('[data-action=hubLevel]').click();
     const after=areaDraftInfo();
     return {steepBefore:info.steep.length,said:info.problems.some((p)=>p.includes('too steep to walk')),button,blocked,est:est.cost,paid:cash-state.cash,
       steepAfter:after.steep.length,left:est.left,canBuild:!after.problems.length,
+      // The bank around it is no steeper than a natural embankment, or than the slope already was.
+      bankOk:best.cells.every((k)=>{const ci=keyX(k)+HALF,cj=keyZ(k)+HALF;for(let j=cj-8;j<=cj+8;j++)for(let i=ci-8;i<=ci+8;i++){const v=j*NV+i;if(!inside.has(v)&&GR[v]>Math.max(0.9,G0[v])+0.05)return false;}return true;}),
       trailsKept:world.trails.flatMap((t)=>t.samples.map((p)=>trueY(p.x,p.z))).every((h,i)=>Math.abs(h-trailH[i])<1e-6),
       liftsKept:world.lifts.every((L,i)=>Math.abs(trueY(L.a.x,L.a.z)-liftH[i][0])<1e-6&&Math.abs(trueY(L.b.x,L.b.z)-liftH[i][1])<1e-6)};
   })()`);
@@ -41,6 +44,7 @@ export default async function({browser,url}) {
   eq({after:steep.steepAfter,canBuild:steep.canBuild},{after:steep.left,canBuild:steep.left===0},'leveling leaves only the squares it said it could not ease');
   assert(steep.steepAfter<=steep.steepBefore*0.1,`leveling eases nearly all steep ground: ${steep.steepBefore} → ${steep.steepAfter}`);
   eq({trails:steep.trailsKept,lifts:steep.liftsKept},{trails:true,lifts:true},'trails and lift stations keep their height');
+  eq(steep.bankOk,true,'the bank outside the area is no steeper than a natural embankment or the original slope');
 
   const base=await g.ev(`(() => {
     clearAreaDraft();
