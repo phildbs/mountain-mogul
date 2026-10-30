@@ -73,7 +73,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: terrain park builder preview branch awaiting tests and owner review; live remains 2.64.1.
+**Active:** No terrain park implementation work is currently underway. The terrain park branch is **PAUSED — experimental/testing/development/brainstorming only**, not approved for release. Live status is independent of this branch; check `main` for its latest version.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -91,7 +91,15 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| feature/terrain-parks-preview | ChatGPT | Grounded park models and Trails → Trail Features on-map placement with confirm; awaits visual and full-suite testing | Oct 30 |
+| feature/terrain-parks-preview | ChatGPT | **PAUSED / EXPERIMENTAL ONLY.** Terrain park brainstorming, visual prototypes, trail-card designation, and on-map placement. Not production-ready, not cleared for merge/publish; resume only on Phil's explicit request. | Oct 30 |
+
+## Terrain park branch status — ON HOLD (Oct 30, 2026)
+
+- **Purpose:** A sandbox for testing, development experiments and brainstorming about future terrain parks. Keep it separate from live/production work; its existence does not mean the feature is approved or scheduled.
+- **Status:** Paused at Phil's request. **Do not merge, publish, deploy, or continue implementation** without explicit new direction from Phil. Other assistants should treat it as a prototype, not as a release candidate or an active task.
+- **Current experiments:** Trail-card terrain park designation, six placeable items, improved low-poly models, slope grounding, lateral on-trail placement, a compact Trail Features picker, and six SVG-style menu icons. The separate `park-model-viewer.html` is for visual review.
+- **Known gaps:** No guest use/animations, feature bypass/pathfinding, maintenance or attendance effects, or complete balance/performance validation. Visual and automated tests are not yet signed off; do not describe this as a completed terrain park feature.
+- **When resumed:** Recheck `main`, coordinate through this handoff, and reassess the prototype before any merge. Follow GitHub test/preview/approval process; Phil provides test results and separately authorizes publication.
 
 ## Terrain park menu and lateral placement follow-up (Oct 30)
 
