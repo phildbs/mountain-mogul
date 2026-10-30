@@ -2,6 +2,9 @@
 export const bigBuild = `(() => {
   let seed = 12345; const R = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
   state.cash = 1e10; const out = { liftFail: 0, trailFail: 0 };
+  // Grow the main lot as far as it goes first, and open off-site parking, so a busy day has room for its crowd.
+  for (let i = 0; i < 40; i++) { const n = state.lotSections; growLot(); if (state.lotSections === n) break; }
+  state.offsite = OFFSITE.length - 1;
   const types = ['quad', 'hsq', 'six', 'double', 'triple'].filter((t) => LIFT_TYPES[t]);
   // Base lifts first, then lifts from mid-mountain.
   for (let n = 0; world.lifts.length < 26 && n < 4000; n++) {
@@ -39,5 +42,5 @@ export const bigBuild = `(() => {
   computeNetwork(); syncLabels();
   for (let k = 0; k < NV * NV; k++) NS[k] = 60; state.day = 40; refreshSnowState(todayWx());
   const t = realTrails();
-  return { ...out, lifts: world.lifts.length, trails: t.length, buildings: world.buildings.length, returning: t.filter((x) => x.reachable && x.returns).length, fromBase: world.lifts.filter((L) => L.fromBase).length, reachableLifts: world.lifts.filter((L) => L.reachable).length };
+  return { ...out, stalls: stalls.length, lifts: world.lifts.length, trails: t.length, buildings: world.buildings.length, returning: t.filter((x) => x.reachable && x.returns).length, fromBase: world.lifts.filter((L) => L.fromBase).length, reachableLifts: world.lifts.filter((L) => L.reachable).length };
 })()`;
