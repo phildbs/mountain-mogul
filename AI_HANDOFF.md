@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-29)
 
-**Live: 2.63.1.** Phil approved publication; full GitHub Tests run 40974953065 passed on candidate `111ae1dc1019ee9fa845f510b260a5f4c9e1e88d`.
+**Live: 2.64.** Phil approved publication; full GitHub Tests run 40977107951 passed on candidate `3548ad066ed722c30c2edb241535955f48e2c1e0`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.64: Business → Reputation (More on phones): current score, actual daily gains/losses, 14-day trend and recent changes including overnight borrowing. Older scores retained without invented causes.
 - 2.63.1: one rescue coverage reputation penalty, proportional to missed rescues and capped at 0.05 per day; no extra glade or claim penalty. Reports explain coverage and actual loss.
 - 2.63: optional saved Friday weekend-plan default in Operations; active text editors retain focus across card updates and take priority over hotkeys. Guide and regression scenario 109 updated.
 - 2.62.6: injury claims only follow missed help or long rescue waits (pickups within 30 game-minutes are safe).
@@ -70,7 +71,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: `reputation-panel` · 2.64 candidate; Business reputation tracking and 14-day trend. Await Phil’s GitHub results; do not poll or publish.
+**Active**: nothing in progress.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -88,7 +89,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| reputation-panel | ChatGPT | Reputation score, actual change ledger and daily trend | 2026-10-29 |
 
 ## Known issues
 
@@ -227,6 +227,7 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
   prices, food revenue falls by about half; that trade-off is intended.
 - **Friday plans:** `state.ops.fridayWeekend` defaults off in old saves; `defaultPlanFor` selects the weekend operating plan for Fridays, including quiet season. Demand and ticket pricing still use the calendar. One-day overrides take priority, except event days always use weekend; open-day snapshots remain unchanged.
 - **Text editors:** `renderSheet` defers updates to the same card while an editor is focused, then refreshes after blur. Preserve this protection alongside the composition and text-input hotkey guards.
+- **Reputation tracking (2.64):** use `changeReputation` for future score changes; it records actual post-limit changes without altering balance. Optional saved `clock.repLog` holds up to 120 events; optional report `repDay` stores settlement start/end/causes. Overnight borrowing is logged separately. Panel history uses the existing last 14 reports; legacy scores keep their value without invented causes. In browser tests, uppercase CSS changes `innerText` labels; check source labels with `textContent` and visible numeric values separately.
 - **Rescue reputation (2.63.1):** one `0.05 * missed / injured` penalty per day, using de-duplicated missed rescues; no extra glade or financial-claim loss. Before the first hut remains protected. Optional report `rescueRep` stores coverage, limit and actual before/after loss at the reputation floor; report points are 100 times the internal factor. Satisfaction remains separate. Historical reputation and old reports are not rewritten.
 - **Injury claims:** come from missed help or slow pickups only, not from severity or glades on their own.
 - **ChatGPT's environment** has no local Chromium, so it relies on the GitHub run. It once pushed a truncated
@@ -238,13 +239,6 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
-
-### 2026-10-29 · ChatGPT · Reputation panel candidate
-- Follow-up: Phil reported failed Tests run 40976365091. Only scenario 111 failed, on its initial label assertion: `.kv dt` renders uppercase, so `innerText` differs from source case. Check the label through `textContent`, assert the numeric score is visible and compare it to the resort’s score. Production code unchanged. Three other shards passed; resubmit full suite and pause for Phil.
-- Phil requested further design and implementation of Business → Reputation. Branch `reputation-panel` starts at current main `87c4985`; version 2.64. Mobile entry is More → Reputation, matching other Business panels; visitors may read it.
-- Current score on the 50–150 point scale, standing, last operating day’s start/end/net and cause rows, accessible SVG trend and expandable daily scores for the last 14 operating days. Recent changes include overnight borrowing. Older saved scores remain visible without invented causes.
-- `changeReputation` preserves existing order, amounts and 0.5–1.5 bounds for satisfaction, rescue coverage, lift-line departures, rowdiness, events and emergency borrowing. Logs actual post-limit changes and attempted amounts so a cap explains a zero gain/loss. Optional bounded `state.repLog` (120 entries) is saved in clock with null old-save default; optional `report.repDay` holds settlement-only breakdown. No new backend fields or balance changes.
-- Standalone reputation tracking, rescue reputation and existing claim checks passed; syntax/diff checks passed. Added scenario 111 for Business/phone navigation, actual settlement reconciliation, borrowing, reload and legacy saves; updated 45’s expected submenu. Related browser scenarios 111,110,108,45,19,32 could not launch because Chromium is absent; desktop/phone visual verification remains outstanding. Full GitHub suite runs on push; pause without polling for Phil’s results. Guide/CHANGES updated; no newly delivered roadmap item. Not published.
 
 ### 2026-10-29 · Claude · Tidied this file
 - Phil asked for a tidy-up: the notes had grown to about 600 lines of release logs. I removed the notes for
