@@ -73,7 +73,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active**: nothing in progress.
+**Active**: terrain park builder preview branch awaiting tests and owner review; live remains 2.64.1.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -91,6 +91,14 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| feature/terrain-parks-preview | ChatGPT | First playable trail-card park designation and feature placement; awaits visual and full-suite testing; no guest stunts or new visitor-demand effects yet | Oct 30 |
+
+## Terrain park preview scope
+
+- Any nonvirtual trail can be designated a terrain park in its card, regardless of placed objects. Toggling designation off keeps features.
+- From a trail card while closed, add a roller, box, small jump, straight rail, rainbow rail or tabletop. Controls move the selected object uphill/downhill/laterally or rotate it by 15 degrees. Construction costs deducted, save data persisted in per-trail fields.
+- This is an initial placement preview, not the full terrain park simulation: direct map plopping, ghost/confirmation placement, skier feature animations, visitor demand, maintenance and park-specific reporting still need follow-up before claiming full feature delivery.
+- Do not publish without Phil approving after GitHub's green tests. Follow the usual pause policy.
 
 ## Known issues
 
