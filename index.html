@@ -1724,6 +1724,7 @@ setTimeout(function () { window.mmBootTrouble('slow'); }, 20000);
 </script>
 <script src="vendor/three.min.js"></script>
 <script src="vendor/supabase.js"></script>
+<script src="park-models.js"></script>
 <script>
 (() => {
 'use strict';
@@ -3788,32 +3789,13 @@ function parkLocation(t, f) {
 function refreshParkFeatures(t) {
   if(t.parkGroup){trailGroup.remove(t.parkGroup);t.parkGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
   const group=new THREE.Group();t.parkGroup=group;trailGroup.add(group);
-  const snow=new THREE.MeshLambertMaterial({color:0xe9f4fa});
-  const metal=new THREE.MeshLambertMaterial({color:0x6b8590});
-  const accent=new THREE.MeshLambertMaterial({color:0xd9a255});
   for(const f of (t.parkFeatures||[])){
-    const cfg=PARK_TYPES[f.type];if(!cfg)continue;
-    const loc=parkLocation(t,f), root=new THREE.Group();
-    root.position.set(loc.x,heightAt(loc.x,loc.z)+0.15,loc.z);
-    root.rotation.y=loc.heading+(f.rot||0)*Math.PI/180;
-    const part=(geo,mat,x,y,z)=>{const mesh=new THREE.Mesh(geo,mat);mesh.position.set(x,y,z);root.add(mesh);};
-    if(f.type==='box'){
-      part(new THREE.BoxGeometry(0.85,0.23,2.4),metal,0,0.36,0);
-      for(const x of [-0.27,0.27])part(new THREE.BoxGeometry(0.10,0.33,1.8),accent,x,0.13,0);
-    }else if(f.type==='rail'||f.type==='rainbow'){
-      for(const z of [-0.9,0.9])part(new THREE.CylinderGeometry(0.045,0.045,0.56,6),metal,0,0.3,z);
-      if(f.type==='rainbow'){
-        for(let i=0;i<8;i++){const z=-0.9+i*0.26;part(new THREE.BoxGeometry(0.10,0.09,0.30),accent,0,0.62+0.27*Math.sin(Math.PI*i/7),z);}
-      }else part(new THREE.BoxGeometry(0.12,0.10,2.2),accent,0,0.62,0);
-    }else{
-      const big=f.type==='tabletop', roller=f.type==='roller';
-      const w=big?2.6:1.6, l=big?3.7:roller?1.2:2.1, h=big?1.2:roller?0.26:0.67;
-      const geo=new THREE.BoxGeometry(w,h,l);
-      const mesh=new THREE.Mesh(geo,snow);
-      mesh.position.set(0,h/2-0.04,0);mesh.rotation.x=roller?0:-0.14;root.add(mesh);
-      part(new THREE.BoxGeometry(w+0.08,0.08,0.17),accent,0,h*0.85,l*0.3);
-    }
-    group.add(root);
+    if(!PARK_TYPES[f.type])continue;
+    const loc=parkLocation(t,f);
+    const model=createParkFeatureModel(f.type);
+    model.position.set(loc.x,heightAt(loc.x,loc.z)+0.12,loc.z);
+    model.rotation.y=loc.heading+(f.rot||0)*Math.PI/180;
+    group.add(model);
   }
 }
 function parkAction(t, action, button) {
@@ -17197,7 +17179,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.65', date: 'Oct 30, 2026', title: 'Freestyle park builder preview', items: ['Try jumps, boxes and rails on any trail; move and rotate them from its trail card.', 'Designate any trail as a terrain park without losing placed features.'] },
+  { v: '2.65', date: 'Oct 30, 2026', title: 'Smoother freestyle park models', items: ['Try jumps, boxes and rails on any trail; move and rotate them from its trail card.', 'Designate any trail as a terrain park without losing placed features.'] },
   { v: '2.64.1', date: 'Oct 30, 2026', title: 'Faster busy days', small: true, items: ['Fixed: Busy resorts run much more smoothly. The day simulates more than twice as fast, so 4× keeps up and Skip to report finishes sooner.', 'Fixed: Saving a day in progress is quicker and the save is about 40% smaller, with fewer pauses on crowded days.'] },
   { v: '2.64', date: 'Oct 29, 2026', title: 'Track your reputation', items: ['Open Business → Reputation to see your score, the last operating day’s gains and losses, and a trend for the last 14 operating days. On phones, find Reputation under More.', 'See actual changes from satisfaction, missed rescues, lift lines, rowdiness, events and emergency bank borrowing. Earlier saves keep their scores; detailed reasons are recorded from this update onward.'] },
   { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },
