@@ -3824,12 +3824,21 @@ function refreshParkFeatures(t) {
 function nearestParkSite(p) {
   if(!p)return null;
   let best=null, distance=Infinity;
+  const type=parkPlacement?.type;
+  const featureHalf=type==='tabletop'?1.7:type==='jump'?1.1:type==='box'?.7:.6;
   for(const t of realTrails()){
     if(t.virtual)continue;
     const hw=TRAIL_WIDTHS[t.width].hw;
-    for(let i=3;i<t.samples.length-3;i+=2){
+    const clearance=Math.max(0,hw-featureHalf-.12);
+    if(clearance<.1)continue;
+    for(let i=3;i<t.samples.length-3;i++){
       const q=t.samples[i],d=Math.hypot(p.x-q.x,p.z-q.z);
-      if(d<distance&&d<hw*.8){distance=d;best={trail:t,at:i/(t.samples.length-1),side:0,rot:0,x:q.x,z:q.z};}
+      if(d>=distance||d>clearance)continue;
+      const r=t.samples[Math.min(t.samples.length-1,i+2)];
+      const dx=r.x-q.x,dz=r.z-q.z,len=Math.hypot(dx,dz)||1;
+      const side=Math.max(-clearance,Math.min(clearance,((p.x-q.x)*dz-(p.z-q.z)*dx)/len));
+      best={trail:t,at:i/(t.samples.length-1),side,rot:0};
+      distance=d;
     }
   }
   return best;
@@ -3854,12 +3863,17 @@ function parkConfirm(){
 }
 function parkDraftSheet(){
   const chosen=parkPlacement&&PARK_TYPES[parkPlacement.type],site=parkPlacement?.site;
+  const symbols={roller:'◠',box:'▱',jump:'◢',rail:'═',rainbow:'⌒',tabletop:'⏢'};
   return `<div class="sheet-title"><h3>Trail features</h3><button class="x" data-action="exitTool" aria-label="Close">✕</button></div>
   ${TRAIL_MODES('park')}
-  <p class="help">Pick a feature, then tap where you want it on an existing trail. Confirm before spending money. Build while closed.</p>
-  <div class="seg" style="flex-wrap:wrap">${Object.entries(PARK_TYPES).map(([k,c])=>`<button data-action="parkChoose" data-v="${k}" aria-pressed="${parkPlacement?.type===k}">${c.name}<small>${money(c.cost)}</small></button>`).join('')}</div>
-  ${chosen?`<p class="conn"><b>${chosen.name}</b> selected. ${site?'Position: '+esc(site.trail.name):'Tap a trail to choose its location.'}</p>`:''}
-  ${site?`<button class="btn primary" data-action="parkConfirm">Confirm · ${money(chosen.cost)}</button> <button class="btn secondary" data-action="parkCancel">Clear position</button>`:''}`;
+  <div class="field-label">Choose a feature</div>
+  <div class="bgrid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+  ${Object.entries(PARK_TYPES).map(([k,c])=>`<button data-action="parkChoose" data-v="${k}" aria-pressed="${parkPlacement?.type===k}" style="display:flex;flex-direction:column;align-items:center;gap:5px;min-height:90px;padding:10px 5px;border:1px solid var(--line,#9aa6b4);border-radius:10px;background:${parkPlacement?.type===k?'rgba(47,141,174,.18)':'transparent'};cursor:pointer">
+    <span aria-hidden="true" style="font-size:27px;line-height:1.1;color:#439bad">${symbols[k]}</span>
+    <b style="font-size:12px;text-align:center">${c.name}</b>
+    <small style="font-size:11px">${money(c.cost)}</small></button>`).join('')}</div>
+  <p class="help" style="margin:9px 0"> ${chosen?(site?'Positioned on '+esc(site.trail.name)+' — confirm to build.':'Tap anywhere inside a trail to position '+chosen.name.toLowerCase()+'.'):'Select an item, then tap a trail.'}</p>
+  ${site?`<div class="status"><button class="btn primary" data-action="parkConfirm">Build · ${money(chosen.cost)}</button><button class="btn secondary" data-action="parkCancel">Cancel</button></div>`:''}`;
 }
 
 function parkAction(t, action, button) {
@@ -17244,7 +17258,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.65', date: 'Oct 30, 2026', title: 'Place freestyle features on trails', items: ['Try jumps, boxes and rails on any trail; move and rotate them from its trail card.', 'Designate any trail as a terrain park without losing placed features.'] },
+  { v: '2.65', date: 'Oct 30, 2026', title: 'Compact park builder and free placement', items: ['Try jumps, boxes and rails on any trail; move and rotate them from its trail card.', 'Designate any trail as a terrain park without losing placed features.'] },
   { v: '2.64.1', date: 'Oct 30, 2026', title: 'Faster busy days', small: true, items: ['Fixed: Busy resorts run much more smoothly. The day simulates more than twice as fast, so 4× keeps up and Skip to report finishes sooner.', 'Fixed: Saving a day in progress is quicker and the save is about 40% smaller, with fewer pauses on crowded days.'] },
   { v: '2.64', date: 'Oct 29, 2026', title: 'Track your reputation', items: ['Open Business → Reputation to see your score, the last operating day’s gains and losses, and a trend for the last 14 operating days. On phones, find Reputation under More.', 'See actual changes from satisfaction, missed rescues, lift lines, rowdiness, events and emergency bank borrowing. Earlier saves keep their scores; detailed reasons are recorded from this update onward.'] },
   { v: '2.63.1', date: 'Oct 29, 2026', title: 'Proportionate rescue reputation penalties', small: true, items: ['Fixed: Missed rescues affect reputation once, with no extra glade or claim penalty. The reduction scales with the share of injured guests who missed help and cannot exceed 5 reputation points per day.', 'Day reports explain rescue coverage, the reputation reduction and the daily limit. Injury claims still follow the existing missed-help and long-wait rules.'] },
