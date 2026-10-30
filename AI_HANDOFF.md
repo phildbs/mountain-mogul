@@ -94,6 +94,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-4d0b9233-x4dk4k` | Claude | 2.66 preview: no lines at benches, picnic tables and fire pits; skiers switch to a lift beside a long line. Waiting for Phil. | Oct 30, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -254,6 +255,24 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-30 · Claude · Seats and lift lines (2.66 preview, `ccr-4d0b9233-x4dk4k`)
+- **Phil's decisions:** seats have no line at all ("skip the line", not a shared waiting area); for lifts, both a check
+  before joining a long mid-mountain line and switching from far back in a slow line.
+- **Seats:** `outdoorSeat(B, svc)` (decor + seat pool) and `seatTaken` in `joinBuildingQueue`: a full bench, table or
+  fire pit sends the guest to the nearest free one within 15 units (fire pits only for warm-ups and après fires), else a
+  café/lodge for warm-ups, else they carry on (`restT` set so they rest again in ~15 min). `bldStep` releases old seat lines
+  from earlier saves the same way. No new guest or save fields.
+- **Lifts:** `lineAhead(L, k)` (`liftWait` uses it), `liftsBeside(L)` (mid lifts: `liftTransferMode` from the bottom; base lifts:
+  same base area within `TRANSFER_R`), `shorterLift` (only for waits of 5+ min, only lifts at least 3 min shorter, compares
+  `vLift` so terrain from the top still counts; a +2 margin for losing a place) and `hopLine`. Used at trail ends at
+  mid-mountain lifts (`endOfTrail`) and every 3 game-minutes in `case 'queue'` (reuses `g.qLook`, a food-line field).
+  `today.lineHops` counts switches (not shown to players yet). Test 120.
+- **Measured** (`tests/line-probe.mjs`: big Juniper resort with a transit center, ~5,000 guests, 64 seats and 6 fire pits,
+  three seeds): seat waits over 5 min 708–855 → 0, annoyed give-ups 126–153 → 0, seat visits −2%, satisfaction unchanged,
+  same speed. Long base-lift joins rose 8–22%: the seat change alone does that (guests ski instead of standing in seat lines).
+  That resort's mid-mountain lifts never had long lines, so lift switching (13–42 a day there) is proven by test 120,
+  not by a big resort.
 
 ### 2026-10-30 · Claude · Guest areas taken over (`claude/guest-areas`)
 - Phil handed ChatGPT's `feature/paintable-areas` to Claude; ChatGPT has stopped on it. Leave that branch as is. Its GitHub

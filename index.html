@@ -7749,7 +7749,37 @@ function canLoad(L) {
   if (nightEnd()) return nightNow() && liftLit(L);
   return !L.fromBase; // daytime-only upper lifts can still bring stranded guests out
 }
-const liftWait = (L) => (L.queue.length + L.incoming) * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
+// Minutes until the k-th guest in line boards.
+const lineAhead = (L, k) => k * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
+const liftWait = (L) => lineAhead(L, L.queue.length + L.incoming);
+// Other open lifts loading a short glide or walk from this one's line: at the base, the same base area.
+function liftsBeside(L) {
+  const out = [];
+  for (const M of world.lifts) {
+    if (M === L || isVillage(M) || !canLoad(M) || M.fromBase !== L.fromBase) continue;
+    let mode = null;
+    if (!L.fromBase) mode = liftTransferMode({ type: L.type, b: L.a }, M);
+    else if (distXZ(L.a, M.a) < TRANSFER_R && (lotCount() < 2 || baseOf(L.a) === baseOf(M.a))) mode = trueY(M.a.x, M.a.z) - trueY(L.a.x, L.a.z) > 0.6 ? 'walk' : 'glide';
+    if (mode) out.push({ M, mode, cost: 0.5 + distXZ(L.a, M.a) * (mode === 'walk' ? 0.08 : 0.03) });
+  }
+  return out;
+}
+// A skier facing a long wait looks at lifts loading close by, counting the trip over and the skiing from the top.
+// Giving up a place in line takes a clear gain.
+function shorterLift(g, L, wait) {
+  if (g.leaving || wait < 5) return null;
+  const near = liftsBeside(L).filter((o) => liftWait(o.M) < wait - 3);
+  if (!near.length) return null;
+  const memo = new Map();
+  let best = null, bv = vLift(L, g, 1, memo) + (liftWait(L) - wait) * g.qh + 2;
+  for (const o of near) { const v = vLift(o.M, g, 1, memo) - o.cost; if (v > bv) { bv = v; best = o; } }
+  return best;
+}
+function hopLine(g, o) {
+  g.onSkis = o.mode !== 'walk'; g.qLook = state.time + 3;
+  today.lineHops = (today.lineHops || 0) + AGENT;
+  goQueue(g, o.M, o.mode);
+}
 
 // Use the same cable distance and operating speed as actual movement, in simulated minutes.
 const liftRideMinutes = (L) => L.upLen * 10 * PACE / (LIFT_TYPES[L.type].speed * (liftMode(L) === 'slow' ? SLOW.speed : 1) * 60);
@@ -8197,7 +8227,11 @@ function endOfTrail(g) {
   // Back at the base, compare all lifts instead of automatically rejoining this endpoint's lift.
   if (L.fromBase) return baseDecision(g);
   if (!g.leaving && canLoad(L) && maybeVisit(g, L.a, 9, false, { k: 'liftq', lid: L.id })) return;
-  if (canLoad(L)) return goQueue(g, L, 'glide');
+  if (canLoad(L)) {
+    const o = shorterLift(g, L, liftWait(L));
+    if (o) { thought(g, `The line for ${L.name} is long. ${o.M.name} is right next to it.`); return hopLine(g, o); }
+    return goQueue(g, L, 'glide');
+  }
   return hikeOut(g);
 }
 
@@ -8609,6 +8643,16 @@ function updateGuest(g, dt) {
         if (k >= 0) { const s = queueSlot(g.L, k); g.tx = s.x; g.tz = s.z; }
       }
       if (g.x !== g.tx || g.z !== g.tz) moveToward(g, WALK * 1.5, dt);
+      // Every few minutes, a skier far back in a slow line checks the lifts beside it.
+      if (state.time >= (g.qLook || 0)) {
+        g.qLook = state.time + 3;
+        const L = g.L, k = L.queue.indexOf(g), o = k >= 0 && shorterLift(g, L, lineAhead(L, k));
+        if (o) {
+          L.queue.splice(k, 1); L.qVersion++;
+          thought(g, `This line for ${L.name} is barely moving. Switching to ${o.M.name}.`);
+          hopLine(g, o);
+        }
+      }
       break;
     }
     case 'bq': {
@@ -12203,15 +12247,31 @@ function joinBuildingQueue(g, B) {
     if (alt) return startVisit(g, alt.B, alt.svc, g.resume);
     return leaveBuilding(g, B);
   }
-  if (g.svc === 'warm' && B.type === 'firepit' && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) {
-    g.avoidB = B.id; g.avoidUntil = state.time + 15;
-    const alt = bestVisit(g, B.door, 20, false, world.buildings, ['warm']);
-    if (alt) return startVisit(g, alt.B, alt.svc, g.resume);
-    thought(g, 'The fire is full. I’ll find somewhere else to warm up.');
-    return leaveBuilding(g, B);
-  }
+  if (outdoorSeat(B, g.svc) && B.used.seat + B.q.seat.length >= poolSlots(B, 'seat')) return seatTaken(g, B);
   g.st = 'bq'; g.qT = state.time; g.qv = -1;
   B.q[POOL[g.svc]].push(g); B.qv++;
+}
+// Benches, picnic tables and fire pits have no line. A guest who finds every seat taken sits at a free one
+// close by, or carries on and tries again later.
+const outdoorSeat = (B, svc) => isDecor(B) && POOL[svc] === 'seat';
+function seatTaken(g, B) {
+  const svc = g.svc;
+  g.avoidB = B.id; g.avoidUntil = state.time + 15;
+  let alt = null, bd = 15;
+  for (const C of world.buildings) {
+    if (C === B || !isDecor(C) || !bldOpenNow(C) || C.used.seat + C.q.seat.length >= poolSlots(C, 'seat')) continue;
+    if (svc === 'fire' || (svc === 'warm' && B.type === 'firepit') ? C.type !== 'firepit' : !offers(C).includes(svc)) continue;
+    const d = distXZ(C.door, B.door);
+    if (d < bd) { bd = d; alt = C; }
+  }
+  if (alt) return startVisit(g, alt, svc, g.resume);
+  if (svc === 'warm') { // a café or lodge close by will do
+    const v = bestVisit(g, B.door, 20, false, world.buildings, ['warm']);
+    if (v) return startVisit(g, v.B, v.svc, g.resume);
+  }
+  if (svc === 'rest') g.restT = state.time - 45; // sit down another time, in about a quarter of an hour
+  thought(g, svc === 'rest' ? 'Every seat here is taken. I’ll rest later.' : svc === 'fire' ? 'Every spot by the fire is taken tonight.' : 'The fire is full. I’ll warm up somewhere else.');
+  return leaveBuilding(g, B);
 }
 function bldStep(B) {
   if (!bldOpenNow(B)) {
@@ -12233,9 +12293,9 @@ function bldStep(B) {
     }
     for (let i = q.length - 1; i >= 0; i--) {
       const g = q[i], waited = state.time - g.qT, food = pool === 'seat' && ['food', 'dine', 'finedine', 'snack'].includes(g.svc);
-      if (g.svc === 'warm' && B.type === 'firepit' && B.used.seat >= slots) {
+      if (outdoorSeat(B, g.svc) && B.used.seat >= slots) {
         q.splice(i, 1); B.qv++;
-        joinBuildingQueue(g, B); // also release warm-up lines restored from older saves
+        joinBuildingQueue(g, B); // also release seat lines restored from older saves
         continue;
       }
       // Hungry guests in a slow line look around every few minutes, and go where they'll eat sooner.
@@ -17558,6 +17618,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.66', date: 'Oct 30, 2026', title: 'Smarter seats and lift lines', items: [
+    'Benches, picnic tables and fire pits no longer have lines. A guest who finds a seat taken sits at a free one nearby, or heads back out and rests later.',
+    'Skiers facing a long line at a mid-mountain lift take a lift loading right beside it when its line is much shorter.',
+    'Skiers stuck far back in a slow lift line look around every few minutes and switch to a nearby lift with a much shorter line.',
+  ] },
   { v: '2.65', date: 'Oct 30, 2026', title: 'Paint your guest areas', items: [
     'Paint connected guest areas at the base, mid-mountain or summit (Trail › Guest area). Guests walk freely inside them between lifts, trail ends, trail entrances and building doors.',
     'A trail ending in an area that touches the base counts as reaching the base, and a lift starting in one counts as a base lift. Guests arriving from the lot walk up through the area to reach it.',
