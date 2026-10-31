@@ -8324,7 +8324,7 @@ function goQueue(g, L, mode) {
 }
 function goCar(g) {
   if (staysForShow(g)) { const p = watchSpot(); if (!g.leaving) g.leaving = true; return setMove(g, p, g.onSkis ? 'glide' : 'walk', { k: 'watch' }); }
-  if (!g.leaving) { g.leaving = true; thought(g, g.hotel ? 'Back to the hotel to warm up.' : 'Time to head home.'); }
+  if (!g.leaving) { g.leaving = true; thought(g, g.hotel ? 'Back to the hotel for the night.' : 'Time to head home.'); }
   if (g.hotel) { const H = bldById(g.hotel); if (H) return toHotel(g, H); }
   const car = cars.find((c) => c.id === g.car) || offCars.find((c) => c.id === g.car);
   if (g.bus || (car && car.offsite)) {
@@ -8442,6 +8442,7 @@ function hikeOut(g) {
 function updateLeaving(g) {
   if (g.leaving) return;
   if (state.time >= g.leaveAt || g.fat >= g.stam || g.sat < 22 || state.time >= sessionEnd(g)) {
+    if (g.fat >= g.stam && state.time < g.leaveAt && state.time < sessionEnd(g) && napOk(g)) return goNap(g, 'My legs are done. Back to the room for a rest, then out again.');
     g.leaving = true;
     if (g.sat < 22 && (g.waitOver || 0) > 15) leftEarly(g); // worn down mostly by lift lines
     thought(g, g.sat < 22 ? 'I’ve had enough of this place.' : g.fat >= g.stam ? 'My legs are done for the day.' : 'Time to head home.');
@@ -8497,6 +8498,7 @@ function baseDecision(g, skipHub = false) {
     if (!g.runs) refundGuest(g, today.closed ? 'I never made it onto a lift. Getting a refund.' : null);
     if (maybeApres(g)) return; return goCar(g);
   }
+  if (g.hotel && g.fat > g.stam * 0.6 && napOk(g) && Math.random() < 0.2) { goNap(g, 'Getting tired. A rest in the room, then back out.'); return goCar(g); }
   if (maybeVisit(g, g, 14, true, { k: 'base' })) return;
   if (seekMeal(g, { k: 'base', p: g }, { k: 'base' })) return;
   let best = null, bv = -Infinity;
@@ -8777,7 +8779,7 @@ function makeGuest(car, x, z) {
     severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
-    xUntil: undefined, xZone: undefined, hotel: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined
+    xUntil: undefined, xZone: undefined, hotel: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined
   };
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -8943,7 +8945,8 @@ function arrive(g) {
     const B = bldById(t.bid);
     if (!B) return resumeGuest(g);
     joinBuildingQueue(g, B);
-  } else if (t.k === 'hotel') { // back in their room
+  } else if (t.k === 'hotel') { // back in their room: for a rest, or for the night
+    if (g.nap) return hotelNap(g);
     g.gone = true; gById.delete(g.id);
     recordMealOutcome(g); today.satSum += g.sat; today.satN++;
   } else if (t.k === 'bus') {
@@ -9047,10 +9050,11 @@ function updateGuest(g, dt) {
       break;
     }
     case 'inside': case 'lesson': if (state.time >= g.until) finishVisit(g); break;
+    case 'room': if (state.time >= g.until) hotelWake(g); break;
     case 'watch': if (state.time >= TORCH.parade[1] + 8) showOver(g); break;
     default: break;
   }
-  if (g.st !== 'incar' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow' && g.st !== 'xride' && g.st !== 'xbus') updateNeeds(g, dt);
+  if (g.st !== 'incar' && g.st !== 'room' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow' && g.st !== 'xride' && g.st !== 'xbus') updateNeeds(g, dt);
 }
 function updateCar(c, dt) {
   if (c.st === 'parked') return;
@@ -9405,7 +9409,7 @@ function endDay() {
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
-    hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0 } : null,
+    hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0, naps: today.naps || 0 } : null,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
@@ -10383,7 +10387,7 @@ function drawPeople() {
     if (g.st === 'incar' || g.gone) continue;
     onMountain++;
     if (g.st === 'ski') g.T.count++;
-    if (!showFigs || n >= MAX_G || (g.st === 'inside' && g.deck < 0) || g.st === 'xride' || g.st === 'xbus') { g.px = null; continue; }
+    if (!showFigs || n >= MAX_G || (g.st === 'inside' && g.deck < 0) || g.st === 'room' || g.st === 'xride' || g.st === 'xbus') { g.px = null; continue; }
     const p = guestPos(g);
     g.px = p.x; g.py = p.y; g.pz = p.z;
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
@@ -13539,6 +13543,28 @@ function hotelOut(e) {
   }
   updateCash(false);
 }
+// Back to the room for a rest, once a day, with time left to ski afterwards: they come out again refreshed.
+const NAP_MIN = [40, 75];
+function napOk(g) {
+  if (!g.hotel || g.napped || g.nap || g.night || g.sat < 22 || state.time > closeTime() - 100 || state.time > g.leaveAt - 45) return false;
+  const H = bldById(g.hotel);
+  return !!H && bldMode(H) !== 'closed';
+}
+// Head in like going home (down through guest areas, across bases), but marked for a rest.
+function goNap(g, why) { g.leaving = true; g.nap = true; thought(g, why); }
+function hotelNap(g) {
+  const H = bldById(g.hotel);
+  g.nap = false; g.napped = true; g.leaving = false;
+  if (H) { g.x = H.door.x; g.z = H.door.z; H.today.services.nap = (H.today.services.nap || 0) + AGENT; }
+  g.st = 'room'; g.onSkis = false; g.until = state.time + NAP_MIN[0] + Math.random() * (NAP_MIN[1] - NAP_MIN[0]);
+  today.naps = (today.naps || 0) + AGENT;
+}
+function hotelWake(g) {
+  g.fat = Math.max(0, g.fat - g.stam * 0.6); g.warmed = true; g.bl = 0; g.sat = Math.min(100, g.sat + 5);
+  g.st = 'walk'; g.then = null;
+  if (!g.leaving) thought(g, 'Rested up in the room. Back out for more!');
+  baseDecision(g);
+}
 // Heading in for the night: down through a guest area, across to the other base if need be, then to the door.
 function toHotel(g, H) {
   const s = H.door, A = hubAt(g);
@@ -13876,7 +13902,7 @@ function bldLive(B) {
     case 'school': return `<b>${B.used.lesson * AGENT}</b> in lessons · <b>${B.q.lesson.length * AGENT}</b> waiting`;
     case 'clinic': return `<b>${B.today.visits}</b> patients today · <b>${today ? today.patched : 0}</b> back on the snow`;
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
-    case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain`;
+    case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting in their rooms`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
     default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle`;
@@ -15854,7 +15880,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.bases && (r.bases.lots[1] || r.bases.crossings)) note(1, `Guests by lot: ${r.bases.lots.map((n, k) => `${esc(lotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
   if (r.bases && r.bases.stranded) note(4, `${r.bases.stranded} guests ended up at the wrong base with no way back to their car and waited a long time for a ride.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
-  if (r.hotel && r.hotel.all) note(2, `Your hotels were ${Math.round(r.hotel.rooms / r.hotel.all * 100)}% full: ${r.hotel.rooms} of ${r.hotel.all} rooms. ${r.hotel.guests} hotel guests skied today without needing a parking space.`);
+  if (r.hotel && r.hotel.all) note(2, `Your hotels were ${Math.round(r.hotel.rooms / r.hotel.all * 100)}% full: ${r.hotel.rooms} of ${r.hotel.all} rooms. ${r.hotel.guests} hotel guests skied today without needing a parking space${r.hotel.naps ? `, and ${r.hotel.naps} went back to their rooms for a rest, then out again` : ''}.`);
   if (r.offsite && r.offsite.cars) note(r.offsite.wait > SHUTTLE_PATIENCE ? 3 : 1, `${r.offsite.cars} cars parked off-site and rode the parking shuttle${r.offsite.wait ? `, waiting ${Math.round(r.offsite.wait)} minutes on average` : ''}.${r.offsite.wait > SHUTTLE_PATIENCE ? ' Run shuttles more often, or add a station, to cut the wait.' : ''}`);
   if (r.offsite && r.offsite.full) note(3, `Off-site parking filled up too: ${r.offsite.full} guests were turned away. Upgrade it under Parking.`);
   if (r.complaints.shuttle && !(r.offsite && r.offsite.wait > SHUTTLE_PATIENCE)) note(2, `${r.complaints.shuttle} guests waited a long time for a parking shuttle.`);
@@ -16776,6 +16802,7 @@ function guestActivity(g) {
   const t = g.then;
   const B = g.bid != null ? bldById(g.bid) : null;
   if (g.st === 'inside' && B) return `${VISIT_WORD[g.svc]} ${B.name}`;
+  if (g.st === 'room') { const H = bldById(g.hotel); return `Resting in their room at ${H ? H.name : 'the hotel'}`; }
   if (g.st === 'lesson') return 'Taking a ski lesson';
   if (g.st === 'bq' && B) return `In line at ${B.name}`;
   if (g.st === 'hurt') return 'Injured, waiting for ski patrol';
@@ -18395,6 +18422,7 @@ const CHANGES = [
     'Build a hotel at the base, in the new Hotels tab: a small inn with 12 rooms, a medium hotel with 40 or a large hotel with 120. Each comes in Classic, Modern and Scandinavian.',
     'Rooms fill night by night: most on weekends, holidays and powder days, fewer midweek. A busy, well-liked resort fills more rooms, and a small one can’t fill a big hotel.',
     'Hotel guests walk out of the door for the first chair, ski without a car or a parking space, and walk back in at the end of the day. More of them stay for après.',
+    'Tired hotel guests can go back to their room for a rest, then head out again for more runs, instead of calling it a day. The hotel’s card shows who is resting.',
     'Ski-in, ski-out: a hotel with a base lift or the end of a trail beside the door fills more rooms. A lodge, restaurant or bar close by helps too.',
     'Set the room price under Business › Prices, or from a hotel’s card ($180 a night is normal). Room money shows on the day report as Hotel rooms, with how full your hotels were.',
     'At night the windows of an open hotel glow at the base.',

@@ -278,7 +278,13 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   `MAX_G`. Rooms are paid at opening (`today.rev.lodging`, `B.today.rooms`), `ROOM_GUESTS` 2 per room. Schedule entries
   `{ hotel: id }` → `hotelOut` (like `busUnload`, no car). Leaving: `goCar` → `toHotel` → `then.k: 'hotel'` → gone. New guest field
   `hotel` is in `makeGuest`'s shape list. Room price: `state.prices.room` (default 180; old saves get it from `PRICE_DEFAULTS`).
-- **Report:** `r.hotel = { rooms, all, guests }`, "Hotel rooms" revenue line, a "hotels were N% full" note (priority 2), `B.yday.rooms`.
+- **Rest in the room (Phil's follow-up):** once a day (`napped`), with time left to ski (`napOk`: before `closeTime() - 100` and 45 min before
+  `leaveAt`), a hotel guest heads in to rest: `goNap` marks `nap` and reuses the going-home route (`goCar` → `toHotel`); `arrive` with
+  `nap` → `hotelNap` (hidden, `st: 'room'`, 40–75 min, no needs ticking) → `hotelWake` (−60% fatigue, warmed, restroom reset, +5) →
+  `baseDecision`. Triggers: legs worn out (`updateLeaving`, instead of going home) or tired at the base (fatigue > 60%, 20% chance per
+  base decision). Big-resort Saturday: 461 of 774 hotel guests rested; most would otherwise have gone home. New guest fields `nap`,
+  `napped` are in the shape list. `today.naps` → `r.hotel.naps`.
+- **Report:** `r.hotel = { rooms, all, guests, naps }`, "Hotel rooms" revenue line, a "hotels were N% full" note (priority 2), `B.yday.rooms`.
 - **Rollback warning:** a version before 2.69 doesn't know `hotel` buildings (`nextBuildingName`, `MODELS` lookups would fail).
   Tell Phil before rolling back past 2.69.
 - **Measured** (`tests/hotel-bench.mjs`, the 110-trail Juniper resort, Saturday, same seed; its 576-space lot turns ~3,600 away):

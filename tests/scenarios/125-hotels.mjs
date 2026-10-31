@@ -59,6 +59,14 @@ export default async function ({ browser, url }) {
   assert(morning.noCar, 'hotel guests have no car');
   const live = await g.ev(`(() => { selected = { kind: 'building', obj: world.buildings.find((b) => b.type === 'hotel') }; return bldLive(selected.obj); })()`);
   assert(/rooms booked/.test(live) && /out on the mountain/.test(live), 'the card shows rooms and guests out');
+  // Tired hotel guests go back to their room for a rest, then come out and ski again.
+  const naps = await g.ev(`(() => { const rested = new Map(), back = new Set();
+    for (let n = 0; n < 40000 && state.phase === 'open' && state.time < closeTime(); n++) { simStep(1.5);
+      for (const x of guests) { if (x.st === 'room') rested.set(x.id, x.runs); else if (rested.has(x.id) && x.runs > rested.get(x.id)) back.add(x.id); } }
+    return { rested: rested.size, back: back.size, naps: today.naps || 0, onlyHotel: [...rested.keys()].every((id) => { const x = gById.get(id); return !x || x.hotel; }) }; })()`);
+  assert(naps.rested > 0, `some hotel guests went back to their rooms for a rest (${naps.rested})`);
+  assert(naps.back > 0, `and came back out to ski more runs (${naps.back} of ${naps.rested})`);
+  assert(naps.onlyHotel, 'only hotel guests rest in hotel rooms');
   assert(await g.ev(SETUPS.finishDay) !== 'open', 'the day ends: every hotel guest went back in');
   const rep = await g.ev(`(() => { const r = state.lastReport, B = world.buildings.find((b) => b.type === 'hotel'); return { hotel: r.hotel, lodging: r.rev.lodging, yday: B.yday, text: $('rpBody').textContent }; })()`);
   eq(rep.hotel.rooms, morning.rooms, 'the report counts the rooms');
@@ -66,6 +74,7 @@ export default async function ({ browser, url }) {
   eq(rep.yday.rooms, morning.rooms, 'the hotel remembers last night');
   assert(/Hotel rooms/.test(rep.text), 'room revenue has its own line');
   assert(/hotels were \d+% full/.test(rep.text), 'the report says how full the hotels were');
+  assert(rep.hotel.naps >= naps.naps && /went back to their rooms for a rest/.test(rep.text), 'the report counts the rests');
 
   // A closed hotel books nothing; the room price is one of the resort's prices.
   const closed = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'); today = newToday(); initBldSim(B);
