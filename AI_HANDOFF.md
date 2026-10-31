@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-31)
 
-**Live: 2.67.1.** Phil approved publication; full GitHub Tests run 41241939149 passed on `f076fa54610ee239917ff202d78a9fa99f1328b5`.
+**Live: 2.68.** Phil approved publication after the full GitHub Tests run passed on `61ee67c6b85c420aa5c9a4520dfbec4c2d9c9f89`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.68: popular trails and batch closing: Popular sort, glades in the Trails list, Close icy and thin / Reopen good ones, report Trails
+  page, whole-day traffic map. See Claude's note.
 - 2.67.1: guest areas: guests walk around buildings; a full seat keeps guests in their area and off-area guests step back on (no more
   summit "hike outs"); a bare base always shows on the day report. See Claude's note.
 - 2.67: widen and shape trails (drag edge dots per section; pay only for new ground; blueprint while open); grooming and snow guns
@@ -102,7 +104,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-185ec579-18c573` | Claude | 2.68 trail popularity: Popular sort, glades in the Trails list, batch close/reopen for bad snow, report Trails page, whole-day traffic map. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -263,7 +264,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Trail popularity and batch closing (2.68 preview)
+### 2026-10-31 · Claude · Trail popularity and batch closing (shipped in 2.68)
 - **Player request:** sort trails by popularity, batch close/open trails and glades for conditions, an end-of-day popularity summary,
   and a whole-day heatmap. Phil approved all of Claude's picks: condition buttons + "all shown" (no tick boxes), heat along each trail,
   rank by runs, no automatic close rule yet.
