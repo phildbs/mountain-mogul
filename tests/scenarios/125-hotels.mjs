@@ -57,7 +57,7 @@ export default async function ({ browser, url }) {
   eq(morning.visits, morning.rooms * 2, 'two guests a room');
   assert(morning.out >= morning.visits * 0.8, `hotel guests are out by 9:20 (${morning.out} of ${morning.visits})`);
   assert(morning.noCar, 'hotel guests have no car');
-  const live = await g.ev(`(() => { selected = { kind: 'building', obj: world.buildings.find((b) => b.type === 'hotel') }; return bldLive(selected.obj); })()`);
+  const live = await g.ev(`bldLive(world.buildings.find((b) => b.type === 'hotel'))`);
   assert(/rooms booked/.test(live) && /out on the mountain/.test(live), 'the card shows rooms and guests out');
   // Tired hotel guests go back to their room for a rest, then come out and ski again.
   const naps = await g.ev(`(() => { const rested = new Map(), back = new Set();
@@ -93,8 +93,10 @@ export default async function ({ browser, url }) {
   const p = await openGame(browser, url, { width: 390, height: 844 });
   await p.click('#startBtn'); await p.wait(300);
   const menu = await p.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('stay'); renderSheet(); const cards = [...document.querySelectorAll('[data-action=pickB][data-v=hotel]')];
-    return { n: cards.length, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()) }; })()`);
+    return { n: cards.length, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()), rooms: cards.map((c) => c.querySelector('.bp small').textContent) }; })()`);
   eq(menu.n, 3, 'three hotel sizes in the menu');
+  eq(menu.rooms, ['12 rooms', '40 rooms', '120 rooms'], 'each size shows its rooms, not seats');
+  assert(!menu.text.some((t) => /undefined/.test(t)), 'nothing reads undefined');
   assert(menu.text.some((t) => /2\\.4M|2,400,000/.test(t)), 'the large hotel shows its price: ' + menu.text.join(' | '));
   eq(p.errors, [], 'no phone errors');
   await p.page.close();
