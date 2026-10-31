@@ -106,6 +106,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `claude/pond-crowd-facing` | Claude | 2.69.1 fix: event crowds (pond skim, race finish) and pond waders faced the wrong way. Preview only; waiting for Phil. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -265,6 +266,17 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-31 · Claude · Event crowds faced away (2.69.1 preview, `claude/pond-crowd-facing`)
+- **Player report:** pond skim spectators all faced away from the pond. Cause: a flipped sign in `drawCrowd` (shared by race day
+  and pond skim since they shipped). Figures face +z at yaw 0 (goggles at +z in `FIG_GEO.head`), and `raceLine`'s normal is
+  `(-dz, dx)`, so the `+normal` side needs `yaw + PI/2` to look in; it had `-PI/2`. Same flip made pond waders walk out backwards.
+- **Measured** (crowd = last 26 figures from `drawRace`/`drawPond`, facing vs direction to the centre line): main 0/26 facing in
+  on both events (every one exactly away), branch 26/26; waders 0/19 facing their way on main, 19/19 after. Big 110-trail resort,
+  pond day with forced 8,000 demand (lot caps it at 1,423): 26/26 at 11:40, 12:40, 1:40 and 2:40, 61 runs, no errors.
+  Scenario 46 now checks both crowds and the waders, and fails on main.
+- **Not changed, worth knowing:** event figures are drawn after every guest inside `MAX_G` (5,000). A resort with over 5,000 guests
+  out at once would lose the crowd and skimmers first. Big test resorts never got near it (Juniper's lot), so it's unmeasured.
 
 ### 2026-10-31 · Claude · Hotels (shipped in 2.69)
 - **Phil's decisions:** rooms fill night by night (no guests kept overnight), three fixed sizes, base only, all nine models now,
