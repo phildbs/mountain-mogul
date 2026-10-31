@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-31)
 
-**Live: 2.68.** Preview on `ccr-b60e6f1c-0gx2xb`: 2.69 Hotels (not published). Phil approved publication after the full GitHub Tests run passed on `61ee67c6b85c420aa5c9a4520dfbec4c2d9c9f89`.
+**Live: 2.69.** Phil approved publication after the full GitHub Tests run passed on `a7054bdeac6ef571b7aceb15666613e0efeb3de1`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.69: hotels: base-only, three sizes (12/40/120 rooms) in all three themes; rooms booked each morning; hotel guests need no parking, ride
+  first chair, can rest in their room once a day and head out again; room price in Business › Prices. See Claude's note.
 - 2.68: popular trails and batch closing: Popular sort, glades in the Trails list, Close icy and thin / Reopen good ones, report Trails
   page, whole-day traffic map. See Claude's note.
 - 2.67.1: guest areas: guests walk around buildings; a full seat keeps guests in their area and off-area guests step back on (no more
@@ -104,7 +106,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-b60e6f1c-0gx2xb` | Claude | **Hotels (2.69 preview)**: base-only `hotel` type, 3 sizes × 3 themes, rooms booked each morning. Phil's choices in `HOTELS_BRAINSTORM.md` and Claude's note. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -265,7 +266,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Hotels (2.69 preview)
+### 2026-10-31 · Claude · Hotels (shipped in 2.69)
 - **Phil's decisions:** rooms fill night by night (no guests kept overnight), three fixed sizes, base only, all nine models now,
   room deals later with a marketing update. Plan and reasoning: `HOTELS_BRAINSTORM.md`.
 - **Type:** `BTYPES.hotel` (`where: 'base'`, tiers Small/Medium/Large: 12/40/120 rooms, $300k/$900k/$2.4M via `sizeCost`, upkeep
@@ -292,6 +293,8 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   guests, 2,179 guests, 794 fewer turned away, profit +$118k that day, satisfaction 99 → 99, save 176 → 183 KB, day sim 7.5 → 11.4 s
   (57% more guests). Weekday share is about 45% with ski-in. Room money alone pays a hotel back in roughly 2.5–4 seasons; faster where
   the lot is full, because hotel guests also buy tickets and food. Tune `hotelPull`/costs if players find it too strong.
+- Follow-ups not done: room deals/packages (Phil: with a marketing update), booking forecast, slopeside hotels, lot-full advice pointing
+  at hotels. `76-roadmap-new` now expects Hotels `ongoing` and Condos `plan`; update it if those cards change again.
 - Tools: test 125 (models fit footprints, bookings, day, report, closed hotel, reload, phone menu); `tests/hotel-bench.mjs`.
 
 ### 2026-10-31 · Claude · Trail popularity and batch closing (shipped in 2.68)
