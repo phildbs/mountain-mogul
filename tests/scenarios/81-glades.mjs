@@ -20,7 +20,7 @@ export default async function ({ browser, url }) {
   assert(A.left < A.before, 'trees were thinned, not cleared');
   assert(A.lines.length && A.lines.every((l) => l[0] && l[1] && l[2]), `every line is reachable, returns and rates at least its slope: ${JSON.stringify(A.lines)}`);
   eq(A.real, false, 'glade lines stay out of the trail list');
-  eq(await g.ev(`(() => { const lines = world.trails.filter((t) => t.glade); const want = realTrails().filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + Math.round(t.an.len * GROOM_PER_UNIT), 0); return [finishNight() === want, lines.every((t) => !t.groomed)]; })()`), [true, true], 'glades are never groomed or charged for grooming');
+  eq(await g.ev(`(() => { const lines = world.trails.filter((t) => t.glade); const want = realTrails().filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + groomCost(t), 0); return [finishNight() === want, lines.every((t) => !t.groomed)]; })()`), [true, true], 'glades are never groomed or charged for grooming');
   // signs keep skiers who aren't good enough out; without them they may wander in
   eq(await g.ev(`(() => { const t = world.trails.find((o) => o.glade), gs = { ab: 1, pref: 1, seen: {}, explore: 0, learnLaps: 9 }; const A = world.areas.find(isGlade);
     const a = trailFit(t, gs); A.signs = false; const b = trailFit(t, gs); A.signs = true; return [a === -60, b > -60]; })()`), [true, true], 'signs turn intermediates away');
