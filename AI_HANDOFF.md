@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-31)
 
-**Live: 2.68.** Phil approved publication after the full GitHub Tests run passed on `61ee67c6b85c420aa5c9a4520dfbec4c2d9c9f89`.
+**Live: 2.68.** Preview on `ccr-b60e6f1c-0gx2xb`: 2.69 Hotels (not published). Phil approved publication after the full GitHub Tests run passed on `61ee67c6b85c420aa5c9a4520dfbec4c2d9c9f89`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
 - 2.68: popular trails and batch closing: Popular sort, glades in the Trails list, Close icy and thin / Reopen good ones, report Trails
@@ -104,7 +104,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-b60e6f1c-0gx2xb` | Claude | **Hotels: brainstorm only** (`HOTELS_BRAINSTORM.md`). Waiting for Phil's answers before any code. | Oct 31, 2026 |
+| `ccr-b60e6f1c-0gx2xb` | Claude | **Hotels (2.69 preview)**: base-only `hotel` type, 3 sizes × 3 themes, rooms booked each morning. Phil's choices in `HOTELS_BRAINSTORM.md` and Claude's note. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -265,13 +265,28 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Hotels brainstorm (no code yet)
-- Phil asked for a deep dive on hotels. Plan and open questions are in `HOTELS_BRAINSTORM.md`; waiting on his choices.
-- Evidence: roadmap votes Hotels 18/0 (tied first with terrain parks), Condos 17, Ski-in/ski-out 14; two feedback notes this week.
-- Key finding: hotel guests need no parking, and Juniper's lot (~576 spaces) caps the 110-trail test resort near 1,400 guests.
-- Recommended shape: base-only `hotel` type with 3 tiers × 3 themes; occupancy computed nightly (no guests kept overnight, so saves
-  stay small); morning arrivals reuse the town-bus guest path (`busUnload`); ski-in/ski-out bonus covers that roadmap card.
-- Rollback risk once built: older versions won't know a `hotel` building.
+### 2026-10-31 · Claude · Hotels (2.69 preview)
+- **Phil's decisions:** rooms fill night by night (no guests kept overnight), three fixed sizes, base only, all nine models now,
+  room deals later with a marketing update. Plan and reasoning: `HOTELS_BRAINSTORM.md`.
+- **Type:** `BTYPES.hotel` (`where: 'base'`, tiers Small/Medium/Large: 12/40/120 rooms, $300k/$900k/$2.4M via `sizeCost`, upkeep
+  $900/$2,600/$7,000). New build tab `stay` ("Hotels"). Models `modelHotel`, `modelHotelModern`, `modelHotelScandinavian` (tier
+  arg) with helpers `roomRows`, `modernFloors`, `scandiRooms`/`scandiBlock`; no seats; all fit their footprints (test 125 checks).
+  No upgrade path between sizes (Phil: fixed sizes).
+- **Sim:** `bookHotels(n, short)` in `openDay` (after `initBldSim`, which moved up): `hotelShare(B)` = day-of-week × room price ×
+  ski-in/ski-out (`skiInOut`, base lift bottom or trail end within `SKI_IN_R` 10 of the door, ×1.25) × eatery nearby (×1.08) ×
+  reputation. Total hotel guests capped at `HOTEL_MARKET` 0.6 × the day's demand; day visitors trimmed so the total stays under
+  `MAX_G`. Rooms are paid at opening (`today.rev.lodging`, `B.today.rooms`), `ROOM_GUESTS` 2 per room. Schedule entries
+  `{ hotel: id }` → `hotelOut` (like `busUnload`, no car). Leaving: `goCar` → `toHotel` → `then.k: 'hotel'` → gone. New guest field
+  `hotel` is in `makeGuest`'s shape list. Room price: `state.prices.room` (default 180; old saves get it from `PRICE_DEFAULTS`).
+- **Report:** `r.hotel = { rooms, all, guests }`, "Hotel rooms" revenue line, a "hotels were N% full" note (priority 2), `B.yday.rooms`.
+- **Rollback warning:** a version before 2.69 doesn't know `hotel` buildings (`nextBuildingName`, `MODELS` lookups would fail).
+  Tell Phil before rolling back past 2.69.
+- **Measured** (`tests/hotel-bench.mjs`, the 110-trail Juniper resort, Saturday, same seed; its 576-space lot turns ~3,600 away):
+  no hotels = identical to main (1,384 guests, profit $1,161,025). With 3 large + 1 medium ski-in hotels (400 rooms): 97% full, 774 hotel
+  guests, 2,179 guests, 794 fewer turned away, profit +$118k that day, satisfaction 99 → 99, save 176 → 183 KB, day sim 7.5 → 11.4 s
+  (57% more guests). Weekday share is about 45% with ski-in. Room money alone pays a hotel back in roughly 2.5–4 seasons; faster where
+  the lot is full, because hotel guests also buy tickets and food. Tune `hotelPull`/costs if players find it too strong.
+- Tools: test 125 (models fit footprints, bookings, day, report, closed hotel, reload, phone menu); `tests/hotel-bench.mjs`.
 
 ### 2026-10-31 · Claude · Trail popularity and batch closing (shipped in 2.68)
 - **Player request:** sort trails by popularity, batch close/open trails and glades for conditions, an end-of-day popularity summary,

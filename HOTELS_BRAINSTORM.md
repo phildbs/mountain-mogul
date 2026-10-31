@@ -1,5 +1,10 @@
 # Hotels: brainstorm (Oct 31, 2026)
 
+**Phil's decisions (Oct 31):** rooms fill night by night; three fixed sizes (no upgrades); base only for now; all nine
+models in the first release; room deals wait for a marketing update. Built in 2.69 (preview). One change from this sketch:
+the room price is one resort-wide price under Business › Prices (also on each hotel's card), like every other price,
+not a separate rate per hotel.
+
 A design sketch for Phil to choose from. Nothing is built yet. Written by Claude after reading the guest, demand,
 building and theme code. Numbers marked *first guess* will be tuned in a test resort before release.
 
