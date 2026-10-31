@@ -52,11 +52,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-30)
+## Current status (updated 2026-10-31)
 
-**Live: 2.66.1.** Phil approved publication; full GitHub Tests run 41128533386 passed on `22ea815cb929177649f661da15aab09ce08120f3`.
+**Live: 2.67.** Phil approved publication; full GitHub Tests run 41218089205 passed on `0318b61cd7c739f016a827daecaed18bf1fa17c0`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.67: widen and shape trails (drag edge dots per section; pay only for new ground; blueprint while open); grooming and snow guns
+  scale with width (Medium unchanged); Edit route grades only new ground. See Claude's note.
 - 2.66.1: guest areas on any slope (amber hint, optional leveling, slower uphill walking); fixed hungry skiers looping
   at lift tops inside guest areas, which froze big resorts. See Claude's note.
 - 2.66: no lines at benches, picnic tables and fire pits (a free seat nearby, or rest later); skiers switch to a lift loading
@@ -98,7 +100,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-12363f64-hnbawl` | Claude | **2.67 Widen and shape trails** (preview, waiting for Phil). Per-station trail widths, new-ground-only pricing, blueprints while open, upkeep scaled by width. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -259,7 +260,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Widen and shape trails (2.67 preview)
+### 2026-10-31 · Claude · Widen and shape trails (shipped in 2.67)
 - **Phil's decisions:** shape section by section (not one width); charge only new ground; grooming and snowmaking scale with
   width (Medium = the old price, so narrow trails got cheaper and wide ones dearer for existing resorts).
 - **Data:** optional `t.ws`: half-widths at evenly spaced stations top to bottom (3–12 of them, `HW_MIN` 1.0 to `HW_MAX` 6.0), blended
