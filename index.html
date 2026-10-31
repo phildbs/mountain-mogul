@@ -4800,29 +4800,56 @@ function cacheHubs() {
     // Where the area meets the natural base: guests coming from the car or heading back to it cross here.
     A.baseCells = A.cells.filter((k) => isBase({ x: keyX(k), z: keyZ(k) }) || HUB_STEPS.some((d) => isBase({ x: keyX(k + d), z: keyZ(k + d) })));
     A.baseSet = new Set(A.baseCells);
-    A.basePoint = A.baseCells.length ? { x: keyX(A.baseCells[0]), z: keyZ(A.baseCells[0]) } : null;
+    // Guests walk around buildings, not through them: the ground under a building is off the walking routes, except at its door.
+    A.walk = new Set(A.set);
+    // A building on the area's edge gets a one-square path around it, so its door always reaches the rest of the area.
+    for (const B of A.buildings) {
+      if (isDecor(B)) continue;
+      const bb = boxOf(B, 1.2);
+      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) if (inProperty(x, z)) A.walk.add(cellKey(x, z));
+    }
+    for (const B of world.buildings) {
+      if (isDecor(B)) continue;
+      const bb = boxOf(B, 0.15);
+      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) A.walk.delete(cellKey(x, z));
+    }
+    for (const B of world.buildings) {
+      if (isDecor(B)) continue;
+      const dx = B.door.x - B.x, dz = B.door.z - B.z, d = Math.hypot(dx, dz) || 1; // the step in front of the door
+      for (const f of [0, 0.7]) { const k = cellKey(Math.round(B.door.x + dx / d * f), Math.round(B.door.z + dz / d * f)); if (A.set.has(k)) A.walk.add(k); }
+    }
+    const open = A.baseCells.find((k) => A.walk.has(k)) ?? A.baseCells[0]; // not under a building
+    A.basePoint = open != null ? { x: keyX(open), z: keyZ(open) } : null;
     const pts = [...A.loads.map((L) => L.a), ...A.tops.map((L) => L.b), ...A.starts.map((T) => T.samples[0]), ...A.buildings.map((B) => B.door), ...(A.basePoint ? [A.basePoint] : [])];
-    A.routes = new Map();
-    for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.set, k)); }
+    A.routes = new Map(); A.routesAll = new Map();
+    for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.walk, k)); }
   }
   for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); }
   for (const B of world.buildings) B.isBase = isBase(B.door) || !!(hubAt(B.door)?.basePoint);
 }
 // Walking routes to the usual spots are cached with the network; any other painted spot is worked out when first needed.
-function hubRoute(A, q) {
+// Routes go around buildings. Where buildings close off the only way through (or a guest stands under one),
+// the route over all painted ground is used instead, so nobody is ever stuck.
+function hubRoute(A, q, from) {
   const k = cellKey(Math.round(q.x), Math.round(q.z));
   let route = A.routes.get(k);
-  if (!route && A.set.has(k)) { route = hubFlood(A.set, k); A.routes.set(k, route); }
+  if (!route && A.set.has(k)) { route = hubFlood(A.walk || A.set, k); A.routes.set(k, route); }
+  if (route && from && !route.parent.has(cellKey(Math.round(from.x), Math.round(from.z)))) {
+    const all = A.routesAll || (A.routesAll = new Map());
+    let r2 = all.get(k);
+    if (!r2) { r2 = hubFlood(A.set, k); all.set(k, r2); }
+    return r2;
+  }
   return route;
 }
 function hubDistance(A, p, q) {
-  const route = hubRoute(A, q);
+  const route = hubRoute(A, q, p);
   return route ? route.distance.get(cellKey(Math.round(p.x), Math.round(p.z))) ?? Infinity : Infinity;
 }
-// Can a guest walk straight from a to b without leaving the painted cells?
+// Can a guest walk straight from a to b without leaving the painted cells or crossing a building?
 function hubSees(A, a, b) {
-  const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(d / 0.4);
-  for (let i = 1; i < n; i++) { const f = i / n; if (!A.set.has(cellKey(Math.round(a.x + (b.x - a.x) * f), Math.round(a.z + (b.z - a.z) * f)))) return false; }
+  const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(d / 0.4), cells = A.walk || A.set;
+  for (let i = 1; i < n; i++) { const f = i / n; if (!cells.has(cellKey(Math.round(a.x + (b.x - a.x) * f), Math.round(a.z + (b.z - a.z) * f)))) return false; }
   return true;
 }
 // Cached cell parents keep guests inside even a U-shaped area. Each guest then cuts straight across open ground,
@@ -4831,7 +4858,7 @@ function hubSees(A, a, b) {
 // The cell where an area meets the natural base that is closest to p.
 function hubBaseCell(A, p) {
   let best = null, bd = Infinity;
-  for (const k of A.baseCells || []) { const d = (keyX(k) - p.x) ** 2 + (keyZ(k) - p.z) ** 2; if (d < bd) { bd = d; best = { x: keyX(k), z: keyZ(k) }; } }
+  for (const k of A.baseCells || []) { const d = (keyX(k) - p.x) ** 2 + (keyZ(k) - p.z) ** 2 + (A.walk && !A.walk.has(k) ? 1e6 : 0); if (d < bd) { bd = d; best = { x: keyX(k), z: keyZ(k) }; } }
   return best;
 }
 // A place up in a guest area that touches the base (a lift, a lodge above the natural base): guests from the lot
@@ -4843,7 +4870,7 @@ function viaHub(g, p, then) {
   setMove(g, e, g.onSkis ? 'glide' : 'walk', { k: 'hubEnter', aid: A.id, x: p.x, z: p.z, next: then }); return true;
 }
 function walkHub(g, A, p, then) {
-  const route = hubRoute(A, p), cells = [];
+  const route = hubRoute(A, p, g), cells = [];
   let k = cellKey(Math.round(g.x), Math.round(g.z));
   if (!route || !route.parent.has(k)) return false;
   while (route.parent.get(k) != null) { k = route.parent.get(k); cells.push({ x: keyX(k), z: keyZ(k) }); }
@@ -8166,6 +8193,12 @@ function vHub(A, g, depth, memo, here) {
 }
 function hubDecision(g, A, skipVisit = false) {
   if (!A) return hikeOut(g);
+  // A stop just outside the area (a seat or door on its edge) leaves a guest off the painted ground: step back on first.
+  if (!A.set.has(cellKey(Math.round(g.x), Math.round(g.z)))) {
+    let c = null, bd = 30 * 30;
+    for (const k of A.cells) { const d = (keyX(k) - g.x) ** 2 + (keyZ(k) - g.z) ** 2; if (d < bd) { bd = d; c = { x: keyX(k), z: keyZ(k) }; } }
+    if (c) return setMove(g, c, g.onSkis ? 'glide' : 'walk', { k: 'hubBack', aid: A.id, skip: skipVisit });
+  }
   updateLeaving(g);
   const resume = { k: 'hub', aid: A.id };
   if (!g.leaving && !skipVisit) { const v = bestVisit(g, g, Infinity, false, A.buildings, needs(g)); if (v) { startVisit(g, v.B, v.svc, resume); return; } }
@@ -8815,6 +8848,7 @@ function arrive(g) {
     g.then = t.next; return arrive(g);
   }
   if (t.k === 'hubBase') return baseDecision(g, true);
+  if (t.k === 'hubBack') return hubDecision(g, areaById(t.aid), t.skip);
   if (t.k === 'hubEnter') { const A = areaById(t.aid); if (A && walkHub(g, A, { x: t.x, z: t.z }, t.next)) return; return setMove(g, { x: t.x, z: t.z }, 'walk', t.next); }
   if (t.k === 'hubCar') return goCar(g);
   if (t.k === 'hubTop') { const L = liftById(t.lid); return L && topDecision(g, L, true, true) || hikeOut(g); }
@@ -12531,8 +12565,10 @@ function seatTaken(g, B) {
   const svc = g.svc;
   g.avoidB = B.id; g.avoidUntil = state.time + 15;
   let alt = null, bd = 15;
+  const area = g.resume && g.resume.k === 'hub' ? areaById(g.resume.aid) : null; // stay in the guest area they came from
   for (const C of world.buildings) {
     if (C === B || !isDecor(C) || !bldOpenNow(C) || C.used.seat + C.q.seat.length >= poolSlots(C, 'seat')) continue;
+    if (area && hubAt(C.door) !== area) continue;
     if (svc === 'fire' || (svc === 'warm' && B.type === 'firepit') ? C.type !== 'firepit' : !offers(C).includes(svc)) continue;
     const d = distXZ(C.door, B.door);
     if (d < bd) { bd = d; alt = C; }
@@ -17893,6 +17929,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.67.1', date: 'Oct 31, 2026', title: 'Guest area walking fixes', small: true, items: [
+    'Fixed: guests in a guest area walked straight through buildings. They now walk around them and go in through the door.',
+    'Fixed: when a bench in a guest area was full, guests could sit on one just outside the area, then walk all the way down the mountain to their car, saying the lift was closed.',
+  ] },
   { v: '2.67', date: 'Oct 31, 2026', title: 'Widen and shape trails', items: [
     'Tap a trail and choose Widen or narrow, then drag the dots on its edges to make each part wider or narrower: a wide top, a narrow chute, whatever you like.',
     'You only pay for new ground and the trees cleared there. Narrowing is free.',

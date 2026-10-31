@@ -100,6 +100,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-12363f64-hnbawl` | Claude | **2.67.1 guest area walking fixes** (preview, waiting for Phil). | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -259,6 +260,21 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-31 · Claude · Guest area walking fixes (2.67.1 preview)
+- **Two player reports (same Twin Notch resort, public save).** Rebuilt it on fresh terrain from its lifts, trails, buildings and
+  area cells (read through SQL, kept out of the repo; this container can't reach Supabase or mtmogul.com over HTTP) and ran a 4,400-guest day.
+- **"Floating" down from the summit, thought "The lift was closed, so I had to hike out":** `seatTaken` (2.66) sent guests from a full seat in an area
+  to a free one within 15 units, even outside the area (325 that day). Leaving it, `hubDecision` ran from off the painted cells, found no choices
+  and fell back to `hikeOut` (−12, "stranded", straight walk to the car). All 108 strandings came from three benches beside the summit area.
+  Fix: `seatTaken` keeps area guests in their area; `hubDecision` walks an off-area guest back to the nearest cell first (`then.k: 'hubBack'`). 108 → 0.
+  `hikeOut` is a generic fallback with a closed-lift thought; worth a more honest message one day.
+- **Walking through buildings:** areas walked over every painted cell, buildings included (42% of legs in that west base crossed a building).
+  Now `A.walk` = painted cells minus building footprints (`boxOf(B, 0.15)`), plus the door step and a one-square path around each area building (so
+  a door facing off the area still connects); `hubRoute`/`hubSees` use it, falling back to all painted cells (`A.routesAll`) if a building cuts
+  the only way or a guest stands under one. `basePoint` and `hubBaseCell` now prefer walkable cells (the old base point sat under a ski school,
+  so everyone heading home cut through it). 42% → under 0.5%. "Turning around at the door" was mostly restroom stops (30% of fine-dining visits).
+- Walkers may now step one square off the painted area around a building. Big 18-area resort: day time and `computeNetwork` unchanged. Test 123.
 
 ### 2026-10-31 · Claude · Widen and shape trails (shipped in 2.67)
 - **Phil's decisions:** shape section by section (not one width); charge only new ground; grooming and snowmaking scale with
