@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-31)
 
-**Live: 2.69.** Phil approved publication after the full GitHub Tests run passed on `a7054bdeac6ef571b7aceb15666613e0efeb3de1`.
+**Live: 2.69.1.** Phil approved publication after the full GitHub Tests run passed on `eaf46a9ce77300f48767c45e2a2d28bf5a45dc1f`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.69.1: pond skim and race-finish crowds face the action (a flipped sign in `drawCrowd`); pond waders face the way they walk. See Claude's note.
 - 2.69: hotels: base-only, three sizes (12/40/120 rooms) in all three themes; rooms booked each morning; hotel guests need no parking, ride
   first chair, can rest in their room once a day and head out again; room price in Business › Prices. See Claude's note.
 - 2.68: popular trails and batch closing: Popular sort, glades in the Trails list, Close icy and thin / Reopen good ones, report Trails
@@ -106,7 +107,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `claude/pond-crowd-facing` | Claude | 2.69.1 fix: event crowds (pond skim, race finish) and pond waders faced the wrong way. Preview only; waiting for Phil. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -267,7 +267,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Event crowds faced away (2.69.1 preview, `claude/pond-crowd-facing`)
+### 2026-10-31 · Claude · Event crowds faced away (shipped in 2.69.1)
 - **Player report:** pond skim spectators all faced away from the pond. Cause: a flipped sign in `drawCrowd` (shared by race day
   and pond skim since they shipped). Figures face +z at yaw 0 (goggles at +z in `FIG_GEO.head`), and `raceLine`'s normal is
   `(-dz, dx)`, so the `+normal` side needs `yaw + PI/2` to look in; it had `-PI/2`. Same flip made pond waders walk out backwards.
