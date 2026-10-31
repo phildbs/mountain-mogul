@@ -104,6 +104,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-b60e6f1c-0gx2xb` | Claude | **Hotels: brainstorm only** (`HOTELS_BRAINSTORM.md`). Waiting for Phil's answers before any code. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -263,6 +264,14 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-31 · Claude · Hotels brainstorm (no code yet)
+- Phil asked for a deep dive on hotels. Plan and open questions are in `HOTELS_BRAINSTORM.md`; waiting on his choices.
+- Evidence: roadmap votes Hotels 18/0 (tied first with terrain parks), Condos 17, Ski-in/ski-out 14; two feedback notes this week.
+- Key finding: hotel guests need no parking, and Juniper's lot (~576 spaces) caps the 110-trail test resort near 1,400 guests.
+- Recommended shape: base-only `hotel` type with 3 tiers × 3 themes; occupancy computed nightly (no guests kept overnight, so saves
+  stay small); morning arrivals reuse the town-bus guest path (`busUnload`); ski-in/ski-out bonus covers that roadmap card.
+- Rollback risk once built: older versions won't know a `hotel` building.
 
 ### 2026-10-31 · Claude · Trail popularity and batch closing (shipped in 2.68)
 - **Player request:** sort trails by popularity, batch close/open trails and glades for conditions, an end-of-day popularity summary,
