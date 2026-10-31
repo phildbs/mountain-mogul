@@ -98,6 +98,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-12363f64-hnbawl` | Claude | **2.67 Widen and shape trails** (preview, waiting for Phil). Per-station trail widths, new-ground-only pricing, blueprints while open, upkeep scaled by width. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -257,6 +258,29 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-31 · Claude · Widen and shape trails (2.67 preview)
+- **Phil's decisions:** shape section by section (not one width); charge only new ground; grooming and snowmaking scale with
+  width (Medium = the old price, so narrow trails got cheaper and wide ones dearer for existing resorts).
+- **Data:** optional `t.ws`: half-widths at evenly spaced stations top to bottom (3–12 of them, `HW_MIN` 1.0 to `HW_MAX` 6.0), blended
+  with smoothstep into `s.hw` on each sample (`shapeSamples`). No `ws` means the preset all the way; a shape equal to a preset is stored
+  as that preset. `measureWidth` sets `t.hwMax`/`t.hwAvg`. Use `trailHW(t)` (widest) for "near the trail" checks and `sampleHW(t, s)`
+  per sample; **never `TRAIL_WIDTHS[t.width].hw` on a built trail any more**. `widthFactor(t)` drives `groomCost(t)`, `gunCount(t)` and crowding.
+- **Pricing:** `newGroundArea(samples, trails)` counts half-unit points across the new ribbon not already under any trail (0.1 tolerance;
+  without it reapplying the same shape cost $2,000). × `GRADE_AREA` (135/unit², about the presets' rate). Plus trees, extra bridge deck
+  (`BRIDGE_PER_HW`) and extra snow guns if snowmaking is on. **Edit route** now uses the same new-ground grading (it used to re-charge the
+  whole trail) and keeps the shape.
+- **Tool:** `startShape(t)` → tool `'shape'`, `draft.shaping`, `draft.ws`; edge dots from `syncShapeHandles`, placed in `updateHandles`.
+  Open: a `kind: 'shape'` plan `{trail, name, pts, ws}` (one per trail), built by `buildShapePlan`, refused if the route changed.
+- **Rollback warning:** a version before 2.67 would try to draw a saved `'shape'` blueprint as a building and fail. Shaped trails themselves
+  load fine there (as their preset width). Say so to Phil before any rollback past 2.67.
+- Test 122 (drag on a real dot at 1280×900 and 390×844, pricing, upkeep, save/reload, blueprint built overnight, Edit route pricing).
+  `tests/shape-bench.mjs` measures it on the 110-trail resort (Juniper's lot caps it near 1,400 guests): evaluating a shape takes ~7 ms
+  (worst 23 ms) per drag update; unshaped, the day is identical to main (same guests, satisfaction, injuries, revenue); grooming there
+  rises $40,559 → $43,422/night from the width scaling; shaping 34 trails cost $203,850.
+- Phones: the shape card opens compact (`layoutSheet` placing set). Zoomed out, the edge dots crowd a trail; zooming in fixes it.
+- `17-base-snow` is flaky on main too (its report note sometimes loses to others); with the same seed main and this branch give identical days.
+- No roadmap card covers this, so the roadmap is untouched.
 
 ### 2026-10-30 · Claude · Guest areas on any slope (shipped in 2.66.1)
 - **Phil's request:** players with base villages built on slopes before 2.65 couldn't paint them. Steep ground no longer

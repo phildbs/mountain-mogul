@@ -867,6 +867,7 @@ a.vtag { text-decoration: none; }
 }
 .handle.insert { width: 28px; height: 28px; margin: -14px 0 0 -14px; padding: 0; border: 1px solid var(--ink-2); color: var(--ink); background: #fff; font: 700 20px/26px var(--ui); cursor: pointer; }
 .handle.first { background: var(--accent); }
+.handle.edge { border-radius: 6px; }
 .handle.snap { border-color: var(--green); box-shadow: 0 0 0 4px rgba(44, 154, 85, 0.25); }
 .handle.drag { cursor: grabbing; transform-origin: center; }
 @media (pointer: coarse) { .handle { width: 24px; height: 24px; margin: -12px 0 0 -12px; } }
@@ -3290,11 +3291,11 @@ function setTool(tool) {
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
-  draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' ? tool : null;
+  draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' || tool === 'shape' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
   const painting = tool === 'clear' && paintingArea();
-  $('tTrail').setAttribute('aria-pressed', tool === 'trail' || painting);
+  $('tTrail').setAttribute('aria-pressed', tool === 'trail' || tool === 'shape' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
   $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
   $('sizes').hidden = tool !== 'clear' || state.landMode === 'doze';
@@ -3453,6 +3454,29 @@ const TRAIL_WIDTHS = {
   wide: { label: 'Wide', hw: 4.0, perUnit: 1050, bridge: 40000 },
 };
 const widthFt = (w) => Math.round(TRAIL_WIDTHS[w].hw * 2 * FT_PER_UNIT / 5) * 5;
+// Shaped trails: optional t.ws holds half-widths at evenly spaced stations from top to bottom, blended
+// smoothly between them (s.hw on each sample). Without it the trail is its preset width all the way.
+const HW_MIN = 1.0, HW_MAX = 6.0, GRADE_AREA = 135, BRIDGE_PER_HW = 10000;
+const hwFt = (hw) => Math.round(hw * 2 * FT_PER_UNIT / 5) * 5;
+const trailHW = (t) => t.hwMax || TRAIL_WIDTHS[t.width].hw;     // widest point: for "is it on the trail" checks
+const sampleHW = (t, s) => (s && s.hw) || trailHW(t);
+// Upkeep scales with the trail's average width; Medium costs what every trail cost before 2.67.
+const widthFactor = (t) => (t.hwAvg || TRAIL_WIDTHS[t.width].hw) / TRAIL_WIDTHS.medium.hw;
+const groomCost = (t) => Math.round(t.an.len * GROOM_PER_UNIT * widthFactor(t));
+function shapeSamples(samples, ws) {
+  const n = samples.length, m = ws.length - 1;
+  samples.forEach((s, i) => {
+    const f = n > 1 ? i / (n - 1) * m : 0, k = Math.min(m - 1, Math.floor(f)), u = f - k, e = u * u * (3 - 2 * u);
+    s.hw = m > 0 ? ws[k] + (ws[k + 1] - ws[k]) * e : ws[0];
+  });
+}
+// The preset nearest a shaped trail's average width (its name and label).
+function nearestWidth(avg) {
+  let best = 'medium', bd = Infinity;
+  for (const [k, w] of Object.entries(TRAIL_WIDTHS)) { const d = Math.abs(w.hw - avg); if (d < bd) { bd = d; best = k; } }
+  return best;
+}
+const validWs = (ws) => Array.isArray(ws) && ws.length >= 2 && ws.length <= 24 && ws.every((v) => Number.isFinite(v));
 const RATINGS = [
   { name: 'Easier', max: 0.25, col: [0.17, 0.6, 0.33] },
   { name: 'More difficult', max: 0.4, col: [0.15, 0.4, 0.83] },
@@ -3580,7 +3604,7 @@ const CORD = (() => {
   return t;
 })();
 
-function trailSamples(pts, hw = 0) {
+function trailSamples(pts, hw = 0, ws = null) {
   if (pts.length < 2) return [];
   const dense = catmull(pts.map((p) => [p.x, p.z]), 14);
   const out = [{ x: dense[0][0], z: dense[0][1] }];
@@ -3600,6 +3624,7 @@ function trailSamples(pts, hw = 0) {
   const last = dense[dense.length - 1];
   if (need < 0.45) out.push({ x: last[0], z: last[1] });
   for (const s of out) s.y = trueY(s.x, s.z);
+  if (validWs(ws)) shapeSamples(out, ws);
   bridgeOver(out, hw);
   return out;
 }
@@ -3617,7 +3642,7 @@ function bridgeOver(samples, hw) {
   samples.forEach((s, i) => {
     const a = samples[Math.max(0, i - 1)], b = samples[Math.min(n - 1, i + 1)];
     const L = Math.hypot(b.x - a.x, b.z - a.z) || 1, px = -(b.z - a.z) / L, pz = (b.x - a.x) / L;
-    const across = [-1, -0.5, 0, 0.5, 1].map((f) => ({ x: s.x + px * f * hw, z: s.z + pz * f * hw }));
+    const w = s.hw || hw, across = [-1, -0.5, 0, 0.5, 1].map((f) => ({ x: s.x + px * f * w, z: s.z + pz * f * w }));
     s.bridge = across.some((p) => overCreek(p.x, p.z));
   });
   for (const [i0, i1] of bridgeSpans(samples)) {
@@ -3683,9 +3708,8 @@ function surfaceIndex() {
   const grid = new Map(), C = 3, pads = [];
   const put = (x, z, e) => { const k = Math.floor(x / C) + ',' + Math.floor(z / C); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(e); };
   for (const t of realTrails()) {
-    const hw = TRAIL_WIDTHS[t.width].hw;
-    for (const sm of t.samples) put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, hw, id: t.id });
-    for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: hw * 1.45, id: t.id });
+    for (const sm of t.samples) { const hw = sampleHW(t, sm); put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, hw, id: t.id }); }
+    for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: sampleHW(t, e) * 1.45, id: t.id });
   }
   for (const L of world.lifts) { pads.push({ x: L.a.x, z: L.a.z, r: 4.6, id: -1 }); pads.push({ x: L.b.x, z: L.b.z, r: 5.1, id: -1 }); }
   return { grid, pads, C };
@@ -3731,7 +3755,7 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask, cover) {
     const isBad = bad && bad.has(i);
     const onDeck = samples[i].bridge || (i > 0 && samples[i - 1].bridge) || (i + 1 < n && samples[i + 1].bridge);
     for (let k = 0; k < m; k++) {
-      const off = (ACROSS[k] - 0.5) * 2 * hw;
+      const off = (ACROSS[k] - 0.5) * 2 * (samples[i].hw || hw);
       const x = samples[i].x - dz * off, z = samples[i].z + dx * off, o = i * m + k;
       pos[o * 3] = x; pos[o * 3 + 1] = surfaceAt(x, z, samples[i].y, onDeck) + 0.14; pos[o * 3 + 2] = z;
       uv[o * 2] = ACROSS[k]; uv[o * 2 + 1] = dist / 3;
@@ -3785,8 +3809,19 @@ function setTrailEdges(on) {
 }
 const trailSign = (t) => (t.sign == null ? t.an.rating : t.sign);
 
+// Widest and average half-width of a (possibly shaped) trail, from its samples.
+function measureWidth(t) {
+  if (!validWs(t.ws)) t.ws = undefined;
+  if (!t.ws) { t.hwMax = t.hwAvg = TRAIL_WIDTHS[t.width].hw; return; }
+  let mx = 0, sum = 0;
+  for (const s of t.samples) { mx = Math.max(mx, s.hw); sum += s.hw; }
+  t.hwMax = mx; t.hwAvg = sum / Math.max(1, t.samples.length);
+}
 function addTrail(t) {
-  t.samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw);
+  if (!TRAIL_WIDTHS[t.width]) t.width = 'medium';
+  if (t.ws && !validWs(t.ws)) t.ws = undefined;
+  t.samples = trailSamples(t.pts, trailHW(t), t.ws);
+  measureWidth(t);
   t.an = analyzeTrail(t.samples);
   t.len = (t.samples.length - 1) * 0.5;
   t.gr = t.samples.map((_, i) => {
@@ -3797,7 +3832,7 @@ function addTrail(t) {
   if (t.groomed == null) t.groomed = true;
   if (t.machine == null) t.machine = 0;
   if (state.wx || state.summer) updateTrailSnow(t, todayWx());
-  t.mesh = new THREE.Mesh(ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t))), trailMaterial());
+  t.mesh = new THREE.Mesh(ribbonGeometry(t.samples, trailHW(t), edgeTint(trailSign(t))), trailMaterial());
   t.mesh.receiveShadow = true;
   t.mesh.renderOrder = 2;
   trailGroup.add(t.mesh);
@@ -3825,7 +3860,7 @@ function refreshTrailMesh(t, idx) {
   buildBridges(t);
   t.mesh.geometry.dispose();
   const sidx = idx || surfaceIndex();
-  t.mesh.geometry = ribbonGeometry(t.samples, TRAIL_WIDTHS[t.width].hw, edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
+  t.mesh.geometry = ribbonGeometry(t.samples, trailHW(t), edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
 }
 function removeTrail(t) {
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
@@ -3878,10 +3913,9 @@ function rebuildPads() {
   for (const m of [...padGroup.children]) { padGroup.remove(m); m.geometry.dispose(); }
   for (const L of world.lifts) { padGroup.add(makePad(L.a.x, L.a.z, 5)); padGroup.add(makePad(L.b.x, L.b.z, 5.5)); }
   for (const t of realTrails()) {
-    const r = TRAIL_WIDTHS[t.width].hw * 1.45 + 0.6;
     for (const s of [t.samples[0], t.samples[t.samples.length - 1]]) {
       if (world.lifts.some((L) => distXZ(s, L.a) < 3 || distXZ(s, L.b) < 3)) continue;
-      padGroup.add(makePad(s.x, s.z, r));
+      padGroup.add(makePad(s.x, s.z, sampleHW(t, s) * 1.45 + 0.6));
     }
   }
   mergeStatic(padGroup); // one draw for all of them
@@ -4208,7 +4242,7 @@ function buildBridges(t) {
   t.bridgeGroup = null;
   const S = t.samples, spans = t.virtual ? [] : bridgeSpans(S);
   if (!spans.length) return;
-  const g = new THREE.Group(), hw = TRAIL_WIDTHS[t.width].hw;
+  const g = new THREE.Group(), hw = trailHW(t);
   const box = (mat, x, y, z, sx, sy, sz, yaw, pitch) => {
     const m = new THREE.Mesh(UNIT_BOX, mat);
     m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(0, yaw, 0, 'YXZ'); m.rotateX(-pitch);
@@ -4313,7 +4347,7 @@ function trailNear(p, exclude) {
   let best = null, bd = Infinity;
   for (const o of world.trails) {
     if (o === exclude || o.virtual) continue;
-    const r = Math.max(2.5, TRAIL_WIDTHS[o.width].hw + 0.6);
+    const r = Math.max(2.5, trailHW(o) + 0.6);
     for (let i = 0; i < o.samples.length; i++) {
       const d = distXZ(p, o.samples[i]);
       if (d < r && d < bd) { bd = d; best = o; }
@@ -4370,8 +4404,7 @@ function nextAreaName(skip, kind) {
 function areaBlocks(skip, plant) {
   const m = new Map(), mark = (x, z, why) => { const k = cellKey(Math.round(x), Math.round(z)); if (!m.has(k)) m.set(k, why); };
   for (const t of realTrails()) {
-    const hw = TRAIL_WIDTHS[t.width].hw + 0.3, c = Math.ceil(hw);
-    for (const sm of t.samples) for (let dz = -c; dz <= c; dz++) for (let dx = -c; dx <= c; dx++) if (dx * dx + dz * dz <= hw * hw) mark(sm.x + dx, sm.z + dz, 'on a trail');
+    for (const sm of t.samples) { const hw = sampleHW(t, sm) + 0.3, c = Math.ceil(hw); for (let dz = -c; dz <= c; dz++) for (let dx = -c; dx <= c; dx++) if (dx * dx + dz * dz <= hw * hw) mark(sm.x + dx, sm.z + dz, 'on a trail'); }
   }
   const box = (b, why) => { for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) mark(x, z, why); };
   for (const B of world.buildings) box(boxOf(B, 0.5), 'too close to a building');
@@ -4440,8 +4473,7 @@ function cellsEdgeGeo(cells, gaps, removed) {
 function fenceTrailCells() {
   const out = new Set();
   for (const T of realTrails()) {
-    const r = TRAIL_WIDTHS[T.width].hw + 1.5;
-    for (const p of T.samples) for (let z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++)
+    for (const p of T.samples) for (let r = sampleHW(T, p) + 1.5, z = Math.floor(p.z - r); z <= Math.ceil(p.z + r); z++) for (let x = Math.floor(p.x - r); x <= Math.ceil(p.x + r); x++)
       if (Math.hypot(x - p.x, z - p.z) <= r) out.add(cellKey(x, z));
   }
   return out;
@@ -4889,7 +4921,7 @@ function gladeEntries(A) {
     const dx = keyX(best) - L.b.x, dz = keyZ(best) - L.b.z, d = Math.hypot(dx, dz) || 1, st = Math.min(d, 3.5);
     out.push({ x: L.b.x + dx / d * st, z: L.b.z + dz / d * st });
   }
-  for (const t of realTrails()) { const r = TRAIL_WIDTHS[t.width].hw + 1.8; for (let i = 0; i < t.samples.length; i += 2) { const sm = t.samples[i]; if (nearCell(A, sm, r)) out.push({ x: sm.x, z: sm.z }); } }
+  for (const t of realTrails()) { for (let i = 0; i < t.samples.length; i += 2) { const sm = t.samples[i]; if (nearCell(A, sm, sampleHW(t, sm) + 1.8)) out.push({ x: sm.x, z: sm.z }); } }
   for (const q of out) q.y = heightAt(q.x, q.z);
   out.sort((p, q) => q.y - p.y);
   const spaced = [];
@@ -5085,7 +5117,7 @@ function computeNetwork() {
   // Buildings beside a trail where skiers can stop on the way down.
   for (const t of world.trails) {
     t.stops = [];
-    const hw = TRAIL_WIDTHS[t.width].hw;
+    const hw = trailHW(t);
     for (const B of world.buildings) {
       if (!offers(B).length) continue;
       let bi = -1, bd = hw + 5;
@@ -5168,7 +5200,7 @@ function computeNetwork() {
 /* =====================================================================
    DRAFTS: trails and lifts being planned
    ===================================================================== */
-const draft = { kind: null, pts: [], width: 'medium', liftType: 'quad', info: null, dirty: false, btype: null, bpos: null, rot: 0, grade: false };
+const draft = { kind: null, pts: [], width: 'medium', liftType: 'quad', info: null, dirty: false, btype: null, bpos: null, rot: 0, grade: false, ws: null, shaping: null };
 let draftMesh = null, draftLift = null;
 const bandGeo = new THREE.BufferGeometry();
 bandGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 3), 3));
@@ -5192,7 +5224,7 @@ function clearDraftVisuals() {
 }
 function resetDraft() {
   clearGhost();
-  draft.movingTrail = null;
+  draft.movingTrail = null; draft.ws = null; draft.shaping = null;
   draft.pts = []; draft.info = null; draft.bpos = null; draft.turnOnly = false;
   clearGhost();
   clearDraftVisuals();
@@ -5218,6 +5250,7 @@ function recomputeDraft() {
   if (draft.kind === 'trail') recomputeTrailDraft();
   else if (draft.kind === 'lift') recomputeLiftDraft();
   else if (draft.kind === 'bld') recomputeBldDraft();
+  else if (draft.kind === 'shape') recomputeShapeDraft();
   renderSheet();
 }
 /* ---------- Evaluating and committing construction (used by drafts and plans) ---------- */
@@ -5315,22 +5348,23 @@ function bridgeEarthwork(samples, hw, dry) {
 }
 // A trail as it will be built: commitTrail grades the ground, then addTrail samples the trail
 // from its points in downhill order. Done here for real on the heights, which are then put back.
-function asBuiltAnalysis(pts, reversed, hw, earth, approach) {
-  const ordered = reversed ? [...pts].reverse() : pts;
-  if (!earth && !approach) return analyzeTrail(trailSamples(ordered, hw));
+function asBuiltAnalysis(pts, reversed, hw, earth, approach, ws) {
+  const ordered = reversed ? [...pts].reverse() : pts, ows = ws && reversed ? [...ws].reverse() : ws;
+  if (!earth && !approach) return analyzeTrail(trailSamples(ordered, hw, ows));
   const keep = HT.slice();
   try {
     if (earth) trailEarthwork(earth.ground, earth.target, hw, false);
     if (approach) bridgeEarthwork(approach.ground, hw, false);
-    return analyzeTrail(trailSamples(ordered, hw));
+    return analyzeTrail(trailSamples(ordered, hw, ows));
   } finally { HT.set(keep); }
 }
-function evalTrail(pts, width, allowPlans, grade) {
-  let samples = trailSamples(pts, TRAIL_WIDTHS[width].hw);
+function evalTrail(pts, width, allowPlans, grade, ws) {
+  if (!validWs(ws)) ws = null;
+  let samples = trailSamples(pts, TRAIL_WIDTHS[width].hw, ws);
   let reversed = false;
   if (samples[0].y < samples[samples.length - 1].y) { samples.reverse(); reversed = true; }
   let an = analyzeTrail(samples);
-  const hw = TRAIL_WIDTHS[width].hw;
+  const hw = ws ? Math.max(...ws) : TRAIL_WIDTHS[width].hw;
   // Uphill somewhere? Price grading it downhill, and judge the trail as it would be after.
   const uphill = an.problems.some((p) => /uphill/.test(p));
   let earth = null;
@@ -5351,11 +5385,12 @@ function evalTrail(pts, width, allowPlans, grade) {
   }
   // The rating shown is the rating it gets: judged on the samples the built trail will have, on the
   // ground as the grading will really leave it.
-  const built = asBuiltAnalysis(pts, reversed, hw, earth, approach);
+  const built = asBuiltAnalysis(pts, reversed, hw, earth, approach, ws);
   for (const k of ['len', 'vert', 'maxGrade', 'avgGrade', 'rating']) an[k] = built[k];
-  const treeSet = treeSetAlong(samples, hw + 0.4);
-  for (const s of samples) if (s.bridge) treesInBrush(s, hw + 1.8, (k) => treeSet.add(k));
-  for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, hw * 1.45 + 0.6, (k) => treeSet.add(k));
+  const treeSet = ws ? new Set() : treeSetAlong(samples, hw + 0.4);
+  if (ws) for (const s of samples) treesInBrush(s, s.hw + 0.4, (k) => treeSet.add(k));
+  for (const s of samples) if (s.bridge) treesInBrush(s, (s.hw || hw) + 1.8, (k) => treeSet.add(k));
+  for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, (e.hw || hw) * 1.45 + 0.6, (k) => treeSet.add(k));
   const grading = Math.round(an.len * TRAIL_WIDTHS[width].perUnit / 100) * 100;
   const bridges = an.bridges.length, bridgeCost = bridges * TRAIL_WIDTHS[width].bridge + (approach ? approach.cost : 0);
   const cost = grading + treeSet.size * TREE_COST + (earth ? earth.cost : 0) + bridgeCost;
@@ -5395,28 +5430,157 @@ function commitTrail(info, pts, width) {
 function startTrailMove(t) {
   if (state.phase !== 'closed' || visiting || t.virtual) return;
   setTool('trail');
-  draft.movingTrail = t; draft.width = t.width; draft.grade = false;
+  draft.movingTrail = t; draft.width = t.width; draft.ws = t.ws ? t.ws.slice() : null; draft.grade = false;
   draft.pts = t.pts.map(p => ({ x: p.x, z: p.z }));
   draft.dirty = true; syncHandles(); renderSheet();
+}
+/* ---------- Widening and shaping a trail ----------
+   Drag the edge dots at stations down the trail. Overnight it's done at once; while the resort is
+   open it becomes a blueprint ('shape' plan) built tonight. Only new ground and new trees are paid for. */
+const shapeStations = (t) => (t.ws ? t.ws.length : clamp(Math.round(t.len / 14) + 1, 3, 12));
+const currentWs = (t) => (t.ws ? t.ws.slice() : Array(shapeStations(t)).fill(TRAIL_WIDTHS[t.width].hw));
+const shapePlanFor = (t) => world.plans.find((p) => p.kind === 'shape' && p.trail === t.id);
+function startShape(t) {
+  if (visiting || t.virtual) return;
+  setTool('shape');
+  const pl = shapePlanFor(t);
+  draft.shaping = t; draft.ws = pl && pl.ws.length === shapeStations(t) ? pl.ws.slice() : currentWs(t);
+  draft.dirty = true; syncHandles(); renderSheet();
+}
+function cancelShape() {
+  const t = draft.shaping; resetDraft();
+  setTool('explore'); if (t && world.trails.includes(t)) select({ kind: 'trail', obj: t });
+}
+// Upkeep a trail would have at another shape: same length, new average width.
+const shapeAvg = (samples) => samples.reduce((a, s) => a + s.hw, 0) / Math.max(1, samples.length);
+function evalShape(t, ws) {
+  const samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw, ws);
+  const an = analyzeTrail(samples), avg = shapeAvg(samples);
+  const area = newGroundArea(samples, realTrails());
+  const grading = Math.round(area * GRADE_AREA / 100) * 100;
+  const treeSet = new Set();
+  for (const sm of samples) treesInBrush(sm, sm.hw + 0.4, (k) => treeSet.add(k));
+  for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, e.hw * 1.45 + 0.6, (k) => treeSet.add(k));
+  // Bridges are priced by their width: only the extra deck is paid for.
+  const deck = (S, w) => bridgeSpans(S).reduce((a, [i0, i1]) => a + Math.max(...S.slice(i0, i1 + 1).map(w)), 0);
+  const bridgeCost = Math.max(0, Math.round((deck(samples, (x) => x.hw) - deck(t.samples, (x) => sampleHW(t, x))) * BRIDGE_PER_HW / 100) * 100);
+  const twin = { an: t.an, hwAvg: avg, width: t.width };
+  const gunsNow = gunCount(t), gunsNew = gunCount(twin);
+  const gunCost = t.sm && t.sm.on ? Math.max(0, gunsNew - gunsNow) * GUN_COST : 0;
+  const problems = [];
+  let outside = false;
+  for (let i = 0; i < samples.length && !outside; i += 2) {
+    const sm = samples[i], a = samples[Math.max(0, i - 1)], b = samples[Math.min(samples.length - 1, i + 1)];
+    let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    for (const sd of [-1, 1]) if (!inProperty(sm.x - dz * sd * sm.hw, sm.z + dx * sd * sm.hw)) outside = true;
+  }
+  if (outside) problems.push('Part of the trail would be outside your property. Narrow it there.');
+  const hits = (bb, S, w) => S.some((sm) => boxDist(sm, bb) < w(sm) * 0.85);
+  const blocker = world.buildings.find((B) => { const bb = boxOf(B); return hits(bb, samples, (x) => x.hw) && !hits(bb, t.samples, (x) => sampleHW(t, x)); });
+  if (blocker) problems.push(`The trail would run into ${blocker.name}. Narrow it there.`);
+  const changed = !sameWs(ws, currentWs(t));
+  const cost = grading + treeSet.size * TREE_COST + bridgeCost + gunCost;
+  return { samples, an, avg, area, grading, treeSet, bridgeCost, gunCost, gunsNow, gunsNew, groomNow: groomCost(t), groomNew: groomCost(twin), cost, problems, changed, lotWarn: reserveHitsTrail(samples, 0) };
+}
+// A shape that matches a preset all the way is stored as that preset (no ws).
+function applyShape(t, ws, info) {
+  clearTreeSet(info.treeSet); state.cash -= info.cost;
+  const r = ws.map((v) => Math.round(clamp(v, HW_MIN, HW_MAX) * 100) / 100);
+  const preset = Object.keys(TRAIL_WIDTHS).find((k) => r.every((v) => Math.abs(v - TRAIL_WIDTHS[k].hw) < 0.02));
+  removeTrail(t);
+  if (preset) { t.width = preset; t.ws = undefined; } else { t.ws = r; t.width = nearestWidth(info.avg); }
+  addTrail(t); // same route: its snow, grooming, lights and signs stay
+}
+function shapeDraft() {
+  const t = draft.shaping, info = draft.info;
+  if (!t || visiting || !info || !info.changed || info.problems.length) return;
+  if (planning()) {
+    const old = shapePlanFor(t);
+    if (old) cancelPlan(old);
+    addPlan({ kind: 'shape', trail: t.id, name: t.name, pts: t.pts.map((p) => ({ x: p.x, z: p.z })), ws: draft.ws.map((v) => Math.round(v * 100) / 100), cost: info.cost });
+    toast(old ? 'Blueprint updated. The new width is built overnight when there’s cash.' : planToast());
+    cancelShape(); scheduleSave();
+    return;
+  }
+  if (info.cost > state.cash) return;
+  pushUndo(`reshaping ${t.name}`);
+  const old = shapePlanFor(t);
+  if (old) cancelPlan(old);
+  applyShape(t, draft.ws, info);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Reshaped ${t.name} · −${money(info.cost)}`);
+  cancelShape(); scheduleSave();
+}
+function recomputeShapeDraft() {
+  const t = draft.shaping;
+  if (!t || !world.trails.includes(t)) { draft.info = null; return; }
+  const info = evalShape(t, draft.ws);
+  draft.info = info;
+  const mat = trailMaterial();
+  mat.color.set(0xffd8c9);
+  draftMesh = new THREE.Mesh(ribbonGeometry(info.samples, HW_MAX, ratingTint(trailSign(t)), null, null), mat);
+  draftMesh.renderOrder = 3;
+  draftGroup.add(draftMesh);
+}
+// Where a station's edge dots sit: the sample at that fraction of the trail, and the direction across it.
+function stationAt(samples, k, n) {
+  const N = samples.length, i = clamp(Math.round(k / Math.max(1, n - 1) * (N - 1)), 0, N - 1);
+  const a = samples[Math.max(0, i - 2)], b = samples[Math.min(N - 1, i + 2)];
+  let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1;
+  return { s: samples[i], px: -dz / L, pz: dx / L };
 }
 function cancelTrailMove() {
   const t = draft.movingTrail; draft.movingTrail = null;
   setTool('explore'); if (t) select({ kind: 'trail', obj: t });
 }
-function evalTrailMove(t, pts, width, grade) {
+function evalTrailMove(t, pts, width, grade, ws) {
   // Don't let a new endpoint connect back to the trail's old route.
   const trails = world.trails;
+  let info;
   try {
     world.trails = trails.filter(o => o !== t);
-    const info = evalTrail(pts, width, false, grade);
-    info.moved = width !== t.width || pts.length !== t.pts.length || pts.some((p, i) => !t.pts[i] || distXZ(p, t.pts[i]) > 0.25);
-    return info;
+    info = evalTrail(pts, width, false, grade, ws);
+    info.moved = width !== t.width || !sameWs(ws, t.ws) || pts.length !== t.pts.length || pts.some((p, i) => !t.pts[i] || distXZ(p, t.pts[i]) > 0.25);
   } finally { world.trails = trails; }
+  // Only ground the trail didn't already cover (or another trail's) is graded and paid for again.
+  const grading = Math.round(newGroundArea(info.samples, realTrails()) * GRADE_AREA / 100) * 100;
+  info.cost += grading - info.grading; info.grading = grading;
+  return info;
+}
+const sameWs = (a, b) => (!a && !b) || (!!a && !!b && a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 0.02));
+// Area (square units) of a ribbon that isn't already under one of the given trails: a half-unit grid
+// across the new ribbon, each point checked against the old trails' samples and their own widths.
+function newGroundArea(samples, olds) {
+  const C = 3, idx = new Map();
+  for (const o of olds) {
+    if (o.virtual || !o.samples) continue;
+    for (const s of o.samples) { const k = Math.floor(s.x / C) + ',' + Math.floor(s.z / C); let a = idx.get(k); if (!a) idx.set(k, a = []); a.push(s.x, s.z, sampleHW(o, s)); }
+  }
+  const seen = new Set(), n = samples.length, R = Math.ceil(HW_MAX / C);
+  let fresh = 0;
+  for (let i = 0; i < n; i++) {
+    const s = samples[i], a = samples[Math.max(0, i - 1)], b = samples[Math.min(n - 1, i + 1)];
+    let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    const hw = s.hw || TRAIL_WIDTHS.medium.hw;
+    for (let off = -hw; off <= hw + 1e-6; off += 0.5) {
+      const x = s.x - dz * off, z = s.z + dx * off, key = Math.round(x * 2) * 100003 + Math.round(z * 2);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let covered = false;
+      const ci = Math.floor(x / C), cj = Math.floor(z / C);
+      for (let dj = -R; dj <= R && !covered; dj++) for (let di = -R; di <= R && !covered; di++) {
+        const l = idx.get((ci + di) + ',' + (cj + dj));
+        if (l) for (let q = 0; q < l.length; q += 3) { const ex = l[q] - x, ez = l[q + 1] - z; if (ex * ex + ez * ez <= (l[q + 2] + 0.1) ** 2) { covered = true; break; } }
+      }
+      if (!covered) fresh++;
+    }
+  }
+  return fresh * 0.25;
 }
 function moveTrailDraft() {
   const t = draft.movingTrail;
   if (!t || state.phase !== 'closed' || visiting || draft.pts.length < 2) return;
-  const info = evalTrailMove(t, draft.pts, draft.width, draft.grade);
+  const info = evalTrailMove(t, draft.pts, draft.width, draft.grade, draft.ws);
   if (!info.moved || info.an.problems.length || info.cost > state.cash) return;
   pushUndo(`editing ${t.name}`);
   const pts = (info.reversed ? [...draft.pts].reverse() : draft.pts).map(p => ({ x: p.x, z: p.z }));
@@ -5424,7 +5588,7 @@ function moveTrailDraft() {
   if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
   if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
   removeTrail(t);
-  t.pts = pts; t.width = draft.width;
+  t.pts = pts; t.width = draft.width; t.ws = draft.ws ? (info.reversed ? [...draft.ws].reverse() : draft.ws.slice()) : undefined;
   // Snow on the old route cannot be carried to the new one.
   t.machine = 0; t.icy = false; t.sinceSnow = 0;
   addTrail(t); computeNetwork(); syncLabels(); updateCash(true);
@@ -5590,7 +5754,7 @@ function commitBuilding(info, type, x, z, rot, style) {
 
 function recomputeTrailDraft() {
   if (draft.pts.length < 2) { draft.info = null; return; }
-  const info = draft.movingTrail ? evalTrailMove(draft.movingTrail, draft.pts, draft.width, draft.grade) : evalTrail(draft.pts, draft.width, planning(), draft.grade);
+  const info = draft.movingTrail ? evalTrailMove(draft.movingTrail, draft.pts, draft.width, draft.grade, draft.ws) : evalTrail(draft.pts, draft.width, planning(), draft.grade);
   draft.info = info;
   const mat = trailMaterial();
   mat.color.set(0xffd8c9);
@@ -5657,6 +5821,10 @@ function planVisual(p) {
     p.samples = trailSamples(p.pts, TRAIL_WIDTHS[p.width].hw);
     g = new THREE.Mesh(ribbonGeometry(p.samples, TRAIL_WIDTHS[p.width].hw, null), p.paused ? BLUEPRINT_PAUSED : BLUEPRINT);
     g.renderOrder = 6;
+  } else if (p.kind === 'shape') {
+    p.samples = trailSamples(p.pts, TRAIL_WIDTHS.medium.hw, p.ws);
+    g = new THREE.Mesh(ribbonGeometry(p.samples, HW_MAX, null), p.paused ? BLUEPRINT_PAUSED : BLUEPRINT);
+    g.renderOrder = 6;
   } else if (p.kind === 'lift') {
     g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b, p.type), false), p.paused);
   } else {
@@ -5677,10 +5845,26 @@ function addPlan(p) { p.id = planSeq++; planVisual(p); world.plans.push(p); refr
 function cancelPlan(p) { removePlanVisual(p); world.plans = world.plans.filter((o) => o !== p); refreshPlanBtn(); }
 function planTitle(p) {
   if (p.kind === 'trail') return `Planned ${TRAIL_WIDTHS[p.width].label.toLowerCase()} trail`;
+  if (p.kind === 'shape') { const t = world.trails.find((o) => o.id === p.trail); return `Planned new width for ${t ? t.name : p.name || 'a trail'}`; }
   if (p.kind === 'lift') return `Planned ${LIFT_TYPES[p.type].long.toLowerCase()}`;
   return `Planned ${BTYPES[p.type].name.toLowerCase()}`;
 }
+// A planned new width: built only if its trail still runs the route it was drawn on.
+function buildShapePlan(p) {
+  const t = world.trails.find((o) => o.id === p.trail && !o.virtual);
+  if (!t) return 'its trail has been removed.';
+  if (t.pts.length !== p.pts.length || t.pts.some((q, i) => distXZ(q, p.pts[i]) > 0.25)) return `${t.name}’s route changed after it was drawn. Widen it again.`;
+  const info = evalShape(t, p.ws);
+  if (info.problems.length) return info.problems[0];
+  p.cost = info.cost;
+  if (info.cost > state.cash) { p.short = true; return `there wasn’t enough cash (it needs ${money(info.cost)}).`; }
+  p.short = false;
+  applyShape(t, p.ws, info);
+  p.madeName = `${t.name}’s new width`;
+  return true;
+}
 function buildPlan(p) {
+  if (p.kind === 'shape') return buildShapePlan(p);
   let info;
   if (p.kind === 'trail') info = evalTrail(p.pts, p.width, false, p.grade);
   else if (p.kind === 'lift') info = evalLift(p.a, p.b, p.type, false);
@@ -5717,7 +5901,7 @@ function executePlans() {
   computeNetwork(); syncLabels(); updateCash(true); refreshPlanBtn();
   if (built.length) toast(`Built overnight: ${built.map((p) => p.madeName).join(', ')}`);
   const stuck = world.plans.filter((p) => !p.paused && !p.waiting && p.reason);
-  const msg = saving ? `Saving up for the ${planTitle(saving).replace('Planned ', '').toLowerCase()}: it needs ${money(saving.cost)}.` : stuck.length ? `${stuck.length === 1 ? 'A blueprint' : `${stuck.length} blueprints`} couldn’t be built: ${stuck[0].reason}` : '';
+  const msg = saving ? `Saving up for the ${saving.kind === 'shape' ? planTitle(saving).replace('Planned ', '') : planTitle(saving).replace('Planned ', '').toLowerCase()}: it needs ${money(saving.cost)}.` : stuck.length ? `${stuck.length === 1 ? 'A blueprint' : `${stuck.length} blueprints`} couldn’t be built: ${stuck[0].reason}` : '';
   if (msg) setTimeout(() => toast(msg, true), built.length ? 2900 : 0);
 }
 // Builds one blueprint right away, overnight.
@@ -5786,6 +5970,7 @@ function planSheet(p) {
     <p class="help">${p.paused ? 'Paused: it stays on the map but won’t be built until you resume it.' : `Number ${world.plans.indexOf(p) + 1} in the build order. It’s built overnight when its turn comes and there’s cash.`} Estimated cost: <b>${money(p.cost || 0)}</b>.</p>
     ${p.reason && !p.paused ? `<ul class="problems soft"><li>Last night it couldn’t be built: ${esc(p.reason)}</li></ul>` : ''}
     ${state.phase === 'closed' && !p.paused ? `<button class="btn" data-action="planNow" data-id="${p.id}" ${(p.cost || 0) <= state.cash ? '' : 'disabled'}>${(p.cost || 0) <= state.cash ? `Build it now · ${money(p.cost || 0)}` : `Need ${money((p.cost || 0) - state.cash)} more`}</button>` : ''}
+    ${p.kind === 'shape' && !visiting && world.trails.some((t) => t.id === p.trail) ? `<button class="btn secondary" data-action="reshapePlan">Change the width</button>` : ''}
     <div class="row"><button class="btn secondary" data-action="planPause" data-id="${p.id}">${p.paused ? 'Resume' : 'Pause'}</button><button class="btn secondary" data-action="manage" data-v="plans">All blueprints</button></div>
     <button class="link danger-link" data-action="cancelPlan">Cancel this blueprint</button>`;
 }
@@ -5867,7 +6052,7 @@ function pickFeature(p) {
   const A = areaAt(p.x, p.z);
   if (A) return { kind: 'area', obj: A };
   for (const t of realTrails()) {
-    const r = TRAIL_WIDTHS[t.width].hw + 0.6;
+    const r = trailHW(t) + 0.6;
     for (const s of t.samples) {
       const d = distXZ(p, s);
       if (d < r && d < bd) { bd = d; best = { kind: 'trail', obj: t }; }
@@ -5912,7 +6097,7 @@ const trailLenFt = (an) => Math.round(an.len * FT_PER_UNIT / 10) * 10;
 const trailVertFt = (an) => Math.round(an.vert * FT_PER_UNIT / 10) * 10;
 
 function sheetContextKey() {
-  return state.tool === 'explore' ? selected && `${selected.kind}:${selected.obj?.id ?? selected.obj}` : `${state.tool}:${draft.btype || ''}:${draft.moving?.id || draft.movingLift?.id || draft.movingTrail?.id || ''}`;
+  return state.tool === 'explore' ? selected && `${selected.kind}:${selected.obj?.id ?? selected.obj}` : `${state.tool}:${draft.btype || ''}:${draft.moving?.id || draft.movingLift?.id || draft.movingTrail?.id || draft.shaping?.id || ''}`;
 }
 function renderSheet() {
   // Live updates must not replace an editor, dropping focus and turning the next letter into a hotkey.
@@ -5924,6 +6109,7 @@ function renderSheet() {
   else if (state.tool === 'clear') html = landSheet();
   else if (state.tool === 'trail') html = trailDraftSheet();
   else if (state.tool === 'lift') html = liftDraftSheet();
+  else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
@@ -5969,8 +6155,8 @@ function layoutSheet() {
   if (ctx !== sheetContext || sheet.hidden) {
     sheetContext = ctx; sheetAuto = true; sheetMode = 'full';
   }
-  const placing = state.tool === 'trail' || state.tool === 'lift' || (state.tool === 'clear' && state.landMode === 'hub') || (state.tool === 'bld' && draft.btype);
-  if (sheetAuto && phoneSheet() && placing && (draft.pts.length || draft.btype || (areaDraft && areaDraft.cells.size))) sheetMode = 'compact';
+  const placing = state.tool === 'trail' || state.tool === 'lift' || state.tool === 'shape' || (state.tool === 'clear' && state.landMode === 'hub') || (state.tool === 'bld' && draft.btype);
+  if (sheetAuto && phoneSheet() && placing && (draft.pts.length || draft.btype || draft.shaping || (areaDraft && areaDraft.cells.size))) sheetMode = 'compact';
   const head = sheet.querySelector('.sheet-title');
   if (head && !head.querySelector('[data-sheet]')) {
     head.title = 'Drag to move; on phones swipe up or down to resize';
@@ -5989,7 +6175,7 @@ function layoutSheet() {
       const row = el.closest('.row');
       if (row && row.parentElement === sheet) row.classList.add('sheet-min-keep');
     });
-    sheet.querySelectorAll('[data-action="rotB"], [data-action="build"], [data-action="areaBuild"], [data-action="hubUndo"], [data-action="areaClear"], [data-action="areaErase"], [data-action="undo"], [data-action="cancel"], [data-action="trailMoveCancel"], [data-action="trailMoveReset"], [data-action="liftMoveReset"], .problems, .b-rotation').forEach(keep);
+    sheet.querySelectorAll('[data-action="rotB"], [data-action="build"], [data-action="areaBuild"], [data-action="hubUndo"], [data-action="areaClear"], [data-action="areaErase"], [data-action="undo"], [data-action="cancel"], [data-action="trailMoveCancel"], [data-action="trailMoveReset"], [data-action="liftMoveReset"], [data-action="shapeApply"], [data-action="shapeCancel"], .problems, .b-rotation').forEach(keep);
   }
   if (!placing) sheet.querySelectorAll(':scope > .help, :scope > .kv').forEach(el => el.classList.add('sheet-keep'));
   sheetSize(sheetMode, false);
@@ -6079,12 +6265,47 @@ function trailDraftSheet() {
   }
   return `<div class="sheet-title"><h3>${editing ? 'Edit route' : 'New trail'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     ${n ? '' : TRAIL_MODES('trail')}
-    <p class="help">${editing ? 'Drag points to reshape the trail. Tap + between points to add another, then drag it. Zoom in if the points are close together. New clearing and grading are charged at the normal construction price. Old clearing and earthwork remain. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
+    <p class="help">${editing ? 'Drag points to reshape the trail. Tap + between points to add another, then drag it. Zoom in if the points are close together. New clearing is charged at the normal price; grading only where the trail didn’t already run. Machine snow is lost; name, signs and installed equipment stay. Other trails may lose their connections.' : help}</p>
     <div class="field-label">Width</div>
     <div class="seg" role="group" aria-label="Trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
-      `<button data-action="width" data-v="${k}" aria-pressed="${draft.width === k}">${w.label}<small>${fmtFt(widthFt(k))}</small></button>`).join('')}</div>
+      `<button data-action="width" data-v="${k}" aria-pressed="${!draft.ws && draft.width === k}">${w.label}<small>${fmtFt(widthFt(k))}</small></button>`).join('')}</div>
+    ${draft.ws ? '<p class="help">This trail’s shape is kept. Pick a width to make it the same all the way down.</p>' : ''}
     ${body}
     ${editing ? `<div class="row"><button class="btn secondary" data-action="trailMoveCancel">Cancel</button><button class="btn secondary" data-action="trailMoveReset">Reset route</button></div><button class="btn wide" data-action="build" ${info && info.moved && !info.an.problems.length && info.cost <= state.cash ? '' : 'disabled'}>Apply route${info ? ' · ' + money(info.cost) : ''}</button>` : buildRow(info, info && !info.an.problems.length)}`;
+}
+
+const wsRange = (lo, hi) => (Math.abs(hwFt(hi) - hwFt(lo)) < 5 ? fmtFt(hwFt(lo)) : `${fmtFt(hwFt(lo))}–${fmtFt(hwFt(hi))}`);
+const trailWidthText = (t) => (t.ws ? `Shaped · ${wsRange(Math.min(...t.ws), Math.max(...t.ws))}` : `${TRAIL_WIDTHS[t.width].label} · ${fmtFt(widthFt(t.width))}`);
+function shapeSheet() {
+  const t = draft.shaping, info = draft.info;
+  if (!t) return '';
+  const open = planning(), ws = draft.ws;
+  const presetOn = (k) => ws.every((v) => Math.abs(v - TRAIL_WIDTHS[k].hw) < 0.02);
+  let body = '', ok = false;
+  if (info) {
+    ok = info.changed && !info.problems.length;
+    const sm = t.sm && t.sm.on;
+    body = `<dl class="kv">
+      <div><dt>Now</dt><dd>${esc(trailWidthText(t).replace('Shaped · ', ''))}</dd></div>
+      <div><dt>New width</dt><dd>${wsRange(Math.min(...ws), Math.max(...ws))}</dd></div>
+      <div><dt>Grooming</dt><dd>${money(info.groomNew)}/night</dd></div>
+      ${sm ? `<div><dt>Snow guns</dt><dd>${info.gunsNew}</dd></div>` : `<div><dt>Was</dt><dd>${money(info.groomNow)}/night</dd></div>`}
+    </dl>
+    <p class="help">Wider trails feel less crowded, so more skiers pick them and fewer get hurt. Grooming${sm ? ' and snowmaking' : ''} cost more on wider snow.${sm && info.gunsNew !== info.gunsNow ? ` Snowmaking goes from ${info.gunsNow} to ${info.gunsNew} guns.` : ''}</p>
+    ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
+    <div class="costs"><span>Grading new ground</span><span>${money(info.grading)}</span>
+      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.bridgeCost ? `<span>Wider bridge</span><span>${money(info.bridgeCost)}</span>` : ''}${info.gunCost ? `<span>${info.gunsNew - info.gunsNow} more snow guns</span><span>${money(info.gunCost)}</span>` : ''}</div>`;
+  }
+  const cost = info ? info.cost : 0;
+  const label = !info || !info.changed ? 'Drag an edge to start' : open ? `Plan it · ${money(cost)}` : cost > state.cash ? `Need ${money(cost - state.cash)} more` : `Reshape · ${money(cost)}`;
+  return `<div class="sheet-title"><h3>Widen or narrow</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <p class="help">Drag the dots on ${esc(t.name)}’s edges to make each part wider or narrower; the edges blend smoothly between them. You pay only for new ground and trees. Narrowing is free, but trees don’t grow back.${open ? ' The resort is open, so this becomes a blueprint, built tonight.' : ''}</p>
+    <div class="field-label">Make it all</div>
+    <div class="seg" role="group" aria-label="Whole trail width">${Object.entries(TRAIL_WIDTHS).map(([k, w]) =>
+      `<button data-action="shapeAll" data-v="${k}" aria-pressed="${presetOn(k)}">${w.label}<small>${fmtFt(widthFt(k))}</small></button>`).join('')}</div>
+    ${body}
+    <div class="row"><button class="btn secondary" data-action="shapeCancel">Cancel</button><button class="btn secondary" data-action="shapeReset">Reset</button></div>
+    <button class="btn wide" data-action="shapeApply" ${ok && (open || cost <= state.cash) ? '' : 'disabled'}>${label}</button>`;
 }
 
 function liftDraftSheet() {
@@ -6216,7 +6437,7 @@ function trailSheet(t) {
       <div><dt>Vertical</dt><dd>${fmtFt(trailVertFt(an))}</dd></div>
       <div><dt>Average</dt><dd>${Math.round(an.avgGrade * 100)}%</dd></div>
       <div><dt>Steepest</dt><dd>${Math.round(an.maxGrade * 100)}%</dd></div>
-      <div><dt>Width</dt><dd>${TRAIL_WIDTHS[t.width].label} · ${fmtFt(widthFt(t.width))}</dd></div>
+      <div><dt>Width</dt><dd>${esc(trailWidthText(t))}</dd></div>
       <div><dt>Terrain</dt><dd><span class="rsym">${ratingSymbol(an.rating)} ${RATINGS[an.rating].name}</span></dd></div>
     </dl>
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${guests.filter((g) => g.st === 'ski' && g.T === t).length * AGENT}</b> skiing now · <b>${(today.trailRuns[t.id] || 0) * AGENT}</b> runs so far</p>` : ''}
@@ -6227,7 +6448,8 @@ function trailSheet(t) {
       `<button data-action="sign" data-v="${i}" aria-pressed="${sign === i}" aria-label="${r.name}" title="${r.name}">${ratingSymbol(i)}</button>`).join('')}</div>
     <p class="conn">${esc(from)}<br>${esc(to)}</p>
     ${notes.length ? `<ul class="problems soft">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${state.phase === 'closed' && !visiting && !t.virtual ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}
+    ${shapePlanFor(t) ? `<p class="conn">A new width is planned. <button class="link" data-action="planGo" data-id="${shapePlanFor(t).id}">See the blueprint</button></p>` : ''}
+    ${!visiting && !t.virtual ? `<div class="row">${state.phase === 'closed' ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}<button class="btn secondary" data-action="shapeTrail">Widen or narrow</button></div>` : ''}
     ${state.phase !== 'closed' ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
 }
 
@@ -6297,15 +6519,21 @@ sheet.addEventListener('click', (e) => {
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort'].includes(a)) return; // visits are read only
   const obj = selected && selected.obj;
-  if (a === 'width') { draft.width = b.dataset.v; draft.dirty = true; renderSheet(); }
+  if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
   else if (a === 'gradeTrail') { draft.grade = !draft.grade; draft.dirty = true; renderSheet(); }
   else if (a === 'undo') draftUndo();
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
   else if (a === 'liftMoveReset' && draft.movingLift) { const L = draft.movingLift; draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }]; draft.dirty = true; syncHandles(); }
   else if (a === 'moveTrail' && obj) startTrailMove(obj);
+  else if (a === 'shapeTrail' && obj) startShape(obj);
+  else if (a === 'reshapePlan' && obj && obj.kind === 'shape') { const t = world.trails.find((o) => o.id === obj.trail); if (t) startShape(t); }
+  else if (a === 'shapeAll' && draft.shaping) { draft.ws = draft.ws.map(() => TRAIL_WIDTHS[b.dataset.v].hw); draft.dirty = true; }
+  else if (a === 'shapeReset' && draft.shaping) { draft.ws = currentWs(draft.shaping); draft.dirty = true; }
+  else if (a === 'shapeCancel') cancelShape();
+  else if (a === 'shapeApply') shapeDraft();
   else if (a === 'trailMoveCancel') cancelTrailMove();
-  else if (a === 'trailMoveReset' && draft.movingTrail) { draft.pts = draft.movingTrail.pts.map(p => ({ x: p.x, z: p.z })); draft.width = draft.movingTrail.width; draft.grade = false; draft.dirty = true; syncHandles(); renderSheet(); }
+  else if (a === 'trailMoveReset' && draft.movingTrail) { draft.pts = draft.movingTrail.pts.map(p => ({ x: p.x, z: p.z })); draft.width = draft.movingTrail.width; draft.ws = draft.movingTrail.ws ? draft.movingTrail.ws.slice() : null; draft.grade = false; draft.dirty = true; syncHandles(); renderSheet(); }
   else if (a === 'moveLift' && obj) startLiftMove(obj);
   else if (a === 'liftUpOpen' && obj) { liftUpFor = obj.id; renderSheet(); }
   else if (a === 'liftUpClose') { liftUpFor = null; renderSheet(); }
@@ -6322,7 +6550,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
+  else if (a === 'exitTool') { if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -6417,7 +6645,7 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'planGo') {
     const p = world.plans.find((o) => o.id === +b.dataset.id);
-    if (p) { const c = p.kind === 'trail' ? p.samples[Math.floor(p.samples.length / 2)] : p.kind === 'lift' ? { x: (p.a.x + p.b.x) / 2, z: (p.a.z + p.b.z) / 2 } : p; flyTo(c.x, c.z); select({ kind: 'plan', obj: p }); listBack = 'plans'; renderSheet(); }
+    if (p) { const c = p.kind === 'trail' || p.kind === 'shape' ? p.samples[Math.floor(p.samples.length / 2)] : p.kind === 'lift' ? { x: (p.a.x + p.b.x) / 2, z: (p.a.z + p.b.z) / 2 } : p; flyTo(c.x, c.z); select({ kind: 'plan', obj: p }); listBack = 'plans'; renderSheet(); }
   }
   else if (a === 'rerollName' && obj && ['trail', 'lift', 'bld', 'area'].includes(selected.kind)) { obj.name = suggestName(selected.kind, obj); labelsDirty = true; renderSheet(); scheduleSave(); }
   else if (a === 'hubGoals') { select(null); openGoals(); }
@@ -6956,8 +7184,36 @@ function insertTrailPoint(after) {
   return true;
 }
 let dragHandle = null;
+// Two dots per station, one on each edge; dragging either sets that station's width (both edges move).
+function syncShapeHandles() {
+  const n = draft.ws.length;
+  for (let k = 0; k < n; k++) for (const side of [-1, 1]) {
+    const el = document.createElement('div');
+    el.className = 'handle edge'; el.dataset.k = k; el.dataset.side = side;
+    el.setAttribute('aria-hidden', 'true'); el.title = 'Drag to widen or narrow';
+    el.addEventListener('pointerdown', (e) => {
+      e.stopPropagation(); e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      dragHandle = { i: k, el }; el.classList.add('drag');
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragHandle || dragHandle.el !== el || !draft.shaping) return;
+      const p = pickTerrain(e.clientX, e.clientY);
+      if (!p) return;
+      const st = stationAt(draft.shaping.samples, k, n);
+      const d = Math.abs((p.x - st.s.x) * st.px + (p.z - st.s.z) * st.pz);
+      const hw = Math.round(clamp(d, HW_MIN, HW_MAX) * 20) / 20;
+      if (hw !== draft.ws[k]) { draft.ws[k] = hw; draft.dirty = true; }
+    });
+    const end = () => { if (dragHandle && dragHandle.el === el) { dragHandle = null; el.classList.remove('drag'); } };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    handleLayer.appendChild(el);
+  }
+}
 function syncHandles() {
   handleLayer.innerHTML = '';
+  if (draft.shaping) { syncShapeHandles(); return; }
   draft.pts.forEach((pt, i) => {
     const el = document.createElement('div');
     el.className = 'handle' + (i === 0 ? ' first' : '');
@@ -7071,6 +7327,15 @@ function updateLiftHint() {
 }
 function updateHandles() {
   updateLiftHint();
+  if (draft.shaping) {
+    const t = draft.shaping, n = draft.ws.length;
+    for (const el of handleLayer.querySelectorAll('.edge')) {
+      const k = +el.dataset.k, sd = +el.dataset.side, st = stationAt(t.samples, k, n), w = draft.ws[k];
+      const x = st.s.x + st.px * w * sd, z = st.s.z + st.pz * w * sd, p = project(x, heightAt(x, z) + 0.2, z);
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    }
+    return;
+  }
   const n = draft.pts.length;
   for (let i = 0; i < n; i++) {
     const pt = draft.pts[i];
@@ -7095,13 +7360,13 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
-    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
+    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' ? p.name : undefined, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
 }
 let satSpaces = 0;
@@ -7210,7 +7475,7 @@ function lotReserve() {
 function inLotWay(bb) {
   const b = world.buildings.find((B) => boxOverlap(boxOf(B, 0.4), bb));
   if (b) return b.name;
-  const tr = realTrails().find((t) => t.samples.some((p) => boxDist(p, bb) < TRAIL_WIDTHS[t.width].hw));
+  const tr = realTrails().find((t) => t.samples.some((p) => boxDist(p, bb) < sampleHW(t, p)));
   if (tr) return tr.name;
   const lf = world.lifts.find((L) => segNearBox(L.a, L.b, bb, 0.8) || boxDist(L.a, bb) < 2.5 || boxDist(L.b, bb) < 2.5);
   if (lf) return lf.name;
@@ -7350,7 +7615,7 @@ function lotGrowBlock(row, lot = 0) {
 const LOT_WARN = 'Heads up: this is where the main lot grows. You can build here, but you’d have to remove it before adding more main-lot parking.';
 const lotWarnHtml = (on) => (on ? `<p class="help warn lotwarn">${LOT_WARN}</p>` : '');
 const reserveHitsBox = (bb) => lotReserve().some((r) => boxOverlap(bb, r));
-const reserveHitsTrail = (samples, hw) => lotReserve().some((r) => samples.some((p) => boxDist(p, r) < hw));
+const reserveHitsTrail = (samples, hw) => lotReserve().some((r) => samples.some((p) => boxDist(p, r) < (p.hw || hw)));
 const reserveHitsLift = (a, b) => lotReserve().some((r) => segNearBox(a, b, r, 0.8) || boxDist(a, r) < 2.5 || boxDist(b, r) < 2.5);
 const lotGroup = new THREE.Group();
 scene.add(lotGroup);
@@ -9272,7 +9537,7 @@ function drawTorches(n) {
       if (s < 0 || s > T.len) continue;
       // a gentle zigzag, the way a torchlight descent winds down the slope
       const k = Math.min(T.samples.length - 2, Math.floor(s / 0.5)), a = T.samples[k], b = T.samples[k + 1];
-      const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1, side = Math.sin(s * 0.35) * TRAIL_WIDTHS[T.width].hw * 0.45;
+      const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1, side = Math.sin(s * 0.35) * trailHW(T) * 0.45;
       const x = a.x - dz / L * side, z = a.z + dx / L * side, y = heightAt(x, z) + 0.12;
       if (n < MAX_G) writeFig(n++, x, y, z, Math.atan2(dx, dz), 1, TORCH_LOOK, 0.12);
       const fl = 0.85 + Math.random() * 0.15;
@@ -9346,7 +9611,7 @@ const racerCount = () => Math.floor((Math.min(RACE.end, closeTime() - 10) - RACE
 function raceLine(T, s) {
   const k = Math.min(T.samples.length - 2, Math.max(0, Math.floor(s / 0.5))), a = T.samples[k], b = T.samples[k + 1];
   const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1;
-  const amp = s < RACE.gate * 0.5 || s > T.len - RACE.gate ? 0 : TRAIL_WIDTHS[T.width].hw * 0.45;
+  const amp = s < RACE.gate * 0.5 || s > T.len - RACE.gate ? 0 : trailHW(T) * 0.45;
   const side = Math.sin((s - RACE.gate * 0.5) / RACE.gate * Math.PI + Math.PI / 2) * amp;
   return { x: a.x - dz / L * side, z: a.z + dx / L * side, cx: a.x, cz: a.z, nx: -dz / L, nz: dx / L, yaw: Math.atan2(dx, dz) };
 }
@@ -9368,7 +9633,7 @@ function syncRaceCourse() {
     add(new THREE.BoxGeometry(1.3, 0.42, 0.03), mat, p.x, heightAt(p.x, p.z) + 0.82, p.z, p.yaw);
   }
   // the finish: an arch across the trail and fencing down the last stretch
-  const hw = TRAIL_WIDTHS[T.width].hw, f = raceLine(T, T.len - 2.5), tall = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
+  const hw = trailHW(T), f = raceLine(T, T.len - 2.5), tall = new THREE.CylinderGeometry(0.08, 0.08, 2.6, 6);
   for (const o of [-hw - 0.3, hw + 0.3]) { const x = f.cx + f.nx * o, z = f.cz + f.nz * o; add(tall, white, x, heightAt(x, z) + 1.3, z); }
   add(new THREE.BoxGeometry(hw * 2 + 0.8, 0.45, 0.08), red, f.cx, heightAt(f.cx, f.cz) + 2.45, f.cz, f.yaw);
   const rail = new THREE.BoxGeometry(0.05, 0.35, 1);
@@ -9398,11 +9663,11 @@ function drawRace(n) {
     writeFig(n++, p.x, heightAt(p.x, p.z) + 0.12, p.z, Math.atan2(q.x - p.x, q.z - p.z), 0.82, { jc: RACER_JACKETS[k % RACER_JACKETS.length], pc: 0x15171c, hc: 0xf2f2f2 }, 0.35);
   }
   if (t < RACE.start - 30 || t > RACE.end + 20) return n;
-  return drawCrowd(T, n, T.len - 3, TRAIL_WIDTHS[T.width].hw * 0.68 + 0.35, near);
+  return drawCrowd(T, n, T.len - 3, trailHW(T) * 0.68 + 0.35, near);
 }
 // Spectators down both sides of the last stretch of a trail, facing in; they jump when something's happening.
 function drawCrowd(T, n, s0, inner, near) {
-  const hw = TRAIL_WIDTHS[T.width].hw, now = performance.now() / 1000;
+  const hw = trailHW(T), now = performance.now() / 1000;
   for (let i = 0; i < 26 && n < MAX_G; i++) {
     const s = s0 - (i >> 1) * 1.1 - hashR(i + 5) * 0.4, side = i % 2 ? 1 : -1, p = raceLine(T, s);
     const o = side * (inner + hashR(i * 7) * hw * 0.3), x = p.cx + p.nx * o, z = p.cz + p.nz * o;
@@ -9446,7 +9711,7 @@ function syncPond() {
   if (pondMesh) { scene.remove(pondMesh); pondMesh.traverse((o) => o.isMesh && o.geometry.dispose()); pondMesh = null; }
   if (!T || T.len < POND.run + 4) return;
   // a disc draped over the snow, so it sits flat on a slope
-  const hw = TRAIL_WIDTHS[T.width].hw, mid = T.len - POND.at + POND.len / 2, R = 24, rings = 6;
+  const hw = trailHW(T), mid = T.len - POND.at + POND.len / 2, R = 24, rings = 6;
   const g = new THREE.Group(), pos = [], idx = [];
   const at = (u, v) => { const p = raceLine(T, mid + u * POND.len / 2); const x = p.cx + p.nx * v * hw * 0.85, z = p.cz + p.nz * v * hw * 0.85; return [x, heightAt(x, z) + 0.05, z]; };
   pos.push(...at(0, 0));
@@ -9509,7 +9774,7 @@ function drawPond(n) {
       const tStop = run.start + (stopAt - p0) / run.speed, after = t - tStop;
       if (after > 2.5) continue;
       if (!run.dry && !splashSt.done.has(`${state.day}|${k}`)) { const p = raceLine(T, stopAt); splashSt.done.add(`${state.day}|${k}`); splashAt(p.cx, heightAt(p.cx, p.cz), p.cz); }
-      const p = raceLine(T, stopAt), o = run.dry ? 0 : Math.min(1, after / 2.5) * TRAIL_WIDTHS[T.width].hw * 0.95 * (k % 2 ? 1 : -1);
+      const p = raceLine(T, stopAt), o = run.dry ? 0 : Math.min(1, after / 2.5) * trailHW(T) * 0.95 * (k % 2 ? 1 : -1);
       const x = p.cx + p.nx * o, z = p.cz + p.nz * o;
       writeFig(n++, x, heightAt(x, z) + (run.dry ? 0.12 : -0.15 + Math.min(1, after / 2.5) * 0.25), z, p.yaw + (run.dry ? 0 : Math.sign(o || 1) * Math.PI / 2), 1, look, 0);
       near = true;
@@ -9520,7 +9785,7 @@ function drawPond(n) {
     writeFig(n++, p.cx, heightAt(p.cx, p.cz) + (onWater ? 0.06 : 0.12), p.cz, p.yaw, 0.85, look, onWater ? -0.15 : 0.25);
   }
   if (t < POND.start - 30 || t > POND.end + 20) return n;
-  return drawCrowd(T, n, T.len - 1, TRAIL_WIDTHS[T.width].hw * 0.9 + 0.4, near);
+  return drawCrowd(T, n, T.len - 1, trailHW(T) * 0.9 + 0.4, near);
 }
 function pondResults() {
   const T = torchTrail();
@@ -9631,9 +9896,8 @@ function rebuildLights() {
   // Where a pole can't stand: on any trail's snow, under a lift line, or in a building.
   const onSnow = new Map();
   for (const t of realTrails()) {
-    const r = TRAIL_WIDTHS[t.width].hw + 0.35, c = Math.ceil(r);
     for (let i = 0; i < t.samples.length; i += 2) {
-      const sm = t.samples[i];
+      const sm = t.samples[i], r = sampleHW(t, sm) + 0.35, c = Math.ceil(r);
       for (let ix = Math.floor(sm.x) - c; ix <= Math.floor(sm.x) + c; ix++) for (let iz = Math.floor(sm.z) - c; iz <= Math.floor(sm.z) + c; iz++)
         if (Math.hypot(ix + 0.5 - sm.x, iz + 0.5 - sm.z) <= r) { const k = cellKey(ix, iz); if (!onSnow.has(k)) onSnow.set(k, new Set()); onSnow.get(k).add(t); }
     }
@@ -9642,9 +9906,9 @@ function rebuildLights() {
     || world.buildings.some((B) => boxDist({ x, z }, boxOf(B, 0.3)) === 0);
   for (const t of realTrails()) {
     if (!t.lit) continue;
-    const hw = TRAIL_WIDTHS[t.width].hw, n = Math.max(2, Math.round(t.len / LIGHT_GAP));
+    const n = Math.max(2, Math.round(t.len / LIGHT_GAP));
     for (let k = 0; k <= n && lampSpots.length < MAX_LIGHTS; k++) {
-      const i = Math.min(t.samples.length - 2, Math.round(k / n * (t.samples.length - 2))), a = t.samples[i], b = t.samples[i + 1];
+      const i = Math.min(t.samples.length - 2, Math.round(k / n * (t.samples.length - 2))), a = t.samples[i], b = t.samples[i + 1], hw = sampleHW(t, a);
       let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
       // alternate sides; if that side is on another trail, under a lift or in a building, try the other, else skip
       let side = k % 2 ? 1 : -1, x = 0, z = 0, ok = false;
@@ -9661,7 +9925,7 @@ function rebuildLights() {
       lampSpots.push({ x: x + dz * side * 0.45, y: heightAt(x, z) + 2.3, z: z - dx * side * 0.45, t });
       autoPoles.push({ x, z });
     }
-    const pool = new THREE.Mesh(ribbonGeometry(t.samples, hw * 0.95, edgeTint(trailSign(t))), POOL_MAT);
+    const pool = new THREE.Mesh(ribbonGeometry(t.ws ? t.samples.map((sm) => ({ ...sm, hw: sm.hw * 0.95 })) : t.samples, trailHW(t) * 0.95, edgeTint(trailSign(t))), POOL_MAT);
     pool.renderOrder = 3; pool.userData.t = t;
     litPools.add(pool);
   }
@@ -9954,7 +10218,7 @@ function guestPos(g) {
     const T = g.T, n = T.samples.length, f = g.s / 0.5, i = Math.min(n - 2, Math.floor(f)), t = Math.min(1, f - i);
     const a = T.samples[i], b = T.samples[i + 1];
     let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-    const hw = TRAIL_WIDTHS[T.width].hw;
+    const hw = a.hw ? lerp(a.hw, b.hw || a.hw, t) : trailHW(T);
     const wave = Math.sin(g.s * g.tf + g.ph);
     const off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw;
     const x = lerp(a.x, b.x, t) - dz * off, z = lerp(a.z, b.z, t) + dx * off;
@@ -10007,7 +10271,7 @@ function drawPeople() {
     figMeshes[k].instanceMatrix.needsUpdate = true;
     figMeshes[k].instanceColor.needsUpdate = true;
   }
-  for (const t of world.trails) t.crowd = t.count * AGENT / Math.max(4, t.an.len * TRAIL_WIDTHS[t.width].hw * 0.06);
+  for (const t of world.trails) t.crowd = t.count * AGENT / Math.max(4, t.an.len * (t.hwAvg || trailHW(t)) * 0.06);
   let c = 0;
   for (const car of cars) {
     if (c >= MAX_CARS) break;
@@ -11649,7 +11913,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (lotBoxes().some((lb) => boxOverlap(bb, lb))) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
   if (other) problems.push(`Too close to ${other.name}.`);
-  const tr = realTrails().find((tt) => tt.samples.some((s) => boxDist(s, bb) < TRAIL_WIDTHS[tt.width].hw * 0.85));
+  const tr = realTrails().find((tt) => tt.samples.some((s) => boxDist(s, bb) < sampleHW(tt, s) * 0.85));
   if (tr) problems.push(`That overlaps ${tr.name}.`);
   const lf = world.lifts.find((L) => segNearBox(L.a, L.b, bb, 0.8) || boxDist(L.a, bb) < 2.5 || boxDist(L.b, bb) < 2.5);
   if (lf) problems.push(`Too close to ${lf.name}.`);
@@ -11661,7 +11925,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
 }
 // Trails and lifts can't be built through buildings either.
 function buildingInTheWay(samples, pad) {
-  return world.buildings.find((b) => { const bb = boxOf(b); return samples.some((s) => boxDist(s, bb) < pad); });
+  return world.buildings.find((b) => { const bb = boxOf(b); return samples.some((s) => boxDist(s, bb) < (s.hw ? s.hw * 0.85 : pad)); });
 }
 
 /* ---------- Building instances ---------- */
@@ -13493,7 +13757,7 @@ function refreshSnowState(w) {
 }
 
 /* ---------- Snowmaking ---------- */
-function gunCount(t) { return isHub(t) ? Math.max(1, Math.ceil(t.cells.length / 60)) : Math.max(2, Math.ceil(t.an.len / GUN_SPACING)); }
+function gunCount(t) { return isHub(t) ? Math.max(1, Math.ceil(t.cells.length / 60)) : Math.max(2, Math.ceil(t.an.len / GUN_SPACING * widthFactor(t) - 0.001)); }
 function snowmakingCost(t) { return gunCount(t) * GUN_COST + Math.round((isHub(t) ? t.cells.length : t.an.len) * PIPE_PER_UNIT / 100) * 100; }
 function smWants(t) {
   const sm = t.sm;
@@ -13644,9 +13908,9 @@ function rebuildGuns() {
   gunSpots = [];
   for (const t of world.trails) {
     if (!t.sm || !t.sm.on) continue;
-    const hw = TRAIL_WIDTHS[t.width].hw, n = gunCount(t), step = Math.max(1, Math.floor((t.samples.length - 1) / n));
+    const n = gunCount(t), step = Math.max(1, Math.floor((t.samples.length - 1) / n));
     for (let k = 0; k < n && gunSpots.length < MAX_GUNS; k++) {
-      const i = Math.min(t.samples.length - 2, k * step + 1), a = t.samples[i], b = t.samples[i + 1];
+      const i = Math.min(t.samples.length - 2, k * step + 1), a = t.samples[i], b = t.samples[i + 1], hw = sampleHW(t, a);
       let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
       const side = k % 2 ? 1 : -1, off = side * (hw + 0.25);
       const x = a.x - dz * off, z = a.z + dx * off;
@@ -13708,7 +13972,7 @@ function updatePlumes(time) {
 function finishNight() {
   const w = todayWx();
   let groom = 0;
-  for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += Math.round(t.an.len * GROOM_PER_UNIT); t.icy = false; }
+  for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += groomCost(t); t.icy = false; }
   for (const a of world.areas) if (!isGlade(a) && !isHub(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
   for (const t of world.trails) if (t.virtual && !t.glade) t.icy = false;
   state.cash -= groom;
@@ -14117,7 +14381,7 @@ function trailSnowSection(t) {
   return `<div class="field-label">Snow</div>
     <div class="status">${status}<span class="muted">${inch(t.base || 0)} base · needs ${inch(need)}</span></div>
     <dl class="kv"><div><dt>Natural snow</dt><dd>${inch(t.nat || 0)}</dd></div><div><dt>Machine snow</dt><dd>${inch(t.machine || 0)}</dd></div></dl>
-    <div class="toggle-row"><div><b>Grooming</b><span>${t.groomed ? `Groomed nightly · ${money(Math.round(t.an.len * GROOM_PER_UNIT))}/night` : 'Left ungroomed: powder after storms, moguls later'}</span></div>
+    <div class="toggle-row"><div><b>Grooming</b><span>${t.groomed ? `Groomed nightly · ${money(groomCost(t))}/night` : 'Left ungroomed: powder after storms, moguls later'}</span></div>
       <button class="switch" role="switch" aria-checked="${!!t.groomed}" aria-label="Groom this trail" data-action="groom"><i></i></button></div>
     <div class="field-label">Snowmaking</div>
     ${smHtml}`;
@@ -14621,7 +14885,8 @@ function applyTerrainChange(i0, j0, i1, j1) {
   renderer.shadowMap.needsUpdate = true;
 }
 function resampleTrail(t) {
-  t.samples = trailSamples(t.pts, TRAIL_WIDTHS[t.width].hw);
+  t.samples = trailSamples(t.pts, trailHW(t), t.ws);
+  measureWidth(t);
   t.an = analyzeTrail(t.samples);
   t.len = (t.samples.length - 1) * 0.5;
   t.gr = t.samples.map((_, i) => {
@@ -14645,7 +14910,7 @@ function rebuildBuilding(B) {
 // Everything resting on the changed ground follows it.
 function refreshOnTerrain(i0, j0, i1, j1, skip) {
   const box = { x0: i0 - HALF - 1, x1: i1 - HALF + 1, z0: j0 - HALF - 1, z1: j1 - HALF + 1 };
-  for (const t of world.trails) if (t.samples.some((s) => boxDist(s, box) < TRAIL_WIDTHS[t.width].hw + 1)) resampleTrail(t);
+  for (const t of world.trails) if (t.samples.some((s) => boxDist(s, box) < trailHW(t) + 1)) resampleTrail(t);
   for (const L of world.lifts) if (segNearBox(L.a, L.b, box, 3)) rebuildLift(L);
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
@@ -15515,7 +15780,7 @@ function trailsList() {
   const ts = realTrails();
   if (!ts.length) return `<p class="help">No trails yet. Build one with the Trail tool: start at the top of a lift and finish at the base.</p>`;
   const v = listView.trails, open = ts.filter((t) => runnable(t) && t.reachable && t.returns);
-  const groomCost = ts.filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + Math.round(t.an.len * GROOM_PER_UNIT), 0);
+  const groomTonight = ts.filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + groomCost(t), 0);
   const skiing = new Map();
   for (const g of guests) if (g.st === 'ski' && g.T) skiing.set(g.T.id, (skiing.get(g.T.id) || 0) + AGENT);
   const runs = state.phase === 'open' && today ? today.trailRuns : {};
@@ -15538,7 +15803,7 @@ function trailsList() {
     </li>`;
   }).join('');
   const sorts = { status: 'Status', name: 'Name', rating: 'Difficulty', depth: 'Snow depth' };
-  return `<p class="lsum"><b>${open.length}</b> of ${ts.length} open · average base <b>${inch(avgBase())}</b> · grooming tonight <b>${money(groomCost)}</b></p>
+  return `<p class="lsum"><b>${open.length}</b> of ${ts.length} open · average base <b>${inch(avgBase())}</b> · grooming tonight <b>${money(groomTonight)}</b></p>
     <div class="lbar">${listTabs('trails', [['all', `All ${ts.length}`], ['open', `Open ${open.length}`], ['care', `Needs attention ${care.length}`]])}
       <button class="chip sort" data-action="listSort">Sort: ${sorts[v.sort]}</button></div>
     ${list.length ? `<ul class="llist">${rows}</ul>` : '<p class="help">Nothing here right now.</p>'}
@@ -16201,7 +16466,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
-    if (draft.movingTrail) cancelTrailMove();
+    if (draft.shaping) cancelShape();
+    else if (draft.movingTrail) cancelTrailMove();
     else if (draft.movingLift) cancelLiftMove();
     else if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
   }
@@ -17627,6 +17893,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.67', date: 'Oct 31, 2026', title: 'Widen and shape trails', items: [
+    'Tap a trail and choose Widen or narrow, then drag the dots on its edges to make each part wider or narrower: a wide top, a narrow chute, whatever you like.',
+    'You only pay for new ground and the trees cleared there. Narrowing is free.',
+    'While the resort is open, a new width becomes a blueprint and is built that night.',
+    'Wider trails feel less crowded, so more skiers choose them and fewer get hurt. Grooming and snowmaking now cost more on wide trails and less on narrow ones; medium trails cost the same as before.',
+    'Edit route now charges grading only for ground the trail didn’t already cover, instead of the whole trail again.',
+  ] },
   { v: '2.66.1', date: 'Oct 30, 2026', title: 'Guest areas on any slope', items: [
     'Guest areas can now be painted on ground of any steepness, so base villages built on a slope can become guest areas. Guests just walk up steep ground more slowly.',
     'Steep ground shows amber while painting. Level steep ground is still there if you want guests to walk faster.',
