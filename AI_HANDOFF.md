@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-10-31)
 
-**Live: 2.67.** Phil approved publication; full GitHub Tests run 41218089205 passed on `0318b61cd7c739f016a827daecaed18bf1fa17c0`.
+**Live: 2.67.1.** Phil approved publication; full GitHub Tests run 41241939149 passed on `f076fa54610ee239917ff202d78a9fa99f1328b5`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.67.1: guest areas: guests walk around buildings; a full seat keeps guests in their area and off-area guests step back on (no more
+  summit "hike outs"); a bare base always shows on the day report. See Claude's note.
 - 2.67: widen and shape trails (drag edge dots per section; pay only for new ground; blueprint while open); grooming and snow guns
   scale with width (Medium unchanged); Edit route grades only new ground. See Claude's note.
 - 2.66.1: guest areas on any slope (amber hint, optional leveling, slower uphill walking); fixed hungry skiers looping
@@ -100,7 +102,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-12363f64-hnbawl` | Claude | **2.67.1 guest area walking fixes** (preview, waiting for Phil). | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -261,7 +262,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-10-31 · Claude · Guest area walking fixes (2.67.1 preview)
+### 2026-10-31 · Claude · Guest area walking fixes (shipped in 2.67.1)
 - **Two player reports (same Twin Notch resort, public save).** Rebuilt it on fresh terrain from its lifts, trails, buildings and
   area cells (read through SQL, kept out of the repo; this container can't reach Supabase or mtmogul.com over HTTP) and ran a 4,400-guest day.
 - **"Floating" down from the summit, thought "The lift was closed, so I had to hike out":** `seatTaken` (2.66) sent guests from a full seat in an area
