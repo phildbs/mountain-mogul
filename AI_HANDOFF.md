@@ -274,6 +274,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   a door facing off the area still connects); `hubRoute`/`hubSees` use it, falling back to all painted cells (`A.routesAll`) if a building cuts
   the only way or a guest stands under one. `basePoint` and `hubBaseCell` now prefer walkable cells (the old base point sat under a ski school,
   so everyone heading home cut through it). 42% → under 0.5%. "Turning around at the door" was mostly restroom stops (30% of fine-dining visits).
+- **`17-base-snow` flake fixed (it failed ~40% first try on main too):** on busy first days five or more priority-4/5 notes (goal, rescue,
+  operations, lot full, left early) pushed the bare-base note (4, added late) past `NOTES_SHOWN` into "More about today". Now priority 5.
+  Same 12 seeded days: hidden 5/12 → 0/12.
 - Walkers may now step one square off the painted area around a building. Big 18-area resort: day time and `computeNetwork` unchanged. Test 123.
 
 ### 2026-10-31 · Claude · Widen and shape trails (shipped in 2.67)
