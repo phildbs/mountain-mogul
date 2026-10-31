@@ -90,7 +90,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch. Also the special decoration earned for 3 invited friends (milestone is saved;
   design deferred by Phil).
-- Trail/glade popularity report, split by day and evening, with reasons (requested, not built).
+- Trail/glade popularity: 2.68 preview adds the report page and day/evening split; "reasons" are only a generic quiet-trail hint so far.
 - Custom mountain fixes, so creation can be turned back on (`CUSTOM_OFF`).
 - New-player onboarding, and a pass over logged errors on the stats page.
 - Roadmap ideas added by Phil: skier obstacle avoidance, paintable base areas (real walkable zones),
@@ -102,6 +102,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-185ec579-18c573` | Claude | 2.68 trail popularity: Popular sort, glades in the Trails list, batch close/reopen for bad snow, report Trails page, whole-day traffic map. | Oct 31, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
 
 ## Known issues
@@ -261,6 +262,25 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-10-31 · Claude · Trail popularity and batch closing (2.68 preview)
+- **Player request:** sort trails by popularity, batch close/open trails and glades for conditions, an end-of-day popularity summary,
+  and a whole-day heatmap. Phil approved all of Claude's picks: condition buttons + "all shown" (no tick boxes), heat along each trail,
+  rank by runs, no automatic close rule yet.
+- **Trails list** (`trailsList`) now lists items from `runItems()`: trails plus glades (`{kind, id, name, t|A, lines}`); use `itemOpen`,
+  `itemStatus`, `itemRuns`, `itemRunnable`. New Glades tab, Sort: Popular (second in the cycle; `19-manage` updated). Batch buttons:
+  `bulkOpen` with `bad` / `good` / `open` / `close` → `setItemsOpen` (one Undo overnight, one `computeNetwork` for glades).
+  **Close icy and thin** marks each with optional saved `snowClosed` (trail and area); **Reopen good ones** brings back only marked
+  ones with good snow, so trails closed on purpose stay shut. Opening or closing by hand clears the mark.
+- **Whole-day traffic:** `heatSample` runs once a game minute (`today.heatT`) and counts skiers in `HEAT_BINS` (16) sections per
+  trail (`today.heat`). At day end `state.dayUse = { day, runs, night, heat }` (saved in clock, about 5 KB on 110 trails, **not** in report
+  history). `overlay.traffic` is now `false | 'now' | 'day'`; `cycleTraffic` steps through them. `prepHeat` normalises
+  skier-minutes per area to the top 5% (red); `paintHeat` writes ribbon vertex colours and restores a saved copy (`t.baseCol`) when off.
+  Glades have no ribbon, so they aren't on the heat map (they are in the list and report).
+- **Report:** `r.trailsDay` (top 5, quiet open items under 1% of runs, totals, night runs), a Trails tab, a "Busiest trails" line in
+  the summary and a **See today's traffic on the map** button (next morning, Popular sort, Day traffic on).
+- **Measured** (`tests/heat-bench.mjs`, the 110-trail resort, same seed; Juniper's lot caps the day near 1,400 guests): guests, satisfaction,
+  injuries and profit identical to main; painting the map 8 ms; list render 13 ms; report adds 350 bytes. Test 124.
 
 ### 2026-10-31 · Claude · Guest area walking fixes (shipped in 2.67.1)
 - **Two player reports (same Twin Notch resort, public save).** Rebuilt it on fresh terrain from its lifts, trails, buildings and

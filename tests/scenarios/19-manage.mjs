@@ -26,7 +26,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`world.trails[1].sm.mode`), 'off', 'bulk snow guns off');
   await g.click('[data-action=listFilter][data-k=trails][data-v=care]');
   await g.click('[data-action=listSort]');
-  eq(await g.ev(`[listView.trails.filter, listView.trails.sort]`), ['care', 'name'], 'filter and sort');
+  eq(await g.ev(`[listView.trails.filter, listView.trails.sort]`), ['care', 'popular'], 'filter and sort (Status, then Popular)');
   await g.click('[data-action=listFilter][data-k=trails][data-v=all]');
 
   // tapping a row opens the trail, with a way back

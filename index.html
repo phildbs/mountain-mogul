@@ -233,6 +233,9 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 #tManage { display: none; }
 .dock .ph { display: none; }
 .cam-btn.layer-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+/* whole-day traffic: a small "Day" tag on the button */
+#tTraffic { position: relative; }
+#tTraffic.day::after { content: "Day"; position: absolute; right: -3px; bottom: -3px; font: 700 8.5px/1 var(--ui); padding: 2px 3px; border-radius: 4px; background: var(--ink); color: #fff; pointer-events: none; }
 .undofab { left: calc(96px + env(safe-area-inset-left, 0px)) !important; }
 .tut { left: calc(96px + env(safe-area-inset-left, 0px)) !important; }
 .legend { left: auto !important; right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(196px + env(safe-area-inset-bottom, 0px)) !important; }
@@ -1158,6 +1161,12 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .rp-hours > div { display: grid; grid-template-columns: 52px 1fr 64px 70px; align-items: center; gap: 8px; font-size: 12.5px; }
 .rp-hours i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
 .rp-hours b { text-align: right; font-variant-numeric: tabular-nums; } .rp-hours small { color: var(--ink-2); }
+.rp-trails { display: grid; gap: 4px; margin-top: 4px; }
+.rp-trails > div { display: grid; grid-template-columns: 16px minmax(0, 1.4fr) 1fr 48px 58px; align-items: center; gap: 8px; font-size: 12.5px; }
+.rp-trails .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; } .rp-trails .nm small { font-weight: 400; color: var(--ink-2); }
+.rp-trails i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+.rp-trails b { text-align: right; font-variant-numeric: tabular-nums; } .rp-trails small { color: var(--ink-2); }
+.rp-hero .rp-name { font-size: 15px; overflow-wrap: anywhere; }
 .rp-hero .pos { color: #1f7a42; } .rp-hero .neg { color: #9a3326; }
 .rp-lines { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .rp-lines .h { grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-top: 6px; }
@@ -3013,7 +3022,7 @@ function useSlot(id, sv, then) {
 function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
-      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, prices: state.prices,
+      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
@@ -3027,7 +3036,7 @@ function saveData(withSim) {
 function clearSave() { if (REFERRAL_PREVIEW) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
-  clearUndo();
+  clearUndo(); heatStamp = null;
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
   state.cash = START_CASH; state.cleared = 0; state.sandbox = false; // the save's own setting comes back with its clock below
@@ -3845,10 +3854,10 @@ const TRAFFIC_LO = new THREE.Color(0xffffff), TRAFFIC_MID = new THREE.Color(0xff
 function styleTrail(t) {
   if (t.virtual) { t.mesh.visible = false; return; } // lines inside a learning area aren't drawn
   const sel = selected && selected.obj === t;
-  if (overlay.traffic && state.phase === 'open' && t.open) {
-    const c = clamp(t.crowd || 0, 0, 2);
-    t.mesh.material.color.copy(c < 1 ? TRAFFIC_LO.clone().lerp(TRAFFIC_MID, c) : TRAFFIC_MID.clone().lerp(TRAFFIC_HI, c - 1));
-  } else t.mesh.material.color.set(t.open ? 0xffffff : 0xc4cad4);
+  if (overlay.traffic === 'now' && state.phase === 'open' && t.open) t.mesh.material.color.copy(trafficCol(clamp(t.crowd || 0, 0, 2), new THREE.Color()));
+  else t.mesh.material.color.set(t.open ? 0xffffff : 0xc4cad4);
+  if (overlay.traffic === 'day') prepHeat();
+  paintHeat(t, overlay.traffic === 'day');
   const look = trailCoverLook(t);
   t.mesh.material.opacity = look.op;
   t.mesh.visible = look.op > 0.02;
@@ -3861,6 +3870,63 @@ function refreshTrailMesh(t, idx) {
   t.mesh.geometry.dispose();
   const sidx = idx || surfaceIndex();
   t.mesh.geometry = ribbonGeometry(t.samples, trailHW(t), edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
+  if (overlay.traffic === 'day') paintHeat(t, true);
+}
+// Traffic colours: white (quiet) through yellow to red (crowded), for c from 0 to 2.
+const trafficCol = (c, out) => (c < 1 ? out.copy(TRAFFIC_LO).lerp(TRAFFIC_MID, c) : out.copy(TRAFFIC_MID).lerp(TRAFFIC_HI, c - 1));
+/* Whole-day traffic: once a game minute heatSample notes where along each trail every skier is, in
+   HEAT_BINS sections from top to bottom. The map colours each section by skier-minutes per square unit,
+   against the busiest sections on this mountain (red = the top 5%). While open it shows today so far;
+   overnight, the last day (state.dayUse). */
+const HEAT_BINS = 16;
+function heatSample() {
+  const h = today.heat || (today.heat = {});
+  for (const g of guests) {
+    const T = g.st === 'ski' && g.T;
+    if (!T || T.virtual || !(T.len > 0)) continue;
+    const b = clamp(Math.floor(g.s / T.len * HEAT_BINS), 0, HEAT_BINS - 1);
+    (h[T.id] || (h[T.id] = new Array(HEAT_BINS).fill(0)))[b]++;
+  }
+}
+const heatSource = () => (state.phase === 'open' ? today && today.heat : state.dayUse && state.dayUse.heat) || null;
+let heatStamp = null, heatVals = new Map();
+function prepHeat() {
+  const src = heatSource(), stamp = src ? `${state.phase === 'open' ? 'o' + today.heatT : 'd' + state.dayUse.day}:${world.trails.length}` : null;
+  if (stamp === heatStamp) return false;
+  heatStamp = stamp; heatVals = new Map();
+  if (!src) return true;
+  const ds = [];
+  for (const t of realTrails()) {
+    const h = src[t.id];
+    if (!h) continue;
+    const area = Math.max(1, t.an.len / HEAT_BINS * 2 * (t.hwAvg || trailHW(t))), v = h.map((c) => c / area);
+    heatVals.set(t.id, v);
+    for (const x of v) if (x > 0) ds.push(x);
+  }
+  ds.sort((a, b) => a - b);
+  const top = ds.length ? ds[Math.min(ds.length - 1, Math.floor(ds.length * 0.95))] : 1;
+  for (const v of heatVals.values()) for (let i = 0; i < v.length; i++) v[i] = clamp(v[i] / top * 2, 0, 2);
+  return true;
+}
+// Paint the heat into the ribbon's vertex colours, keeping a copy of the normal colours to put back.
+function paintHeat(t, on) {
+  if (t.virtual || !t.mesh) return;
+  const geo = t.mesh.geometry, col = geo.attributes.color;
+  if (!on) {
+    if (t.heatGeo === geo && t.baseCol) { col.array.set(t.baseCol); col.needsUpdate = true; }
+    t.heatGeo = null; t.baseCol = null;
+    return;
+  }
+  if (t.heatGeo !== geo) { t.baseCol = col.array.slice(); t.heatGeo = geo; }
+  const v = heatVals.get(t.id), n = t.samples.length, m = ACROSS.length, a = col.array, c = paintHeat.c || (paintHeat.c = new THREE.Color());
+  if (a.length < n * m * 4) return;
+  for (let i = 0; i < n; i++) {
+    let x = 0;
+    if (v) { const f = i / Math.max(1, n - 1) * HEAT_BINS - 0.5, b0 = clamp(Math.floor(f), 0, HEAT_BINS - 1), b1 = Math.min(HEAT_BINS - 1, b0 + 1); x = lerp(v[b0], v[b1], clamp(f - b0, 0, 1)); }
+    trafficCol(x, c);
+    for (let k = 0; k < m; k++) { const o = (i * m + k) * 4; a[o] = c.r; a[o + 1] = c.g; a[o + 2] = c.b; }
+  }
+  col.needsUpdate = true;
 }
 function removeTrail(t) {
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
@@ -6713,7 +6779,7 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'liftColor' && selected?.kind === 'lift') setLiftColor(obj, +b.dataset.v);
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
-  else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; computeNetwork(); scheduleSave(); renderSheet(); }
+  else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; obj.snowClosed = undefined; computeNetwork(); scheduleSave(); renderSheet(); }
   else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
   else if (a === 'manage') openManage(b.dataset.v);
   else if (a === 'landSel') { landSel = landSel === b.dataset.v ? null : b.dataset.v; renderSheet(); }
@@ -6725,8 +6791,10 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'goTo') goToFeature(b.dataset.k, +b.dataset.id);
   else if (a === 'buildDecor') pickBuilding('lamp');
   else if (a === 'listFilter') { listView[b.dataset.k].filter = b.dataset.v; renderSheet(); }
-  else if (a === 'listSort') { const o = ['status', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
+  else if (a === 'listSort') { const o = ['status', 'popular', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'qOpen') { const t = trailById(+b.dataset.id); if (t) setOpen('trail', t, !t.open); }
+  else if (a === 'qGlade') { const A = areaById(+b.dataset.id); if (isGlade(A)) { pushUndo(A.closed ? 'opening a glade' : 'closing a glade'); A.closed = !A.closed; A.snowClosed = undefined; computeNetwork(); labelsDirty = true; scheduleSave(); renderSheet(); } }
+  else if (a === 'bulkOpen') { const k = b.dataset.v, shown = listedItems(); setItemsOpen(k === 'bad' ? toCloseBad() : k === 'good' ? toReopen() : k === 'open' ? shown.filter((it) => !itemOpen(it)) : shown.filter(itemOpen), k === 'good' || k === 'open', k === 'bad'); }
   else if (a === 'qLift') { const L = liftById(+b.dataset.id); if (L) setOpen('lift', L, !L.open); }
   else if (a === 'qGroom') { const t = trailById(+b.dataset.id); if (t) { t.groomed = !t.groomed; updateTrailSnow(t, todayWx()); renderSheet(); scheduleSave(); } }
   else if (a === 'qSm') { const t = trailById(+b.dataset.id); if (t && t.sm) { t.sm.mode = SM_NEXT[t.sm.mode] || 'auto'; renderSheet(); scheduleSave(); } }
@@ -7387,10 +7455,10 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
-    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined })),
+    areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' ? p.name : undefined, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
@@ -7464,7 +7532,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -9168,6 +9236,7 @@ function simStep(dt) {
   for (const c of cars) updateCar(c, dt);
   cars = cars.filter((c) => c.st !== 'gone');
   for (let i = 0; i < guests.length; i++) if (!guests[i].gone) updateGuest(guests[i], dt);
+  if (state.time >= (today.heatT || 0)) { today.heatT = Math.floor(state.time) + 1; heatSample(); }
   if (guests.some((g) => g.gone)) guests = guests.filter((g) => !g.gone);
   if (onMountain > today.peak) today.peak = onMountain;
   if (state.time >= closeTime() && !today.closed) {
@@ -9314,6 +9383,9 @@ function endDay() {
   }
   let popular = null;
   for (const t of realTrails()) { const n = (today.trailRuns[t.id] || 0) * AGENT; if (n && (!popular || n > popular.n)) popular = { name: t.name, n }; }
+  // Kept overnight (not in the report history): each trail's runs and where skiers were, for the Popular sort and the traffic map.
+  state.dayUse = { day: today.day, runs: { ...today.trailRuns }, night: { ...today.night.runs }, heat: today.heat || {} };
+  const trailsDay = trailsDayReport();
   state.lastReport = {
     event: evToday ? evToday.type : null,
     liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
@@ -9330,7 +9402,7 @@ function endDay() {
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
-    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular,
+    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay,
     meals: today.meals ? { ...today.meals } : null,
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
@@ -9340,6 +9412,7 @@ function endDay() {
   for (const B of world.buildings) { const y = B.yday; initBldSim(B); B.yday = y; }
   for (const s of stalls) s.car = null;
   state.phase = 'report';
+  if (overlay.traffic) for (const t of world.trails) styleTrail(t);
   recordDay(state.lastReport);
   Object.assign(state.lastReport, { when: dateLabel(state.day), season: state.season });
   const hist = state.history || (state.history = []);
@@ -9889,6 +9962,17 @@ function nightCost(lv) {
   const lights = Math.round((lit.reduce((a, t) => a + t.len, 0) + extra) * LIGHT_HOUR_UNIT * hours * MOUNTAIN.costs);
   const staff = Math.round((NIGHT_BASE_HR + NIGHT_LIFT_HR * world.lifts.filter((L) => L.open && liftLit(L)).length) * hours * MOUNTAIN.costs * lv.cost);
   return { lights, staff };
+}
+// The day report's Trails page: the five most-skied trails and glades, and open ones hardly anyone skied.
+function trailsDayReport() {
+  const night = today.night.runs || {};
+  const xs = runItems().map((it) => ({ it, n: itemRuns(it, today.trailRuns), nn: itemRuns(it, night) }));
+  const total = xs.reduce((a, x) => a + x.n, 0);
+  if (!total) return null;
+  const top = xs.filter((x) => x.n).sort((a, b) => b.n - a.n || a.it.name.localeCompare(b.it.name)).slice(0, 5)
+    .map(({ it, n, nn }) => ({ name: it.name, sign: itemSign(it), glade: it.kind === 'glade' || undefined, n, night: nn || undefined }));
+  const quiet = xs.filter((x) => itemRunnable(x.it) && x.n < total * 0.01).sort((a, b) => a.n - b.n || a.it.name.localeCompare(b.it.name));
+  return { total, night: xs.reduce((a, x) => a + x.nn, 0), skied: xs.filter((x) => x.n).length, of: xs.length, top, quiet: quiet.slice(0, 6).map((x) => x.it.name), quietN: quiet.length };
 }
 function nightReport() {
   if (!nightEnd()) return null;
@@ -15208,6 +15292,12 @@ function skipToLastCall() {
 }
 document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => { b.onclick = () => { state.speed = +b.dataset.s; refreshTimebar(true); }; });
 $('rpBody').addEventListener('click', (e) => {
+  if (e.target.closest('[data-rp=heat]') && state.phase === 'report') {
+    autoDays = 0; cancelAuto(); nextDay();
+    if (state.phase !== 'closed') return;
+    listView.trails.sort = 'popular'; recenter(); setTraffic('day');
+    return;
+  }
   if (!e.target.closest('[data-rp=area]') || state.phase !== 'report') return;
   autoDays = 0; cancelAuto();
   nextDay(); openAreaTool();
@@ -15515,7 +15605,8 @@ function showReport(r = state.lastReport, past = false) {
   const tipNums = new Set((tip || '').match(/\d[\d,]{1,}/g) || []);
   const shortNotes = notes.filter((n) => !(n.match(/\d[\d,]{1,}/g) || []).some((x) => tipNums.has(x))).slice(0, 3);
   const extras = [r.apres && `Après ${signedMoney(r.apres.profit)}`, r.night && `Night skiing ${signedMoney(r.night.profit)}`].filter(Boolean);
-  const tabs = [['day', 'Day'], ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
+  const td = r.trailsDay && r.trailsDay.top && r.trailsDay.top.length ? r.trailsDay : null;
+  const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
   $('rpBody').innerHTML = `
     <div class="rp-head"><div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
       <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
@@ -15531,6 +15622,7 @@ function showReport(r = state.lastReport, past = false) {
       <p class="rp-money">Revenue <b>${money(revTotal)}</b> · Expenses <b>${money(exp)}</b>${extras.length ? ` · ${extras.join(' · ')}` : ''}</p>
       ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
       ${shortNotes.length ? `<ul class="rp-notes">${shortNotes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+      ${td ? `<p class="rp-money">Busiest trails: ${td.top.slice(0, 3).map((x) => `<b>${esc(x.name)}</b>`).join(', ')} <button class="link" data-rpgo="trails">More ›</button></p>` : ''}
       <button class="link" data-rpview="full">See the full report ›</button>
     </div>
     <div class="rp-full">
@@ -15553,6 +15645,7 @@ function showReport(r = state.lastReport, past = false) {
     <p class="help">Reputation: <b>${repWordOf(r.rep)}</b>. Happy guests bring more visitors on future days.</p>
     </div>
     </div>
+    ${td ? `<div class="rp-page" data-page="trails" hidden>${trailsPageHtml(r, past)}</div>` : ''}
     ${r.apres ? `<div class="rp-page" data-page="apres" hidden>${apresPageHtml(r)}</div>` : ''}
     ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}`;
   applyRpView();
@@ -15588,6 +15681,14 @@ function applyRpView() {
   }
 }
 $('rpBody').addEventListener('click', (e) => {
+  const go = e.target.closest('[data-rpgo]');
+  if (go) {
+    try { localStorage.setItem('mm.rpView', 'full'); } catch (err) { /* ignore */ }
+    applyRpView();
+    const t = $('rpBody').querySelector(`[data-rptab="${go.dataset.rpgo}"]`);
+    if (t) t.click();
+    return;
+  }
   const v = e.target.closest('[data-rpview]');
   if (v) { try { localStorage.setItem('mm.rpView', v.dataset.rpview); } catch (err) { /* ignore */ } applyRpView(); return; }
   const b = e.target.closest('[data-rptab]');
@@ -15595,6 +15696,26 @@ $('rpBody').addEventListener('click', (e) => {
   for (const t of $('rpBody').querySelectorAll('[data-rptab]')) t.setAttribute('aria-pressed', String(t === b));
   for (const pg of $('rpBody').querySelectorAll('.rp-page')) pg.hidden = pg.dataset.page !== b.dataset.rptab;
 });
+// The trails page of the day report.
+function trailsPageHtml(r, past) {
+  const d = r.trailsDay, top = d.top, max = top[0].n, tips = [];
+  const pct = (n) => { const p = n / d.total * 100; return p < 1 ? 'under 1%' : `${Math.round(p)}%`; };
+  const rows = top.map((x) => `<div><span class="rsym">${ratingSymbol(x.sign, 12)}</span><span class="nm">${esc(x.name)}${x.glade ? ' <small>glade</small>' : ''}</span><i style="width:${Math.max(2, Math.round(x.n / max * 100))}%"></i><b>${x.n.toLocaleString('en-US')}</b><small>${pct(x.n)}</small></div>`).join('');
+  if (top[0].n / d.total >= 0.3 && d.of > 2) tips.push(`<b>${esc(top[0].name)}</b> took ${pct(top[0].n)} of all runs. Crowded trails mean more falls: more trails from the same lifts spread skiers out.`);
+  if (r.night && d.night) tips.push(`${d.night.toLocaleString('en-US')} runs were after dark${top.some((x) => x.night) ? `, most on ${esc(top.filter((x) => x.night).sort((a, b) => b.night - a.night)[0].name)}` : ''}.`);
+  if (d.quietN) tips.push(`Open but hardly skied (under 1% of runs): ${d.quiet.map(esc).join(', ')}${d.quietN > d.quiet.length ? ` and ${d.quietN - d.quiet.length} more` : ''}. They may be out of the way, or too hard or too easy for most of today’s guests.`);
+  const live = !past && r === state.lastReport && state.phase === 'report' && state.dayUse;
+  return `<dl class="rp-hero">
+      <div><dt>Runs</dt><dd>${d.total.toLocaleString('en-US')}</dd></div>
+      <div><dt>Skied</dt><dd>${d.skied}<small>of ${d.of} trails and glades</small></dd></div>
+      <div><dt>Busiest</dt><dd class="rp-name">${esc(top[0].name)}</dd></div>
+    </dl>
+    <div class="field-label">Most skied</div>
+    <div class="rp-trails">${rows}</div>
+    ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
+    ${live ? '<button class="btn secondary" data-rp="heat">See today’s traffic on the map</button>' : ''}
+    <p class="help">A run is one trip down a trail or glade. Overnight, the Traffic button shows where skiers were all day, and the Trails list can sort by Popular.</p>`;
+}
 // The après page of the day report.
 function apresPageHtml(r) {
   const a = r.apres, line = (label, v, neg) => `<span>${label}</span><span${neg ? ' class="neg"' : ''}>${neg ? '−' : ''}${money(v)}</span>`;
@@ -15774,6 +15895,7 @@ function moreHub() {
 // Open or close a trail or start or stop a lift, from its panel or a list.
 function setOpen(kind, obj, open) {
   obj.open = open;
+  if (kind === 'trail') obj.snowClosed = undefined; // opened or closed by hand: no longer waiting on the snow
   if (obj.planOff) { obj.planOff = false; if (runOps) { runOps.lifts[obj.id] = 'full'; runOps.off = runOps.off.filter((id) => id !== obj.id); } } // started by hand: runs today despite the plan
   if (kind === 'trail') styleTrail(obj);
   if (kind === 'lift' && !obj.open && state.phase === 'open') {
@@ -15790,9 +15912,10 @@ function flyTo(x, z) {
   camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to: { x: px, z: pz, az: cam.azGoal, viewH: Math.min(cam.viewH, defaultView() * 0.7) } };
 }
 function goToFeature(kind, id) {
-  const obj = kind === 'trail' ? trailById(id) : kind === 'lift' ? liftById(id) : bldById(id);
+  if (kind === 'glade') kind = 'area';
+  const obj = kind === 'trail' ? trailById(id) : kind === 'lift' ? liftById(id) : kind === 'area' ? areaById(id) : bldById(id);
   if (!obj) return;
-  const p = kind === 'trail' ? obj.samples[Math.floor(obj.samples.length / 2)] : kind === 'lift' ? { x: (obj.a.x + obj.b.x) / 2, z: (obj.a.z + obj.b.z) / 2 } : obj.door;
+  const p = kind === 'area' ? obj.center : kind === 'trail' ? obj.samples[Math.floor(obj.samples.length / 2)] : kind === 'lift' ? { x: (obj.a.x + obj.b.x) / 2, z: (obj.a.z + obj.b.z) / 2 } : obj.door;
   flyTo(p.x, p.z);
   if (visiting) return; // visits stay on the list: panels are read only
   const back = selected && selected.kind === 'manage' ? selected.obj : null;
@@ -15812,38 +15935,92 @@ function trailStatus(t) {
 }
 const trailNeedsCare = (t) => trailStatus(t)[1] !== 'on' || t.surface === 'icy';
 const SM_NEXT = { auto: 'always', always: 'off', off: 'auto' }, SM_WORD = { auto: 'Auto', always: 'Always', off: 'Off' };
+// The Trails list holds trails and glades. A glade row stands for its hidden lines through the trees.
+function runItems() {
+  const items = realTrails().map((t) => ({ kind: 'trail', id: t.id, name: t.name, t, lines: [t] }));
+  for (const A of world.areas) if (isGlade(A)) items.push({ kind: 'glade', id: A.id, name: A.name, A, lines: world.trails.filter((t) => t.glade === A.id) });
+  return items;
+}
+const itemOpen = (it) => (it.kind === 'glade' ? !it.A.closed : it.t.open);
+function itemStatus(it) {
+  if (it.kind === 'trail') return trailStatus(it.t);
+  if (it.A.closed) return ['Closed', 'off'];
+  return it.lines[0] ? trailStatus(it.lines[0]) : ['No access', 'warn'];
+}
+const itemSurface = (it) => (it.lines[0] ? it.lines[0].surface : null);
+const itemSign = (it) => (it.lines.length ? Math.max(...it.lines.map(trailSign)) : 0);
+// Icy snow doubles the chance of a fall and thin cover adds 60%: the conditions worth closing for.
+const badSnow = (it) => it.lines[0] && (it.lines[0].snowOk === false || ['icy', 'thin'].includes(itemSurface(it)));
+const itemRunnable = (it) => itemOpen(it) && it.lines.some((t) => runnable(t) && t.reachable && t.returns);
+const itemNeedsCare = (it) => itemStatus(it)[1] !== 'on' || itemSurface(it) === 'icy';
+// Runs per trail: today's while open, otherwise the last day's (kept overnight in state.dayUse).
+const popRuns = () => (state.phase === 'open' && today ? today.trailRuns : (state.dayUse && state.dayUse.runs) || {});
+const itemRuns = (it, runs) => it.lines.reduce((n, t) => n + (runs[t.id] || 0), 0) * AGENT;
+// Trails closed for bad snow are marked (saved as snowClosed), so Reopen brings back only those, not ones closed on purpose.
+function setItemsOpen(items, open, forSnow) {
+  if (!items.length) return;
+  pushUndo(open ? 'opening trails' : 'closing trails');
+  let net = false;
+  for (const it of items) {
+    const o = it.kind === 'glade' ? it.A : it.t;
+    o.snowClosed = !open && forSnow ? true : undefined;
+    if (it.kind === 'glade') { o.closed = !open; net = true; } else { o.open = open; styleTrail(o); }
+  }
+  if (net) computeNetwork();
+  const nt = items.filter((it) => it.kind === 'trail').length, ng = items.length - nt;
+  const what = [nt && `${nt} ${nt === 1 ? 'trail' : 'trails'}`, ng && `${ng} ${ng === 1 ? 'glade' : 'glades'}`].filter(Boolean).join(' and ');
+  labelsDirty = true; renderSheet(); scheduleSave();
+  toast(`${open ? 'Opened' : 'Closed'} ${what}.`);
+}
+// What the batch buttons act on: the rows the current filter shows, and the trails worth closing or reopening.
+function listedItems() {
+  const v = listView.trails, all = runItems();
+  return v.filter === 'open' ? all.filter(itemRunnable)
+    : v.filter === 'care' ? all.filter(itemNeedsCare) : v.filter === 'glades' ? all.filter((it) => it.kind === 'glade') : all;
+}
+const toCloseBad = () => runItems().filter((it) => itemOpen(it) && badSnow(it));
+const toReopen = () => runItems().filter((it) => !itemOpen(it) && (it.kind === 'glade' ? it.A : it.t).snowClosed && it.lines[0] && !badSnow(it));
 function trailsList() {
-  const ts = realTrails();
-  if (!ts.length) return `<p class="help">No trails yet. Build one with the Trail tool: start at the top of a lift and finish at the base.</p>`;
+  const ts = realTrails(), all = runItems(), glades = all.filter((it) => it.kind === 'glade');
+  if (!ts.length && !glades.length) return `<p class="help">No trails yet. Build one with the Trail tool: start at the top of a lift and finish at the base.</p>`;
+  if (!glades.length && listView.trails.filter === 'glades') listView.trails.filter = 'all';
   const v = listView.trails, open = ts.filter((t) => runnable(t) && t.reachable && t.returns);
   const groomTonight = ts.filter((t) => runnable(t) && t.groomed).reduce((a, t) => a + groomCost(t), 0);
   const skiing = new Map();
   for (const g of guests) if (g.st === 'ski' && g.T) skiing.set(g.T.id, (skiing.get(g.T.id) || 0) + AGENT);
-  const runs = state.phase === 'open' && today ? today.trailRuns : {};
-  const care = ts.filter(trailNeedsCare);
-  let list = v.filter === 'open' ? open : v.filter === 'care' ? care : ts.slice();
-  const rank = { on: 2, warn: 1, off: 0 };
-  if (v.sort === 'status') list.sort((a, b) => rank[trailStatus(a)[1]] - rank[trailStatus(b)[1]] || a.name.localeCompare(b.name));
-  else if (v.sort === 'rating') list.sort((a, b) => trailSign(a) - trailSign(b) || a.name.localeCompare(b.name));
-  else if (v.sort === 'depth') list.sort((a, b) => (a.base || 0) / needOf(a) - (b.base || 0) / needOf(b));
-  else list.sort((a, b) => a.name.localeCompare(b.name));
-  const rows = list.map((t) => {
-    const [word, cls] = trailStatus(t), need = needOf(t), base = t.base || 0, sm = t.sm;
+  const live = state.phase === 'open' && today, runs = popRuns(), lastDay = !live && state.dayUse;
+  const care = all.filter(itemNeedsCare), openN = all.filter(itemRunnable).length;
+  const list = listedItems();
+  const rank = { on: 2, warn: 1, off: 0 }, byName = (a, b) => a.name.localeCompare(b.name);
+  if (v.sort === 'status') list.sort((a, b) => rank[itemStatus(a)[1]] - rank[itemStatus(b)[1]] || byName(a, b));
+  else if (v.sort === 'rating') list.sort((a, b) => itemSign(a) - itemSign(b) || byName(a, b));
+  else if (v.sort === 'depth') { const d = (it) => (it.lines[0] ? (it.lines[0].base || 0) / needOf(it.lines[0]) : 0); list.sort((a, b) => d(a) - d(b) || byName(a, b)); }
+  else if (v.sort === 'popular') list.sort((a, b) => itemRuns(b, runs) - itemRuns(a, runs) || byName(a, b));
+  else list.sort(byName);
+  const rows = list.map((it) => {
+    const t = it.lines[0], [word, cls] = itemStatus(it), glade = it.kind === 'glade';
+    const need = t ? needOf(t) : 1, base = t ? t.base || 0 : 0, sm = glade ? null : t.sm;
     const pct = clamp(base / (need * 3), 0, 1) * 100;
     const dcls = base < need ? 'none' : base < need * 1.35 ? 'low' : '';
-    const live = state.phase === 'open' ? `<span><b>${skiing.get(t.id) || 0}</b> skiing · ${(runs[t.id] || 0) * AGENT} runs</span>` : '';
-    return `<li class="lrow" data-action="goTo" data-k="trail" data-id="${t.id}">
-      <div class="l1"><span class="rsym">${ratingSymbol(trailSign(t), 13)}</span><b>${esc(t.name)}</b><span class="pill ${cls}">${word}</span></div>
-      <div class="l2"><span class="depth ${dcls}" title="${inch(base)} of snow; needs ${inch(need)}"><i style="width:${pct.toFixed(0)}%"></i><s style="left:33%"></s></span><span><b>${inch(base)}</b> / ${inch(need)}</span><span>${SURFACE[t.surface] || ''}</span>${live}</div>
-      <div class="l3">${chip('qOpen', t.id, t.open, t.open ? 'Open' : 'Closed')}${chip('qGroom', t.id, t.groomed, 'Groom')}${sm && sm.on ? chip('qSm', t.id, sm.mode !== 'off', `Snow guns: ${SM_WORD[sm.mode]}`) : '<span class="muted">No snowmaking</span>'}</div>
+    const n = itemRuns(it, runs).toLocaleString('en-US');
+    const use = live ? `<span><b>${it.lines.reduce((a, l) => a + (skiing.get(l.id) || 0), 0)}</b> skiing · ${n} runs</span>` : lastDay ? `<span>${n} runs last day</span>` : '';
+    const snow = t ? `<span class="depth ${dcls}" title="${inch(base)} of snow; needs ${inch(need)}"><i style="width:${pct.toFixed(0)}%"></i><s style="left:33%"></s></span><span><b>${inch(base)}</b> / ${inch(need)}</span><span>${SURFACE[t.surface] || ''}</span>` : '';
+    return `<li class="lrow" data-action="goTo" data-k="${it.kind}" data-id="${it.id}">
+      <div class="l1"><span class="rsym">${t ? ratingSymbol(itemSign(it), 13) : ''}</span><b>${esc(it.name)}</b>${glade ? '<span class="muted">Glade</span>' : ''}<span class="pill ${cls}">${word}</span></div>
+      <div class="l2">${snow}${use}</div>
+      <div class="l3">${chip(glade ? 'qGlade' : 'qOpen', it.id, itemOpen(it), itemOpen(it) ? 'Open' : 'Closed')}${glade ? '<span class="muted">Not groomed</span>' : `${chip('qGroom', it.id, t.groomed, 'Groom')}${sm && sm.on ? chip('qSm', it.id, sm.mode !== 'off', `Snow guns: ${SM_WORD[sm.mode]}`) : '<span class="muted">No snowmaking</span>'}`}</div>
     </li>`;
   }).join('');
-  const sorts = { status: 'Status', name: 'Name', rating: 'Difficulty', depth: 'Snow depth' };
-  return `<p class="lsum"><b>${open.length}</b> of ${ts.length} open · average base <b>${inch(avgBase())}</b> · grooming tonight <b>${money(groomTonight)}</b></p>
-    <div class="lbar">${listTabs('trails', [['all', `All ${ts.length}`], ['open', `Open ${open.length}`], ['care', `Needs attention ${care.length}`]])}
+  const sorts = { status: 'Status', name: 'Name', rating: 'Difficulty', depth: 'Snow depth', popular: 'Popular' };
+  const bad = toCloseBad(), back = toReopen(), shownOpen = list.filter(itemOpen).length;
+  const word = (n) => (list.every((it) => it.kind === 'glade') ? (n === 1 ? 'glade' : 'glades') : n === 1 ? 'trail' : 'trails');
+  return `<p class="lsum"><b>${open.length}</b> of ${ts.length} trails open${glades.length ? ` · ${glades.filter((it) => itemOpen(it)).length} of ${glades.length} glades` : ''} · average base <b>${inch(avgBase())}</b> · grooming tonight <b>${money(groomTonight)}</b></p>
+    <div class="lbar">${listTabs('trails', [['all', `All ${all.length}`], ['open', `Open ${openN}`], ['care', `Needs attention ${care.length}`], ...(glades.length ? [['glades', `Glades ${glades.length}`]] : [])])}
       <button class="chip sort" data-action="listSort">Sort: ${sorts[v.sort]}</button></div>
+    ${visiting || !(bad.length || back.length) ? '' : `<div class="lbulk">${bad.length ? `<button class="btn secondary" data-action="bulkOpen" data-v="bad">Close icy and thin (${bad.length})</button>` : ''}${back.length ? `<button class="btn secondary" data-action="bulkOpen" data-v="good">Reopen good ones (${back.length})</button>` : ''}</div>`}
     ${list.length ? `<ul class="llist">${rows}</ul>` : '<p class="help">Nothing here right now.</p>'}
-    ${visiting ? '' : `<div class="lbulk"><button class="btn secondary" data-action="bulkGroom" data-v="1">Groom all</button><button class="btn secondary" data-action="bulkGroom" data-v="0">Groom none</button>
+    ${visiting ? '' : `<div class="lbulk">${list.length && shownOpen < list.length ? `<button class="btn secondary" data-action="bulkOpen" data-v="open">Open ${list.length === all.length ? 'all' : 'these'} ${list.length - shownOpen} ${word(list.length - shownOpen)}</button>` : ''}${shownOpen ? `<button class="btn secondary" data-action="bulkOpen" data-v="close">Close ${list.length === all.length ? 'all' : 'these'} ${shownOpen} ${word(shownOpen)}</button>` : ''}</div>
+      <div class="lbulk"><button class="btn secondary" data-action="bulkGroom" data-v="1">Groom all</button><button class="btn secondary" data-action="bulkGroom" data-v="0">Groom none</button>
       ${ts.some((t) => t.sm && t.sm.on) ? '<button class="btn secondary" data-action="bulkSm" data-v="auto">All snow guns on Auto</button><button class="btn secondary" data-action="bulkSm" data-v="off">All snow guns off</button>' : ''}</div>`}`;
 }
 function liftStatus(L) {
@@ -16489,7 +16666,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'h') recenter();
   else if (k === 'f') toggleFullscreen();
   else if (k === 'o') setSlope(!overlay.slope);
-  else if (k === 't') setTraffic(!overlay.traffic);
+  else if (k === 't') cycleTraffic();
   else if (k === 'l') toast(toggleAllLabels() ? 'Map labels on' : 'Map labels hidden. Press L or use the tag button to bring them back.');
   else if (k === 'k' && state.phase === 'open') skipToReport();
   else if (k === 'p' && state.phase === 'open') { state.speed = state.speed ? 0 : 1; refreshTimebar(true); }
@@ -16528,7 +16705,7 @@ $('tTrail').onclick = () => setTool('trail');
 $('tLift').onclick = () => setTool('lift');
 $('tBld').onclick = () => setTool('bld');
 $('tSlope').onclick = () => setSlope(!overlay.slope);
-$('tTraffic').onclick = () => setTraffic(!overlay.traffic);
+$('tTraffic').onclick = cycleTraffic;
 $('tLabels').onclick = (e) => { e.stopPropagation(); openLabelPop($('labelPop').hidden); };
 $('labelPop').onclick = (e) => {
   e.stopPropagation();
@@ -16538,10 +16715,19 @@ $('labelPop').onclick = (e) => {
 };
 document.addEventListener('pointerdown', (e) => { if (!$('labelPop').hidden && !e.target.closest('#labelPop, #tLabels')) openLabelPop(false); });
 refreshLabelPop();
-function setTraffic(on) {
-  overlay.traffic = on;
-  $('tTraffic').setAttribute('aria-pressed', on);
-  if (on) toast(state.phase === 'open' ? 'Traffic: white trails are quiet, red trails are crowded' : 'Traffic shows while the resort is open');
+// The Traffic button steps through skier traffic right now (while open), traffic over the whole day, and off.
+function cycleTraffic() {
+  const m = overlay.traffic;
+  setTraffic(!m ? (state.phase === 'open' ? 'now' : 'day') : m === 'now' ? 'day' : false);
+}
+function setTraffic(mode) {
+  overlay.traffic = mode || false;
+  const b = $('tTraffic');
+  b.setAttribute('aria-pressed', !!mode); b.classList.toggle('day', mode === 'day');
+  b.title = mode === 'now' ? 'Skier traffic now: tap for the whole day (T)' : mode === 'day' ? 'Skier traffic over the whole day: tap to turn off (T)' : 'Skier traffic (T)';
+  if (mode === 'now') toast(state.phase === 'open' ? 'Traffic now: white trails are quiet, red trails are crowded. Tap again for the whole day.' : 'Traffic shows while the resort is open');
+  else if (mode === 'day') toast(heatSource() ? `${state.phase === 'open' ? 'Traffic today so far' : 'Traffic over the last day'}: white was quiet, red was the busiest on your mountain` : 'Whole-day traffic shows once you’ve run a day');
+  heatStamp = null; heatT = 0;
   for (const t of world.trails) styleTrail(t);
 }
 document.querySelectorAll('.size').forEach((b) => {
@@ -17929,6 +18115,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.68', date: 'Oct 31, 2026', title: 'Popular trails and batch closing', items: [
+    'The day report has a new Trails page: the five most-skied trails and glades, how much of the day each took, and open trails hardly anyone skied.',
+    'Press Traffic twice to see where skiers were all day, section by section along each trail. Overnight it shows the last day, so you can plan around the busy spots.',
+    'Sort the Trails list by Popular. Overnight it ranks trails by the last day’s runs.',
+    'Glades are now in the Trails list, with their own tab and an Open button.',
+    'Close icy and thin closes every trail and glade with bad snow in one tap, and Reopen good ones brings them back once the snow recovers. Open and Close buttons act on every trail the current tab shows.',
+  ] },
   { v: '2.67.1', date: 'Oct 31, 2026', title: 'Guest area walking fixes', small: true, items: [
     'Fixed: guests in a guest area walked straight through buildings. They now walk around them and go in through the door.',
     'Fixed: when a bench in a guest area was full, guests could sit on one just outside the area, then walk all the way down the mountain to their car, saying the lift was closed.',
@@ -19162,7 +19355,7 @@ function fitsWithRoom(r) {
   return t.left >= b.right + 10 + r && t.right <= k.left - 10 - r;
 }
 
-let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0, fitT = 0;
+let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0, fitT = 0, heatT = 0;
 function frame(now) {
   // While days are fast-forwarded, skip drawing so the simulation gets the whole processor.
   if (simulating || skipRun) { lastT = now; requestAnimationFrame(frame); return; }
@@ -19209,7 +19402,9 @@ function frame(now) {
     if (state.phase === 'open') {
       labelsDirty = true;
       if (selected && selected.kind !== 'trail') renderSheet();
-      if (overlay.traffic) for (const t of world.trails) styleTrail(t);
+      if (overlay.traffic === 'now') for (const t of world.trails) styleTrail(t);
+      // the whole-day map changes once a game minute; repaint it every few seconds at most
+      else if (overlay.traffic === 'day' && (heatT += 0.5) >= 3 && prepHeat()) { heatT = 0; for (const t of world.trails) styleTrail(t); }
     }
   }
   if (state.started) { refreshTimebar(false); maybeReferralPrompt(); }
