@@ -274,6 +274,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   Open: a `kind: 'shape'` plan `{trail, name, pts, ws}` (one per trail), built by `buildShapePlan`, refused if the route changed.
 - **Rollback warning:** a version before 2.67 would try to draw a saved `'shape'` blueprint as a building and fail. Shaped trails themselves
   load fine there (as their preset width). Say so to Phil before any rollback past 2.67.
+- Full GitHub Tests run 41218089205 passed on `0318b61` (the first run failed only `81-glades`, whose expected grooming bill used the old flat formula).
 - Test 122 (drag on a real dot at 1280×900 and 390×844, pricing, upkeep, save/reload, blueprint built overnight, Edit route pricing).
   `tests/shape-bench.mjs` measures it on the 110-trail resort (Juniper's lot caps it near 1,400 guests): evaluating a shape takes ~7 ms
   (worst 23 ms) per drag update; unshaped, the day is identical to main (same guests, satisfaction, injuries, revenue); grooming there
