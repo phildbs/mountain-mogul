@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.71.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on e28788f; 127-lone-pine plus parking, two-base, title, saves and board scenarios passed locally).
+**Live: 2.71.1.** Phil approved publication on Nov 1 (quick-fix tier: 127-lone-pine, 44-update-card and 74-first-mountain passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.71.1: the Lone Pine Hill feature card hides once the player has a resort there (`mm.seen.<id>` in localStorage, so it stays hidden after deleting it).
 - 2.71: Lone Pine Hill (`lonepine`), a fifth mountain: a big lone hill filling most of the land, ~590 ft, gentle sunny south
   and steeper shady north (bowl, rock band). Two roads from a town off the west side (scenery houses, church, water tower;
   the W2 parcel isn't sold): `road` to the main lot (south) and `branch`, forking in town, to a North lot. `BRANCH_WORLD`,
