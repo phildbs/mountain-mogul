@@ -28,6 +28,14 @@ export default async function ({ browser, url }) {
   const c = await g.ev(`(() => { openDay(); const i = stalls.findIndex((s) => s.lot === 1); const p = carPath(stalls[i]); const site = lotSite(1);
     const last = p[p.length - 1]; return { n: p.length, roadPart: p.length - 4, site: site.road, ends: Math.hypot(last.x - stalls[i].x, last.z - stalls[i].z) < 0.01 }; })()`);
   eq([c.roadPart, c.ends], [c.site, true], 'west cars leave the road at their drive and end in their space');
+  // both lots fill together: even when the main lot suits them better, early cars go to both, not main first
+  const f = await g.ev(`(() => { const real = lotScores, t0 = today; lotScores = () => [2, 1]; today = { turnedAway: 0 }; cars.length = 0; for (const s of stalls) s.car = null;
+    for (let k = 0; k < 12; k++) spawnCar(1); lotScores = real; today = t0; const n = [0, 0]; for (const c of cars) n[stalls[c.stall].lot || 0]++; return n; })()`);
+  assert(f[0] > 0 && f[1] > 0 && f[0] + f[1] === 12, `early cars go to both lots: ${JSON.stringify(f)}`);
+  // a lot with nothing guests would ski stays a last resort
+  const lr = await g.ev(`(() => { const real = lotScores, t0 = today; lotScores = () => [1, 0]; today = { turnedAway: 0 }; cars.length = 0; for (const s of stalls) s.car = null;
+    for (let k = 0; k < 6; k++) spawnCar(1); lotScores = real; today = t0; return cars.filter((c) => stalls[c.stall].lot).length; })()`);
+  eq(lr, 0, 'no cars at a lot with nothing to ski while the other has room');
   // saved with the lot number, and loaded back
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(false))); applySave(sv); return [state.lotLayout, stalls.filter((s) => s.lot === 1).length]; })()`), [[[0, 0, 0], [0, 0, 1], [0, 1, 1]], 192], 'saved and loaded with their lots');
   eq(g.errors, [], 'no page errors');

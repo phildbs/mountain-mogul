@@ -9651,8 +9651,8 @@ function carPath(stall) {
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
-// With more than one lot, a carload heads for the base whose lifts and runs suit its lead skier, and
-// the lifts guests rode most last time: their favourites. A full lot sends it to the next best one.
+// With more than one lot, a carload leans toward the base whose lifts and runs suit its lead skier, and
+// the lifts guests rode most last time: their favourites. Emptier lots draw more cars, so all lots fill together.
 const drawAbility = () => { const r = Math.random(), mix = MOUNTAIN.skiers; return r < mix[0] ? 0 : r < mix[0] + mix[1] ? 1 : r < mix[0] + mix[1] + mix[2] ? 2 : 3; };
 function lotCentre(lot) { const S = stalls.filter((s) => (s.lot || 0) === lot); if (!S.length) return null; let x = 0, z = 0; for (const t of S) { x += t.x; z += t.z; } return { x: x / S.length, z: z / S.length }; }
 let lotScoreCache = null;
@@ -9683,13 +9683,22 @@ function lotScores(ab) {
   return lotScoreCache.by[ab];
 }
 function spawnCar(size, night, evening) {
-  // The main lot's open sections fill first; then cars go to off-site parking. With more than one lot,
-  // the carload picks the lot that suits it best, and the next best if that one is full.
+  // The lot's open sections fill first; then cars go to off-site parking. With more than one lot,
+  // each carload picks one (see the weighting below), and another if that one is full.
   const mainOpen = lotsOpen() * SPACES_PER_SECTION, free = [];
   let ab = null;
   if (lotCount() > 1) {
     ab = drawAbility();
-    const sc = lotScores(ab), order = sc.map((v, lot) => [v + Math.random() * 0.3, lot]).filter(([v]) => v >= 0).sort((p, q) => q[0] - p[0]).map(([, lot]) => lot);
+    // Weighted by how well each lot's lifts suit them and by its free spaces, so every base fills together
+    // instead of the favourite filling first; a lot with nothing they'd ski stays a last resort.
+    const sc = lotScores(ab), room = sc.map(() => 0), order = [];
+    for (let i = 0; i < mainOpen; i++) if (!stalls[i].car) room[stalls[i].lot || 0]++;
+    const left = sc.map((v, lot) => [v * room[lot], lot]).filter(([v], lot) => sc[lot] >= 0);
+    while (left.length) {
+      let r = Math.random() * left.reduce((a, [w]) => a + w, 0), k = 0;
+      while (k < left.length - 1 && (r -= left[k][0]) > 0) k++;
+      order.push(left.splice(k, 1)[0][1]);
+    }
     for (const lot of order) { free.length = 0; for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car && (stalls[i].lot || 0) === lot) free.push(i); if (free.length >= AGENT) break; }
   } else for (let i = 0; i < mainOpen && free.length < AGENT; i++) if (!stalls[i].car) free.push(i);
   if (free.length < AGENT) {
@@ -19757,6 +19766,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.77.1', date: 'Nov 1, 2026', title: 'Guests use every lot', small: true, items: ['Thanks for the feedback! With more than one parking lot, guests now spread across all of them from the morning, instead of filling the main lot first.', 'Guests still lean toward the lot whose lifts and runs suit them best, and emptier lots draw more cars, so your lots fill up together.'] },
   { v: '2.77', date: 'Nov 1, 2026', title: 'Lift mid-stations', items: ['Chairlifts and gondolas can now have a mid-station. Open a lift overnight and choose Add a mid-station, then tap along its line to place it.', 'Riders can get off at the mid-station to ski the lower runs, and guests can get on there to ride the upper half, in the seats nobody took at the bottom. Experts can lap the top without riding from the base every time.', 'Trails can start and end at a mid-station, just like at a lift’s ends. Paint a guest area around it for a mid-mountain lodge stop.', 'The lift’s panel shows how many got off and on at the mid-station today. It costs 30% of the lift’s base price, and its crew adds a quarter to the lift’s running cost.'] },
   { v: '2.76.2', date: 'Nov 1, 2026', title: 'Green learning areas in summer', small: true, items: ['Thanks for the report! Learning areas no longer stay white all summer. They melt with the rest of the mountain and come back when the snow does.', 'A learning area with thin snow now looks thin and patchy, just like a trail.'] },
   { v: '2.76.1', date: 'Nov 1, 2026', title: 'Roomier ski racks', small: true, items: ['Thanks for the feedback on ski racks! A placed ski rack now holds 40 pairs instead of 12, so you need far fewer of them.', 'Every building’s own rack now has a space for each seat, so most resorts won’t need extra racks at all.', 'Gift kiosks are ski-in, ski-out: guests keep their skis on to buy a souvenir.'] },
