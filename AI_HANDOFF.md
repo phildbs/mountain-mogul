@@ -57,6 +57,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.77.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on de3cbc2; related scenarios and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.77.1: guests spread across all parking lots (weighted by lift fit × free spaces) instead of filling the main lot first. Player request. (Claude, Nov 1)
 - 2.77: lift mid-stations, one per chairlift or gondola: get off or on partway up. See Claude's Nov 1 note.
 - 2.76.2: learning areas follow the snow (faded/brown when thin, hidden in summer) instead of always drawing white. Player report.
 - 2.76.1: roomier ski racks after player feedback: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out.
@@ -145,7 +146,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-bd12d43f-3xu65f` | Claude | 2.77.1: guests spread across all lots (weighted by lift fit × free spaces) instead of filling the main lot first. Nov 1, 2026. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
