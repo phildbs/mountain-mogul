@@ -5061,6 +5061,22 @@ function styleArea(a) {
   if (isHub(a)) { a.mesh.visible = !!(selected && selected.obj === a) || (state.tool === 'clear' && state.landMode === 'hub' && !(areaDraft && areaDraft.editId === a.id)); return; }
   if (isGlade(a)) { a.mesh.visible = !!(selected && selected.obj === a) || (state.tool === 'clear' && state.landMode === 'glade'); return; }
   a.mesh.material.emissive.set(selected && selected.obj === a ? 0x6a2a12 : 0x000000);
+  // Fades and browns with the snow like a trail, so a learning area isn't left white in summer.
+  const look = areaCoverLook(a);
+  a.mesh.material.color.set(0xffffff);
+  a.mesh.material.opacity = look.op;
+  a.mesh.visible = look.op > 0.02 || !!(selected && selected.obj === a);
+  if (look.tint > 0) a.mesh.material.color.lerp(BARE_TINT, look.tint * 0.55);
+}
+// A learning area's snow: the natural snow on its cells, or its ski lines' base if deeper (machine snow).
+function areaCoverLook(a) {
+  if (winterView) return { op: 1, tint: 0 };
+  let s = 0, n = 0;
+  for (const k of a.cells) { s += sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF); n++; }
+  let b = n ? s / n : 0;
+  for (const t of world.trails) if (t.virtual && t.area === a.id && !t.glade) b = Math.max(b, t.base || 0);
+  const need = OPEN_NEED[0];
+  return { op: sstep(0.5, 6, b), tint: 1 - sstep(need * 0.6, need * 1.1, b) };
 }
 
 /* Painting a new area with the Landscape brush. */
@@ -5135,7 +5151,7 @@ function commitArea() {
   if (info.old) {
     const a = info.old;
     a.cells = [...areaDraft.cells]; a.cost = (a.cost || 0) + info.cost; a.set = new Set(a.cells);
-    refreshAreaMesh(a); a.mesh.visible = true;
+    refreshAreaMesh(a); a.mesh.visible = true; styleArea(a);
     clearAreaDraft();
     computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
     toast(`Updated ${a.name} · −${money(info.cost)} for added ground.`);
@@ -5145,7 +5161,7 @@ function commitArea() {
     return;
   }
   const a = { id: world.nextId++, name: nextAreaName(), kind: 'learn', cells: [...areaDraft.cells], cost: info.cost };
-  addArea(a);
+  addArea(a); styleArea(a);
   clearAreaDraft();
   computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   toast(`Built ${a.name} · −${money(info.cost)}. Add a magic carpet or T-bar with both stations in it.`);
@@ -15212,6 +15228,7 @@ function styleSnowVisuals() {
     TREE_U.uSnowLine.value = midH() + (w.hi - 32) / LAPSE - 4;
   } else TREE_U.uSnowLine.value = winterView ? -100 : 999;
   for (const t of world.trails) styleTrail(t);
+  for (const a of world.areas) styleArea(a);
   recolorTerrain(0, 0, WN, WN);
   applyWeatherLook();
 }
@@ -19510,6 +19527,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.76.2', date: 'Nov 1, 2026', title: 'Green learning areas in summer', small: true, items: ['Thanks for the report! Learning areas no longer stay white all summer. They melt with the rest of the mountain and come back when the snow does.', 'A learning area with thin snow now looks thin and patchy, just like a trail.'] },
   { v: '2.76.1', date: 'Nov 1, 2026', title: 'Roomier ski racks', small: true, items: ['Thanks for the feedback on ski racks! A placed ski rack now holds 40 pairs instead of 12, so you need far fewer of them.', 'Every building’s own rack now has a space for each seat, so most resorts won’t need extra racks at all.', 'Gift kiosks are ski-in, ski-out: guests keep their skis on to buy a souvenir.'] },
   { v: '2.76', date: 'Nov 1, 2026', title: 'Background music', items: ['Turn on Music in the menu (tap your resort’s name) for calm songs while you build. Pause, skip to the next song and set the volume right there.', 'Music is off until you turn it on, and your choice is remembered on this device. It goes quiet while the game is in another tab.', 'Nine songs, about 24 minutes, made for Mountain Mogul with Google Flow Music.'] },
   { v: '2.75', date: 'Nov 1, 2026', title: 'Ski racks', items: ['Skiers now take their skis off before going in to eat, shop or use the restroom. They leave them on a ski rack by the door and walk around in their boots, then pick them up on the way out. Watch the racks fill up with skis at lunch.', 'Every lodge, café, restaurant, bar, shop and restroom has its own rack, with room for about three quarters of its seats.', 'New in Build › Decor: a ski rack ($800) with room for 12 pairs. Guests use any rack close to the door when the building’s own rack is full.', 'When every rack is full, skiers stick their skis in a snowbank, and they don’t like it. The day report shows where it happened. A new resort gets its first few days free of this.'] },

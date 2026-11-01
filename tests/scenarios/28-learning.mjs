@@ -37,6 +37,11 @@ export default async function ({ browser, url }) {
   const tb = await g.ev(`(() => { state.cash = 5e6; const i = evalLift({ x: -24, z: 56 }, { x: -26, z: 26 }, 'tbar'); if (i.problems.length) return i.problems.join('|');
     commitLift(i, 'tbar'); const L = world.lifts.find((l) => l.type === 'tbar'); return [windHoldAt(L, 60), windHoldAt(L, 80), liftCapacity(LIFT_TYPES.tbar), liftCapacity(LIFT_TYPES.carpet)]; })()`);
   eq(tb, [false, true, 910, 1160], 'a T-bar runs at 60 mph and stops in a gale; capacities');
+  // summer: the snow goes, and so does the white of the learning area (it used to stay white)
+  const summer = await g.ev(`(() => { const A = world.areas[0], winter = A.mesh.visible && A.mesh.material.opacity; select(null); enterSummer();
+    return [winter, A.mesh.visible]; })()`);
+  eq(summer, [1, false], 'the learning area is snowy in midwinter and hidden once summer comes');
+  eq(await g.ev(`(() => { newSeason(); NS.fill(30); refreshSnowState(todayWx()); styleSnowVisuals(); return world.areas[0].mesh.material.opacity; })()`), 1, 'a deep base next season makes it white again');
   // removing the area takes its lines with it
   await g.ev(`(() => { select({ kind: 'area', obj: world.areas[0] }); })()`);
   await g.click('[data-action=remove]'); await g.click('[data-action=removeYes]');
