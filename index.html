@@ -7241,7 +7241,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else setTool('explore'); }
+  else if (a === 'exitTool') { if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else leaveDraft(() => setTool('explore')); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -7455,26 +7455,26 @@ function syncLabels() {
   for (const t of realTrails()) {
     const el = document.createElement('button');
     el.className = 'flabel';
-    el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'trail', obj: t }); };
+    el.onclick = () => leaveDraft(() => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'trail', obj: t }); });
     t.labelEl = el; labelLayer.appendChild(el);
   }
   for (const L of world.lifts) {
     const el = document.createElement('button');
     el.className = 'flabel lift';
-    el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'lift', obj: L }); };
+    el.onclick = () => leaveDraft(() => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'lift', obj: L }); });
     L.labelEl = el; labelLayer.appendChild(el);
   }
   for (const B of world.buildings) {
     if (isDecor(B)) { B.labelEl = null; continue; } // lamp posts and fire pits go unlabelled
     const el = document.createElement('button');
     el.className = 'flabel bld';
-    el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'bld', obj: B }); };
+    el.onclick = () => leaveDraft(() => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'bld', obj: B }); });
     B.labelEl = el; labelLayer.appendChild(el);
   }
   for (const A of world.areas) {
     const el = document.createElement('button');
     el.className = 'flabel bld';
-    el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'area', obj: A }); };
+    el.onclick = () => leaveDraft(() => { if (state.tool !== 'explore') setTool('explore'); select({ kind: 'area', obj: A }); });
     A.labelEl = el; labelLayer.appendChild(el);
   }
   lotLabel = document.createElement('button');
@@ -7736,7 +7736,7 @@ function updateChips() {
       const html = `<i aria-hidden="true">${c.icon}</i><span>${esc(c.text)}</span>`;
       if (el._html !== html) { el.innerHTML = html; el._html = html; }
       el.classList.toggle('bad', c.sev >= 2); el.title = c.title; el.setAttribute('aria-label', c.title);
-      el.onclick = () => { if (state.tool !== 'explore') setTool('explore'); c.go(); };
+      el.onclick = () => leaveDraft(() => { if (state.tool !== 'explore') setTool('explore'); c.go(); });
     }
   }
   for (const c of chipList) {
@@ -17731,11 +17731,11 @@ window.addEventListener('keydown', (e) => {
   const step = cam.viewH * 0.08;
   if (k === 'q') rotate(-1);
   else if (k === 'e') rotate(1);
-  else if (k === '1') setTool('explore');
-  else if (k === '2') setTool('trail');
-  else if (k === '3') setTool('lift');
-  else if (k === '4') openLandscape();
-  else if (k === '5') setTool('bld');
+  else if (k === '1') leaveDraft(() => setTool('explore'));
+  else if (k === '2') leaveDraft(() => setTool('trail'));
+  else if (k === '3') leaveDraft(() => setTool('lift'));
+  else if (k === '4') leaveDraft(openLandscape);
+  else if (k === '5') leaveDraft(() => setTool('bld'));
   else if (k === 'b') { state.landMode = 'doze'; openLandscape(); }
   else if (k === 'r' && draft.kind === 'bld') setDraftDegrees(draft.rot * 90 + 90);
   else if (k === 'backspace' && draft.kind) { e.preventDefault(); draftUndo(); }
@@ -17759,6 +17759,7 @@ window.addEventListener('keydown', (e) => {
     if (draft.shaping) cancelShape();
     else if (draft.movingTrail) cancelTrailMove();
     else if (draft.movingLift) cancelLiftMove();
+    else if (unbuiltDraft()) leaveDraft(() => renderSheet());
     else if (draft.kind && draft.pts.length) { resetDraft(); renderSheet(); } else if (draft.kind || (state.tool === 'clear' && state.landMode === 'doze')) setTool('explore'); else select(null);
   }
   else return;
@@ -17770,17 +17771,33 @@ window.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; 
 function rotate(dir) { cam.azGoal += dir * Math.PI / 4; scheduleSave(); }
 function zoomCenter(f) { cam.viewGoal = clamp((cam.viewGoal || cam.viewH) * f, VIEW_MIN, VIEW_MAX); scheduleSave(); }
 
-$('tExplore').onclick = () => setTool('explore');
+$('tExplore').onclick = () => leaveDraft(() => setTool('explore'));
 $('tUndo').onclick = undoLast;
 // Landscape: clearing and levelling. Coming from a learning area, it starts on clearing trees.
+/* ---------- Leaving a drawn trail or lift ----------
+   Switching away from a trail or lift that's drawn but not built used to lose it without a word, and the Build button
+   is easy to miss, on a phone above all. So ask first: build it, throw it away, or keep editing. */
+const unbuiltDraft = () => (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length >= 2 && !draft.shaping && !draft.movingTrail && !draft.movingLift;
+function leaveDraft(then) {
+  if (!unbuiltDraft()) return then();
+  const what = state.tool, info = draft.info, problem = info && (info.an ? info.an.problems[0] : info.problems[0]);
+  const plan = planning(), cost = info ? info.cost : 0, short = !plan && cost > state.cash, can = !!info && !problem && !short;
+  showCrisis(`<div><div class="eyebrow">Not built yet</div><h2 id="crTitle">Build this ${what}?</h2></div>
+    <p class="help">You’ve drawn a ${what} but haven’t ${plan ? 'planned' : 'built'} it yet.${problem ? ` It can’t be built as it is: ${esc(problem)}` : short ? ` You need ${money(cost - state.cash)} more to build it.` : ''}</p>`,
+    `${can ? `<button class="btn" id="crYes">${plan ? 'Plan it' : 'Build'} · ${money(cost)}</button>` : ''}<button class="btn secondary" id="crNo">Throw it away</button><button class="btn secondary" id="crKeep">Keep editing</button>`);
+  const close = () => { $('crisis').hidden = true; };
+  if (can) $('crYes').onclick = () => { close(); buildDraft(); then(); };
+  $('crNo').onclick = () => { close(); resetDraft(); then(); };
+  $('crKeep').onclick = () => { close(); renderSheet(); };
+}
 function openLandscape() {
   if (paintingArea()) { state.landMode = 'trees'; clearAreaDraft(); }
   setTool('clear');
 }
-$('tClear').onclick = openLandscape;
-$('tTrail').onclick = () => setTool('trail');
-$('tLift').onclick = () => setTool('lift');
-$('tBld').onclick = () => setTool('bld');
+$('tClear').onclick = () => leaveDraft(openLandscape);
+$('tTrail').onclick = () => leaveDraft(() => setTool('trail'));
+$('tLift').onclick = () => leaveDraft(() => setTool('lift'));
+$('tBld').onclick = () => leaveDraft(() => setTool('bld'));
 $('tSlope').onclick = () => setSlope(!overlay.slope);
 $('tTraffic').onclick = cycleTraffic;
 $('tLabels').onclick = (e) => { e.stopPropagation(); openLabelPop($('labelPop').hidden); };
@@ -19192,6 +19209,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.73', date: 'Nov 1, 2026', title: 'No more lost trails', items: [
+    'If you draw a trail or a lift and then close the card or pick another tool before building it, the game now asks first: build it, throw it away, or keep editing. Before, the drawing just disappeared.',
+  ] },
   { v: '2.72', date: 'Nov 1, 2026', title: 'Ridgeback', items: [
     'A new mountain, Ridgeback: two peaks joined by a long, smooth ridge. A gentle beginner peak at one end, a taller expert peak at the other, bare rock and snow on top.',
     'The ridge falls evenly from summit to summit, so you can cut a green all the way along the top.',

@@ -123,6 +123,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-d5f0faef-j5qzg1` | Claude | 2.73: leaving a drawn, unbuilt trail or lift (card X/Done, toolbar, keys 1–5, Escape, list items) asks first: Build / Throw it away / Keep editing (`unbuiltDraft`, `leaveDraft`, in the `#crisis` modal). Scenario 129. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
