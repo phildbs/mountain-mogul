@@ -9359,7 +9359,7 @@ function demandForDay() {
   const d = dateOf(state.day), dow = d.getUTCDay();
   let f = dow === 0 || dow === 6 ? 1 : dow === 5 ? 0.7 : 0.4;
   if (holidayOf(d)) f = 1.55;
-  const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : 1;
+  const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : m === 4 ? 0.6 : 1; // fewer think of skiing in May
   const priceF = clamp(Math.exp(-(ticketOn(state.day) - 65) / 65 * 1.8), 0.12, 1.6);
   const has = (t) => world.buildings.some((B) => B.type === t && bldMode(B) !== 'closed');
   let amen = has('lodge') ? 1.08 : 0.9;
@@ -14759,7 +14759,8 @@ const NS = new Float32Array(NV * NV);   // natural snow depth, inches
 const SUNF = new Float32Array(NV * NV); // how much sun each spot gets (melt multiplier)
 const LAPSE = 3.5 / (1000 / FT_PER_UNIT); // °F colder per true unit of height
 const PRESEASON_DAY = -16;              // Nov 15
-const SEASON_LAST = 120, SPRING_LAST = 150; // Mar 31, Apr 30
+const SEASON_LAST = 120, SPRING_LAST = 181, GUNS_LAST = 150; // Mar 31, May 31; snowmaking stops after Apr 30
+const gunsPacked = () => state.day > GUNS_LAST; // May skiing lives on the snow that's left
 const SPRING_MIN_BASE = 18;
 const OPEN_NEED = [12, 12, 18, 18];      // inches of base a trail needs, by rating
 const GUN_SPACING = 6, GUN_COST = 9000, PIPE_PER_UNIT = 150, GUN_NIGHT = 170;
@@ -14793,13 +14794,13 @@ function initSun() {
 }
 
 /* ---------- Climate and weather patterns ---------- */
-const CLIMATE = [[-16, 40, 22], [14, 31, 14], [50, 27, 9], [81, 30, 12], [109, 38, 18], [140, 48, 27], [160, 52, 30]];
+const CLIMATE = [[-16, 40, 22], [14, 31, 14], [50, 27, 9], [81, 30, 12], [109, 38, 18], [140, 48, 27], [160, 52, 30], [181, 58, 35]]; // May warms up, so only deep snow lasts
 function climate(d) {
   for (let k = 0; k < CLIMATE.length - 1; k++) {
     const [d0, h0, l0] = CLIMATE[k], [d1, h1, l1] = CLIMATE[k + 1];
     if (d <= d1) { const t = clamp((d - d0) / (d1 - d0), 0, 1); return { hi: lerp(h0, h1, t), lo: lerp(l0, l1, t) }; }
   }
-  return { hi: 52, lo: 30 };
+  return { hi: 58, lo: 35 };
 }
 const rnd = (a, b) => a + Math.random() * (b - a);
 function nextPattern(d, prev, mild) {
@@ -14938,7 +14939,7 @@ function runSnowmaking(lo) {
   for (const t of world.trails) {
     t.smRanTonight = false;
     if (!smWants(t)) continue;
-    const eff = smEfficiency(t, lo);
+    const eff = gunsPacked() ? 0 : smEfficiency(t, lo);
     if (eff <= 0) { tooWarm++; continue; }
     const g = gunCount(t);
     const add = 5 * eff;
@@ -14949,7 +14950,7 @@ function runSnowmaking(lo) {
   for (const A of world.areas.filter(isHub)) {
     A.smRanTonight = false;
     const sm = A.sm;
-    if (!sm || !sm.on || sm.mode === 'off' || (sm.mode === 'auto' && hubDepth(A) >= sm.target)) continue;
+    if (!sm || !sm.on || sm.mode === 'off' || gunsPacked() || (sm.mode === 'auto' && hubDepth(A) >= sm.target)) continue;
     let madeSnow = 0;
     for (const k of A.cells) {
       const x = keyX(k), z = keyZ(k), eff = clamp((28 - tempAt(lo, trueY(x, z))) / 12, 0, 1);
@@ -15252,7 +15253,7 @@ const baseSmCost = () => baseGuns() * GUN_COST + BASE_PIPE;
 function runBaseSnowmaking(lo) {
   const sm = state.baseSm;
   if (!sm || sm.mode === 'off' || (sm.mode === 'auto' && baseDepth() >= sm.target)) return { cost: 0, ran: false, tooWarm: false };
-  const eff = clamp((28 - tempAt(lo, MOUNTAIN.baseH)) / 12, 0, 1);
+  const eff = gunsPacked() ? 0 : clamp((28 - tempAt(lo, MOUNTAIN.baseH)) / 12, 0, 1);
   if (eff <= 0) return { cost: 0, ran: false, tooWarm: true };
   for (const k of baseZone()) NS[k] += 5 * eff;
   return { cost: Math.round(baseGuns() * GUN_NIGHT * (0.5 + 0.5 * eff)), ran: true, tooWarm: false };
@@ -15511,9 +15512,9 @@ function weatherSheet(noHead) {
       <div><dt>Trails with snow</dt><dd>${open} of ${realTrails().length}</dd></div>
       <div><dt>Season snowfall</dt><dd>${inch(state.seasonStats ? state.seasonStats.snowfall : 0)}</dd></div>
     </dl>
-    <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
+    <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm && !gunsPacked() ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
       Snowmaking needs about ${tempF(28)} or colder. Trails need ${inch(OPEN_NEED[0])} of base to open, and black diamonds need ${inch(OPEN_NEED[2])}.
-      ${spring ? ` Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more.` : ''}</p>
+      ${spring ? ` Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more, until May 31.${gunsPacked() ? ' Snowmaking is off for the season, so May runs on the snow that’s left.' : ' Snowmaking stops after April 30.'}` : ''}</p>
     ${baseSnowSection()}
     ${state.phase === 'closed' && !visiting ? `<div class="field-label">Stay closed</div>
       <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
@@ -19211,6 +19212,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.74', date: 'Nov 1, 2026', title: 'Spring skiing into May', items: ['Spring bonus days can now run into May. Keep opening while the average trail base stays at 18 inches or more, as late as May 31.', 'May is warmer and quieter: fewer people come, and snowmaking stops after April 30, so May runs on the snow that’s left.'] },
   { v: '2.73', date: 'Nov 1, 2026', title: 'No more lost trails, and a gondola fix', items: [
     'If you draw a trail or a lift and then close the card or pick another tool before building it, the game now asks first: build it, throw it away, or keep editing. Before, the drawing just disappeared.',
     'Fixed: a village gondola between the two bases on Lone Pine Hill or Ridgeback now climbs over the hill like any other lift, instead of shooting straight up from the station onto towers as tall as the hill. Gondolas you’ve already built fix themselves.',
