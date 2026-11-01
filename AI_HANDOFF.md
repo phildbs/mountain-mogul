@@ -110,7 +110,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | Halo Mountain, step 1 of 2: a fifth mountain, a lone hill in the middle with a ring road round its foot, a branch out to town (scenery in the SW corner, where that land parcel is dropped) and the main lot on the south side. Step 2: lots round the ring, cars using the loop, polish. Preview only until Phil says Publish. | Nov 1, 2026 |
+| `ccr-d5f0faef-j5qzg1` | Claude | Halo Mountain preview: a fifth mountain, a lone hill in the middle. Two roads leave a town off the west side (scenery; the W2 parcel is dropped): `road` to the main lot on the south side, `branch` (forks in town) to a North lot. `BRANCH_WORLD`/`ROUTES`/`roadBetween` route cars, buses and shuttles; `baseOf` uses plain distance when a mountain has a branch. Phil asked for two roads instead of a ring (Nov 1). Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

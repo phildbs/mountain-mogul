@@ -2088,27 +2088,24 @@ MOUNTAINS.twin = {
     return h;
   },
 };
-// Halo Mountain: a lone, rounded hill in the middle of the land, with a road all the way round its foot and a
-// branch out to town. Its shape is measured out from the summit, where 1 is the ring road.
-const HALO_S = [0.5, 0.68], HALO_R = [0.4, 0.48, 0.24]; // the summit; how far out the ring road runs east-west, south and north
+// Halo Mountain: a lone, rounded hill in the middle of the land. Two roads leave town, off the west side: one to a
+// lot on the sunny south side, one round to a lot on the shady north side. Its shape is measured out from the
+// summit, where 1 is a little beyond the foot of the hill.
+const HALO_S = [0.52, 0.58], HALO_R = [0.44, 0.48, 0.29]; // the summit; how far out the hill reaches east-west, south and north
 const haloWob = (a) => 1 + 0.035 * Math.sin(3 * a + 0.7) + 0.02 * Math.sin(5 * a + 2);
-// [how far out from the summit, where 1 is the ring road; the angle round it, 0 due east and −π/2 due south]
+// [how far out from the summit; the angle round it, 0 due east and −π/2 due south]
 function haloPolar(u, v) {
   const du = (u - HALO_S[0]) / HALO_R[0], dv = (v - HALO_S[1]) / (v < HALO_S[1] ? HALO_R[1] : HALO_R[2]), a = Math.atan2(dv, du);
   return [Math.hypot(du, dv) / haloWob(a), a];
 }
-const haloAt = (a, r = 1) => { const c = Math.cos(a) * r * haloWob(a), s = Math.sin(a) * r * haloWob(a); return [HALO_S[0] + HALO_R[0] * c, HALO_S[1] + s * (s < 0 ? HALO_R[1] : HALO_R[2])]; };
 const angGap = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
 MOUNTAINS.halo = (() => {
-  const N = 120, ring = Array.from({ length: N }, (_, k) => haloAt(-Math.PI + 2 * Math.PI * k / N)); // from due west, round by the south
-  const J = 15, D = 28; // where the town road meets the ring (southwest), and where the main lot's drive leaves it (south)
-  const spur = catmull([[-0.26, -0.24], [-0.13, -0.11], [0.0, 0.05], [0.1, 0.18], ring[J]], 8);
-  const d = ring[D], drive = catmull([d, [d[0] + 0.004, d[1] - 0.03], [d[0] + 0.022, d[1] - 0.05]], 4).slice(1);
+  const fork = [-0.06, 0.5]; // in town, where the road splits
   return {
     id: 'halo',
     name: 'Halo Mountain',
     level: 'Beginner', dot: 'var(--green)',
-    blurb: 'A lone, rounded hill with a road all the way round its foot and a short drive to town. Gentle, sunny slopes on the town side and a few steeper pitches on the shady north face. Build a base anywhere round the loop.',
+    blurb: 'A lone, rounded hill just outside town, with a road to each side: gentle, sunny slopes to the south and steeper pitches on the shady north face. Start on the sunny side, then open a second base round the back.',
     cash: 2300000,
     weather: { storm: 0.95, wind: 1.3, warm: 1.05 }, // a lone hill catches the wind
     skiers: [0.38, 0.36, 0.19, 0.07],
@@ -2116,14 +2113,15 @@ MOUNTAINS.halo = (() => {
     seed: 5821,
     baseFt: 1460,
     treeline: 15, // an open, snowy top above the woods
-    town: [-0.11, -0.1], // off the southwest corner, where the road comes in
-    road: [...spur, ...ring.slice(J + 1, D + 1), ...drive], // in from town, round the south side to the main lot
-    loop: [...ring.slice(D), ...ring.slice(0, J + 1)], // the rest of the ring, back to where the town road meets it
-    creek: catmull([[0.94, 0.2], [0.98, 0.1], [1.04, 0.02], [1.12, -0.06], [1.3, -0.24]], 10),
+    town: [-0.12, 0.5], townParcel: 'W2', // off the west side, on land that isn't for sale
+    road: catmull([[-0.27, 0.52], [-0.17, 0.505], fork, [0.03, 0.4], [0.12, 0.25], [0.26, 0.15], [0.42, 0.12]], 8), // out of town to the main lot, south
+    branch: catmull([fork, [0.03, 0.62], [0.12, 0.76], [0.24, 0.85], [0.38, 0.872]], 8), // the other way, round to the north lot
+    lots: [[0.38, 0.872, 'North lot', 'north', 'branch']],
+    creek: catmull([[0.86, 0.5], [0.95, 0.46], [1.05, 0.4], [1.3, 0.3]], 10),
     height(u, v) {
       const s = this.seed, [r, a] = haloPolar(u, v);
       let h = 2 + 0.5 * fbm(u * 3, v * 3, s + 1, 3);
-      // The hill: a rounded top, steepest partway down, easing out into a flat apron inside the ring road.
+      // The hill: a rounded top, steepest partway down, easing out onto flat ground all round.
       const t = clamp(r / 0.9, 0, 1), k = 0.12, e = (Math.hypot(t, k) - k) / (Math.hypot(1, k) - k);
       h += 15 * Math.pow(1 - e, 1.35 + 0.25 * Math.sin(a)); // fuller on the shady north side, long and gentle on the sunny south
       // Gentle folds that make natural trail lines, none on the summit or the apron.
@@ -2270,7 +2268,8 @@ for (let n = 0; n < 5; n++) {
   PARCELS.push({ id: `E${n}`, name: `East ${n + 1}`, i0: PLAY1, i1: PLAY1 + PD, j0: a, j1: b });
 }
 for (const [id, name, i0, j0] of [['NW', 'Northwest corner', PLAY0 - PD, PLAY0 - PD], ['NE', 'Northeast corner', PLAY1, PLAY0 - PD], ['SW', 'Southwest corner', PLAY0 - PD, PLAY1], ['SE', 'Southeast corner', PLAY1, PLAY1]])
-  if (!(MOUNTAIN.town && id === 'SW')) PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD }); // Halo Mountain's town has that corner
+  PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD });
+if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
 let landRects = []; // parcels that are yours (bought or leased, permits through)
 const LAND = { i0: PLAY0, i1: PLAY1, j0: PLAY0, j1: PLAY1 };
 const inRect = (p, gx, gz) => gx >= p.i0 && gx <= p.i1 && gz >= p.j0 && gz <= p.j1;
@@ -2297,7 +2296,7 @@ function generate(M) {
       const idx = j * NV + i, u = vu(i), v = vv(j);
       let h = M.height(u, v);
       let [dr, ru, rv] = distPoly(u, v, M.road);
-      if (M.loop) { const q = distPoly(u, v, M.loop); if (q[0] < dr) [dr, ru, rv] = q; } // the rest of a ring road
+      if (M.branch) { const q = distPoly(u, v, M.branch); if (q[0] < dr) [dr, ru, rv] = q; } // a second road from town
       const drc = dr * PN;
       if (drc < 4.5) h = lerp(h, M.height(ru, rv) - 0.15, 1 - sstep(1.5, 4.5, drc));
       const dcc = distPoly(u, v, M.creek)[0] * PN;
@@ -8289,6 +8288,28 @@ function roadEnd() {
   return { x: PLAY0 + r[0] * PN - HALF, z: PLAY1 - r[1] * PN - HALF };
 }
 const ROAD_WORLD = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })).filter((p) => Math.abs(p.x) < HALF - 4 && Math.abs(p.z) < HALF - 4);
+// The drive out to a second road's lot: the access road as far as the fork, then the branch.
+const BRANCH_WORLD = (() => {
+  if (!MOUNTAIN.branch) return null;
+  const pts = MOUNTAIN.branch.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF }));
+  let k = 0, bd = Infinity; ROAD_WORLD.forEach((q, i) => { const d = Math.hypot(q.x - pts[0].x, q.z - pts[0].z); if (d < bd) { bd = d; k = i; } });
+  return [...ROAD_WORLD.slice(0, k + 1), ...pts.slice(1)];
+})();
+const ROUTES = BRANCH_WORLD ? [ROAD_WORLD, BRANCH_WORLD] : [ROAD_WORLD];
+// The route and the point along it nearest p.
+function routeNear(p) {
+  let best = [ROAD_WORLD, 0], bd = Infinity;
+  for (const R of ROUTES) R.forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = [R, i]; } });
+  return best;
+}
+// Driving between the road points nearest a and b: along one road, or back to the fork and out the other.
+function roadBetween(a, b) {
+  const [Ra, ka] = routeNear(a), [Rb, kb] = routeNear(b);
+  if (Ra === Rb) return ka <= kb ? Ra.slice(ka, kb + 1) : Ra.slice(kb, ka + 1).reverse();
+  let c = 0; while (c < Ra.length && Ra[c] === Rb[c]) c++; // the shared stretch, from the edge of the map to the fork
+  const m = Math.min(c - 1, ka, kb);
+  return [...Ra.slice(m, ka + 1).reverse(), ...Rb.slice(m + 1, kb + 1)];
+}
 // The access road: a draped ribbon of asphalt over the painted roadbed, with lane lines and plowed shoulders.
 const ROAD_HW = 1.15, ROAD_TILE = 6;
 const ROAD_TEX = (() => {
@@ -8372,8 +8393,8 @@ function buildRoadBridges() {
   if (g.children.length) { roadBridgeGroup = g; scene.add(g); }
 }
 /* ---------- Town ----------
-   A small town on the road in (MOUNTAIN.town), out beyond any land you can buy: houses along the road, a church
-   and a water tower. Scenery for now: one mesh, hazed like the land round it. */
+   A small town where the roads come in (MOUNTAIN.town), on land that isn't for sale: houses along the roads, a
+   church and a water tower. Scenery for now: one mesh, hazed like the land round it. */
 let townMesh = null;
 function buildTown() {
   if (townMesh) { scene.remove(townMesh); townMesh.geometry.dispose(); townMesh = null; }
@@ -8400,9 +8421,8 @@ function buildTown() {
   const free = (x, z, r) => Math.abs(x) < HALF - 2 && Math.abs(z) < HALF - 2 && [[0, 0], [r, r], [-r, r], [r, -r], [-r, -r]].every(([a, b]) => {
     const gx = x + a + HALF, gz = z + b + HALF; return !inGridLand(gx, gz) && !PARCELS.some((q) => inRect(q, gx, gz)) && landDist(gx, gz) > 2.5;
   }) && roadDist(x, z) > ROAD_HW + 0.6;
-  const P = roadPath(), spots = [];
-  let along = 0, next = 0;
-  for (let k = 1; k < P.length; k++) {
+  const spots = [];
+  for (const P of [roadPath(), branchPath()]) for (let k = 1, along = 0, next = 0; k < P.length; k++) {
     along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
     if (along < next) continue;
     next = along + 2.2 + rng() * 0.8;
@@ -8444,26 +8464,27 @@ function buildTown() {
   townMesh.castShadow = true; townMesh.receiveShadow = true;
   scene.add(townMesh);
 }
-// The rest of a ring road (MOUNTAIN.loop): drawn, but no car drives it yet.
-let ringPathCache = null;
-function ringPath() {
-  if (!MOUNTAIN.loop) return [];
-  if (ringPathCache) return ringPathCache;
-  const raw = MOUNTAIN.loop.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })), out = [];
+// A second road (MOUNTAIN.branch): it forks off the access road in town and runs to a lot of its own.
+let branchPathCache = null;
+function branchPath() {
+  if (!MOUNTAIN.branch) return [];
+  if (branchPathCache) return branchPathCache;
+  const raw = MOUNTAIN.branch.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })), out = [];
   for (let k = 0; k < raw.length - 1; k++) {
     const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
     for (let i = 0; i < n; i++) out.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) });
   }
-  out.push(raw[raw.length - 1]);
-  return (ringPathCache = out);
+  const e = raw[raw.length - 1], f = raw[raw.length - 2], d = Math.hypot(e.x - f.x, e.z - f.z) || 1;
+  out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
+  return (branchPathCache = out);
 }
-let loopMesh = null;
+let branchMesh = null;
 function buildRoad() {
   if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
-  if (loopMesh) { scene.remove(loopMesh); loopMesh.geometry.dispose(); loopMesh = null; }
+  if (branchMesh) { scene.remove(branchMesh); branchMesh.geometry.dispose(); branchMesh = null; }
   roadMesh = roadRibbon(roadPath(), 0.05);
-  // a touch lower than the access road, so the access road is the one on top where they meet
-  if (MOUNTAIN.loop) loopMesh = roadRibbon(ringPath(), 0.035);
+  // a touch lower than the access road, so the access road is the one on top where they fork
+  if (MOUNTAIN.branch) branchMesh = roadRibbon(branchPath(), 0.035);
   buildRoadBridges();
 }
 function roadRibbon(P, lift) {
@@ -8494,9 +8515,8 @@ function roadRibbon(P, lift) {
 const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
 // The nearest point on the road's centre line, and the unit normal pointing from the road toward p.
 function nearestRoad(p) {
-  const P = roadPath();
   let best = null, bd = Infinity;
-  for (let k = 0; k < P.length - 1; k++) {
+  for (const P of [roadPath(), branchPath()]) for (let k = 0; k < P.length - 1; k++) {
     const a = P[k], b = P[k + 1], dx = b.x - a.x, dz = b.z - a.z, t = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
     const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
     if (d < bd) { bd = d; best = { q: { x: qx, z: qz }, dx, dz, d }; }
@@ -8517,10 +8537,12 @@ let lotSitesCache = null;
 function lotSite(lot) {
   if (!lotSitesCache) {
     const e = roadEnd();
-    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, up: false }, ...(MOUNTAIN.lots || []).map(([u, v, , side]) => {
+    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, route: ROAD_WORLD, up: false }, ...(MOUNTAIN.lots || []).map(([u, v, , side, onBranch]) => {
+      // at the end of the second road, like the main lot at the end of the first
+      if (onBranch) { const R = BRANCH_WORLD, q = R[R.length - 1]; return { x: q.x, z: q.z, road: R.length, route: R, up: side !== 'south', south: side === 'south', end: true }; }
       const p = { x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF };
       let road = 0, bd = Infinity; ROAD_WORLD.forEach((q, k) => { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; road = k; } });
-      return { x: ROAD_WORLD[road].x, z: ROAD_WORLD[road].z, road: road + 1, up: side !== 'south', south: side === 'south' };
+      return { x: ROAD_WORLD[road].x, z: ROAD_WORLD[road].z, road: road + 1, route: ROAD_WORLD, up: side !== 'south', south: side === 'south' };
     })];
   }
   return lotSitesCache[lot] || lotSitesCache[0];
@@ -8989,7 +9011,8 @@ function goCar(g) {
    or the base shuttle (loop buses on the valley road between shuttle stations at each base). With
    neither, they don't head for the other base's lifts, and anyone who ends up there waits for a ride
    back to their car at closing: stranded, unhappy, and on the day report. */
-const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCount(); k++) { const d = Math.abs(p.x - lotSite(k).x); if (d < bd) { bd = d; best = k; } } return best; };
+// Bases side by side along a valley go by how far east or west; bases on different sides of a hill by plain distance.
+const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } } return best; };
 const villageLifts = (za, zb) => world.lifts.filter((L) => isVillage(L) && L.open && !L.windHold && new Set([baseOf(L.a), baseOf(L.b)]).size === 2 && [za, zb].every((z) => baseOf(L.a) === z || baseOf(L.b) === z));
 const zoneStations = (z) => stations().filter((B) => baseOf(B.door) === z);
 const baseShuttle = (za, zb) => zoneStations(za).length > 0 && zoneStations(zb).length > 0;
@@ -9062,8 +9085,7 @@ function loopStep() {
   buses.push({ id: nextCid++, kind: 'loop', stn: from.id, to: to.id, st: 'in', path, len: pathLen(path), pd: 0, riders: [], dwell: 0, legs: 0 });
 }
 function loopPath(a, b) {
-  const near = (p) => { let k = 0, bd = Infinity; ROAD_WORLD.forEach((q, i) => { const d = distXZ(q, p); if (d < bd) { bd = d; k = i; } }); return k; };
-  const ka = near(a.approach), kb = near(b.approach), road = ka <= kb ? ROAD_WORLD.slice(ka, kb + 1) : ROAD_WORLD.slice(kb, ka + 1).reverse();
+  const road = roadBetween(a.approach, b.approach);
   return [a.stop, ...(a.bayIn ? [a.bayIn] : []), a.approach, ...road, b.approach, ...(b.bayIn ? [b.bayIn] : []), b.stop];
 }
 // At a stop: riders get off, and whoever is waiting here for the other base gets on.
@@ -9335,7 +9357,7 @@ function makeSchedule(n) {
   return out.sort((a, b) => b.t - a.t); // popped from the end
 }
 function carPath(stall) {
-  if (stall.lot) { const s = lotSite(stall.lot); return [...ROAD_WORLD.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
+  if (stall.lot) { const s = lotSite(stall.lot); return [...s.route.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
   if (stall.row) { const o = slotOrigin(0, 0); return [...ROAD_WORLD, { x: o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
@@ -14053,9 +14075,8 @@ function nearestStation(p) {
 function nextStation() { const S = stations(); return S.length ? S[stnTurn++ % S.length] : null; }
 // Buses follow the road to the point nearest the stop, then pull in.
 function busPath(st) {
-  let k = 0, bd = Infinity;
-  ROAD_WORLD.forEach((p, i) => { const d = distXZ(p, st.approach); if (d < bd) { bd = d; k = i; } });
-  return [...ROAD_WORLD.slice(0, k + 1), st.approach, ...(st.bayIn ? [st.bayIn] : []), st.stop];
+  const [R, k] = routeNear(st.approach);
+  return [...R.slice(0, k + 1), st.approach, ...(st.bayIn ? [st.bayIn] : []), st.stop];
 }
 const BUS_GEO = mergeColored([
   [new THREE.BoxGeometry(0.46, 0.34, 1.5).translate(0, 0.24, 0), [0.95, 0.96, 0.98]],
@@ -16013,7 +16034,7 @@ function refreshOnTerrain(i0, j0, i1, j1, skip) {
   for (const L of world.lifts) if (segNearBox(L.a, L.b, box, 3)) rebuildLift(L);
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
-  if (roadPath().some((p) => boxDist(p, box) < 3) || ringPath().some((p) => boxDist(p, box) < 3)) buildRoad();
+  if (roadPath().some((p) => boxDist(p, box) < 3) || branchPath().some((p) => boxDist(p, box) < 3)) buildRoad();
   for (const a of world.areas) refreshAreaMesh(a);
   areaSig = null;
   for (const p of world.plans) if (p.group) { removePlanVisual(p); planVisual(p); }
@@ -20184,9 +20205,9 @@ function paintMountain(cv, M) {
     }
   }
   ctx.putImageData(img, 0, 0);
-  // The access road, for scale, and the rest of a ring road. Only the near side shows: the hill hides the rest.
+  // The access road, for scale, and a second road from town. Only what's in view: the hill hides what's behind it.
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (const line of [M.road, M.loop || []]) {
+  for (const line of [M.road, M.branch || []]) {
     const pts = [];
     for (const [u, v] of line) {
       const fi = (u - lo) / span * (N - 1), fj = (v - lo) / span * (N - 1);
