@@ -54,9 +54,15 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.70.1.** Phil approved publication on Nov 1 (quick-fix tier: 28-learning, 54-evenings and 82-building-styles passed locally).
+**Live: 2.71.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on e28788f; 127-lone-pine plus parking, two-base, title, saves and board scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.71: Lone Pine Hill (`lonepine`), a fifth mountain: a big lone hill filling most of the land, ~590 ft, gentle sunny south
+  and steeper shady north (bowl, rock band). Two roads from a town off the west side (scenery houses, church, water tower;
+  the W2 parcel isn't sold): `road` to the main lot (south) and `branch`, forking in town, to a North lot. `BRANCH_WORLD`,
+  `ROUTES`, `routeNear` and `roadBetween` route cars, buses and base shuttles; `baseOf` uses plain distance when a
+  mountain has a branch. Title screen: a large feature card (`#featMtn`, `NEW_MTN.feature`, photo `lone-pine-hill.jpg`)
+  with a thank-you to players. Phil shaped it in preview: first a ring road (looked odd), then two roads, then a bigger hill.
 - 2.70.1: ski school practice snow drawn with a solid texture, so the sky no longer shows through it (see Decisions and lessons: see-through textures).
 - 2.70: terrain parks (Trail › Terrain park): rollers, flat box, small jump, rails, big jump and halfpipe; park fans ride them, others go
   around; Park report page, What next? advice, blueprints while open, moving features. Rebuilt by Claude; see Claude's Nov 1 note.
@@ -110,7 +116,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.71 Lone Pine Hill (id `lonepine`): a fifth mountain, a big lone hill filling most of the land. Two roads leave a town off the west side (scenery; the W2 parcel is dropped): `road` to the main lot (south), `branch` (forks in town) to a North lot. `BRANCH_WORLD`/`ROUTES`/`roadBetween` route cars, buses and shuttles; `baseOf` uses plain distance when a mountain has a branch. Featured on the title screen with a large card (`#featMtn`, photo `lone-pine-hill.jpg`) and a thank-you. Scenario 127. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
