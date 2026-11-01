@@ -57,6 +57,12 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.73.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 689eec7; 129-unbuilt-draft, 127-lone-pine and 19 related scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.74: spring bonus days run to May 31 (`SPRING_LAST = 181`) while the average trail base holds 18". `CLIMATE` warms
+  to 58/35 by May 31, May demand ×0.6, and snowmaking (trails, base, painted areas) stops after Apr 30 (`GUNS_LAST`,
+  `gunsPacked`). Sims: normal Auto snowmaking reached May on 1 day in 9 seasons; guns on full all winter stay open all
+  May but lose ~$100k there (weekdays −$5–10k, weekends +$2–4k). What's new is folded by day for the last 7 days and by
+  week before that (`openWhatsNew`, `wnGroupOf`). Scenarios 130, 131. Idea left open: a spring weekends-only option
+  (skiing doesn't wear snow, so closing midweek only saves money, not snow). (Claude, Nov 1)
 - 2.73: leaving a drawn, unbuilt trail or lift (card X/Done, toolbar, keys 1–5, Escape, list items) asks first: Build /
   Throw it away / Keep editing (`unbuiltDraft`, `leaveDraft`, shown in the `#crisis` modal; scenario 129). Village gondolas
   over a hump (ground more than 2 units above the station line) follow the ground in `liftLayout` instead of running level
@@ -127,7 +133,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4129ce11-ivnge9` | Claude | 2.74 Spring skiing into May: spring bonus days run to May 31 while the base holds 18", May climate warmer, May demand ×0.6, snowmaking off after Apr 30. Test `130-may-skiing`. Also a tidier What’s new: folded by day for the last 7 days, by week before that (`openWhatsNew`, test `131-whats-new`). | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
