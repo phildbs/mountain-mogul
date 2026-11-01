@@ -19137,6 +19137,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.71.1', date: 'Nov 1, 2026', title: 'Lone Pine Hill card steps aside', small: true, items: [
+    'Once you’ve started a resort on Lone Pine Hill, its big card leaves your title screen, so your own mountains come first.',
+  ] },
   { v: '2.71', date: 'Nov 1, 2026', title: 'Lone Pine Hill', items: [
     'A new mountain, and our first 3D one: Lone Pine Hill, a lone hill in the middle of your land that you can ski from every side.',
     'Two roads leave the little town to the west: one to the main lot on the gentle, sunny south side, the other round to a North lot under the steeper, shady north face.',
@@ -20002,10 +20005,14 @@ function renderSlots() {
   if (CLOUD.ready) loadBoard(false);
   refreshNewBar();
   const flag = newMtnOn() && left > 0, M = MOUNTAINS[NEW_MTN.id];
-  $('newMtn').hidden = !flag || !!NEW_MTN.feature;
-  $('featMtn').hidden = !flag || !NEW_MTN.feature;
-  if (flag && !NEW_MTN.feature) $('newMtn').innerHTML = `<b>New mountain</b><span>${esc(M.name)}</span><i>›</i>`;
-  if (flag && NEW_MTN.feature) {
+  // Once you've a resort on the new mountain, its card has done its job: it stays gone even if you delete that resort.
+  const seenKey = 'mm.seen.' + NEW_MTN.id;
+  if (rows.some((r) => r.mt === NEW_MTN.id)) { try { localStorage.setItem(seenKey, '1'); } catch (e) { /* ignore */ } }
+  let seen = false; try { seen = localStorage.getItem(seenKey) === '1'; } catch (e) { /* ignore */ }
+  $('newMtn').hidden = !flag || seen || !!NEW_MTN.feature;
+  $('featMtn').hidden = !flag || seen || !NEW_MTN.feature;
+  if (flag && !seen && !NEW_MTN.feature) $('newMtn').innerHTML = `<b>New mountain</b><span>${esc(M.name)}</span><i>›</i>`;
+  if (flag && !seen && NEW_MTN.feature) {
     $('featMtn').innerHTML = `<div class="fm-art">${NEW_MTN.photo ? `<img src="${NEW_MTN.photo}" alt="${esc(M.name)} from the air: the hill, its two roads and the town" width="960" height="420">` : `<canvas width="720" height="450" data-mt="${M.id}" aria-hidden="true"></canvas>`}<b>New mountain</b></div>
       <div class="fm-body"><div class="eyebrow">Our first 3D mountain · ${esc(M.level)}</div><h2>${esc(M.name)}</h2>
         <p>A lone hill you can ski from every side, with a road from town to each side and room for a base on both. Gentle and sunny to the south, steeper round the shady back.</p>
@@ -20013,7 +20020,7 @@ function renderSlots() {
         <div class="actions"><button class="btn" data-feat="pick">Start here</button><button class="btn secondary" data-feat="sandbox" title="Unlimited money, no goals">Sandbox</button></div></div>`;
     const cv = $('featMtn').querySelector('canvas'); if (cv) cv.getContext('2d').drawImage(mountainThumb(M.id).cv, 0, 0, 720, 450);
   }
-  if (flag) $('newBar').hidden = true;
+  if (flag && !seen) $('newBar').hidden = true;
   if (left > 0) cards.push(`<button class="scard empty" data-slot="new"><b>+ New mountain</b><span>${left} of ${MAX_MOUNTAINS} ${left === 1 ? 'slot' : 'slots'} free</span></button>`);
   else cards.push(`<div class="scard empty full"><b>All ${MAX_MOUNTAINS} slots used</b><span>Delete a mountain to start another.</span></div>`);
   box.innerHTML = cards.join('');

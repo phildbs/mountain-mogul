@@ -66,6 +66,9 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`goalList().find((G) => G.id === 'bothSides').prog()`), 'Now one up the shady north side, round the back of the hill.', 'the next goal points round the back');
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
   assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Lone Pine Hill');
+  eq(await g.ev(`[$('featMtn').hidden, $('newMtn').hidden]`), [true, true], 'the feature card leaves the title screen once you have a Lone Pine resort');
+  await g.ev(`slots.list = slots.list.filter((s) => s.mountain !== 'lonepine'); CLOUD.own = []; renderSlots()`);
+  eq(await g.ev(`$('featMtn').hidden`), true, 'and stays gone after that resort is deleted');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
