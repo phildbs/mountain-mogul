@@ -64,6 +64,10 @@ export default async function ({ browser, url }) {
   const r = await g.ev(`({ guests: state.lastReport.guests, goals: state.lastReport.goals })`);
   assert(r.guests > 100, `guests drove in from town (${r.guests})`);
   assert(r.goals.includes('First chair'), 'first goal on the first day');
+  // a village gondola between the bases goes over the hill's shoulder: it follows the ground, on ordinary towers
+  const vg = await g.ev(`(() => { const i = evalLift({ x: 18.1, z: 64.4 }, { x: -48.4, z: -38.4 }, 'village');
+    return { problems: i.problems, tallest: Math.max(...i.lay.sup.map((p) => p.y - heightAt(i.a.x + i.lay.dx * p.s, i.a.z + i.lay.dz * p.s))) }; })()`);
+  assert(!vg.problems.length && vg.tallest < 3, `the village gondola climbs over the hill instead of hanging on giant towers (tallest support ${vg.tallest.toFixed(1)} above the ground)`);
   eq(await g.ev(`goalList().find((G) => G.id === 'bothSides').prog()`), 'Now one up the shady north side, round the back of the hill.', 'the next goal points round the back');
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
   assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Lone Pine Hill');
