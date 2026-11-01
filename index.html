@@ -3297,8 +3297,7 @@ function setTool(tool) {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool === 'tpark' && state.phase !== 'closed') { toast('Terrain park features are built overnight, while the resort is closed.', true); return; }
-  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null }; clearParkGhost(); } }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -4055,14 +4054,82 @@ function featPose(T, g, s, off, hw) {
   }
   return null;
 }
+// Is any park open and reachable right now? Asked as each guest arrives, so kept for the sim minute.
+let parkCache = { at: -1, v: false };
+const parkOpenNow = () => {
+  if (parkCache.at !== state.time) parkCache = { at: state.time, v: world.trails.some((t) => t.fx && t.fx.length && runnable(t) && t.reachable) };
+  return parkCache.v;
+};
+// A park fan arrives: counted by ability; with no park open, they say so (no satisfaction cost, just a missed chance).
+function parkArrival(g) {
+  const f = today.parkFans || (today.parkFans = [0, 0, 0, 0]); f[g.ab] += AGENT;
+  if (!parkOpenNow()) {
+    today.complaints.noPark = (today.complaints.noPark || 0) + 1;
+    if (Math.random() < 0.4) thought(g, 'I was hoping for a terrain park. No jumps or rails here.');
+  }
+}
+// The day report's park page: who came for it, what they rode, and what didn't work.
+function parkReport() {
+  const ts = realTrails().filter((t) => t.fx && t.fx.length);
+  if (!ts.length) return null;
+  const fans = today.parkFans || [0, 0, 0, 0], rode = today.parkRode || [0, 0, 0, 0], fr = today.featRides || {};
+  return {
+    fans: fans.reduce((a, b) => a + b, 0), rode: rode.reduce((a, b) => a + b, 0), missed: fans.map((n, i) => Math.max(0, n - rode[i])),
+    rides: today.parkHits || 0, falls: today.parkFalls || 0, shaping: today.exp.park || 0,
+    feats: ts.flatMap((t) => t.fx.map((sp) => ({ type: sp.type, trail: t.name, rides: fr[sp.f.id] || 0 }))).sort((a, b) => b.rides - a.rides),
+    cruise: ts.map((t) => ({ name: t.name, id: t.id, n: (today.parkCruise || {})[t.id] || 0, fans: (today.parkBy || {})[t.id] || 0 })).filter((x) => x.n).sort((a, b) => b.n - a.n),
+  };
+}
+// The nearest patrol hut to a park, in units; Infinity with none.
+function parkPatrolDist(t) {
+  const sp = t.fx[Math.floor(t.fx.length / 2)], c = featPt(sp, 0, 0);
+  let d = Infinity;
+  for (const B of world.buildings) if (B.type === 'patrol') d = Math.min(d, distXZ(B, c));
+  return d;
+}
+function parkPageHtml(r) {
+  const p = r.park, tips = [], small = realTrails().some((t) => (t.fx || []).some((sp) => !sp.F.size));
+  const missed = p.missed.reduce((a, b) => a + b, 0), list = p.feats.slice(0, 8), max = Math.max(1, list[0] ? list[0].rides : 1);
+  if (p.fans && missed / p.fans > 0.3) tips.push(p.missed[1] > missed / 2 && !small
+    ? `${missed} of ${p.fans} park fans rode nothing. Most were intermediates, who need small features: rollers, a flat box or a small jump.`
+    : `${missed} of ${p.fans} park fans rode nothing. Their park may have been closed or hard to reach, or too busy with other skiers.`);
+  const idle = p.feats.filter((f) => !f.rides);
+  if (idle.length && p.rides) tips.push(`Not ridden today: ${idle.slice(0, 3).map((f) => `the ${FEATS[f.type].name.toLowerCase()} on ${esc(f.trail)}`).join(', ')}.`);
+  if (p.falls) tips.push(`${p.falls} ${p.falls === 1 ? 'rider fell' : 'riders fell'} on features. A patrol hut near the park gets help there faster.`);
+  for (const c of p.cruise.slice(0, 1)) if (c.n > 30 && c.n > c.fans) tips.push(`${c.n} cruisers skied through the park on ${esc(c.name)} and would rather not have. A wider trail, or the park on a trail of its own, keeps everyone happy.`);
+  return `<dl class="rp-hero">
+      <div><dt>Rides</dt><dd>${p.rides.toLocaleString('en-US')}</dd></div>
+      <div><dt>Park fans</dt><dd>${p.fans}<small>${p.rode} rode features</small></dd></div>
+      <div><dt>Falls</dt><dd>${p.falls}</dd></div>
+    </dl>
+    <div class="field-label">Most ridden</div>
+    <div class="rp-trails">${list.map((f) => `<div><span class="rsym" style="color:var(--ink)">${featIcon(f.type).replace('<svg', '<svg width="14" height="14"')}</span><span class="nm">${FEATS[f.type].name} <small>${esc(f.trail)}</small></span><i style="width:${Math.max(2, Math.round(f.rides / max * 100))}%"></i><b>${f.rides}</b></div>`).join('')}</div>
+    ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
+    <p class="help">Shaping last night cost ${money(p.shaping)}. A ride is one park fan over one feature.</p>`;
+}
+// What next? advice about parks, from the last day's report.
+function parkAdvice(r, add) {
+  const c = r.complaints || {}, p = r.park;
+  if (!p && (c.noPark || 0) >= 15) add(false, `${c.noPark} park fans came looking for jumps and rails. A terrain park on a wide trail would bring them back, and more like them.`, 'Build a terrain park', () => openParkTool());
+  if (!p) return;
+  const parks = realTrails().filter((t) => t.fx && t.fx.length), far = parks.find((t) => parkPatrolDist(t) > 45);
+  if (p.falls >= 2 && far) add(false, `${p.falls} riders fell in your terrain park, and no patrol hut is close to ${esc(far.name)}. One nearby gets help to them faster.`, 'Build a patrol hut', () => pickBuilding('patrol'));
+  const missed = p.missed.reduce((a, b) => a + b, 0);
+  if (p.fans >= 10 && missed / p.fans > 0.4) add(false, `${missed} of ${p.fans} park fans found nothing to ride. ${p.missed[1] > missed / 2 ? 'Most were intermediates: add small features like rollers, a flat box or a small jump.' : 'Check the park’s trail is open and easy to reach.'}`, 'Terrain park', () => openParkTool());
+  const cr = p.cruise[0], t = cr && trailById(cr.id);
+  if (cr && t && cr.n > 40 && cr.n > cr.fans * 1.5) add(false, `Lots of cruisers skied through the park on ${esc(cr.name)} and didn’t enjoy it. A wider trail gives them room, or move the park to a trail of its own.`, 'See the trail', () => { setTool('explore'); select({ kind: 'trail', obj: t }); });
+}
 // A rider finishing a feature: a little thrill, now and then a fall.
 function featHit(g, T, sp) {
   today.parkHits = (today.parkHits || 0) + AGENT;
   const by = today.parkBy || (today.parkBy = {}); by[T.id] = (by[T.id] || 0) + AGENT;
+  const fr = today.featRides || (today.featRides = {}); fr[sp.f.id] = (fr[sp.f.id] || 0) + AGENT;
+  if (!g.fsr) { const r = today.parkRode || (today.parkRode = [0, 0, 0, 0]); r[g.ab] += AGENT; }
+  g.fsr = (g.fsr || 0) + 1;
   const risk = sp.F.risk * (g.ab < 3 && sp.F.size === 2 ? 1.6 : 1) * (T.surface === 'icy' ? 1.6 : 1);
-  if (risk && Math.random() < risk) { injure(g, T); g.th[0] = `Wiped out on the ${sp.F.name.toLowerCase()} on ${T.name}.`; return true; }
+  if (risk && Math.random() < risk) { injure(g, T); g.th[0] = `Wiped out on the ${sp.F.name.toLowerCase()} on ${T.name}.`; today.parkFalls = (today.parkFalls || 0) + AGENT; return true; }
   g.sat += 0.5 * RUN_W;
-  if (Math.random() < 0.05) thought(g, pick({ jump: ['Stomped the jump!', 'Got some air on that jump.'], tabletop: ['Cleared the big jump!', 'That big jump is huge. Loved it.'], pipe: ['The halfpipe is awesome.', 'Got above the lip in the halfpipe!'], rail: ['Slid the whole rail!'], rainbow: ['Nailed the rainbow rail.'], box: ['Fun little box.'], roller: ['The rollers are a blast.'] }[sp.type]));
+  if (Math.random() < 0.05) thought(g, pick({ jump: ['Stomped the jump!', 'Got some air on that jump.'], tabletop: ['Cleared the big jump!', 'That big jump is huge. Loved it.'], pipe: ['The halfpipe is awesome.', 'Got above the lip in the halfpipe!', 'Best halfpipe around.'], rail: ['Slid the whole rail!'], rainbow: ['Nailed the rainbow rail.'], box: ['Fun little box.'], roller: ['The rollers are a blast.'] }[sp.type]));
   return false;
 }
 
@@ -6170,6 +6237,9 @@ function planVisual(p) {
     p.samples = trailSamples(p.pts, TRAIL_WIDTHS.medium.hw, p.ws);
     g = new THREE.Mesh(ribbonGeometry(p.samples, HW_MAX, null), p.paused ? BLUEPRINT_PAUSED : BLUEPRINT);
     g.renderOrder = 6;
+  } else if (p.kind === 'feat') {
+    const t = world.trails.find((o) => o.id === p.trail);
+    g = t ? blueprint(featModel(t, featSpot(t, { type: p.type, at: p.at, off: p.off, id: -1 })), p.paused) : new THREE.Group();
   } else if (p.kind === 'lift') {
     g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b, p.type), false), p.paused);
   } else {
@@ -6192,6 +6262,7 @@ function planTitle(p) {
   if (p.kind === 'trail') return `Planned ${TRAIL_WIDTHS[p.width].label.toLowerCase()} trail`;
   if (p.kind === 'shape') { const t = world.trails.find((o) => o.id === p.trail); return `Planned new width for ${t ? t.name : p.name || 'a trail'}`; }
   if (p.kind === 'lift') return `Planned ${LIFT_TYPES[p.type].long.toLowerCase()}`;
+  if (p.kind === 'feat') { const t = world.trails.find((o) => o.id === p.trail); return `Planned ${FEATS[p.type].name.toLowerCase()} on ${t ? t.name : p.name || 'a trail'}`; }
   return `Planned ${BTYPES[p.type].name.toLowerCase()}`;
 }
 // A planned new width: built only if its trail still runs the route it was drawn on.
@@ -6210,6 +6281,7 @@ function buildShapePlan(p) {
 }
 function buildPlan(p) {
   if (p.kind === 'shape') return buildShapePlan(p);
+  if (p.kind === 'feat') return buildFeatPlan(p);
   let info;
   if (p.kind === 'trail') info = evalTrail(p.pts, p.width, false, p.grade);
   else if (p.kind === 'lift') info = evalLift(p.a, p.b, p.type, false);
@@ -6306,6 +6378,7 @@ function pickPlan(p) {
   for (const pl of world.plans) {
     if (pl.kind === 'bld' && boxDist(p, bAABB(pl.type, 0, pl.x, pl.z, pl.rot, 0.2)) === 0) return pl;
     if (pl.kind === 'lift' && distToSeg(p, pl.a, pl.b) < 1.6) return pl;
+    if (pl.kind === 'feat') { const t = world.trails.find((o) => o.id === pl.trail); if (t && distXZ(p, featPt(featSpot(t, { type: pl.type, at: pl.at, off: pl.off }), 0, 0)) < 1.2) return pl; }
     if (pl.kind === 'trail' && pl.samples.some((s) => distXZ(p, s) < TRAIL_WIDTHS[pl.width].hw + 0.4)) return pl;
   }
   return null;
@@ -6582,12 +6655,11 @@ function buildRow(info, ok) {
 /* ---------- The terrain park tool (Trail tool › Terrain park) ----------
    Pick a feature, tap a trail to preview it (green fits, red doesn't), then build. With no feature
    picked, tapping one already built selects it so it can be removed. */
-var parkDraft = { type: null, site: null, sel: null }; // var: setTool can run before this line on load
+var parkDraft = { type: null, site: null, sel: null, moving: null }; // var: setTool can run before this line on load
 var parkGhost = null;
 function clearParkGhost() { if (parkGhost) { trailGroup.remove(parkGhost); parkGhost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); parkGhost = null; } }
 function openParkTool(t) {
   if (visiting) return;
-  if (state.phase !== 'closed') { toast('Terrain park features are built overnight, while the resort is closed.', true); return; }
   setTool('tpark');
 }
 // The spot on a trail nearest p: how far down (at) and how far across (off) a feature of this type would sit.
@@ -6609,8 +6681,8 @@ function parkSiteAt(p, type) {
 function parkSiteInfo() {
   const d = parkDraft, s = d.site;
   if (!s || !d.type || !world.trails.includes(s.t)) return null;
-  const sp = featSpot(s.t, { type: d.type, at: s.at, off: s.off, id: -1 });
-  return { sp, problems: featProblems(s.t, sp, null), cost: FEATS[d.type].cost };
+  const sp = featSpot(s.t, { type: d.type, at: s.at, off: s.off, id: -1 }), m = d.moving;
+  return { sp, problems: featProblems(s.t, sp, m && m.t === s.t ? m.f : null), cost: m ? featMoveFee(d.type) : FEATS[d.type].cost };
 }
 function showParkGhost() {
   clearParkGhost();
@@ -6632,7 +6704,7 @@ function parkFeatAt(p) {
   return best;
 }
 function parkTap(p) {
-  if (visiting || state.phase !== 'closed') return;
+  if (visiting) return;
   const d = parkDraft;
   if (!d.type) {
     const hit = parkFeatAt(p);
@@ -6644,17 +6716,55 @@ function parkTap(p) {
   if (!site) { toast('Tap on a trail to place it.', true); return; }
   d.site = site; showParkGhost(); renderSheet();
 }
+const featMoveFee = (type) => Math.round(FEATS[type].cost * 0.2 / 100) * 100; // much less than rebuilding
 function parkBuild() {
   const info = parkSiteInfo(), d = parkDraft;
-  if (!info || info.problems.length || state.phase !== 'closed' || visiting) return;
-  if (state.cash < info.cost) { toast(`Need ${money(info.cost - state.cash)} more for this ${FEATS[d.type].name.toLowerCase()}.`, true); return; }
-  const t = d.site.t, F = FEATS[d.type];
+  if (!info || info.problems.length || visiting) return;
+  const t = d.site.t, F = FEATS[d.type], at = Math.round(d.site.at * 1000) / 1000, off = Math.round(d.site.off * 100) / 100;
+  if (planning() && !d.moving) { // open for the day: a blueprint, built overnight in order
+    addPlan({ kind: 'feat', trail: t.id, name: t.name, type: d.type, at, off, cost: info.cost });
+    d.site = null; clearParkGhost(); scheduleSave(); renderSheet();
+    toast(`Planned ${F.name.toLowerCase()} on ${t.name} · built overnight`); return;
+  }
+  if (state.phase !== 'closed') return;
+  if (state.cash < info.cost) { toast(`Need ${money(info.cost - state.cash)} more.`, true); return; }
+  if (d.moving) {
+    const m = d.moving;
+    pushUndo(`moving ${F.name.toLowerCase()}`);
+    m.t.feats = m.t.feats.filter((f) => f !== m.f);
+    t.feats.push({ ...m.f, at, off });
+    state.cash -= info.cost;
+    if (m.t !== t) buildFeats(m.t);
+    buildFeats(t); parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost();
+    updateCash(true); scheduleSave(); renderSheet();
+    toast(`Moved ${F.name.toLowerCase()}${m.t !== t ? ` to ${t.name}` : ''} · −${money(info.cost)}`); return;
+  }
   pushUndo(`building ${F.name.toLowerCase()}`);
-  t.feats.push({ id: world.nextId++, type: d.type, at: Math.round(d.site.at * 1000) / 1000, off: Math.round(d.site.off * 100) / 100 });
+  t.feats.push({ id: world.nextId++, type: d.type, at, off });
   state.cash -= info.cost;
   buildFeats(t); d.site = null; clearParkGhost();
   updateCash(true); scheduleSave(); renderSheet();
   toast(`Built ${F.name.toLowerCase()} on ${t.name} · −${money(info.cost)}`);
+}
+function parkMove() {
+  const s = parkDraft.sel;
+  if (!s || state.phase !== 'closed' || visiting) return;
+  parkDraft = { type: s.f.type, site: null, sel: null, moving: s };
+  renderSheet();
+}
+// A planned feature: built if its trail is still there and the spot still works.
+function buildFeatPlan(p) {
+  const t = world.trails.find((o) => o.id === p.trail && !o.virtual);
+  if (!t) return 'its trail has been removed.';
+  const sp = featSpot(t, { type: p.type, at: p.at, off: p.off, id: -1 }), problems = featProblems(t, sp, null);
+  if (problems.length) return problems[0];
+  p.cost = FEATS[p.type].cost;
+  if (p.cost > state.cash) { p.short = true; return `there wasn’t enough cash (it needs ${money(p.cost)}).`; }
+  p.short = false;
+  t.feats.push({ id: world.nextId++, type: p.type, at: p.at, off: p.off });
+  state.cash -= p.cost; buildFeats(t);
+  p.madeName = `${FEATS[p.type].name.toLowerCase()} on ${t.name}`;
+  return true;
 }
 function parkRemove() {
   const s = parkDraft.sel;
@@ -6667,12 +6777,13 @@ function parkRemove() {
   toast(`Removed ${F.name.toLowerCase()} from ${s.t.name} · ${money(back)} back`);
 }
 function parkToolSheet() {
-  const d = parkDraft, F = d.type && FEATS[d.type];
+  const d = parkDraft, F = d.type && FEATS[d.type], open = state.phase !== 'closed';
   const head = (title) => `<div class="sheet-title"><h3>${title}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>`;
   if (d.sel) {
     const sF = FEATS[d.sel.f.type];
     return `${head(sF.name)}<p class="help">On ${esc(d.sel.t.name)} · ${FEAT_SIZE[sF.size]} · shaping ${money(sF.upkeep)}/night.</p>
-      <button class="btn secondary wide" data-action="parkRemove">Remove this ${sF.name.toLowerCase()} · ${money(Math.round(sF.cost * 0.25))} back</button>
+      ${open ? '<p class="help">Features are moved or removed overnight, while the resort is closed.</p>' : `<div class="row"><button class="btn secondary" data-action="parkMove">Move · ${money(featMoveFee(d.sel.f.type))}</button></div>
+      <button class="btn secondary wide" data-action="parkRemove">Remove this ${sF.name.toLowerCase()} · ${money(Math.round(sF.cost * 0.25))} back</button>`}
       <button class="link" data-action="parkSel">Keep it</button>`;
   }
   if (!F) {
@@ -6680,27 +6791,28 @@ function parkToolSheet() {
     return `${head('Terrain park')}${TRAIL_MODES('tpark')}
       <p class="help">Park fans come for jumps, rails and a halfpipe, and ride the ones they’re good enough for. Other skiers go around them, so a wide trail works best.</p>
       <div class="bpick rows">${rows}</div>
-      <p class="help">Tap a feature you’ve built to remove it.</p>`;
+      <p class="help">Tap a feature you’ve built to move or remove it.</p>`;
   }
-  const info = parkSiteInfo(), short = info && info.cost > state.cash;
-  return `${head(F.name)}
-    <p class="help">${F.blurb}. ${FEAT_SIZE[F.size]}. Shaping costs ${money(F.upkeep)} a night while its trail is open.</p>
-    <p class="help"><b>${info ? `${isCoarse ? 'Tap' : 'Click'} elsewhere to move it, then build.` : `${isCoarse ? 'Tap' : 'Click'} a trail where it should go.`}</b></p>
-    ${info ? `${problemsHtml(info.problems)}<div class="costs"><span>${F.name} on ${esc(d.site.t.name)}</span><span>${money(info.cost)}</span></div>` : ''}
-    <button class="btn wide" data-action="parkBuild" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on a trail' : short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button>
-    <button class="link" data-action="parkPick" data-v="">Choose a different feature</button>`;
+  const info = parkSiteInfo(), plan = planning() && !d.moving, short = info && info.cost > state.cash && !plan, tap = isCoarse ? 'Tap' : 'Click';
+  return `${head(d.moving ? `Move ${F.name.toLowerCase()}` : F.name)}
+    <p class="help">${d.moving ? `Moving costs ${money(featMoveFee(d.type))}, much less than building another.` : `${F.blurb}. ${FEAT_SIZE[F.size]}. Shaping costs ${money(F.upkeep)} a night while its trail is open.`}</p>
+    <p class="help"><b>${info ? `${tap} elsewhere to try another spot, then confirm.` : `${tap} a trail where it should go.`}</b></p>
+    ${info ? `${problemsHtml(info.problems)}<div class="costs"><span>${d.moving ? 'Moving' : F.name} on ${esc(d.site.t.name)}</span><span>${money(info.cost)}</span></div>` : ''}
+    ${plan ? PLAN_NOTE : ''}
+    <button class="btn wide" data-action="parkBuild" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on a trail' : short ? `Need ${money(info.cost - state.cash)} more` : `${d.moving ? 'Move here' : plan ? 'Plan it' : 'Build'} · ${money(info.cost)}`}</button>
+    <button class="link" data-action="${d.moving ? 'parkSel' : 'parkPick'}" data-v="">${d.moving ? 'Keep it where it is' : 'Choose a different feature'}</button>`;
 }
 // On a trail's card: what's in its park, or a way to start one.
 function trailParkSection(t) {
   if (t.virtual) return '';
-  const fx = t.fx || [], can = !visiting && state.phase === 'closed';
+  const fx = t.fx || [], can = !visiting;
   if (!fx.length) return can ? `<p class="conn">Add jumps, rails or a halfpipe to make this trail a terrain park. <button class="link" data-action="parkHere">Build features</button></p>` : '';
   const counts = {};
   for (const sp of fx) counts[sp.F.name] = (counts[sp.F.name] || 0) + 1;
   const hits = state.phase === 'open' && today ? ((today.parkBy || {})[t.id] || 0) : null;
   return `<div class="field-label">Terrain park</div>
     <p class="conn">${Object.entries(counts).map(([k, n]) => n > 1 ? `${n} × ${k.toLowerCase()}` : k).join(' · ')}<br>Shaping ${money(parkUpkeep(t))}/night${hits != null ? ` · <b>${hits}</b> rides on features today` : ''}</p>
-    ${can ? '<button class="link" data-action="parkHere">Add or remove features</button>' : ''}`;
+    ${can ? `<button class="link" data-action="parkHere">${state.phase === 'closed' ? 'Add, move or remove features' : 'Plan more features'}</button>` : ''}`;
 }
 
 // The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
@@ -7157,10 +7269,11 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'liftColor' && selected?.kind === 'lift') setLiftColor(obj, +b.dataset.v);
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
-  else if (a === 'parkPick') { parkDraft.type = FEATS[b.dataset.v] ? b.dataset.v : null; parkDraft.site = null; parkDraft.sel = null; clearParkGhost(); renderSheet(); }
+  else if (a === 'parkPick') { parkDraft = { type: FEATS[b.dataset.v] ? b.dataset.v : null, site: null, sel: null, moving: null }; clearParkGhost(); renderSheet(); }
   else if (a === 'parkBuild') parkBuild();
   else if (a === 'parkRemove') parkRemove();
-  else if (a === 'parkSel') { parkDraft.sel = null; renderSheet(); }
+  else if (a === 'parkSel') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); renderSheet(); }
+  else if (a === 'parkMove') parkMove();
   else if (a === 'parkHere' && selected?.kind === 'trail') openParkTool();
   else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; obj.snowClosed = undefined; computeNetwork(); scheduleSave(); renderSheet(); }
   else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
@@ -7844,7 +7957,7 @@ function serializeWorld() {
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
-    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' ? p.name : undefined, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
+    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' || p.kind === 'feat' ? p.name : undefined, at: p.at, off: p.off, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
   };
 }
 let satSpaces = 0;
@@ -8973,7 +9086,10 @@ function endOfTrail(g) {
     else if (T.surface === 'icy' && Math.random() < 0.4) thought(g, `${T.name} was icy and scraped off.`);
     else if (T.surface === 'moguls' && g.ab <= 1 && Math.random() < 0.4) thought(g, `The moguls on ${T.name} wore me out.`);
     else if (T.surface === 'thin' && Math.random() < 0.4) thought(g, `${T.name} needs more snow. I hit a rock.`);
-    if (T.fx && T.fx.length && !g.fs) { g.sat -= 0.3 * RUN_W; if (Math.random() < 0.08) thought(g, `${T.name} is full of jumps. I just wanted to cruise.`); }
+    if (T.fx && T.fx.length && !g.fs) {
+      g.sat -= 0.3 * RUN_W; const c = today.parkCruise || (today.parkCruise = {}); c[T.id] = (c[T.id] || 0) + AGENT;
+      if (Math.random() < 0.08) thought(g, `${T.name} is full of jumps. I just wanted to cruise.`);
+    } else if (T.fx && T.fx.length && g.fs && Math.random() < 0.15) thought(g, T.fxPts[g.ab] ? `Great park on ${T.name}.` : `The park on ${T.name} is too big for me. I wish it had some smaller features.`);
     else if (Math.random() < 0.25) thought(g, r === g.pref ? `Loved ${T.name}!` : `${T.name} was nice.`);
   }
   g.sat = clamp(g.sat, 0, 100);
@@ -9142,7 +9258,7 @@ function makeGuest(car, x, z) {
   const g = {
     id: nextGid++, car: car.id, name: `${pick(FIRST)} ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}.`,
     ab, pref: ab === 0 ? 0 : Math.random() < 0.6 ? ab : ab - 1,
-    fs: ab >= 1 && Math.random() < [0, 0.18, 0.3, 0.3][ab], // a park fan: rides jumps and rails
+    fs: ab >= 1 && Math.random() < [0, 0.18, 0.3, 0.3][ab], fsr: 0, // a park fan: rides jumps and rails; fsr counts features ridden today
     pat: 4 + Math.random() * 10, qh: 0.3 + Math.random() * 0.5,
     stam: (ab + 1) * 55 + Math.random() * 110, explore: 0.5 + Math.random(),
     // About one in five ski a half day and leave around lunch; the rest plan to stay until mid to late afternoon.
@@ -9179,6 +9295,8 @@ function makeGuest(car, x, z) {
     g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.family = false;
   }
   if (g.first) today.firsts += AGENT;
+  if (g.sight) g.fs = false;
+  if (g.fs) parkArrival(g);
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
@@ -9801,7 +9919,7 @@ function endDay() {
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
-    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay, parkHits: today.parkHits || 0,
+    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay, parkHits: today.parkHits || 0, park: parkReport(),
     meals: today.meals ? { ...today.meals } : null,
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
@@ -15042,6 +15160,7 @@ function advice() {
     if (r.turnedAway > 0) add(false, `${r.turnedAway} guests were turned away because the parking was full.`, 'Parking', () => openManage('blds'));
     if ((c.noRental || 0) > 0 && !world.buildings.some((B) => RENTS.includes(B.type))) add(false, `${c.noRental} guests wanted to rent skis. A rental shop at the base pays for itself.`, 'Build a rental shop', () => pickBuilding('rental'));
     if ((c.food || 0) > 20) hungerAdvice(r, add);
+    parkAdvice(r, add);
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
   if (!state.summer && lotCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
@@ -16282,6 +16401,7 @@ function showReport(r = state.lastReport, past = false) {
   for (const G of r.glades || []) note(G.severe || G.unhelped ? 4 : 3, `${G.n} tree ${G.n === 1 ? 'collision' : 'collisions'} in <b>${esc(G.name)}</b>${G.severe ? `, ${G.severe} serious` : ''}.${G.reached ? ` Patrol took ${Math.round(G.resp / G.reached)} min on average to reach them in the trees.` : ''}${G.unhelped ? ` ${G.unhelped} waited so long they got themselves out.` : ''}${G.severe ? ' Thinning the glade, a patrol hut nearby or closing it in thin snow lowers the risk.' : ''}`);
   if (r.injuries) note(3, `${r.injuries} ${r.injuries === 1 ? 'guest was' : 'guests were'} hurt. Ski patrol helped ${r.helped}${r.helped ? `, reaching them in ${Math.round(r.resp)} min on average` : ''}.${r.unhelped ? ` ${r.unhelped} had to get down without help.` : ''}`);
   const c = r.complaints;
+  if (c.noPark >= 10 && !r.park) note(2, `${c.noPark} park fans found no terrain park. Trail › Terrain park adds jumps, rails and a halfpipe.`);
   if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.${past || world.areas.length ? '' : ' <button class="link" data-rp="area">Paint a learning area tonight</button>'}`);
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
@@ -16303,7 +16423,7 @@ function showReport(r = state.lastReport, past = false) {
   const shortNotes = notes.filter((n) => !(n.match(/\d[\d,]{1,}/g) || []).some((x) => tipNums.has(x))).slice(0, 3);
   const extras = [r.apres && `Après ${signedMoney(r.apres.profit)}`, r.night && `Night skiing ${signedMoney(r.night.profit)}`].filter(Boolean);
   const td = r.trailsDay && r.trailsDay.top && r.trailsDay.top.length ? r.trailsDay : null;
-  const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
+  const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.park ? [['park', 'Park']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
   $('rpBody').innerHTML = `
     <div class="rp-head"><div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
       <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
@@ -16343,6 +16463,7 @@ function showReport(r = state.lastReport, past = false) {
     </div>
     </div>
     ${td ? `<div class="rp-page" data-page="trails" hidden>${trailsPageHtml(r, past)}</div>` : ''}
+    ${r.park ? `<div class="rp-page" data-page="park" hidden>${parkPageHtml(r)}</div>` : ''}
     ${r.apres ? `<div class="rp-page" data-page="apres" hidden>${apresPageHtml(r)}</div>` : ''}
     ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}`;
   applyRpView();
@@ -18816,9 +18937,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen.
 const CHANGES = [
   { v: '2.70', date: 'Nov 1, 2026', title: 'Terrain parks', items: [
-    'Build a terrain park on any trail: open Trail › Terrain park, pick rollers, a box, rails, a small or big jump, or a halfpipe, tap the trail and build. Tap one you’ve built to remove it.',
+    'Build a terrain park on any trail: open Trail › Terrain park, pick rollers, a box, rails, a small or big jump, or a halfpipe, tap the trail and build. While you’re open, features become blueprints built overnight.',
+    'Tap a feature you’ve built to move it for a small fee, or remove it.',
     'Park fans, some intermediates and many stronger skiers, look for parks and ride the features they’re good enough for: you’ll see them catch air, slide rails and ride the halfpipe walls. Other skiers go around the features, and a few would rather cruise elsewhere.',
-    'A park draws extra guests, and the bigger it is, the more it draws. Crews reshape the features each night their trail is open; the day report lists it as Terrain park shaping.',
+    'A park draws extra guests, and the bigger it is, the more it draws. Crews reshape the features each night their trail is open.',
+    'The day report has a Park page: rides, fans who found nothing to ride, falls and your most-ridden features. What next? points out a park without patrol nearby, features that don’t suit your fans, and fans looking for a park you don’t have yet.',
   ] },
   { v: '2.69.1', date: 'Oct 31, 2026', title: 'Crowds face the action', small: true, items: [
     'Spectators at a pond skim and along a race finish now face the pond and the course, instead of turning their backs on it.',

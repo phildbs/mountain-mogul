@@ -107,7 +107,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4f420d32-a79w7t` | Claude | Terrain parks 2.70 preview, rebuilt from scratch on current `main` (see Claude's Nov 1 note). Waiting for Phil. | Nov 1, 2026 |
+| `ccr-4f420d32-a79w7t` | Claude | Terrain parks 2.70 preview, rebuilt from scratch on current `main` (see Claude's Nov 1 note), with the report page, advice, blueprints and moving. Roadmap card moved to Done at Phil's request. Waiting for Phil. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -295,8 +295,15 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   per skier on a park trail, looping that trail's features).
 - **Also fixed:** `76-roadmap-new` expected Hotels `ongoing`, but Hotels moved to Done on Nov 1, so it failed on `main`. It now checks
   Ski-in/ski-out, and sorts the tagged cards.
-- **Left for later:** blueprints while open (the tool says features are built overnight), moving a feature, park-specific advice, a
-  "younger crowd" demographic, and features hidden in summer (they follow the trail ribbon's visibility).
+- **Finishing pass (Phil picked items 1–5 of the brainstorm, then roadmap card to Done):**
+  - Report `r.park` (`parkReport`): fans by ability (`today.parkFans`), first-ride counts (`today.parkRode`, using guest field `fsr`),
+    `featRides` by feature id, `parkFalls`, `parkCruise` (non-fan runs per park trail). Shown on a Park tab (`parkPageHtml`).
+  - `parkAdvice` in What next?: no park but ≥15 fans asking (`complaints.noPark`, set in `parkArrival` with no satisfaction cost),
+    falls with no patrol hut within 45 units, over 40% of fans riding nothing, cruisers outnumbering fans on a park trail.
+  - Blueprints while open: plan kind `feat` (`trail, name, type, at, off`), `buildFeatPlan`, a blueprint-tinted `featModel`. Move:
+    `parkMove` → `parkDraft.moving`, fee `featMoveFee` (20%), keeps the feature id. Moving and removing are overnight only.
+- **Left for later (Phil: future updates):** park open/closed switch, wear and shaping levels, a slopestyle event, a freestyle crowd,
+  and features hidden in summer (they follow the trail ribbon's visibility).
 - Tools: scenario 126 (picker, placement rules, build/remove, undo, save, riders/avoiders, day, report, phone).
 
 ### 2026-10-31 · Claude · Event crowds faced away (shipped in 2.69.1)

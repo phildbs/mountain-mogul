@@ -60,18 +60,39 @@ export default async function ({ browser, url }) {
     parkTap(featPt(sp, 0, 0)); const sel = parkDraft.sel && parkDraft.sel.f.type;
     document.querySelector('#sheet [data-action="parkRemove"]').click(); return { sel, back: state.cash - cash, left: t.feats.length }; })()`);
   eq(rem, { sel: 'roller', back: 1500, left: 4 }, 'tapping a feature selects it; removing returns 25%');
+  // moving: tap it, Move, tap a new spot; it keeps its id and costs a fifth of its price
+  const mv = await g.ev(`(() => { const t = realTrails()[0], at = ${at}, sp = t.fx.find((s) => s.type === 'rail'), id = sp.f.id, cash = state.cash;
+    parkTap(featPt(sp, 0, 0)); document.querySelector('#sheet [data-action="parkMove"]').click();
+    parkTap(at(t, 0.8, 0.3)); const probs = parkSiteInfo().problems; parkBuild();
+    const f = t.feats.find((x) => x.id === id); return { probs, fee: cash - state.cash, at: f && f.at > 0.7, n: t.feats.length }; })()`);
+  eq(mv, { probs: [], fee: 2000, at: true, n: 4 }, 'a rail moves down the trail for $2,000, keeping its id');
   // the trail card lists the park
   const card = await g.ev(`(() => { setTool('explore'); select({ kind: 'trail', obj: realTrails()[0] }); return document.querySelector('#sheet').textContent; })()`);
   assert(card.includes('Terrain park') && card.includes('Big jump') && card.includes('/night'), 'the trail card shows its park');
   // a day: fans ride features, shaping is paid overnight and shown on the report
   const day = await g.ev(`(() => { select(null); const want = realTrails().filter(runnable).reduce((a, t) => a + parkUpkeep(t), 0);
-    openDay(); let n = 0; while (state.phase === 'open' && n < 200000) { simStep(1.5); n++; }
-    const r = state.lastReport; return { want, park: r.exp.park, hits: r.parkHits, phase: state.phase }; })()`);
+    openDay(); let n = 0; while (state.time < 700 && n < 200000) { simStep(1.5); n++; }
+    // open for the day: a feature becomes a blueprint
+    const t = realTrails()[1], at = ${at}; openParkTool(); parkDraft.type = 'jump'; let planned = false;
+    for (let a = 0.25; a < 0.9 && !planned; a += 0.05) { parkTap(at(t, a, -0.5)); if (!parkSiteInfo().problems.length) { parkBuild(); planned = true; } }
+    const plan = world.plans.find((p) => p.kind === 'feat'); setTool('explore');
+    while (state.phase === 'open' && n < 200000) { simStep(1.5); n++; }
+    const r = state.lastReport; return { want, park: r.exp.park, hits: r.parkHits, phase: state.phase, plan: !!plan && plan.type, rp: r.park && [r.park.fans > 0, r.park.rode > 0, r.park.feats.length] }; })()`);
+  eq(day.plan, 'jump', 'while open, a feature becomes a blueprint');
+  eq(day.rp, [true, true, 4], 'the report counts park fans, riders and every feature');
   eq(day.phase, 'report', 'the day ends');
   eq(day.park, day.want, 'park shaping is charged for open trails');
   assert(day.hits > 20, `park fans ride the features (${day.hits} rides)`);
-  const rpt = await g.ev(`(() => { showReport(); return document.body.textContent.includes('Terrain park shaping'); })()`);
-  eq(rpt, true, 'the report lists park shaping');
+  const rpt = await g.ev(`(() => { showReport(); const page = document.querySelector('.rp-page[data-page="park"]');
+    return [document.body.textContent.includes('Terrain park shaping'), !!document.querySelector('[data-rptab="park"]'), !!page && page.textContent.includes('Most ridden')]; })()`);
+  eq(rpt, [true, true, true], 'the report lists park shaping and has a Park page');
+  const overnight = await g.ev(`(() => { const before = realTrails()[1].feats.length; nextDay(); return [realTrails()[1].feats.length - before, world.plans.filter((p) => p.kind === 'feat').length]; })()`);
+  eq(overnight, [1, 0], 'the planned jump is built overnight');
+  // advice: fans with no park, and a park far from patrol
+  const adv = await g.ev(`(() => { const out = []; parkAdvice({ complaints: { noPark: 20 } }, (u, t) => out.push(t));
+    parkAdvice({ complaints: {}, park: { falls: 4, fans: 20, missed: [0, 12, 0, 0], cruise: [] } }, (u, t) => out.push(t)); return out; })()`);
+  assert(adv.some((t) => t.includes('20 park fans came looking')), `fans with no park are pointed at the tool: ${adv}`);
+  assert(adv.some((t) => t.includes('patrol hut')) && adv.some((t) => t.includes('small features')), `falls far from patrol, and intermediates with nothing to ride, get advice: ${adv}`);
   eq(g.errors, [], 'no page errors');
   await g.page.close();
   // the picker on a phone
