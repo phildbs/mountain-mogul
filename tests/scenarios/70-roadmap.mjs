@@ -10,16 +10,16 @@ export default async function ({ browser, url }) {
   const ids = await ev(`[...document.querySelectorAll('.card')].map((c) => c.dataset.idea)`);
   assert(ids.length >= 12 && ids.includes('hotels') && ids.includes('multiplayer') && new Set(ids).size === ids.length, `a card per idea: ${ids}`);
   assert(ids.every((i) => /^[a-z0-9-]{1,40}$/.test(i)), 'ids the database accepts');
-  eq(await counts('hotels'), [[0, 'false'], [0, 'false']], 'no votes yet');
+  eq(await counts('ski-in-ski-out'), [[0, 'false'], [0, 'false']], 'no votes yet');
 
   // vote: signs in as a guest, counts it, remembers it
-  await page.click('[data-idea=hotels] .vote.up'); await page.waitForTimeout(200);
-  eq(await counts('hotels'), [[1, 'true'], [0, 'false']], 'a vote up');
+  await page.click('[data-idea="ski-in-ski-out"] .vote.up'); await page.waitForTimeout(200);
+  eq(await counts('ski-in-ski-out'), [[1, 'true'], [0, 'false']], 'a vote up');
   eq(await ev(`!!JSON.parse(localStorage.getItem('FAKE_SESSION'))`), true, 'as a guest');
-  await page.click('[data-idea=hotels] .vote.down'); await page.waitForTimeout(200);
-  eq(await counts('hotels'), [[0, 'false'], [1, 'true']], 'changing your mind moves the vote');
-  await page.click('[data-idea=hotels] .vote.down'); await page.waitForTimeout(200);
-  eq(await counts('hotels'), [[0, 'false'], [0, 'false']], 'tapping again takes it back');
+  await page.click('[data-idea="ski-in-ski-out"] .vote.down'); await page.waitForTimeout(200);
+  eq(await counts('ski-in-ski-out'), [[0, 'false'], [1, 'true']], 'changing your mind moves the vote');
+  await page.click('[data-idea="ski-in-ski-out"] .vote.down'); await page.waitForTimeout(200);
+  eq(await counts('ski-in-ski-out'), [[0, 'false'], [0, 'false']], 'tapping again takes it back');
   await page.click('[data-idea=multiplayer] .vote.up'); await page.click('[data-idea=condos] .vote.down'); await page.waitForTimeout(300);
 
   // a finished idea keeps its votes but takes no more
@@ -37,13 +37,14 @@ export default async function ({ browser, url }) {
   eq(await counts('multiplayer'), [[1, 'false'], [0, 'false']], 'a visitor sees the totals');
 
   // Most wanted: one list, highest first, and back
+  const stay = await ev(`document.querySelector('#stay .cards').children.length`);
   await page.click('.sort [data-sort=ranked]'); await page.waitForTimeout(100);
   const order = await ev(`[...document.querySelectorAll('#rankedCards .card')].map((c) => c.dataset.idea)`);
   eq([order.length, order[0], order[order.length - 1]], [ids.length - done, 'multiplayer', 'condos'], 'most wanted first, least last');
   eq(await ev(`getComputedStyle(document.getElementById('done')).display !== 'none'`), true, 'Done stays in view, on its own');
   eq(await ev(`[...document.querySelectorAll('section.topic')].every((s) => getComputedStyle(s).display === 'none')`), true, 'topics hidden meanwhile');
   await page.click('.sort [data-sort=topic]'); await page.waitForTimeout(100);
-  eq(await ev(`document.querySelector('#stay .cards').children.length`), 3, 'back under their topics');
+  eq(await ev(`document.querySelector('#stay .cards').children.length`), stay, 'back under their topics');
   eq(await ev(`document.documentElement.scrollWidth`), 390, 'fits a phone');
 
   // Suggest a feature opens the idea form in the game
