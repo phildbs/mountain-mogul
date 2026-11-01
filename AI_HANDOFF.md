@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.75.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 85d321e; 132-ski-racks, 32-old-saves and 29 related scenarios passed locally).
+**Live: 2.76.** Phil approved publication on Nov 1 (feature tier: Phil confirmed the full GitHub run green; 133-music, 91-unit-preferences, 22-topbar and 131-whats-new passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.76: background music, menu › Music (play/pause, next song, volume; off by default). Nine songs by Phil made with
+  Google Flow Music, credited in the guide and changelog. See Claude's note. (Claude, Nov 1)
 - 2.75: ski racks. Skiers rack skis before going indoors and walk in boots; Decor › Ski rack (12 pairs). See Claude's Nov 1 note.
 - Site card: `og-image.jpg` is now Frost Run at night (lit trails, fireworks), from Phil's promo trailers. The meta tags
   load it as `og-image.jpg?v=2` so sites refresh cached previews; bump the number when the image changes. No game change,
@@ -119,7 +121,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** 2.75.1 roomier ski racks on `ccr-e055dcda-83l2bz` (Claude), after player feedback; awaiting Publish. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** 2.76.1 roomier ski racks on `ccr-e055dcda-83l2bz` (Claude), after player feedback; awaiting Publish. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
@@ -140,7 +142,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-e055dcda-83l2bz` | Claude | 2.75.1: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out. | Nov 1, 2026 |
+| `ccr-e055dcda-83l2bz` | Claude | 2.76.1: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -308,8 +310,28 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-01 · Claude · Ski racks (shipped in 2.75; 2.75.1 awaiting Publish)
-- **2.75.1, after a player's feedback the same day:** placed racks looked as big as building racks but held 12 (now 40, drawn
+### 2026-11-01 · Claude · Background music (shipped in 2.76)
+
+- Menu › Game › **Music** (`mMusic`, a switch) shows a small player under it: play/pause, next song, volume (`mMusicBox`).
+  Off by default; `mm.music` in localStorage keeps `{ on, vol }`. Clicking Music leaves the menu open so the volume can be set.
+- Songs are listed in `MUSIC` (`{ file, title }`) and live in `music/`. Nothing downloads until music is on (`preload = 'none'`,
+  the audio element is made on first use). Shuffled each session, then played in order.
+- Songs play straight from the `<audio>` element (Phil heard nothing on Android with everything routed through Web Audio).
+  Only iPhones with `navigator.audioSession` use a Web Audio gain node (they ignore `audio.volume`), with the session set to
+  `'playback'` so the silent switch doesn't mute it; older iPhones play directly and hide the slider. Browsers need a tap before sound,
+  so music left on starts on the first `pointerdown`/`touchend`/`keydown` (title screen included). Hidden tab: pause; back:
+  resume unless the player paused by hand (`music.held`). If every song fails to load, music turns itself off with a toast.
+- Songs are Phil's, made with Google Flow Music (credited in `guide.html` and the 2.76 changelog; keep it). First one: `alpine-arcade.mp3` (Alpine Arcade, 2:23). Re-encode each to 128 kbps
+  without cover art (`ffmpeg -i in.mp3 -map 0:a -map_metadata -1 -b:a 128k music/<name>.mp3`), about 2.3 MB a song.
+  Second: `first-chair.mp3` (First Chair, a slower take of the same tune, lowered 2.5 dB to match),
+  `pixel-chalet.mp3` (−1.5 dB) and `snowy-save-point.mp3` (−2.8 dB), both 2:44;
+  `powder-day.mp3` (Phil's Pixel Powder, −2.2 dB) and `fresh-tracks.mp3` (Pixel Slopes, −1 dB), both upbeat, about 2:42;
+  `cold-snap.mp3` (Frostbite Peak, −3.7 dB, 2:54) and `last-run.mp3` (another Alpine Arcade take, −2 dB, 2:56). Then `apres-jam.mp3`
+  (Pixel Jamboree, −2.3 dB, 2:52). Nine songs, about 24 minutes, Phil's full set for now. Match loudness with
+  `-af volumedetect` (mean about −20 dB). Next song hides while there's only one. Scenario 133-music.
+
+### 2026-11-01 · Claude · Ski racks (shipped in 2.75; 2.76.1 awaiting Publish)
+- **2.76.1, after a player's feedback the same day:** placed racks looked as big as building racks but held 12 (now 40, drawn
   filling up the same way); placing them clears trees in their square (fewer are needed now: `RACK_SHARE` 1, a pair per seat +
   stall); gift kiosks are ski-in, ski-out (dropped from `RACK_TYPES`). Their "racks right by the kiosk, skis in the snow" didn't
   reproduce (4 kiosks with 2 racks each on the busy resort: none); most likely 12-pair racks filling behind a long kiosk line.
