@@ -109,6 +109,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-b2da79d7-jaez7c` | Claude | 2.70.1: ski school practice snow drawn solid so the sky stops showing through it | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -250,6 +251,11 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 - **Reputation tracking (2.64):** use `changeReputation` for future score changes; it records actual post-limit changes without altering balance. Optional saved `clock.repLog` holds up to 120 events; optional report `repDay` stores settlement start/end/causes. Overnight borrowing is logged separately. Panel history uses the existing last 14 reports; legacy scores keep their value without invented causes. In browser tests, uppercase CSS changes `innerText` labels; check source labels with `textContent` and visible numeric values separately.
 - **Rescue reputation (2.63.1):** one `0.05 * missed / injured` penalty per day, using de-duplicated missed rescues; no extra glade or financial-claim loss. Before the first hut remains protected. Optional report `rescueRep` stores coverage, limit and actual before/after loss at the reputation floor; report points are 100 times the internal factor. Satisfaction remains separate. Historical reputation and old reports are not rewritten.
 - **Injury claims:** come from missed help or slow pickups only, not from severity or glades on their own.
+- **See-through textures (2.70.1):** the renderer has `alpha: true`, so any opaque material whose texture has alpha
+  below 1 writes that alpha into the canvas, and the CSS sky gradient shows through (blue by day, grey on grey days,
+  purple at dusk). That was the ski school's "funny snow": it used the trail texture `CORD`, whose edges fade out.
+  Keep alpha textures on `transparent` materials only; buildings use solid textures like `SCHOOL_CORD`.
+  `gl.readPixels` reads the canvas before the sky is mixed in, so check colours in a screenshot.
 - **ChatGPT's environment** has no local Chromium, so it relies on the GitHub run. It once pushed a truncated
   `index.html` through its connector: after pushing, compare the GitHub file's blob SHA with your local copy.
 - **Feedback investigations** may read players' public saves, but keep player details out of the repo.
