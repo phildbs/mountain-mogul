@@ -140,6 +140,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-56c181fe-dypj06` | Claude | 2.76 background music player (menu › Music). Placeholder songs until Phil sends his MP3s. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -306,6 +307,18 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-01 · Claude · Background music (2.76 preview)
+
+- Menu › Game › **Music** (`mMusic`, a switch) shows a small player under it: play/pause, next song, volume (`mMusicBox`).
+  Off by default; `mm.music` in localStorage keeps `{ on, vol }`. Clicking Music leaves the menu open so the volume can be set.
+- Songs are listed in `MUSIC` (`{ file, title }`) and live in `music/`. Nothing downloads until music is on (`preload = 'none'`,
+  the audio element is made on first use). Shuffled each session, then played in order.
+- Volume and fades go through a Web Audio gain node, because iPhones ignore `audio.volume`. Browsers need a tap before sound,
+  so music left on starts on the first `pointerdown`/`touchend`/`keydown` (title screen included). Hidden tab: pause; back:
+  resume unless the player paused by hand (`music.held`). If every song fails to load, music turns itself off with a toast.
+- `music/placeholder-*.mp3` are synthesized stand-ins (about 50 s each). Replace them and the `MUSIC` list with Phil's
+  Google Flow songs before publishing; aim for 96–128 kbps MP3, about 2–3 MB a song. Scenario 133-music.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
 - **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and

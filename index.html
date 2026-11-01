@@ -215,6 +215,11 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .menu .mgrp { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); padding: 8px 10px 3px; }
 .menu .mgrp:first-child { padding-top: 4px; }
 .menu .msep { height: 1px; background: var(--line); margin: 6px 4px; }
+.mmusic { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 4px; padding: 0 4px 6px 6px; }
+.mmusic button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; }
+.mmusic svg { width: 14px; height: 14px; fill: currentColor; }
+.mmusic .mus-name { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmusic input { grid-column: 1 / -1; width: 100%; min-height: 28px; margin: 0; accent-color: var(--accent); }
 .menu .mval { float: right; margin-left: 14px; color: var(--ink-2); font-variant-numeric: tabular-nums; font-size: 13px; }
 /* The Manage bar: one labelled button for every panel. */
 .manage {
@@ -1394,6 +1399,13 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mGfx">Graphics <span class="mval" id="mGfxV"></span></button>
           <button id="mUnits" role="switch" aria-checked="false" aria-label="Metric units" title="Distances, land area, snow depth and wind speed">Units <span class="mval" id="mUnitsV">Imperial</span></button>
           <button id="mTemp" role="switch" aria-checked="false" aria-label="Celsius temperatures">Temperature <span class="mval" id="mTempV">°F</span></button>
+          <button id="mMusic" role="switch" aria-checked="false" aria-label="Music">Music <span class="mval" id="mMusicV">Off</span></button>
+          <div class="mmusic" id="mMusicBox" hidden>
+            <button id="musPlay" type="button" aria-label="Pause music" title="Pause"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3" width="3" height="10" rx=".6"/><rect x="9.5" y="3" width="3" height="10" rx=".6"/></svg></button>
+            <span class="mus-name" id="musName"></span>
+            <button id="musNext" type="button" aria-label="Next song" title="Next song"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3v10l7-5z"/><rect x="11" y="3" width="2.2" height="10" rx=".6"/></svg></button>
+            <input type="range" id="musVol" min="0" max="100" step="1" value="50" aria-label="Music volume">
+          </div>
           <button id="mFeedback">Feedback &amp; feature ideas</button>
           <button id="mRoadmap">Roadmap: what’s coming</button>
           <a class="menu-link" id="mPrivacy" href="privacy.html" target="_blank" rel="noopener">Privacy policy <span class="mval">New tab</span></a>
@@ -18101,6 +18113,96 @@ function setTips(on) {
 }
 setTips(tipsOn);
 $('mTips').onclick = () => { closeMenu(); setTips(!tipsOn); toast(tipsOn ? 'The help bulb is back beside your resort’s name.' : 'Help bulb hidden. Turn it back on in the menu any time.'); };
+/* ---------- Music ----------
+   Calm background songs while you build, off until the player turns them on (remembered on this device).
+   Songs live in music/ and load only once music is on. To add songs, add them to MUSIC. */
+const MUSIC = [
+  { file: 'music/placeholder-1.mp3', title: 'Placeholder song 1' },
+  { file: 'music/placeholder-2.mp3', title: 'Placeholder song 2' },
+];
+const music = { on: false, vol: 0.5, el: null, gain: null, order: [], i: 0, fails: 0, fadeT: 0, held: false }; // held: paused by hand
+try { const m = JSON.parse(localStorage.getItem('mm.music') || 'null'); if (m) { music.on = m.on === true; if (m.vol >= 0 && m.vol <= 1) music.vol = +m.vol; } } catch (e) { /* storage blocked or broken */ }
+function musicSave() { try { localStorage.setItem('mm.music', JSON.stringify({ on: music.on, vol: music.vol })); } catch (e) { /* still plays */ } }
+// A fresh shuffle each session, so it doesn't always start with the same song.
+function musicShuffle() { music.order = MUSIC.map((_, k) => k); for (let k = music.order.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [music.order[k], music.order[j]] = [music.order[j], music.order[k]]; } music.i = 0; }
+function musicTrack() { return MUSIC[music.order[music.i]]; }
+function musicEl() {
+  if (music.el) return music.el;
+  const a = music.el = new Audio(); a.preload = 'none';
+  // iPhones ignore an audio element's own volume, so the slider and fades go through Web Audio where there is one.
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) { const ctx = new AC(), g = ctx.createGain(); ctx.createMediaElementSource(a).connect(g); g.connect(ctx.destination); music.gain = g; music.ctx = ctx; }
+  } catch (e) { music.gain = null; }
+  a.onended = () => musicNext();
+  a.onplaying = () => { music.fails = 0; musicUnwake(); musicSync(); };
+  a.onpause = musicSync;
+  a.onerror = () => { if (++music.fails >= MUSIC.length) { setMusic(false); toast('Music couldn’t load. Try again later.', true); } else musicNext(); };
+  return a;
+}
+function musicLevel(v) { if (music.gain) music.gain.gain.value = v; else if (music.el) music.el.volume = v; }
+// Ease the volume to a level over ms, then call done.
+function musicFade(to, ms, done) {
+  cancelAnimationFrame(music.fadeT);
+  const from = music.gain ? music.gain.gain.value : music.el ? music.el.volume : 0, t0 = performance.now();
+  const step = (now) => { const k = Math.min(1, (now - t0) / ms); musicLevel(from + (to - from) * k); if (k < 1) music.fadeT = requestAnimationFrame(step); else if (done) done(); };
+  if (document.hidden) { musicLevel(to); if (done) done(); } else music.fadeT = requestAnimationFrame(step);
+}
+function musicPlay() {
+  if (!music.on || !MUSIC.length) return;
+  music.held = false;
+  const a = musicEl(), tr = musicTrack();
+  if (!a.src || !a.src.endsWith(tr.file)) a.src = tr.file;
+  if (music.ctx && music.ctx.state === 'suspended') music.ctx.resume().catch(() => {});
+  musicLevel(0);
+  const p = a.play();
+  if (p && p.catch) p.catch(() => { /* the browser wants a tap first: musicWake starts it */ });
+  musicFade(music.vol, 1500);
+  musicSync();
+}
+function musicPause(fade) {
+  if (!music.el) return;
+  const a = music.el;
+  if (fade) musicFade(0, 600, () => a.pause()); else { cancelAnimationFrame(music.fadeT); a.pause(); }
+}
+function musicNext() {
+  if (!MUSIC.length) return;
+  if (++music.i >= music.order.length) musicShuffle();
+  if (music.el) music.el.src = musicTrack().file;
+  if (music.on) musicPlay(); else musicSync();
+}
+function setMusic(on) {
+  music.on = !!on && MUSIC.length > 0; musicSave();
+  if (music.on) musicPlay(); else musicPause(true);
+  musicSync();
+}
+function musicSync() {
+  const playing = music.on && music.el && !music.el.paused;
+  $('mMusicV').textContent = music.on ? 'On' : 'Off';
+  $('mMusic').setAttribute('aria-checked', String(music.on));
+  $('mMusicBox').hidden = !music.on;
+  $('musName').textContent = MUSIC.length ? musicTrack().title : '';
+  $('musVol').value = Math.round(music.vol * 100);
+  $('musPlay').innerHTML = playing ? '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3" width="3" height="10" rx=".6"/><rect x="9.5" y="3" width="3" height="10" rx=".6"/></svg>' : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z"/></svg>';
+  $('musPlay').setAttribute('aria-label', playing ? 'Pause music' : 'Play music');
+  $('musPlay').title = playing ? 'Pause' : 'Play';
+}
+musicShuffle();
+$('mMusic').hidden = !MUSIC.length;
+$('mMusic').onclick = () => setMusic(!music.on); // the menu stays open, so the player can set the volume
+$('musPlay').onclick = () => { if (music.el && !music.el.paused) { music.held = true; musicPause(true); } else musicPlay(); };
+$('musNext').onclick = () => musicNext();
+$('musVol').oninput = (e) => { music.vol = e.target.value / 100; cancelAnimationFrame(music.fadeT); musicLevel(music.vol); };
+$('musVol').onchange = musicSave;
+// Browsers only start sound after a tap or key press, so music left on starts with the first one.
+// iPhones count a finished tap (touchend), not a touch starting, so listen for both until a song plays.
+const WAKE_EVENTS = ['pointerdown', 'touchend', 'keydown'];
+const musicWake = () => { if (music.on && !music.held && (!music.el || music.el.paused)) musicPlay(); };
+function musicUnwake() { for (const ev of WAKE_EVENTS) removeEventListener(ev, musicWake, true); }
+if (music.on) for (const ev of WAKE_EVENTS) addEventListener(ev, musicWake, true);
+// Quiet while the game is in a background tab, back when the player returns.
+document.addEventListener('visibilitychange', () => { if (!music.on || !music.el) return; if (document.hidden) musicPause(false); else if (!music.held) musicPlay(); });
+musicSync();
 $('mEdges').onclick = () => { closeMenu(); setTrailEdges(!trailEdges); toast(trailEdges ? 'Trails show their green, blue and black edges' : 'Clean trails: rating edges hidden'); };
 $('mGfx').onclick = () => {
   closeMenu();
@@ -19389,6 +19491,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.76', date: 'Nov 1, 2026', title: 'Background music', items: ['Turn on Music in the menu (tap your resort’s name) for calm songs while you build. Pause, skip to the next song and set the volume right there.', 'Music is off until you turn it on, and your choice is remembered on this device. It goes quiet while the game is in another tab.'] },
   { v: '2.75', date: 'Nov 1, 2026', title: 'Ski racks', items: ['Skiers now take their skis off before going in to eat, shop or use the restroom. They leave them on a ski rack by the door and walk around in their boots, then pick them up on the way out. Watch the racks fill up with skis at lunch.', 'Every lodge, café, restaurant, bar, shop and restroom has its own rack, with room for about three quarters of its seats.', 'New in Build › Decor: a ski rack ($800) with room for 12 pairs. Guests use any rack close to the door when the building’s own rack is full.', 'When every rack is full, skiers stick their skis in a snowbank, and they don’t like it. The day report shows where it happened. A new resort gets its first few days free of this.'] },
   { v: '2.74', date: 'Nov 1, 2026', title: 'Spring skiing into May, and a tidier What’s new', items: ['Spring bonus days can now run into May. Keep opening while the average trail base stays at 18 inches or more, as late as May 31.', 'May is warmer and quieter: fewer people come, and snowmaking stops after April 30, so May runs on the snow that’s left.', 'What’s new is tidier: updates are grouped by day for the last week and by week before that, with the newest open. Tap an update’s title to read it. Small fixes are folded into one line in each group.'] },
   { v: '2.73', date: 'Nov 1, 2026', title: 'No more lost trails, and a gondola fix', items: [
