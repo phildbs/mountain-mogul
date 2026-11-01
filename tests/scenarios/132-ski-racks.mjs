@@ -5,21 +5,23 @@ export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(300);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
-  // A placed rack beside the lodge door, built overnight.
+  // Two placed racks beside the lodge door and a gift kiosk nearby, built overnight.
   const placed = await g.ev(`(() => {
     state.cash = 1e7;
     const L = world.buildings.find((b) => b.type === 'lodge');
-    for (let r = 0.8; r < 2.8; r += 0.2) for (let a = 0; a < 24; a++) {
-      const x = L.door.x + Math.cos(a / 24 * 6.283) * r, z = L.door.z + Math.sin(a / 24 * 6.283) * r, i = evalBuilding('rack', x, z, L.rot);
-      if (i && !(i.problems || []).length) { commitBuilding(i, 'rack', x, z, L.rot); computeNetwork(); const R = world.buildings.find((b) => b.type === 'rack'); return { cap: rackCap(R), lodge: rackCap(L), menu: BGROUPS.find((t) => t[0] === 'decor')[2].includes('rack'), near: distXZ(R, L.door) < RACK_R }; }
-    }
-    return 'no spot';
+    const spot = (type, near, r0, r1, n) => { let k = 0; for (let r = r0; r < r1 && k < n; r += 0.2) for (let a = 0; a < 24 && k < n; a++) {
+      const x = near.x + Math.cos(a / 24 * 6.283) * r, z = near.z + Math.sin(a / 24 * 6.283) * r, i = evalBuilding(type, x, z, L.rot);
+      if (i && !(i.problems || []).length) { commitBuilding(i, type, x, z, L.rot); computeNetwork(); k++; }
+    } return k; };
+    const racks = spot('rack', L.door, 0.8, 2.8, 2), gifts = spot('gift', L.door, 3, 12, 1);
+    const R = world.buildings.filter((b) => b.type === 'rack');
+    return { racks, gifts, cap: rackCap(R[0]), lodge: rackCap(L), gift: rackCap(world.buildings.find((b) => b.type === 'gift')), menu: BGROUPS.find((t) => t[0] === 'decor')[2].includes('rack'), near: R.every((q) => distXZ(q, L.door) < RACK_R) };
   })()`);
-  eq(placed, { cap: 12, lodge: 95, menu: true, near: true }, 'a 12-pair rack in the Decor tab; a small lodge racks about three quarters of its seats and stalls');
+  eq(placed, { racks: 2, gifts: 1, cap: 40, lodge: 126, gift: 0, menu: true, near: true }, 'a 40-pair rack in the Decor tab; a small lodge racks a pair per seat and stall; gift kiosks need none');
 
   const steps = await g.ev(`(() => {
     state.seasonStats.days = 10; state.day = 45; openDay(); state.speed = 0;
-    const L = world.buildings.find((b) => b.type === 'lodge'), R = world.buildings.find((b) => b.type === 'rack'), out = {};
+    const L = world.buildings.find((b) => b.type === 'lodge'), [R, R2] = world.buildings.filter((b) => b.type === 'rack').sort((p, q) => distXZ(p, L.door) - distXZ(q, L.door)), K = world.buildings.find((b) => b.type === 'gift'), out = {};
     const guest = () => { const k = { ...makeGuestLike(), id: nextGid++ }; guests.push(k); gById.set(k.id, k); return k; };
     function makeGuestLike() { return { ...makeGuest({ id: -1, members: [] }, L.door.x + 4, L.door.z + 4), st: 'walk', onSkis: true, needsRental: false, sight: false, then: null }; }
     const go = (k) => { k.x = k.tx; k.z = k.tz; arrive(k); };
@@ -36,8 +38,11 @@ export default async function ({ browser, url }) {
     rackCount(); rackUse.set(L.id, 1000);
     const b = guest(); startVisit(b, L, 'warm', { k: 'base' });
     out.toPlaced = b.then.rid === R.id; go(b); out.onPlaced = b.rack === R.id && rackCount().get(R.id) >= 1;
+    // 2b. The nearest placed rack is full too: the next free one, never the snow.
+    rackUse.set(R.id, 40);
+    const b2 = guest(); startVisit(b2, L, 'warm', { k: 'base' }); go(b2); out.nextFree = b2.rack === R2.id;
+    rackUse.set(R2.id, 40);
     // 3. Every rack full: skis in the snow by the door. It stings once, and only once a day.
-    rackUse.set(R.id, 12);
     const c = guest(), csat = c.sat, n0 = today.complaints.rack || 0; startVisit(c, L, 'warm', { k: 'base' });
     out.toDoor = c.then.rid === undefined && c.tx === L.door.x; go(c);
     out.snow = [c.rack === -L.id, csat - c.sat, (today.complaints.rack || 0) - n0, today.rackAt[L.id]];
@@ -46,26 +51,29 @@ export default async function ({ browser, url }) {
     out.once = [(today.complaints.rack || 0) - n0, today.rackAt[L.id]];
     L.q.seat = L.q.seat.filter((x) => x !== c); leaveBuilding(c, L);
     // 4. A new resort's first days: skis in the snow, but no complaint yet.
-    state.seasonStats.days = 1; rackUse.set(L.id, 1000); rackUse.set(R.id, 12);
+    state.seasonStats.days = 1; rackUse.set(L.id, 1000); rackUse.set(R.id, 40); rackUse.set(R2.id, 40);
     const d = guest(), dsat = d.sat; startVisit(d, L, 'warm', { k: 'base' }); go(d);
     out.easy = [d.rack === -L.id, d.sat === dsat, (today.complaints.rack || 0) - n0, !!today.rackEasy];
     L.q.seat = L.q.seat.filter((x) => x !== d); leaveBuilding(d, L); go(d);
     state.seasonStats.days = 10; delete today.rackEasy;
     // 5. Guests without skis (sightseers, renters on the way in) never stop at a rack.
     const e = guest(); e.sight = true; startVisit(e, L, 'warm', { k: 'base' }); out.noSkis = e.then.rid === undefined && e.tx === L.door.x;
-    for (const k of [a, b, c, d, e]) { k.gone = true; gById.delete(k.id); }
+    // 6. Gift kiosks are ski-in, ski-out.
+    const f = guest(); startVisit(f, K, 'shop', { k: 'base' }); out.giftDoor = f.then.rid === undefined && f.tx === K.door.x; go(f); out.giftSkis = [f.rack === undefined, f.onSkis];
+    K.q.seat = K.q.seat.filter((x) => x !== f);
+    for (const k of [a, b, b2, c, d, e, f]) { k.gone = true; gById.delete(k.id); }
     guests = guests.filter((k) => !k.gone); rackMin = -1;
     // The cards say what the racks hold.
-    select({ kind: 'bld', obj: L }); renderSheet(); out.lodgeCard = /ski rack by the door holds 95 pairs/.test($('sheet').textContent) && /pairs on its ski rack/.test($('sheet').textContent);
-    select({ kind: 'bld', obj: R }); renderSheet(); out.rackCard = /of 12 pairs of skis on the rack/.test($('sheet').textContent);
+    select({ kind: 'bld', obj: L }); renderSheet(); out.lodgeCard = /ski rack by the door holds 126 pairs/.test($('sheet').textContent) && /pairs on its ski rack/.test($('sheet').textContent);
+    select({ kind: 'bld', obj: R }); renderSheet(); out.rackCard = /of 40 pairs of skis on the rack/.test($('sheet').textContent);
     select(null);
     return out;
   })()`);
   eq(steps, {
     toOwnRack: true, dropped: [true, false, 'bld'], inLine: 'bq', backForSkis: true, pickedUp: [null, true, true],
-    toPlaced: true, onPlaced: true,
+    toPlaced: true, onPlaced: true, nextFree: true,
     toDoor: true, snow: [true, 3, 1, 1], snowPickup: true, once: [1, 2],
-    easy: [true, true, 1, true], noSkis: true, lodgeCard: true, rackCard: true,
+    easy: [true, true, 1, true], noSkis: true, giftDoor: true, giftSkis: [true, true], lodgeCard: true, rackCard: true,
   }, 'skis go on the nearest free rack, then in the snow; the first-days grace and once-a-day sting hold');
 
   // A whole busy day: racks fill at lunch, nobody skis or rides without their skis, and a mid-day save keeps them.

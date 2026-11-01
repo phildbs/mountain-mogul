@@ -119,7 +119,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** 2.75.1 roomier ski racks on `ccr-e055dcda-83l2bz` (Claude), after player feedback; awaiting Publish. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
@@ -140,6 +140,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-e055dcda-83l2bz` | Claude | 2.75.1: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -307,7 +308,13 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
+### 2026-11-01 · Claude · Ski racks (shipped in 2.75; 2.75.1 awaiting Publish)
+- **2.75.1, after a player's feedback the same day:** placed racks looked as big as building racks but held 12 (now 40, drawn
+  filling up the same way); placing them clears trees in their square (fewer are needed now: `RACK_SHARE` 1, a pair per seat +
+  stall); gift kiosks are ski-in, ski-out (dropped from `RACK_TYPES`). Their "racks right by the kiosk, skis in the snow" didn't
+  reproduce (4 kiosks with 2 racks each on the busy resort: none); most likely 12-pair racks filling behind a long kiosk line.
+  Scenario 132 now checks the next free rack is used before the snow. Busy test resort with no placed racks: 174 guests with skis
+  in the snow (122 at one overloaded café), down from 422 at 0.75; starter resort 0. The tuning numbers below are from 2.75.
 - **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and
   guests complain. Built as its own release before any other decor.
 - **Rules:** `RACK_TYPES` (lodge, café, restaurant, fine, bar, store, gift, both restrooms) have a built-in rack for
