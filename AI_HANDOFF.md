@@ -127,7 +127,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4129ce11-ivnge9` | Claude | 2.74 Spring skiing into May: spring bonus days run to May 31 while the base holds 18", May climate warmer, May demand ×0.6, snowmaking off after Apr 30. Test `130-may-skiing`. | Nov 1, 2026 |
+| `ccr-4129ce11-ivnge9` | Claude | 2.74 Spring skiing into May: spring bonus days run to May 31 while the base holds 18", May climate warmer, May demand ×0.6, snowmaking off after Apr 30. Test `130-may-skiing`. Also a tidier What’s new: folded by day for the last 7 days, by week before that (`openWhatsNew`, test `131-whats-new`). | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

@@ -725,7 +725,6 @@ body.visiting .badge { cursor: default; }
 .sc-foot .more { font-size: 18px; line-height: 1; letter-spacing: 1px; text-decoration: none; }
 .sc-foot .danger-link { color: var(--steep); margin-left: auto; }
 .sc-foot .danger-link + .link { margin-left: 8px; }
-.wn-older summary { cursor: pointer; font-weight: 700; margin: 10px 0; }
 .scard:not(.on) .sc-facts, .scard:not(.on) .goal-link, .scard.pick p { display: none; }
 .scard:not(.on) .sc-body { gap: 3px; padding: 9px 12px; }
 .scard:not(.on) h2 { font-size: 20px; }
@@ -808,11 +807,21 @@ a.vtag { text-decoration: none; }
 .upd-react button { width: 44px; height: 38px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 19px; cursor: pointer; }
 .upd-react button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .upd-foot { display: flex; align-items: center; justify-content: space-between; }
-.wn-list { display: grid; gap: 14px; margin: 0; }
-.wn-list section { display: grid; gap: 4px; }
-.wn-list h3 { margin: 0; font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: baseline; }
-.wn-list h3 span { font-weight: 500; font-size: 12.5px; color: var(--ink-2); }
-.wn-list ul { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
+.wn-list { display: grid; gap: 4px; margin: 0; }
+.wn-list summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+.wn-list summary::-webkit-details-marker { display: none; }
+.wn-list summary::before { content: '›'; flex: none; width: 10px; color: var(--ink-2); transition: transform 0.15s; }
+.wn-list details[open] > summary::before { transform: rotate(90deg); }
+.wn-list summary span { margin-left: auto; flex: none; font-weight: 500; font-size: 12.5px; color: var(--ink-2); }
+.wn-week { border-bottom: 1px solid var(--line); }
+.wn-week:last-of-type { border-bottom: 0; }
+.wn-week > summary { padding: 11px 0; font-size: 15px; font-weight: 700; }
+.wn-week[open] > summary { padding-bottom: 6px; }
+.wn-week > div { display: grid; gap: 2px; padding: 0 0 10px 18px; }
+.wn-up > summary { padding: 6px 0; font-size: 14px; font-weight: 600; }
+.wn-up ul { margin: 0 0 8px; padding-left: 18px; font-size: 13.5px; line-height: 1.45; color: var(--ink-2); }
+.wn-fixes > summary { color: var(--ink-2); }
+.wn-fixes > div { display: grid; gap: 6px; padding: 2px 0 8px 18px; }
 .title-confirm .yes { border: 0; background: var(--steep); color: #fff; font-weight: 600; padding: 7px 12px; border-radius: 8px; cursor: pointer; }
 
 /* The loading screen matches the home-screen app's splash (navy with the logo), so one hands over to the other smoothly. */
@@ -19212,7 +19221,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.74', date: 'Nov 1, 2026', title: 'Spring skiing into May', items: ['Spring bonus days can now run into May. Keep opening while the average trail base stays at 18 inches or more, as late as May 31.', 'May is warmer and quieter: fewer people come, and snowmaking stops after April 30, so May runs on the snow that’s left.'] },
+  { v: '2.74', date: 'Nov 1, 2026', title: 'Spring skiing into May, and a tidier What’s new', items: ['Spring bonus days can now run into May. Keep opening while the average trail base stays at 18 inches or more, as late as May 31.', 'May is warmer and quieter: fewer people come, and snowmaking stops after April 30, so May runs on the snow that’s left.', 'What’s new is tidier: updates are grouped by day for the last week and by week before that, with the newest open. Tap an update’s title to read it. Small fixes are folded into one line in each group.'] },
   { v: '2.73', date: 'Nov 1, 2026', title: 'No more lost trails, and a gondola fix', items: [
     'If you draw a trail or a lift and then close the card or pick another tool before building it, the game now asks first: build it, throw it away, or keep editing. Before, the drawing just disappeared.',
     'Fixed: a village gondola between the two bases on Lone Pine Hill or Ridgeback now climbs over the hill like any other lift, instead of shooting straight up from the station onto towers as tall as the hill. Gondolas you’ve already built fix themselves.',
@@ -19774,15 +19783,42 @@ $('fbClose').onclick = () => { $('feedbackBox').hidden = true; };
 $('feedbackBox').addEventListener('click', (e) => { if (e.target.id === 'feedbackBox') $('feedbackBox').hidden = true; });
 $('cmShare').onclick = shareResort;
 
-// What's new: the latest updates, older ones folded away. Opening it clears the "New" banner.
-const wnItem = (c) => (c.small ? `<p class="wn-small"><b>${esc(c.title)}</b> · ${c.items.map(esc).join(' ')}<span>${c.date}</span></p>`
-  : `<section><h3>${esc(c.title)}<span>${c.date}</span></h3><ul>${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>`);
+// What's new: updates folded by day for the last week, then by week, newest open, so a busy stretch reads
+// as a list of titles. Each update is a title that opens to its details; small fixes share one fold.
+const wnItem = (c, open, date) => `<details class="wn-up"${open ? ' open' : ''}><summary>${esc(c.title)}${date ? `<span>${c.date}</span>` : ''}</summary><ul>${c.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></details>`;
+const wnFix = (c, date) => `<p class="wn-small"><b>${esc(c.title)}</b> · ${c.items.map(esc).join(' ')}${date ? `<span>${c.date}</span>` : ''}</p>`;
+// An update's day as a day number (dates read like "Nov 1, 2026"), and the Monday of its week.
+function wnDayOf(date) {
+  const m = /^(\w{3}) (\d+), (\d{4})$/.exec(date);
+  return m ? Date.UTC(+m[3], MON.indexOf(m[1]), +m[2]) / 86400000 : 0;
+}
+const wnWeekOf = (date) => { const d = wnDayOf(date); return d - (new Date(d * 86400000).getUTCDay() + 6) % 7; };
+// Group key: the day itself within a week of the newest update, otherwise its week.
+const wnGroupOf = (date, newest) => (newest - wnDayOf(date) < 7 ? `d${wnDayOf(date)}` : `w${wnWeekOf(date)}`);
+function wnGroupLabel(key) {
+  const now = new Date(), today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000, n = +key.slice(1);
+  const d = new Date(n * 86400000), md = `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  if (key[0] === 'w') return `Week of ${md}`;
+  return n === today ? 'Today' : n === today - 1 ? 'Yesterday' : `${DOW[d.getUTCDay()]}, ${md}`;
+}
 // Big updates are the ones worth telling people about; small ones (fixes, things moved) never headline.
 const latestBig = () => CHANGES.find((c) => !c.small);
+const wnCount = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 function openWhatsNew() {
-  $('wnList').innerHTML = CHANGES.slice(0, 8).map(wnItem).join('')
-    + (CHANGES.length > 8 ? `<details class="wn-older"><summary>Earlier updates</summary>${CHANGES.slice(8).map(wnItem).join('')}</details>` : '')
-    + `<p class="help">Version ${VERSION}</p>`;
+  const weeks = [];
+  const newest = wnDayOf(CHANGES[0].date);
+  for (const c of CHANGES) {
+    const k = wnGroupOf(c.date, newest), w = weeks[weeks.length - 1];
+    if (w && w.k === k) w.list.push(c); else weeks.push({ k, list: [c] });
+  }
+  $('wnList').innerHTML = weeks.map((w, i) => {
+    const bigs = w.list.filter((c) => !c.small), fixes = w.list.filter((c) => c.small);
+    const count = [bigs.length && wnCount(bigs.length, 'update', 'updates'), fixes.length && wnCount(fixes.length, 'fix', 'fixes')].filter(Boolean).join(', ');
+    return `<details class="wn-week"${i === 0 ? ' open' : ''}><summary>${wnGroupLabel(w.k)}<span>${count}</span></summary><div>`
+      + bigs.map((c, j) => wnItem(c, i === 0 && j === 0, w.k[0] === 'w')).join('')
+      + (fixes.length ? `<details class="wn-up wn-fixes"><summary>${wnCount(fixes.length, 'small fix', 'small fixes')}</summary><div>${fixes.map((c) => wnFix(c, w.k[0] === 'w')).join('')}</div></details>` : '')
+      + `</div></details>`;
+  }).join('') + `<p class="help">Version ${VERSION}</p>`;
   $('whatsNew').hidden = false;
   try { localStorage.setItem('mm.seenVersion', VERSION); } catch (e) { /* ignore */ }
   refreshNewBar();
