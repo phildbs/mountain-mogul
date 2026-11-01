@@ -117,7 +117,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`, working name): beginner peak (west, between the roads) and a bald expert peak (NE) joined by a ridge with a saddle (`RB`, `smax`). Same town and forked roads as Lone Pine (main lot south, North lot). Scenario 128. Preview only until Phil says Publish. | Nov 1, 2026 |
+| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`, working name): one long ridge from an expert summit (NE, bare) down to a beginner summit (W), heights from the nearest point on the crest (`RB`), so the crest is a green all along (goal Ridge run). Town off the south edge (S3 parcel dropped); one road in, splitting at a crossroads in the valley: main lot west, East lot (`branch`, side 'south'). Scenario 128. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
