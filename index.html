@@ -2088,6 +2088,57 @@ MOUNTAINS.twin = {
     return h;
   },
 };
+// Halo Mountain: a lone, rounded hill in the middle of the land, with a road all the way round its foot and a
+// branch out to town. Its shape is measured out from the summit, where 1 is the ring road.
+const HALO_S = [0.5, 0.68], HALO_R = [0.4, 0.48, 0.24]; // the summit; how far out the ring road runs east-west, south and north
+const haloWob = (a) => 1 + 0.035 * Math.sin(3 * a + 0.7) + 0.02 * Math.sin(5 * a + 2);
+// [how far out from the summit, where 1 is the ring road; the angle round it, 0 due east and −π/2 due south]
+function haloPolar(u, v) {
+  const du = (u - HALO_S[0]) / HALO_R[0], dv = (v - HALO_S[1]) / (v < HALO_S[1] ? HALO_R[1] : HALO_R[2]), a = Math.atan2(dv, du);
+  return [Math.hypot(du, dv) / haloWob(a), a];
+}
+const haloAt = (a, r = 1) => { const c = Math.cos(a) * r * haloWob(a), s = Math.sin(a) * r * haloWob(a); return [HALO_S[0] + HALO_R[0] * c, HALO_S[1] + s * (s < 0 ? HALO_R[1] : HALO_R[2])]; };
+const angGap = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+MOUNTAINS.halo = (() => {
+  const N = 120, ring = Array.from({ length: N }, (_, k) => haloAt(-Math.PI + 2 * Math.PI * k / N)); // from due west, round by the south
+  const J = 15, D = 28; // where the town road meets the ring (southwest), and where the main lot's drive leaves it (south)
+  const spur = catmull([[-0.26, -0.24], [-0.13, -0.11], [0.0, 0.05], [0.1, 0.18], ring[J]], 8);
+  const d = ring[D], drive = catmull([d, [d[0] + 0.004, d[1] - 0.03], [d[0] + 0.022, d[1] - 0.05]], 4).slice(1);
+  return {
+    id: 'halo',
+    name: 'Halo Mountain',
+    level: 'Beginner', dot: 'var(--green)',
+    blurb: 'A lone, rounded hill with a road all the way round its foot and a short drive to town. Gentle, sunny slopes on the town side and a few steeper pitches on the shady north face. Build a base anywhere round the loop.',
+    cash: 2300000,
+    weather: { storm: 0.95, wind: 1.3, warm: 1.05 }, // a lone hill catches the wind
+    skiers: [0.38, 0.36, 0.19, 0.07],
+    draw: 1.1, costs: 0.95, // just outside town
+    seed: 5821,
+    baseFt: 1460,
+    treeline: 15, // an open, snowy top above the woods
+    town: [-0.11, -0.1], // off the southwest corner, where the road comes in
+    road: [...spur, ...ring.slice(J + 1, D + 1), ...drive], // in from town, round the south side to the main lot
+    loop: [...ring.slice(D), ...ring.slice(0, J + 1)], // the rest of the ring, back to where the town road meets it
+    creek: catmull([[0.94, 0.2], [0.98, 0.1], [1.04, 0.02], [1.12, -0.06], [1.3, -0.24]], 10),
+    height(u, v) {
+      const s = this.seed, [r, a] = haloPolar(u, v);
+      let h = 2 + 0.5 * fbm(u * 3, v * 3, s + 1, 3);
+      // The hill: a rounded top, steepest partway down, easing out into a flat apron inside the ring road.
+      const t = clamp(r / 0.9, 0, 1), k = 0.12, e = (Math.hypot(t, k) - k) / (Math.hypot(1, k) - k);
+      h += 15 * Math.pow(1 - e, 1.35 + 0.25 * Math.sin(a)); // fuller on the shady north side, long and gentle on the sunny south
+      // Gentle folds that make natural trail lines, none on the summit or the apron.
+      const relief = sstep(0.12, 0.3, r) * (1 - sstep(0.7, 0.88, r));
+      h += relief * (0.65 + 0.45 * Math.sin(a)) * (1.1 * fbm(u * 6, v * 6, s + 5, 4) + 0.8 * ridged(u * 8, v * 8, s + 9, 3) - 0.45); // smoother on the sunny side
+      // The steeper bits: a bowl scooped out of the northwest side under a short headwall, and a rock band on the north face.
+      h -= 3.2 * Math.exp(-((angGap(a, 2.35) / 0.42) ** 2)) * sstep(0.18, 0.36, r) * (1 - sstep(0.55, 0.8, r));
+      h += 1.8 * Math.exp(-((angGap(a, 1.4) / 0.38) ** 2)) * (1 - sstep(0.4, 0.46, r + 0.02 * Math.sin(a * 9))) * sstep(0.15, 0.3, r);
+      // Low, wooded hills far out beyond the property line, leaving flat ground round town.
+      const side = Math.max(0, -u, u - 1, -v, v - 1), tn = Math.hypot(u - this.town[0], v - this.town[1]);
+      h += 7 * sstep(0.06, 0.22, side) * (0.6 + 0.8 * fbm(u * 4, v * 4, s + 13, 3)) * sstep(0.08, 0.2, tn);
+      return h;
+    },
+  };
+})();
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
    already carries a mountain id (saves, slots, the online summary, visits, reloads) carries the recipe too. */
@@ -2219,7 +2270,7 @@ for (let n = 0; n < 5; n++) {
   PARCELS.push({ id: `E${n}`, name: `East ${n + 1}`, i0: PLAY1, i1: PLAY1 + PD, j0: a, j1: b });
 }
 for (const [id, name, i0, j0] of [['NW', 'Northwest corner', PLAY0 - PD, PLAY0 - PD], ['NE', 'Northeast corner', PLAY1, PLAY0 - PD], ['SW', 'Southwest corner', PLAY0 - PD, PLAY1], ['SE', 'Southeast corner', PLAY1, PLAY1]])
-  PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD });
+  if (!(MOUNTAIN.town && id === 'SW')) PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD }); // Halo Mountain's town has that corner
 let landRects = []; // parcels that are yours (bought or leased, permits through)
 const LAND = { i0: PLAY0, i1: PLAY1, j0: PLAY0, j1: PLAY1 };
 const inRect = (p, gx, gz) => gx >= p.i0 && gx <= p.i1 && gz >= p.j0 && gz <= p.j1;
@@ -2245,7 +2296,8 @@ function generate(M) {
     for (let i = 0; i < NV; i++) {
       const idx = j * NV + i, u = vu(i), v = vv(j);
       let h = M.height(u, v);
-      const [dr, ru, rv] = distPoly(u, v, M.road);
+      let [dr, ru, rv] = distPoly(u, v, M.road);
+      if (M.loop) { const q = distPoly(u, v, M.loop); if (q[0] < dr) [dr, ru, rv] = q; } // the rest of a ring road
       const drc = dr * PN;
       if (drc < 4.5) h = lerp(h, M.height(ru, rv) - 0.15, 1 - sstep(1.5, 4.5, drc));
       const dcc = distPoly(u, v, M.creek)[0] * PN;
@@ -2283,6 +2335,7 @@ function generate(M) {
         p *= 1 - sstep(0.55, 0.85, g);
         const rd = sampleGrid(ROADD, gx, gz), cd = sampleGrid(CREEKD, gx, gz);
         if (rd < 2.6 || cd < 2.2) p = 0;
+        if (M.town && Math.hypot(u - M.town[0], v - M.town[1]) < 0.12) p *= 0.15 + 0.85 * sstep(7, 11, rd); // yards round the town
         p *= 0.3 + 0.7 * sstep(2, 10, cd);
         if (!play) p *= 0.8;
         if (r1 < p * 0.86) {
@@ -3556,6 +3609,7 @@ const TRAIL_PLACE = {
 };
 // Each mountain's own flavour, by rating.
 const TRAIL_LOCAL = {
+  halo: [['Halo', 'Sunny Side', 'Merry-Go-Round', 'Town Line', 'Lazy Loop'], ['Full Circle', 'Roundabout', 'Carousel', 'Orbit', 'Main Street'], ['North Face', 'Dark Side', 'Headwall', 'The Bowl'], ['Eclipse', 'Black Hole']],
   twin: [['Easy Twin', 'Notch Road', 'Long Shoulder', 'Valley View', 'Lazy Loop'], ['Gemini', 'Saddle Run', 'Double Take', 'Notch Line', 'Sister Ridge'], ['West Wall', 'Twin Chutes', 'Headwall', 'Split Decision'], ['Notch Top Chute', 'The Gap']],
   juniper: [['Chickadee', 'Sagebrush', 'Wren', 'Juniper Way', 'Meadow Mouse'], ['Blue Jay', 'Juniper Berry', 'Piñon', 'Mesa', 'Cedar Glade'], ['Coyote', 'Hawk’s Claw', 'Juniper Ridge', 'Dust Devil'], ['Thunderhead', 'Rattlesnake Ridge', 'Badlands']],
   maple: [['Sugarbush', 'Sap Run', 'Cider Mill', 'Maple Leaf', 'Pancake'], ['Sugarhouse', 'Foliage', 'Stonewall', 'Village Green', 'Harvest Moon'], ['Nor’easter', 'Granite', 'Hardscrabble', 'Iron Horse'], ['Ice Storm', 'Rime', 'Notch Chute', 'Black Ice']],
@@ -3566,7 +3620,7 @@ const LIFT_PLACE = {
   mid: ['Ridge', 'Shoulder', 'Basin', 'Bowl', 'Saddle', 'Lookout', 'Timber', 'Outback', 'Backside', 'Hidden Valley', 'Cirque', 'Glacier'],
   top: ['Summit', 'Skyline', 'Peak', 'Pinnacle', 'Highland', 'Eagle', 'Cloud Nine', 'Top Notch', 'Sky', 'Alpine'],
 };
-const LIFT_LOCAL = { twin: ['Twin', 'Notch', 'Saddle', 'Gemini'], juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
+const LIFT_LOCAL = { halo: ['Halo', 'Ring', 'Orbit', 'Sunny Side'], twin: ['Twin', 'Notch', 'Saddle', 'Gemini'], juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
 const CARPET_NAMES = ['Magic Carpet', 'Bunny Belt', 'Learning Lane', 'Snowflake Carpet', 'Little Lift', 'Cub Conveyor', 'Easy Rider', 'Wonder Carpet'];
 const pickFree = (list, used) => { const free = list.filter((n) => !used.has(n)); return free.length ? free[Math.floor(Math.random() * free.length)] : null; };
 const heightFrac = (p) => clamp((trueY(p.x, p.z) - MOUNTAIN.baseH) / Math.max(1, MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -8317,9 +8371,103 @@ function buildRoadBridges() {
   }
   if (g.children.length) { roadBridgeGroup = g; scene.add(g); }
 }
+/* ---------- Town ----------
+   A small town on the road in (MOUNTAIN.town), out beyond any land you can buy: houses along the road, a church
+   and a water tower. Scenery for now: one mesh, hazed like the land round it. */
+let townMesh = null;
+function buildTown() {
+  if (townMesh) { scene.remove(townMesh); townMesh.geometry.dispose(); townMesh = null; }
+  if (!MOUNTAIN.town) return;
+  const pos = [], col = [], hz = [], rng = mulberry32(MOUNTAIN.seed + 77);
+  const tri = (a, b, c, k, h) => { for (const q of [a, b, c]) { pos.push(q[0], q[1], q[2]); col.push(k[0], k[1], k[2]); hz.push(h); } };
+  const quad = (a, b, c, d, k, h) => { tri(a, b, c, k, h); tri(a, c, d, k, h); };
+  const SNOW = [0.93, 0.95, 0.98], TRIM = [0.36, 0.3, 0.27];
+  const WALLS = [[0.66, 0.24, 0.2], [0.85, 0.66, 0.28], [0.36, 0.5, 0.66], [0.9, 0.88, 0.82], [0.46, 0.58, 0.44], [0.56, 0.56, 0.6]];
+  // A block w wide and d deep, turned to face yaw, with a snowy gable roof rh high along its depth (or flat when rh is 0).
+  function block(x, z, yaw, w, d, wh, rh, wall, y0) {
+    const c = Math.cos(yaw), s = Math.sin(yaw), at = (lx, lz, y) => [x + lx * c + lz * s, y, z - lx * s + lz * c];
+    const g = y0 ?? Math.min(...[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const q = at(a * w / 2, b * d / 2, 0); return heightAt(q[0], q[2]); })) - 0.15;
+    const h = hazeAt(x + HALF, z + HALF) * 0.75, top = g + wh, W = w / 2, D = d / 2;
+    const cs = [[-W, -D], [W, -D], [W, D], [-W, D]];
+    for (let i = 0; i < 4; i++) { const [a, b] = [cs[i], cs[(i + 1) % 4]]; quad(at(a[0], a[1], g), at(b[0], b[1], g), at(b[0], b[1], top), at(a[0], a[1], top), wall, h); }
+    if (!rh) { quad(at(-W, -D, top), at(W, -D, top), at(W, D, top), at(-W, D, top), SNOW, h); return top; }
+    const o = 0.08, R = top + rh;
+    quad(at(-W - o, -D - o, top - 0.04), at(0, -D - o, R), at(0, D + o, R), at(-W - o, D + o, top - 0.04), SNOW, h);
+    quad(at(W + o, -D - o, top - 0.04), at(W + o, D + o, top - 0.04), at(0, D + o, R), at(0, -D - o, R), SNOW, h);
+    tri(at(-W, -D, top), at(W, -D, top), at(0, -D, R - 0.03), wall, h); tri(at(-W, D, top), at(0, D, R - 0.03), at(W, D, top), wall, h);
+    return top;
+  }
+  const free = (x, z, r) => Math.abs(x) < HALF - 2 && Math.abs(z) < HALF - 2 && [[0, 0], [r, r], [-r, r], [r, -r], [-r, -r]].every(([a, b]) => {
+    const gx = x + a + HALF, gz = z + b + HALF; return !inGridLand(gx, gz) && !PARCELS.some((q) => inRect(q, gx, gz)) && landDist(gx, gz) > 2.5;
+  }) && roadDist(x, z) > ROAD_HW + 0.6;
+  const P = roadPath(), spots = [];
+  let along = 0, next = 0;
+  for (let k = 1; k < P.length; k++) {
+    along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
+    if (along < next) continue;
+    next = along + 2.2 + rng() * 0.8;
+    const a = P[Math.max(0, k - 2)], b = P[Math.min(P.length - 1, k + 2)], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+    for (const side of [-1, 1]) for (const off of [2.6, 5.4]) spots.push({ x: P[k].x + nx * side * (off + rng() * 0.4), z: P[k].z + nz * side * (off + rng() * 0.4), yaw: Math.atan2(-nx * side, -nz * side), off });
+  }
+  // the church and the water tower stand back from the road, the houses line it
+  const back = spots.filter((q) => q.off > 5 && free(q.x, q.z, 1.6));
+  const church = back[Math.floor(back.length * 0.45)], tower = back.find((q) => church && Math.hypot(q.x - church.x, q.z - church.z) > 9);
+  if (church) {
+    const g = block(church.x, church.z, church.yaw, 1.3, 2.4, 0.95, 0.75, [0.92, 0.9, 0.86]), c = Math.cos(church.yaw), s = Math.sin(church.yaw);
+    const fx = church.x + 1.45 * s, fz = church.z + 1.45 * c, t = block(fx, fz, church.yaw, 0.55, 0.55, g - heightAt(fx, fz) + 1.35, 0, [0.92, 0.9, 0.86]);
+    const R = [[-0.3, -0.3], [0.3, -0.3], [0.3, 0.3], [-0.3, 0.3]].map(([a, b]) => [fx + a * c + b * s, t, fz - a * s + b * c]), h = hazeAt(fx + HALF, fz + HALF) * 0.75;
+    for (let i = 0; i < 4; i++) tri(R[i], R[(i + 1) % 4], [fx, t + 1.3, fz], SNOW, h); // the spire
+  }
+  if (tower) {
+    const g = heightAt(tower.x, tower.z) - 0.1, h = hazeAt(tower.x + HALF, tower.z + HALF) * 0.75;
+    for (const [a, b] of [[-0.35, -0.35], [0.35, -0.35], [0.35, 0.35], [-0.35, 0.35]]) block(tower.x + a, tower.z + b, 0, 0.09, 0.09, 1.9, 0, TRIM, g);
+    const top = g + 1.9, r = 0.62, n = 10, ring = Array.from({ length: n }, (_, i) => [tower.x + r * Math.cos(i / n * Math.PI * 2), tower.z + r * Math.sin(i / n * Math.PI * 2)]);
+    for (let i = 0; i < n; i++) {
+      const [a, b] = [ring[i], ring[(i + 1) % n]];
+      quad([a[0], top, a[1]], [b[0], top, b[1]], [b[0], top + 0.75, b[1]], [a[0], top + 0.75, a[1]], [0.62, 0.68, 0.74], h);
+      tri([a[0], top + 0.75, a[1]], [tower.x, top + 1.05, tower.z], [b[0], top + 0.75, b[1]], SNOW, h);
+    }
+  }
+  const taken = [church, tower].filter(Boolean);
+  for (const q of spots) {
+    if (taken.some((t) => Math.hypot(t.x - q.x, t.z - q.z) < (t === church || t === tower ? 2.6 : 1.9)) || !free(q.x, q.z, 0.9) || rng() < 0.15) continue;
+    taken.push(q);
+    const big = q.off < 3 && rng() < 0.3; // a shop or two on the main street
+    block(q.x, q.z, q.yaw + (rng() - 0.5) * 0.12, big ? 1.8 : 1.1 + rng() * 0.3, big ? 1.3 : 0.9 + rng() * 0.3, big ? 0.6 : 0.42 + rng() * 0.14, big ? 0 : 0.36 + rng() * 0.12, WALLS[Math.floor(rng() * WALLS.length)]);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('haze', new THREE.Float32BufferAttribute(hz, 1));
+  geo.computeVertexNormals();
+  townMesh = new THREE.Mesh(geo, hazeMaterial('haze', { vertexColors: true, side: THREE.DoubleSide }));
+  townMesh.castShadow = true; townMesh.receiveShadow = true;
+  scene.add(townMesh);
+}
+// The rest of a ring road (MOUNTAIN.loop): drawn, but no car drives it yet.
+let ringPathCache = null;
+function ringPath() {
+  if (!MOUNTAIN.loop) return [];
+  if (ringPathCache) return ringPathCache;
+  const raw = MOUNTAIN.loop.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })), out = [];
+  for (let k = 0; k < raw.length - 1; k++) {
+    const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i < n; i++) out.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) });
+  }
+  out.push(raw[raw.length - 1]);
+  return (ringPathCache = out);
+}
+let loopMesh = null;
 function buildRoad() {
   if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
-  const P = roadPath(), pos = [], uv = [], hz = [], idx = [];
+  if (loopMesh) { scene.remove(loopMesh); loopMesh.geometry.dispose(); loopMesh = null; }
+  roadMesh = roadRibbon(roadPath(), 0.05);
+  // a touch lower than the access road, so the access road is the one on top where they meet
+  if (MOUNTAIN.loop) loopMesh = roadRibbon(ringPath(), 0.035);
+  buildRoadBridges();
+}
+function roadRibbon(P, lift) {
+  const pos = [], uv = [], hz = [], idx = [];
   let along = 0;
   for (let k = 0; k < P.length; k++) {
     const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)];
@@ -8327,7 +8475,7 @@ function buildRoad() {
     if (k) along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
     for (let s = 0; s <= 2; s++) {
       const o = (s - 1) * ROAD_HW, x = P[k].x + nx * o, z = P[k].z + nz * o;
-      pos.push(x, roadY(x, z) + 0.05, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
+      pos.push(x, roadY(x, z) + lift, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
     }
     if (k) { const r = (k - 1) * 3; for (const c of [0, 1]) idx.push(r + c, r + c + 1, r + c + 3, r + c + 1, r + c + 4, r + c + 3); }
   }
@@ -8337,10 +8485,10 @@ function buildRoad() {
   geo.setAttribute('haze', new THREE.Float32BufferAttribute(hz, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  roadMesh = new THREE.Mesh(geo, ROAD_MAT);
-  roadMesh.receiveShadow = true; roadMesh.renderOrder = 1;
-  scene.add(roadMesh);
-  buildRoadBridges();
+  const m = new THREE.Mesh(geo, ROAD_MAT);
+  m.receiveShadow = true; m.renderOrder = 1;
+  scene.add(m);
+  return m;
 }
 // How far a point is from the road's centre line, in world units.
 const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
@@ -15373,6 +15521,16 @@ GOALS.maple = [
   { id: 'crowd350', title: 'School vacation week', how: 'Welcome 350 guests in one day.', day: (r) => r.guests >= 350, prog: () => `Best so far: ${bestGuests()} of 350 guests.` },
   { id: 'profit', title: 'Through the thaw', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
 ];
+// Halo Mountain: which side of the hill a lift starts on, from the summit.
+const haloNorth = (p) => haloPolar((p.x + HALF - PLAY0) / PN, (PLAY1 - p.z - HALF) / PN)[1] > 0.5;
+GOALS.halo = [
+  { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
+  { id: 'bothSides', title: 'Sun and shade', how: 'Run a lift up the sunny south side and another up the shady north side.', day: () => [false, true].every((n) => world.lifts.some((L) => L.open && !isVillage(L) && haloNorth(L.a) === n)),
+    prog: () => { const n = world.lifts.filter((L) => !isVillage(L)).map((L) => haloNorth(L.a)); return !n.length ? 'Build a lift on each side of the hill.' : n.includes(true) && n.includes(false) ? 'Open both on the same day.' : n.includes(true) ? 'Now one up the sunny south side.' : 'Now one up the shady north side, round the back of the hill.'; } },
+  { id: 'mix', title: 'Something for everyone', how: 'Have green, blue and black trails all open on the same day.', day: () => { const s = new Set(openSigns()); return s.has(0) && s.has(1) && (s.has(2) || s.has(3)); } },
+  { id: 'crowd400', title: 'Full house', how: 'Welcome 400 guests in one day.', day: (r) => r.guests >= 400, prog: () => `Best so far: ${bestGuests()} of 400 guests.` },
+  { id: 'profit', title: 'Round the year', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
+];
 const schoolLessons = () => world.buildings.filter((B) => B.type === 'school').reduce((a, B) => a + (B.yday ? B.yday.visits : 0), 0);
 const goalList = () => GOALS[MOUNTAIN.custom ? 'custom' : MOUNTAIN.id] || [];
 const bestGuests = () => (state.records && state.records.bestGuests) || 0;
@@ -15855,7 +16013,7 @@ function refreshOnTerrain(i0, j0, i1, j1, skip) {
   for (const L of world.lifts) if (segNearBox(L.a, L.b, box, 3)) rebuildLift(L);
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
-  if (roadPath().some((p) => boxDist(p, box) < 3)) buildRoad();
+  if (roadPath().some((p) => boxDist(p, box) < 3) || ringPath().some((p) => boxDist(p, box) < 3)) buildRoad();
   for (const a of world.areas) refreshAreaMesh(a);
   areaSig = null;
   for (const p of world.plans) if (p.group) { removePlanVisual(p); planVisual(p); }
@@ -20026,18 +20184,25 @@ function paintMountain(cv, M) {
     }
   }
   ctx.putImageData(img, 0, 0);
-  // The access road, for scale.
-  const pts = [];
-  for (const [u, v] of M.road) {
-    const fi = (u - lo) / span * (N - 1), fj = (v - lo) / span * (N - 1);
-    if (fi < 0 || fi > N - 1 || fj < 0 || fj > N - 1) continue;
-    pts.push([fi / (N - 1) * W, near - (near - far) * (fj / (N - 1)) - H(fi, fj) * k]);
-  }
+  // The access road, for scale, and the rest of a ring road. Only the near side shows: the hill hides the rest.
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (const [w, c] of [[3.2, 'rgba(240, 244, 250, 0.9)'], [2, 'rgba(70, 76, 88, 0.85)']]) {
-    ctx.strokeStyle = c; ctx.lineWidth = w * sc; ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.stroke();
+  for (const line of [M.road, M.loop || []]) {
+    const pts = [];
+    for (const [u, v] of line) {
+      const fi = (u - lo) / span * (N - 1), fj = (v - lo) / span * (N - 1);
+      if (fi < 0 || fi > N - 1 || fj < 0 || fj > N - 1) { pts.push(null); continue; }
+      const y = near - (near - far) * (fj / (N - 1)) - H(fi, fj) * k;
+      // hidden behind nearer ground: anything in front that stands taller on screen
+      let hid = false;
+      for (let q = 0; q < fj && !hid; q += 1) hid = near - (near - far) * (q / (N - 1)) - H(fi, q) * k < y - 1;
+      pts.push(hid ? null : [fi / (N - 1) * W, y]);
+    }
+    for (const [w, c] of [[3.2, 'rgba(240, 244, 250, 0.9)'], [2, 'rgba(70, 76, 88, 0.85)']]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w * sc; ctx.beginPath();
+      let on = false;
+      for (const p of pts) { if (!p) { on = false; continue; } if (on) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); on = true; }
+      ctx.stroke();
+    }
   }
   return { min, max };
 }
@@ -20294,6 +20459,7 @@ function start(hot) {
   initSun();
   buildTerrain();
   buildRoad();
+  buildTown();
   buildTrees();
   buildBoundary();
   buildSnow();
