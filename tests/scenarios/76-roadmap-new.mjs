@@ -7,14 +7,14 @@ export default async function ({ browser, url }) {
   // a first visit: today's roadmap becomes the starting point, no badge
   eq((await check())[0], true, 'a first visit shows no badge');
   const seen = await g.ev(`JSON.parse(localStorage.getItem('mm.roadmapSeen'))`);
-  assert(Object.keys(seen).length > 15 && seen['lift-upgrades'] === 'done' && seen.hotels === 'ongoing' && seen.condos === 'plan', `remembers each idea's status: ${Object.keys(seen).length}`);
+  assert(Object.keys(seen).length > 15 && seen['lift-upgrades'] === 'done' && seen['ski-in-ski-out'] === 'ongoing' && seen.condos === 'plan', `remembers each idea's status: ${Object.keys(seen).length}`);
   // the roadmap moves on: one idea is new, one changes status
   await g.ev(`(() => { const s = JSON.parse(localStorage.getItem('mm.roadmapSeen')); delete s.multiplayer; s.hotels = 'idea'; localStorage.setItem('mm.roadmapSeen', JSON.stringify(s)); })()`);
   eq(await check(), [false, '2 new', true], 'the card and the menu item show 2 new');
   // the roadmap tags them, and remembers today's
   const frame = async () => { await g.page.evaluate((u) => new Promise((ok) => { document.querySelector('#rmFrame')?.remove(); const f = document.createElement('iframe'); f.id = 'rmFrame'; f.src = u; f.onload = () => setTimeout(ok, 300); document.body.appendChild(f); }), url + 'roadmap.html'); return g.page.frames().find((f) => f.url().endsWith('roadmap.html')); };
   let f = await frame();
-  eq(await f.evaluate(() => [...document.querySelectorAll('.card.fresh')].map((c) => [c.dataset.idea, c.querySelector('.freshtag').textContent])), [['hotels', 'Updated'], ['multiplayer', 'New']], 'tagged New and Updated');
+  eq(await f.evaluate(() => [...document.querySelectorAll('.card.fresh')].map((c) => [c.dataset.idea, c.querySelector('.freshtag').textContent]).sort()), [['hotels', 'Updated'], ['multiplayer', 'New']], 'tagged New and Updated');
   f = await frame();
   eq(await f.evaluate(() => document.querySelectorAll('.card.fresh').length), 0, 'and not again next time');
   await g.page.evaluate(() => document.querySelector('#rmFrame').remove());

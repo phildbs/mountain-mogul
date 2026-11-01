@@ -911,6 +911,7 @@ a.vtag { text-decoration: none; }
 .field-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin-bottom: -6px; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; background: rgba(20, 36, 58, 0.06); padding: 3px; border-radius: 10px; }
 .seg.lifts { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+.seg.lifts > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 .seg button {
   border: 0; background: none; padding: 7px 4px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--ink-2);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-height: 34px;
@@ -3296,7 +3297,8 @@ function setTool(tool) {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); }
+  if (tool === 'tpark' && state.phase !== 'closed') { toast('Terrain park features are built overnight, while the resort is closed.', true); return; }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null }; clearParkGhost(); } }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -3304,7 +3306,7 @@ function setTool(tool) {
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
   const painting = tool === 'clear' && paintingArea();
-  $('tTrail').setAttribute('aria-pressed', tool === 'trail' || tool === 'shape' || painting);
+  $('tTrail').setAttribute('aria-pressed', tool === 'trail' || tool === 'shape' || tool === 'tpark' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
   $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
   $('sizes').hidden = tool !== 'clear' || state.landMode === 'doze';
@@ -3818,6 +3820,252 @@ function setTrailEdges(on) {
 }
 const trailSign = (t) => (t.sign == null ? t.an.rating : t.sign);
 
+/* ---------- Terrain parks ----------
+   Jumps, rails, boxes and a halfpipe built on a trail; a trail with features on it is a terrain park. Each
+   feature keeps how far down the trail it sits (at, 0–1) and where across it (off, −1 to 1 of the room either
+   side), so it stays on the snow when the trail is edited, widened or narrowed. Park fans (some intermediates
+   and stronger skiers) look for parks and ride the features they're good enough for; everyone else skis around
+   them. Sizes are about twice real life, like the skiers. */
+const FEATS = {
+  roller: { name: 'Rollers', blurb: 'A row of snow bumps', size: 0, cost: 6000, upkeep: 60, len: 2.4, w: 1.0, risk: 0, pts: 1 },
+  box: { name: 'Flat box', blurb: 'A wide box to slide along', size: 0, cost: 8000, upkeep: 40, len: 1.3, w: 0.32, risk: 4e-4, pts: 1 },
+  jump: { name: 'Small jump', blurb: 'A kicker and a landing', size: 0, cost: 12000, upkeep: 120, len: 2.6, w: 0.9, risk: 8e-4, pts: 1.5 },
+  rail: { name: 'Rail', blurb: 'A straight rail to slide', size: 1, cost: 10000, upkeep: 40, len: 1.3, w: 0.24, risk: 6e-4, pts: 1.5 },
+  rainbow: { name: 'Rainbow rail', blurb: 'An arched rail', size: 1, cost: 16000, upkeep: 60, len: 1.4, w: 0.24, risk: 8e-4, pts: 2 },
+  tabletop: { name: 'Big jump', blurb: 'A tabletop with a long flight', size: 2, cost: 40000, upkeep: 300, len: 4.8, w: 1.5, risk: 1.5e-3, pts: 3 },
+  pipe: { name: 'Halfpipe', blurb: 'Snow walls to ride side to side', size: 2, cost: 250000, upkeep: 900, len: 14, w: 3.4, risk: 1e-3, pts: 6 },
+};
+const FEAT_SIZE = ['Small · intermediates and up', 'Medium · advanced and up', 'Large · advanced and up'];
+const featAb = (sp) => (FEATS[sp.type].size ? 2 : 1); // the ability a skier needs to ride it
+const PIPE = { F: 1.1, R: 0.55, D: 0.25, B: 0.35 }; // halfpipe: flat bottom, wall radius (and height), deck, back slope
+const FEAT_ICON = { // line icons, drawn from the side
+  roller: '<path d="M2.5 18h19"/><path d="M3 17.5c1.6 0 2-4.5 4-4.5s2.4 4.5 4.5 4.5 2.4-4.5 4.5-4.5 2.4 4.5 5 4.5"/>',
+  box: '<path d="M3.5 11.5l13-2.5 4 2-13 2.6z"/><path d="M3.5 11.5V14l4 2.1 13-2.6v-2.5"/><path d="M3 19.5h18"/>',
+  jump: '<path d="M2.5 19h19"/><path d="M3 18.8c4-.6 6-3.5 8.5-7.3"/><path d="M11.5 11.5v7.3"/><path d="M15 18.8c1.5-2.3 3-3 6-3"/><path d="M8 7.5c2-2 5-2.5 8-.5" stroke-dasharray="1.5 2"/>',
+  rail: '<path d="M3 8.5l18 4"/><path d="M6 9.2v9.3M18 11.8v6.7"/><path d="M3 19h18"/>',
+  rainbow: '<path d="M3.5 14c2.5-8.5 14.5-8.5 17 0"/><path d="M6 11.2V19M18 11.2V19"/><path d="M3 19.5h18"/>',
+  tabletop: '<path d="M2 19h20"/><path d="M3 18.5c2.5-.5 3.5-3.5 5-6.5h6.5l6.5 6.5"/><path d="M8 12h6.5"/>',
+  pipe: '<path d="M2.5 6h3v3.5a6.5 6.5 0 0 0 13 0V6h3"/><path d="M2.5 19h19"/><path d="M5.5 9.5V19M18.5 9.5V19"/>',
+};
+const featIcon = (type) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${FEAT_ICON[type] || ''}</svg>`;
+// Position and directions at distance s down a trail; across is (−dz, dx), the same side the trail ribbon uses.
+function featFrame(t, s) {
+  const S = t.samples, n = S.length, i = clamp(Math.round(s / 0.5), 0, n - 1), a = S[Math.max(0, i - 2)], b = S[Math.min(n - 1, i + 2)];
+  let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+  return { x: S[i].x, z: S[i].z, dx, dz, i };
+}
+// Where a feature sits: its stretch of trail (s0 to s1), its centre across the trail (lat) and the room it has.
+function featSpot(t, f) {
+  const F = FEATS[f.type], sc = clamp(f.at, 0, 1) * t.len, s0 = sc - F.len / 2, s1 = sc + F.len / 2;
+  let hw = Infinity;
+  for (let i = Math.max(0, Math.floor(s0 / 0.5)); i <= Math.min(t.samples.length - 1, Math.ceil(s1 / 0.5)); i++) hw = Math.min(hw, sampleHW(t, t.samples[i]));
+  if (!isFinite(hw)) hw = trailHW(t);
+  const room = Math.max(0, hw - F.w / 2 - 0.2);
+  return { f, F, type: f.type, sc, s0, s1, hw, room, lat: clamp(f.off || 0, -1, 1) * room, fr: featFrame(t, sc) };
+}
+function featProblems(t, sp, skip) {
+  const F = sp.F, out = [];
+  if (sp.s0 < 2 || sp.s1 > t.len - 2) out.push(F.len > t.len - 4 ? `${t.name} is too short for a ${F.name.toLowerCase()}.` : 'Leave a little room at the top and bottom of the trail.');
+  else {
+    let bridge = false, steep = 0, grade = 0, n = 0;
+    for (let i = Math.floor(sp.s0 / 0.5); i <= Math.ceil(sp.s1 / 0.5); i++) { if (t.samples[i].bridge) bridge = true; steep = Math.max(steep, t.gr[i] || 0); grade += t.gr[i] || 0; n++; }
+    if (bridge) out.push('Not on a bridge. Pick a stretch away from the creek.');
+    if (sp.hw * 2 < F.w + 0.4) out.push(`${t.name} is too narrow here for a ${F.name.toLowerCase()}. Widen the trail or pick a wider stretch.`);
+    if (steep > 0.7) out.push('Too steep here. Pick a gentler stretch.');
+    else if (sp.type === 'pipe' && grade / Math.max(1, n) < 0.06) out.push('Too flat for a halfpipe. Riders need a little pitch to keep their speed.');
+  }
+  for (const o of t.fx || []) {
+    if (o.f === skip) continue;
+    if (sp.s0 < o.s1 + 0.6 && o.s0 < sp.s1 + 0.6 && Math.abs(sp.lat - o.lat) < (F.w + o.F.w) / 2 + 0.2) { out.push(`Too close to the ${o.F.name.toLowerCase()}. Leave some room between features.`); break; }
+  }
+  return out;
+}
+const parkUpkeep = (t) => (t.fx || []).reduce((a, sp) => a + sp.F.upkeep, 0);
+// Park fans pick a trail for the features they can ride (fxPts by ability); a busy park draws more guests.
+const parkDraw = (open) => Math.min(0.08, open.reduce((a, t) => a + (t.fx && t.fx.length ? t.fxPts[3] : 0), 0) * 0.008);
+
+/* Models: snow shapes are draped over the ground, so they sit on any slope; rails and boxes follow it too. */
+const FEAT_SNOW = new THREE.MeshLambertMaterial({ color: 0xe6ecf3, side: THREE.DoubleSide }); // a touch darker than fresh snow, so the shapes read
+const FEAT_DYE = new THREE.MeshLambertMaterial({ color: 0x2f6fd0 });   // blue lines on lips and edges, as real parks paint them
+const FEAT_DARK = new THREE.MeshLambertMaterial({ color: 0x2f4256 });
+const FEAT_BOX = new THREE.MeshLambertMaterial({ color: 0xe8712c });
+const FEAT_RAIL = new THREE.MeshLambertMaterial({ color: 0x55606e });
+const FEAT_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+const FEAT_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8322b, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide });
+const SNOW_UP = 0.15; // the trail's snow surface sits this far above the ground
+// The ground as drawn: flat triangles between grid points, which on curved ground can sit above heightAt's
+// smooth blend. Features stand on whichever is higher, so no part of them sinks into the snow.
+function meshY(x, z) {
+  const gx = clamp(x + HALF, 0, NV - 1.001), gz = clamp(z + HALF, 0, NV - 1.001), i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j, k = j * NV + i;
+  const a = HT[k], b = HT[k + 1], c = HT[k + NV], d = HT[k + NV + 1];
+  let y;
+  if ((i + j) & 1) y = fx + fz <= 1 ? a + (b - a) * fx + (c - a) * fz : d + (c - d) * (1 - fx) + (b - d) * (1 - fz);
+  else y = fz >= fx ? a + (d - c) * fx + (c - a) * fz : a + (b - a) * fx + (d - b) * fz;
+  return y * VEX;
+}
+const featGround = (x, z) => Math.max(heightAt(x, z), meshY(x, z));
+// The height of a snow feature's surface, x metres (units) from its uphill end.
+function featH(type, x) {
+  if (type === 'roller') return x < 0 || x > 2.4 ? 0 : 0.13 * Math.sin(Math.PI * x / 0.8) ** 2;
+  if (type === 'jump') {
+    if (x < 0) return 0;
+    if (x < 0.9) return 0.26 * (x / 0.9) ** 1.7;
+    if (x < 1.05) return 0.26 * (1 - (x - 0.9) / 0.15);
+    if (x < 1.3) return 0;
+    if (x < 1.5) return 0.15 * sstep(1.3, 1.5, x);
+    return 0.15 * (1 - sstep(1.5, 2.6, x));
+  }
+  if (type === 'tabletop') {
+    if (x < 0 || x > 4.8) return 0;
+    if (x < 1.4) return 0.5 * (x / 1.4) ** 1.6;
+    if (x < 3) return 0.5;
+    return 0.5 * (1 - sstep(3, 4.8, x));
+  }
+  return 0;
+}
+// A point on the feature: u along (downhill), v across, from its centre.
+const featPt = (sp, u, v) => ({ x: sp.fr.x + sp.fr.dx * u - sp.fr.dz * (v + sp.lat), z: sp.fr.z + sp.fr.dz * u + sp.fr.dx * (v + sp.lat) });
+function featMesh(pos, idx, mat) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m;
+}
+// A grid draped over the ground from xa to xb along the feature (x from its uphill end), W wide.
+function drapeGrid(sp, xa, xb, W, nu, nv, h, mat, vc = 0) {
+  const pos = [], idx = [];
+  for (let i = 0; i <= nu; i++) for (let k = 0; k <= nv; k++) {
+    const x = xa + (xb - xa) * i / nu, v = -W / 2 + W * k / nv, p = featPt(sp, x - sp.F.len / 2, v + vc);
+    pos.push(p.x, featGround(p.x, p.z) + SNOW_UP + h(x, v), p.z);
+    if (i < nu && k < nv) { const a = i * (nv + 1) + k; idx.push(a, a + 1, a + nv + 1, a + 1, a + nv + 2, a + nv + 1); }
+  }
+  return featMesh(pos, idx, mat);
+}
+// A bar between two points (posts, rail segments).
+function featBar(g, a, b, r, mat) {
+  const d = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 6), mat);
+  m.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  m.castShadow = true; g.add(m); return m;
+}
+// Riding height of a rail or box above the snow, u from its uphill end.
+const railH = (type, u, L) => (type === 'rainbow' ? 0.11 + 0.16 * (1 - (2 * u / L - 1) ** 2) : type === 'box' ? 0.12 : 0.15);
+function featModel(t, sp) {
+  const g = new THREE.Group(), F = sp.F, W = F.w, L = F.len, type = sp.type;
+  const at = (u, v, h) => { const p = featPt(sp, u, v); return { x: p.x, y: featGround(p.x, p.z) + SNOW_UP + h, z: p.z }; };
+  if (type === 'roller' || type === 'jump' || type === 'tabletop') {
+    const edge = (v) => sstep(W / 2, W / 2 - 0.2, Math.abs(v));
+    g.add(drapeGrid(sp, 0, L, W, Math.round(L / 0.1), 8, (x, v) => featH(type, x) * edge(v) + 0.01, FEAT_SNOW));
+    for (const x of type === 'jump' ? [0.84] : type === 'tabletop' ? [1.32, 3.0] : []) g.add(drapeGrid(sp, x - 0.06, x + 0.06, W - 0.4, 1, 6, (xx) => featH(type, xx) + 0.025, FEAT_DYE));
+    // blue lines along both sides trace the shape from above
+    for (const v of [-1, 1]) g.add(drapeGrid(sp, 0.05, L - 0.05, 0.07, Math.round(L / 0.1), 1, (x) => featH(type, x) * edge(W / 2 - 0.24) + 0.025, FEAT_DYE, v * (W / 2 - 0.24)));
+  } else if (type === 'box') {
+    for (let k = 0; k < 6; k++) { // the box in short pieces, so it follows the slope
+      const u0 = -L / 2 + L * k / 6, u1 = u0 + L / 6, a = at(u0, 0, 0), b = at(u1, 0, 0), h = railH('box', 0, L);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(W, h, Math.hypot(b.x - a.x, b.z - a.z) + 0.01), FEAT_BOX);
+      m.position.set((a.x + b.x) / 2, (a.y + b.y) / 2 + h / 2, (a.z + b.z) / 2);
+      m.rotation.set(-Math.atan2(b.y - a.y, Math.hypot(b.x - a.x, b.z - a.z)), Math.atan2(sp.fr.dx, sp.fr.dz), 0, 'YXZ');
+      m.castShadow = true; g.add(m);
+      const top = m.clone(); top.material = FEAT_RAIL; top.scale.set(1.02, 0.12, 1); top.position.y += h / 2; g.add(top);
+    }
+  } else if (type === 'rail' || type === 'rainbow') {
+    const pts = [];
+    for (let k = 0; k <= 10; k++) { const u = L * k / 10; pts.push(at(u - L / 2, 0, railH(type, u, L))); }
+    for (let k = 0; k < 10; k++) featBar(g, pts[k], pts[k + 1], 0.04, FEAT_DARK); // painted dark: bare steel vanishes against sunlit snow
+    for (const k of [1, 5, 9]) { const p = pts[k], q = { x: p.x, y: p.y - railH(type, L * k / 10, L) - 0.02, z: p.z }; featBar(g, q, p, 0.018, FEAT_RAIL); }
+    for (const k of [0, 10]) { const p = pts[k]; featBar(g, { x: p.x, y: p.y - 0.06, z: p.z }, { x: p.x, y: p.y, z: p.z }, 0.03, FEAT_BOX); }
+  } else if (type === 'pipe') g.add(pipeMesh(t, sp));
+  return g;
+}
+// The halfpipe's two walls follow the trail's own bends: a quarter circle up each side, a deck, then a back slope.
+function pipeProfile() {
+  const { F, R, D, B } = PIPE, one = [[F / 2, 0]];
+  for (let k = 1; k <= 6; k++) { const a = k / 6 * Math.PI / 2; one.push([F / 2 + R * Math.sin(a), R * (1 - Math.cos(a))]); }
+  one.push([F / 2 + R + D, R], [F / 2 + R + D + B, 0]);
+  return [...one.map(([v, h]) => [-v, h]).reverse(), ...one];
+}
+function pipeMesh(t, sp) {
+  const prof = pipeProfile(), m = prof.length, S = t.samples, i0 = Math.max(0, Math.floor(sp.s0 / 0.5)), i1 = Math.min(S.length - 1, Math.ceil(sp.s1 / 0.5));
+  const pos = [], idx = [];
+  const row = (i) => {
+    const a = S[Math.max(0, i - 2)], b = S[Math.min(S.length - 1, i + 2)];
+    let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    return prof.map(([v, h]) => { const x = S[i].x - dz * (v + sp.lat), z = S[i].z + dx * (v + sp.lat); return [x, featGround(x, z) + SNOW_UP + h + 0.01, z]; });
+  };
+  for (let i = i0; i <= i1; i++) for (const p of row(i)) pos.push(...p);
+  const rows = i1 - i0 + 1;
+  for (let r = 0; r < rows - 1; r++) for (let k = 0; k < m - 1; k++) { const a = r * m + k; idx.push(a, a + m, a + 1, a + 1, a + m, a + m + 1); }
+  for (const r of [0, rows - 1]) { // end walls, down to the snow
+    const base = pos.length / 3;
+    for (let k = 0; k < m; k++) { const o = (r * m + k) * 3; pos.push(pos[o], pos[o + 1] - prof[k][1], pos[o + 2]); }
+    for (let k = 0; k < m - 1; k++) idx.push(r * m + k, base + k, r * m + k + 1, r * m + k + 1, base + k, base + k + 1);
+  }
+  return featMesh(pos, idx, FEAT_SNOW);
+}
+// Rebuild a trail's features: where they sit, what they're worth to each ability, and their models.
+function buildFeats(t) {
+  if (t.fxGroup) { trailGroup.remove(t.fxGroup); t.fxGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); t.fxGroup = null; renderer.shadowMap.needsUpdate = true; }
+  if (t.virtual || !Array.isArray(t.feats)) t.feats = t.virtual ? undefined : [];
+  t.feats = t.feats && t.feats.filter((f) => f && FEATS[f.type] && isFinite(f.at));
+  t.fx = (t.feats || []).map((f) => featSpot(t, f)).sort((a, b) => a.s0 - b.s0);
+  t.fxPts = [0, 1, 2, 3].map((ab) => t.fx.reduce((a, sp) => a + (ab >= featAb(sp) ? sp.F.pts : 0), 0));
+  if (!t.fx.length) return;
+  t.fxGroup = new THREE.Group();
+  for (const sp of t.fx) t.fxGroup.add(featModel(t, sp));
+  trailGroup.add(t.fxGroup);
+  renderer.shadowMap.needsUpdate = true; // shadows are drawn only when something changes
+  if (t.mesh) t.fxGroup.visible = t.mesh.visible;
+}
+// Whether this guest rides this feature: park fans who are good enough, most of the time.
+const ridesFeat = (g, sp) => !!g.fs && g.ab >= featAb(sp) && hash2(g.id, sp.f.id, 5) < 0.85;
+// Riders' height above the snow and spin, x along the feature.
+function featAir(sp, x, g) {
+  const type = sp.type, L = sp.F.len;
+  if (type === 'jump' || type === 'tabletop') {
+    const [a, b, up] = type === 'jump' ? [0.9, 2.0, 0.3] : [1.4, 3.6, 0.45];
+    if (x <= a || x >= b) return { y: featH(type, x), spin: 0 };
+    const p = (x - a) / (b - a);
+    return { y: lerp(featH(type, a), featH(type, b), p) + up * 4 * p * (1 - p), spin: g.ab >= 2 && hash2(g.id, sp.f.id, 9) < 0.6 ? p * Math.PI * 2 : 0 };
+  }
+  if (type === 'roller') return { y: featH(type, x), spin: 0 };
+  // rails and boxes: pop on, slide sideways, pop off
+  const h = railH(type, clamp(x, 0, L), L), y = x < 0 ? h * sstep(-0.35, 0, x) + 0.08 * Math.sin(Math.PI * clamp(-x / 0.35, 0, 1)) : x > L ? h * (1 - sstep(L, L + 0.3, x)) : h;
+  return { y, spin: Math.PI / 2 * sstep(-0.3, 0, x) * (1 - sstep(L, L + 0.3, x)) };
+}
+// How a skier on trail T at s moves for nearby features: riders line up, ride and land; others go around.
+function featPose(T, g, s, off, hw) {
+  for (const sp of T.fx) {
+    if (s < sp.s0 - 1.6 || s > sp.s1 + 1.6) continue;
+    if (ridesFeat(g, sp)) {
+      const w = s < sp.s0 ? sstep(sp.s0 - 1.6, sp.s0 - 0.3, s) : s > sp.s1 ? 1 - sstep(sp.s1 + 0.1, sp.s1 + 1.5, s) : 1;
+      if (sp.type === 'pipe') {
+        const ph = (clamp(s, sp.s0, sp.s1) - sp.s0) * Math.PI / 1.7, sw = Math.sin(ph), A = PIPE.F / 2 + PIPE.R * 0.92;
+        const v = A * sw * w, a = Math.abs(v) - PIPE.F / 2, wall = a > 0 ? PIPE.R - Math.sqrt(Math.max(0, PIPE.R * PIPE.R - a * a)) : 0;
+        const inside = s >= sp.s0 && s <= sp.s1;
+        return { off: lerp(off, sp.lat, w) + v, y: inside ? wall + 0.4 * sstep(0.86, 1, Math.abs(sw)) : 0, yaw: inside ? Math.cos(ph) * 0.9 + (Math.abs(sw) > 0.97 ? Math.PI * sstep(0.97, 1, Math.abs(sw)) : 0) : 0 };
+      }
+      const r = featAir(sp, s - sp.s0, g);
+      return { off: lerp(off, sp.lat, w), y: r.y, yaw: r.spin };
+    }
+    const half = sp.F.w / 2 + 0.25, d = off - sp.lat;
+    if (Math.abs(d) < half && s > sp.s0 - 1.2 && s < sp.s1 + 0.8) {
+      let side = d >= 0 ? 1 : -1;
+      if (Math.abs(sp.lat + side * half) > hw * 0.92) side = -side;
+      const w = sstep(sp.s0 - 1.2, sp.s0 - 0.3, s) * (1 - sstep(sp.s1 + 0.1, sp.s1 + 0.8, s));
+      return { off: lerp(off, clamp(sp.lat + side * half, -hw * 0.95, hw * 0.95), w), y: 0, yaw: 0 };
+    }
+  }
+  return null;
+}
+// A rider finishing a feature: a little thrill, now and then a fall.
+function featHit(g, T, sp) {
+  today.parkHits = (today.parkHits || 0) + AGENT;
+  const by = today.parkBy || (today.parkBy = {}); by[T.id] = (by[T.id] || 0) + AGENT;
+  const risk = sp.F.risk * (g.ab < 3 && sp.F.size === 2 ? 1.6 : 1) * (T.surface === 'icy' ? 1.6 : 1);
+  if (risk && Math.random() < risk) { injure(g, T); g.th[0] = `Wiped out on the ${sp.F.name.toLowerCase()} on ${T.name}.`; return true; }
+  g.sat += 0.5 * RUN_W;
+  if (Math.random() < 0.05) thought(g, pick({ jump: ['Stomped the jump!', 'Got some air on that jump.'], tabletop: ['Cleared the big jump!', 'That big jump is huge. Loved it.'], pipe: ['The halfpipe is awesome.', 'Got above the lip in the halfpipe!'], rail: ['Slid the whole rail!'], rainbow: ['Nailed the rainbow rail.'], box: ['Fun little box.'], roller: ['The rollers are a blast.'] }[sp.type]));
+  return false;
+}
+
 // Widest and average half-width of a (possibly shaped) trail, from its samples.
 function measureWidth(t) {
   if (!validWs(t.ws)) t.ws = undefined;
@@ -3847,6 +4095,7 @@ function addTrail(t) {
   trailGroup.add(t.mesh);
   world.trails.push(t);
   buildBridges(t);
+  buildFeats(t);
   styleTrail(t);
 }
 const BARE_TINT = new THREE.Color(0x8a7a5e);
@@ -3863,6 +4112,7 @@ function styleTrail(t) {
   t.mesh.visible = look.op > 0.02;
   if (look.tint > 0) t.mesh.material.color.lerp(BARE_TINT, look.tint * 0.55);
   t.mesh.material.emissive.set(sel ? 0x6a2a12 : 0x000000);
+  if (t.fxGroup) t.fxGroup.visible = t.mesh.visible;
 }
 function refreshTrailMesh(t, idx) {
   if (t.virtual) return;
@@ -3871,6 +4121,7 @@ function refreshTrailMesh(t, idx) {
   const sidx = idx || surfaceIndex();
   t.mesh.geometry = ribbonGeometry(t.samples, trailHW(t), edgeTint(trailSign(t)), null, edgeMask(sidx, t.id), coverMask(sidx, t.id));
   if (overlay.traffic === 'day') paintHeat(t, true);
+  buildFeats(t); // the ground under them may have changed
 }
 // Traffic colours: white (quiet) through yellow to red (crowded), for c from 0 to 2.
 const trafficCol = (c, out) => (c < 1 ? out.copy(TRAFFIC_LO).lerp(TRAFFIC_MID, c) : out.copy(TRAFFIC_MID).lerp(TRAFFIC_HI, c - 1));
@@ -3929,6 +4180,7 @@ function paintHeat(t, on) {
   col.needsUpdate = true;
 }
 function removeTrail(t) {
+  if (t.fxGroup) { trailGroup.remove(t.fxGroup); t.fxGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); t.fxGroup = null; }
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); }
   trailGroup.remove(t.mesh);
   t.mesh.geometry.dispose(); t.mesh.material.dispose();
@@ -6203,6 +6455,7 @@ function renderSheet() {
   else if (state.tool === 'trail') html = trailDraftSheet();
   else if (state.tool === 'lift') html = liftDraftSheet();
   else if (state.tool === 'shape') html = shapeSheet();
+  else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
@@ -6326,8 +6579,132 @@ function buildRow(info, ok) {
   <button class="btn wide" data-action="build" ${ok && !short ? '' : 'disabled'}>${label}</button>${blueprintBtn(info, ok)}`;
 }
 
+/* ---------- The terrain park tool (Trail tool › Terrain park) ----------
+   Pick a feature, tap a trail to preview it (green fits, red doesn't), then build. With no feature
+   picked, tapping one already built selects it so it can be removed. */
+var parkDraft = { type: null, site: null, sel: null }; // var: setTool can run before this line on load
+var parkGhost = null;
+function clearParkGhost() { if (parkGhost) { trailGroup.remove(parkGhost); parkGhost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); parkGhost = null; } }
+function openParkTool(t) {
+  if (visiting) return;
+  if (state.phase !== 'closed') { toast('Terrain park features are built overnight, while the resort is closed.', true); return; }
+  setTool('tpark');
+}
+// The spot on a trail nearest p: how far down (at) and how far across (off) a feature of this type would sit.
+function parkSiteAt(p, type) {
+  if (!p) return null;
+  let best = null, bd = Infinity;
+  for (const t of realTrails()) {
+    const S = t.samples;
+    for (let i = 0; i < S.length; i += 2) {
+      const d = Math.hypot(p.x - S[i].x, p.z - S[i].z);
+      if (d < bd && d <= sampleHW(t, S[i]) + 0.3) { bd = d; best = { t, i }; }
+    }
+  }
+  if (!best) return null;
+  const { t, i } = best, fr = featFrame(t, i * 0.5), v = (p.x - fr.x) * -fr.dz + (p.z - fr.z) * fr.dx;
+  const sp = featSpot(t, { type, at: i * 0.5 / t.len, off: 0 });
+  return { t, at: i * 0.5 / t.len, off: sp.room > 0 ? clamp(v / sp.room, -1, 1) : 0 };
+}
+function parkSiteInfo() {
+  const d = parkDraft, s = d.site;
+  if (!s || !d.type || !world.trails.includes(s.t)) return null;
+  const sp = featSpot(s.t, { type: d.type, at: s.at, off: s.off, id: -1 });
+  return { sp, problems: featProblems(s.t, sp, null), cost: FEATS[d.type].cost };
+}
+function showParkGhost() {
+  clearParkGhost();
+  const info = parkSiteInfo();
+  if (!info) return;
+  parkGhost = featModel(parkDraft.site.t, info.sp);
+  const mat = info.problems.length ? FEAT_GHOST_BAD : FEAT_GHOST_OK;
+  parkGhost.traverse((o) => { if (o.isMesh) { o.material = mat; o.castShadow = false; o.renderOrder = 5; } });
+  trailGroup.add(parkGhost);
+}
+// A feature already built near p, if any.
+function parkFeatAt(p) {
+  if (!p) return null;
+  let best = null, bd = Infinity;
+  for (const t of realTrails()) for (const sp of t.fx || []) {
+    const c = featPt(sp, 0, 0), d = Math.hypot(p.x - c.x, p.z - c.z);
+    if (d < Math.max(1, sp.F.len / 2 + 0.3) && d < bd) { bd = d; best = { t, sp }; }
+  }
+  return best;
+}
+function parkTap(p) {
+  if (visiting || state.phase !== 'closed') return;
+  const d = parkDraft;
+  if (!d.type) {
+    const hit = parkFeatAt(p);
+    d.sel = hit ? { t: hit.t, f: hit.sp.f } : null;
+    if (!hit) toast('Pick a feature to build, or tap one already built to remove it.');
+    renderSheet(); return;
+  }
+  const site = parkSiteAt(p, d.type);
+  if (!site) { toast('Tap on a trail to place it.', true); return; }
+  d.site = site; showParkGhost(); renderSheet();
+}
+function parkBuild() {
+  const info = parkSiteInfo(), d = parkDraft;
+  if (!info || info.problems.length || state.phase !== 'closed' || visiting) return;
+  if (state.cash < info.cost) { toast(`Need ${money(info.cost - state.cash)} more for this ${FEATS[d.type].name.toLowerCase()}.`, true); return; }
+  const t = d.site.t, F = FEATS[d.type];
+  pushUndo(`building ${F.name.toLowerCase()}`);
+  t.feats.push({ id: world.nextId++, type: d.type, at: Math.round(d.site.at * 1000) / 1000, off: Math.round(d.site.off * 100) / 100 });
+  state.cash -= info.cost;
+  buildFeats(t); d.site = null; clearParkGhost();
+  updateCash(true); scheduleSave(); renderSheet();
+  toast(`Built ${F.name.toLowerCase()} on ${t.name} · −${money(info.cost)}`);
+}
+function parkRemove() {
+  const s = parkDraft.sel;
+  if (!s || state.phase !== 'closed' || visiting || !world.trails.includes(s.t)) return;
+  const F = FEATS[s.f.type], back = Math.round(F.cost * 0.25);
+  pushUndo(`removing ${F.name.toLowerCase()}`);
+  s.t.feats = s.t.feats.filter((f) => f !== s.f);
+  state.cash += back; buildFeats(s.t); parkDraft.sel = null;
+  updateCash(true); scheduleSave(); renderSheet();
+  toast(`Removed ${F.name.toLowerCase()} from ${s.t.name} · ${money(back)} back`);
+}
+function parkToolSheet() {
+  const d = parkDraft, F = d.type && FEATS[d.type];
+  const head = (title) => `<div class="sheet-title"><h3>${title}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>`;
+  if (d.sel) {
+    const sF = FEATS[d.sel.f.type];
+    return `${head(sF.name)}<p class="help">On ${esc(d.sel.t.name)} · ${FEAT_SIZE[sF.size]} · shaping ${money(sF.upkeep)}/night.</p>
+      <button class="btn secondary wide" data-action="parkRemove">Remove this ${sF.name.toLowerCase()} · ${money(Math.round(sF.cost * 0.25))} back</button>
+      <button class="link" data-action="parkSel">Keep it</button>`;
+  }
+  if (!F) {
+    const rows = Object.entries(FEATS).map(([k, f]) => `<button data-action="parkPick" data-v="${k}"><i class="bi" style="--c:#2f6fd0">${featIcon(k)}</i><span><b>${f.name}</b><em>${f.blurb}</em><small>${FEAT_SIZE[f.size]}</small></span><span class="bp">${money(f.cost)}<small>${money(f.upkeep)}/night</small></span></button>`).join('');
+    return `${head('Terrain park')}${TRAIL_MODES('tpark')}
+      <p class="help">Park fans come for jumps, rails and a halfpipe, and ride the ones they’re good enough for. Other skiers go around them, so a wide trail works best.</p>
+      <div class="bpick rows">${rows}</div>
+      <p class="help">Tap a feature you’ve built to remove it.</p>`;
+  }
+  const info = parkSiteInfo(), short = info && info.cost > state.cash;
+  return `${head(F.name)}
+    <p class="help">${F.blurb}. ${FEAT_SIZE[F.size]}. Shaping costs ${money(F.upkeep)} a night while its trail is open.</p>
+    <p class="help"><b>${info ? `${isCoarse ? 'Tap' : 'Click'} elsewhere to move it, then build.` : `${isCoarse ? 'Tap' : 'Click'} a trail where it should go.`}</b></p>
+    ${info ? `${problemsHtml(info.problems)}<div class="costs"><span>${F.name} on ${esc(d.site.t.name)}</span><span>${money(info.cost)}</span></div>` : ''}
+    <button class="btn wide" data-action="parkBuild" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on a trail' : short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button>
+    <button class="link" data-action="parkPick" data-v="">Choose a different feature</button>`;
+}
+// On a trail's card: what's in its park, or a way to start one.
+function trailParkSection(t) {
+  if (t.virtual) return '';
+  const fx = t.fx || [], can = !visiting && state.phase === 'closed';
+  if (!fx.length) return can ? `<p class="conn">Add jumps, rails or a halfpipe to make this trail a terrain park. <button class="link" data-action="parkHere">Build features</button></p>` : '';
+  const counts = {};
+  for (const sp of fx) counts[sp.F.name] = (counts[sp.F.name] || 0) + 1;
+  const hits = state.phase === 'open' && today ? ((today.parkBy || {})[t.id] || 0) : null;
+  return `<div class="field-label">Terrain park</div>
+    <p class="conn">${Object.entries(counts).map(([k, n]) => n > 1 ? `${n} × ${k.toLowerCase()}` : k).join(' · ')}<br>Shaping ${money(parkUpkeep(t))}/night${hits != null ? ` · <b>${hits}</b> rides on features today` : ''}</p>
+    ${can ? '<button class="link" data-action="parkHere">Add or remove features</button>' : ''}`;
+}
+
 // The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
-const TRAIL_MODES = (cur) => `<div class="seg lifts" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button><button data-action="trailMode" data-v="hub" aria-pressed="${cur === 'hub'}">Guest area<small>base, mid-mountain or summit</small></button></div>`;
+const TRAIL_MODES = (cur) => `<div class="seg lifts" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button><button data-action="trailMode" data-v="hub" aria-pressed="${cur === 'hub'}">Guest area<small>base, mid-mountain or summit</small></button><button data-action="trailMode" data-v="tpark" aria-pressed="${cur === 'tpark'}">Terrain park<small>jumps, rails and a halfpipe on a trail</small></button></div>`;
 function openAreaTool() {
   if (visiting) return;
   if (state.phase !== 'closed') { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
@@ -6536,6 +6913,7 @@ function trailSheet(t) {
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${guests.filter((g) => g.st === 'ski' && g.T === t).length * AGENT}</b> skiing now · <b>${(today.trailRuns[t.id] || 0) * AGENT}</b> runs so far</p>` : ''}
     ${trailSnowSection(t)}
     ${trailNightSection(t)}
+    ${trailParkSection(t)}
     <div class="field-label">Signed as</div>
     <div class="seg" role="group" aria-label="Trail sign">${RATINGS.map((r, i) =>
       `<button data-action="sign" data-v="${i}" aria-pressed="${sign === i}" aria-label="${r.name}" title="${r.name}">${ratingSymbol(i)}</button>`).join('')}</div>
@@ -6667,7 +7045,7 @@ sheet.addEventListener('click', (e) => {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
+  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
@@ -6779,6 +7157,11 @@ sheet.addEventListener('click', (e) => {
   }
   else if (a === 'liftColor' && selected?.kind === 'lift') setLiftColor(obj, +b.dataset.v);
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
+  else if (a === 'parkPick') { parkDraft.type = FEATS[b.dataset.v] ? b.dataset.v : null; parkDraft.site = null; parkDraft.sel = null; clearParkGhost(); renderSheet(); }
+  else if (a === 'parkBuild') parkBuild();
+  else if (a === 'parkRemove') parkRemove();
+  else if (a === 'parkSel') { parkDraft.sel = null; renderSheet(); }
+  else if (a === 'parkHere' && selected?.kind === 'trail') openParkTool();
   else if (a === 'gladeOpen' && isGlade(obj)) { pushUndo(obj.closed ? 'opening a glade' : 'closing a glade'); obj.closed = !obj.closed; obj.snowClosed = undefined; computeNetwork(); scheduleSave(); renderSheet(); }
   else if (a === 'gladeSigns' && isGlade(obj)) { obj.signs = !obj.signs; scheduleSave(); renderSheet(); }
   else if (a === 'manage') openManage(b.dataset.v);
@@ -7455,7 +7838,7 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off })) : undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
@@ -8180,6 +8563,7 @@ function trailFit(T, g, idx = 0) {
   else v = 1.2 - 0.4 * (g.ab - r - 1);
   v += Math.min(2, Math.max(0, T.an.len - idx * 0.5) / 160) + surfacePref(T, g);
   if (T.glade) v += g.ab >= 3 ? 2.5 : g.ab === 2 ? 1.2 : 0; // the trees are the draw for strong skiers
+  if (T.fx && T.fx.length) v += g.fs ? Math.min(3.5, 0.6 * T.fxPts[g.ab]) : -Math.min(1.5, 0.3 * T.fx.length); // park fans seek parks out; others would rather cruise
   v -= (T.crowd || 0) * 2.5;
   if (g.first && g.learnLaps < 3 && !g.lessoned && learningOpen()) v -= 4; // not ready for real trails yet
   const seen = g.seen[T.id] || 0;
@@ -8589,7 +8973,8 @@ function endOfTrail(g) {
     else if (T.surface === 'icy' && Math.random() < 0.4) thought(g, `${T.name} was icy and scraped off.`);
     else if (T.surface === 'moguls' && g.ab <= 1 && Math.random() < 0.4) thought(g, `The moguls on ${T.name} wore me out.`);
     else if (T.surface === 'thin' && Math.random() < 0.4) thought(g, `${T.name} needs more snow. I hit a rock.`);
-    if (Math.random() < 0.25) thought(g, r === g.pref ? `Loved ${T.name}!` : `${T.name} was nice.`);
+    if (T.fx && T.fx.length && !g.fs) { g.sat -= 0.3 * RUN_W; if (Math.random() < 0.08) thought(g, `${T.name} is full of jumps. I just wanted to cruise.`); }
+    else if (Math.random() < 0.25) thought(g, r === g.pref ? `Loved ${T.name}!` : `${T.name} was nice.`);
   }
   g.sat = clamp(g.sat, 0, 100);
   const to = T.to;
@@ -8649,6 +9034,7 @@ function demandForDay() {
   if (has('clinic')) amen += 0.03;
   if (has('hrest')) amen += 0.02;
   if (learningOpen()) amen += 0.04;
+  amen += parkDraw(open); // a terrain park draws freestyle skiers and riders
   if (landRects.some((p) => parcelInfo(p).kind === 'road')) amen += 0.03; // lifts you can see from the highway
   if (world.lifts.some((L) => L.type === 'gondola' && L.fromBase)) amen += 0.05; // a base gondola is a draw in itself // families and first-timers look for a good learning area
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
@@ -8756,6 +9142,7 @@ function makeGuest(car, x, z) {
   const g = {
     id: nextGid++, car: car.id, name: `${pick(FIRST)} ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}.`,
     ab, pref: ab === 0 ? 0 : Math.random() < 0.6 ? ab : ab - 1,
+    fs: ab >= 1 && Math.random() < [0, 0.18, 0.3, 0.3][ab], // a park fan: rides jumps and rails
     pat: 4 + Math.random() * 10, qh: 0.3 + Math.random() * 0.5,
     stam: (ab + 1) * 55 + Math.random() * 110, explore: 0.5 + Math.random(),
     // About one in five ski a half day and leave around lunch; the rest plan to stay until mid to late afternoon.
@@ -8976,8 +9363,9 @@ function updateSki(g, dt) {
   const i0 = Math.min(n - 2, Math.floor(g.s / 0.5));
   const r = trailSign(T);
   const surf = T.surface, rough = (surf === 'moguls' || surf === 'powder') && g.ab < 2 ? 0.75 : 1;
-  const sp = SKI_SPEED[g.ab] * (0.8 + Math.min(0.3, T.gr[i0])) * (r > g.ab ? 0.55 : 1) * rough;
+  const sp = SKI_SPEED[g.ab] * (0.8 + Math.min(0.3, T.gr[i0])) * (r > g.ab ? 0.55 : 1) * rough, was = g.s;
   g.s += sp * dt;
+  if (g.fs && T.fx && T.fx.length) for (const f of T.fx) if (f.s1 > was && f.s1 <= g.s && ridesFeat(g, f) && featHit(g, T, f)) return;
   // Falls are rare, likelier on terrain beyond the skier and on crowded trails.
   const risk = 1.6e-6 * (r > g.ab ? 4 : 1) * (1 + (T.crowd || 0)) * (g.ab === 0 && !g.lessoned ? 1.4 : 1) * (g.first && g.learnLaps < 3 && !g.lessoned && !T.virtual ? 1.5 : 1)
     * (surf === 'icy' ? 2 : surf === 'thin' ? 1.6 : 1) * (todayWx().type === 'ice' ? 1.6 : 1)
@@ -9297,7 +9685,7 @@ function openDay() {
   sellPasses();
   today.passShare = passShareToday(n);
   finishNight();
-  today.exp.grooming = state.nightCost.grooming || 0;
+  today.exp.grooming = state.nightCost.grooming || 0; today.exp.park = state.nightCost.park || 0; // park shaping is part of the grooming bill
   today.exp.snowmaking = state.smAcc || 0; today.smNights = state.smNights || 0; state.smAcc = 0; state.smNights = 0;
   today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
   today.exp.overhead = state.ohAcc || 0; state.ohAcc = 0;
@@ -9404,7 +9792,7 @@ function endDay() {
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
-    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
+    rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, park: today.exp.park || 0, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
@@ -9413,7 +9801,7 @@ function endDay() {
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
-    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay,
+    avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay, parkHits: today.parkHits || 0,
     meals: today.meals ? { ...today.meals } : null,
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
@@ -10351,9 +10739,12 @@ function guestPos(g) {
     let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
     const hw = a.hw ? lerp(a.hw, b.hw || a.hw, t) : trailHW(T);
     const wave = Math.sin(g.s * g.tf + g.ph);
-    const off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw;
+    let off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw, up = 0, turn = -Math.cos(g.s * g.tf + g.ph) * 0.5;
+    const fp = T.fx && T.fx.length ? featPose(T, g, g.s, off, hw) : null; // riding a feature, or going around one
+    if (fp) { off = fp.off; up = fp.y; turn = lerp(turn, 0, Math.min(1, up * 8)) + fp.yaw; }
     const x = lerp(a.x, b.x, t) - dz * off, z = lerp(a.z, b.z, t) + dx * off;
-    return { x, y: surfaceAt(x, z, lerp(a.y, b.y, t), a.bridge || b.bridge) + 0.14, z, yaw: Math.atan2(dx, dz) - Math.cos(g.s * g.tf + g.ph) * 0.5, sy: 1 };
+    const ground = surfaceAt(x, z, lerp(a.y, b.y, t), a.bridge || b.bridge);
+    return { x, y: (up > 0 ? Math.max(ground, featGround(x, z)) : ground) + 0.14 + up, z, yaw: Math.atan2(dx, dz) + turn, sy: 1 };
   }
   if (g.st === 'ride') {
     const L = g.L;
@@ -14395,10 +14786,13 @@ function finishNight() {
   const w = todayWx();
   let groom = 0;
   for (const t of realTrails()) if (runnable(t) && t.groomed) { groom += groomCost(t); t.icy = false; }
+  let park = 0; // park crews reshape the jumps, rails and halfpipe on open trails
+  for (const t of realTrails()) if (runnable(t)) park += parkUpkeep(t);
+  groom += park;
   for (const a of world.areas) if (!isGlade(a) && !isHub(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
   for (const t of world.trails) if (t.virtual && !t.glade) t.icy = false;
   state.cash -= groom;
-  state.nightCost = { ...(state.nightCost || {}), grooming: groom };
+  state.nightCost = { ...(state.nightCost || {}), grooming: groom, park };
   refreshSnowState(w);
   return groom;
 }
@@ -15936,7 +16330,7 @@ function showReport(r = state.lastReport, past = false) {
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
-      <span>Trail grooming</span><span>${money(ex.grooming)}</span>
+      <span>Trail grooming</span><span>${money(ex.grooming - (ex.park || 0))}</span>${ex.park ? `<span>Terrain park shaping</span><span>${money(ex.park)}</span>` : ''}
       ${r.payroll && r.payroll.other + r.payroll.patrol === ex.staff ? `<span>Other staff</span><span>${money(r.payroll.other)}</span>${line('Patroller wages', r.payroll.patrol)}` : `<span>Staff</span><span>${money(ex.staff)}</span>`}
       ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Land lease', ex.lease)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
@@ -16005,6 +16399,7 @@ function trailsPageHtml(r, past) {
   const pct = (n) => { const p = n / d.total * 100; return p < 1 ? 'under 1%' : `${Math.round(p)}%`; };
   const rows = top.map((x) => `<div><span class="rsym">${ratingSymbol(x.sign, 12)}</span><span class="nm">${esc(x.name)}${x.glade ? ' <small>glade</small>' : ''}</span><i style="width:${Math.max(2, Math.round(x.n / max * 100))}%"></i><b>${x.n.toLocaleString('en-US')}</b><small>${pct(x.n)}</small></div>`).join('');
   if (top[0].n / d.total >= 0.3 && d.of > 2) tips.push(`<b>${esc(top[0].name)}</b> took ${pct(top[0].n)} of all runs. Crowded trails mean more falls: more trails from the same lifts spread skiers out.`);
+  if (r.parkHits) tips.push(`Park fans rode jumps, rails and pipes ${r.parkHits.toLocaleString('en-US')} times.`);
   if (r.night && d.night) tips.push(`${d.night.toLocaleString('en-US')} runs were after dark${top.some((x) => x.night) ? `, most on ${esc(top.filter((x) => x.night).sort((a, b) => b.night - a.night)[0].name)}` : ''}.`);
   if (d.quietN) tips.push(`Open but hardly skied (under 1% of runs): ${d.quiet.map(esc).join(', ')}${d.quietN > d.quiet.length ? ` and ${d.quietN - d.quiet.length} more` : ''}. They may be out of the way, or too hard or too easy for most of today’s guests.`);
   const live = !past && r === state.lastReport && state.phase === 'report' && state.dayUse;
@@ -16920,7 +17315,8 @@ function pointerEnd(e) {
 }
 function onTap(x, y, ptype) {
   const p = pickTerrain(x, y);
-  if (draft.kind) draftTap(p);
+  if (state.tool === 'tpark') parkTap(p);
+  else if (draft.kind) draftTap(p);
   else if (state.tool === 'clear' && state.landMode === 'doze') dozeAt(x, y);
   else if (state.tool === 'explore') {
     const g = state.phase === 'open' ? pickGuest(x, y) : null;
@@ -18419,6 +18815,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.70', date: 'Nov 1, 2026', title: 'Terrain parks', items: [
+    'Build a terrain park on any trail: open Trail › Terrain park, pick rollers, a box, rails, a small or big jump, or a halfpipe, tap the trail and build. Tap one you’ve built to remove it.',
+    'Park fans, some intermediates and many stronger skiers, look for parks and ride the features they’re good enough for: you’ll see them catch air, slide rails and ride the halfpipe walls. Other skiers go around the features, and a few would rather cruise elsewhere.',
+    'A park draws extra guests, and the bigger it is, the more it draws. Crews reshape the features each night their trail is open; the day report lists it as Terrain park shaping.',
+  ] },
   { v: '2.69.1', date: 'Oct 31, 2026', title: 'Crowds face the action', small: true, items: [
     'Spectators at a pond skim and along a race finish now face the pond and the course, instead of turning their backs on it.',
     'Pond skimmers who fall in now wade out facing the way they walk.',

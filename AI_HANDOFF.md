@@ -89,7 +89,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** ChatGPT's `feature/terrain-parks-preview` branch is parked for future testing and brainstorming; **work is paused** at Phil's request. No terrain park release is approved.
+**Active:** terrain parks (2.70 preview) rebuilt by Claude on current `main` at Phil's request (Nov 1), on `ccr-4f420d32-a79w7t`. It replaces ChatGPT's paused `feature/terrain-parks-preview`, which was left untouched. Not approved for release yet.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -107,7 +107,8 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `feature/terrain-parks-preview` | ChatGPT | **PAUSED — testing / development / brainstorming preview**, not a release candidate. ChatGPT owns the experimental terrain park implementation (models, six SVG icons, trail-card designation, on-trail ploppable features and placement UI). Guest interactions and business effects remain unimplemented. Do not merge, publish or resume without Phil's explicit direction. | Oct 30, 2026 |
+| `ccr-4f420d32-a79w7t` | Claude | Terrain parks 2.70 preview, rebuilt from scratch on current `main` (see Claude's Nov 1 note). Waiting for Phil. | Nov 1, 2026 |
+| `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
 
@@ -267,6 +268,37 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
+### 2026-11-01 · Claude · Terrain parks rebuilt (2.70 preview)
+- **Why a rebuild:** Phil asked me to review ChatGPT's paused branch and to rebuild if needed. It was 35 commits behind `main`. Since then
+  2.67 had shaped trails into per-section widths (`t.ws`, `sampleHW`), so its fixed `TRAIL_WIDTHS[t.width].hw` placement no longer
+  matched trails. It had no guests using the features, no costs and no demand. Its models (`park-models.js`) were about 4× the skiers'
+  scale (a 9 m-tall small jump). What I kept from it: the six feature types, its menu flow (pick → tap a trail → preview → confirm),
+  slope-hugging placement and its icon ideas (redrawn at stroke 1.8). Nothing was merged from it.
+- **Data:** `t.feats = [{ id, type, at, off }]`. `at` is the fraction down the trail and `off` is −1..1 of the room either side, so features
+  survive Edit route and reshaping. Saved only when non-empty, so old saves are untouched. Derived on `buildFeats(t)` (called from `addTrail`
+  and `refreshTrailMesh`): `t.fx` spots (`s0/s1/lat/hw/room/fr`), `t.fxPts[ability]`, `t.fxGroup` models. A trail with features is a park; there's no separate toggle.
+- **Types** (`FEATS`): rollers, flat box, small jump (Small: intermediates and up), rail, rainbow rail (Medium), big jump/tabletop and halfpipe
+  (Large). Medium and Large need ability 2 (`featAb`). Costs $6k–$250k, shaping $40–$900/night.
+- **Models:** draped on the ground with `featGround` = max(`heightAt`, `meshY`). `meshY` matches the terrain's actual triangles. On curved
+  ground they sit up to ~0.3 above `heightAt`'s bilinear blend; that's the pre-existing white patches you see poking through trail ribbons.
+  Worth reusing anywhere small things must sit on the visible ground. Blue dye lines trace snow features (white on white was unreadable).
+  Rails are painted dark, because bare steel vanished in sunlit snow. The halfpipe follows the trail's samples.
+- **Guests:** new shape field `fs` (park fan: 18% of intermediates, 30% of advanced/experts). `trailFit`: fans +min(3.5, 0.6·fxPts),
+  others −min(1.5, 0.3·count). `ridesFeat` uses a deterministic hash (85% of eligible passes), so the sim and the drawing agree.
+  `updateSki` → `featHit` at each feature's end: +0.5·RUN_W, a small fall risk (×1.6 Large for non-experts, ×1.6 icy), thoughts.
+  `guestPos` → `featPose`: riders line up, follow the shape, fly with a 360 on jumps, slide rails sideways and swing wall to wall in the pipe;
+  others steer around. Non-fans finishing a park trail: −0.3·RUN_W.
+- **Business:** `parkDraw` adds up to +8% to `amen` (0.008 × points of open park trails). Shaping is paid in `finishNight` inside the
+  grooming bill (`state.nightCost.park`, `today.exp.park`). The report splits out "Terrain park shaping", and the Trails page notes rides.
+- **Measured** (Juniper starter, Saturday, 6 features + a halfpipe): about 40 fans of 235 guests, 180–270 feature rides by 11 AM, 1–3 falls.
+  Scenarios 112 (sim speed), 32 (old saves), 81, 84, 122, 124 and 125 pass. Not measured: a big resort with many parks (guestPos cost is
+  per skier on a park trail, looping that trail's features).
+- **Also fixed:** `76-roadmap-new` expected Hotels `ongoing`, but Hotels moved to Done on Nov 1, so it failed on `main`. It now checks
+  Ski-in/ski-out, and sorts the tagged cards.
+- **Left for later:** blueprints while open (the tool says features are built overnight), moving a feature, park-specific advice, a
+  "younger crowd" demographic, and features hidden in summer (they follow the trail ribbon's visibility).
+- Tools: scenario 126 (picker, placement rules, build/remove, undo, save, riders/avoiders, day, report, phone).
+
 ### 2026-10-31 · Claude · Event crowds faced away (shipped in 2.69.1)
 - **Player report:** pond skim spectators all faced away from the pond. Cause: a flipped sign in `drawCrowd` (shared by race day
   and pond skim since they shipped). Figures face +z at yaw 0 (goggles at +z in `FIG_GEO.head`), and `raceLine`'s normal is
@@ -306,7 +338,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   (57% more guests). Weekday share is about 45% with ski-in. Room money alone pays a hotel back in roughly 2.5–4 seasons; faster where
   the lot is full, because hotel guests also buy tickets and food. Tune `hotelPull`/costs if players find it too strong.
 - Follow-ups not done: room deals/packages (Phil: with a marketing update), booking forecast, slopeside hotels, lot-full advice pointing
-  at hotels. `76-roadmap-new` now expects Hotels `ongoing` and Condos `plan`; update it if those cards change again.
+  at hotels. `76-roadmap-new` now expects Ski-in/ski-out `ongoing` and Condos `plan`; update it if those cards change again.
 - Tools: test 125 (models fit footprints, bookings, day, report, closed hotel, reload, phone menu); `tests/hotel-bench.mjs`.
 
 ### 2026-10-31 · Claude · Trail popularity and batch closing (shipped in 2.68)
