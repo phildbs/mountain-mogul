@@ -54,9 +54,15 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.71.1.** Phil approved publication on Nov 1 (quick-fix tier: 127-lone-pine, 44-update-card and 74-first-mountain passed locally).
+**Live: 2.72.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 3c1562e; 128-ridgeback, 127-lone-pine, parking, two-base, title, photos and old-save scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.72: Ridgeback (`ridgeback`): one long ridge from an expert summit (NE, bare above the trees) down to a beginner
+  summit (W); heights come from the nearest point on the crest (`RB`), so the crest is a green all along (goal Ridge run).
+  Town off the south edge (S3 not sold); one road splits at a crossroads: main lot growing west (`lotWest`, entered from
+  its east side) and East lot. Title: orange New 3D mountains button (`NEW_MTN.ids`, gone once both are tried, until
+  Feb 28, 2027); list puts `is3d` mountains first, tags 3D / Classic; cards show game snapshots `img/<id>.jpg`
+  (`M.photo`, `paintThumbs`). Shaped with Phil in preview (saddle ridge -> smooth green ridge; west town -> south).
 - 2.71.1: the Lone Pine Hill feature card hides once the player has a resort there (`mm.seen.<id>` in localStorage, so it stays hidden after deleting it).
 - 2.71: Lone Pine Hill (`lonepine`), a fifth mountain: a big lone hill filling most of the land, ~590 ft, gentle sunny south
   and steeper shady north (bowl, rock band). Two roads from a town off the west side (scenery houses, church, water tower;
@@ -117,7 +123,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`): one long ridge from an expert summit down to a beginner summit (`RB`), green along the crest (goal Ridge run). Town off the south edge (S3 dropped); road splits at a crossroads: main lot (grows west: `lotWest`) and East lot. Title: orange New 3D mountains button (`NEW_MTN.ids`, hides once both tried); list puts `is3d` first, tags 3D / Classic; pictures are game snapshots `img/<id>.jpg` (`M.photo`, `paintThumbs`). Lone Pine's big card and `lone-pine-hill.jpg` removed. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
