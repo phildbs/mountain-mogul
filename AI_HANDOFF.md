@@ -118,10 +118,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** 2.75 ski racks on `ccr-e055dcda-83l2bz` (Claude), awaiting Phil's preview and Publish. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
-- Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
+- Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
+  fine (with diminishing returns), custom sign words OK only from word lists like resort names, seasonal pieces change only when the
+  player chooses. Brainstormed first batch: entrance arch with the resort's name, drawn fences, string lights, snowmen and ice
+  sculptures, Adirondack chairs and patio heaters, flags in resort colours, a summit photo spot. Trail map boards, billboards, statues, fountains, flags,
   snowmen, an entrance arch. Also the special decoration earned for 3 invited friends (milestone is saved;
   design deferred by Phil).
 - Trail/glade popularity: 2.68 preview adds the report page and day/evening split; "reasons" are only a generic quiet-trail hint so far.
@@ -136,6 +139,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-e055dcda-83l2bz` | Claude | 2.75 ski racks: skiers rack skis before going indoors; Decor › Ski rack. See Claude's Nov 1 note. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -150,6 +154,8 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 - Two scenarios share number 84 (`84-lunch-lots`, `84-movable-trails`). Use the next free number for new tests.
 - A lit trail made longer by Edit route keeps its old `litCost`, so the extra lights are free.
 - Invitations can't detect fake accounts or made-up day reports (the simulation runs in the browser).
+- `node tests/building-styles.mjs` (standalone, not in the GitHub run) fails on `main` at "hotel/0: exact door calls": the modern
+  hotel's door calls differ from the classic one. Older than 2.75; not looked into.
 - Dev-only model previews float (`heightAt` is multiplied by `VEX` twice). Not player-facing.
 
 ## Development guidelines
@@ -300,6 +306,27 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-01 · Claude · Ski racks (2.75, awaiting Publish)
+- **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and
+  guests complain. Built as its own release before any other decor.
+- **Rules:** `RACK_TYPES` (lodge, café, restaurant, fine, bar, store, gift, both restrooms) have a built-in rack for
+  `RACK_SHARE` (0.75) of seats + stalls. Decor type `rack` holds 12 and serves any of those doors within `RACK_R` (3 units, 30 m).
+  `startVisit` routes a skier to `pickRack(B)` (own rack first, then the nearest placed rack with room), `rackStop` drops the skis
+  and walks to the door, `resumeGuest` → `fetchSkis` walks back for them. All full: skis in the snow by the door (`g.rack = -B.id`),
+  −3 satisfaction and `complaints.rack`, once per guest per day (`g.snowSkis`); 4% of snowbank pickups find the wrong pair (−5).
+  No sting for the first 5 operating days of season 1 (`rackGrace`, report flag `racks.easy`). Exempt: rental/tuning, truck, school,
+  kids, clinic, hotel, decor; guests without skis (`sight`, `local`, `needsRental`).
+- **State:** only `g.rack` and `g.snowSkis` (declared in `makeGuest`, so one guest shape). Rack use (`rackUse`) is recounted from
+  guests every game minute (`rackCount`), so it can't drift; `goQueue`/`startSki` put skis back on if a pickup was ever skipped.
+  Report: `r.racks = { n, at[top 3], easy }`, `today.rackAt`. Buildings save no new fields; `rackSpots` rebuilds positions on load.
+- **Look:** figure skis are a separate instanced mesh (`figMeshes.skis`), hidden while racked. Racked skis are one InstancedMesh
+  (`drawRacks`, redrawn when `rackVer` changes). The built-in frame sits in front of the model, clear of decks: `buildingVisual`
+  measures ground-level parts (`b.rackZ`), so all three themes work. A building's rack is drawn shorter than it holds and shows
+  fullness; a placed rack shows each pair.
+- **Tuning (busy 1,400-guest Juniper test resort, one day):** built-in share 0.5 / 0.75 / 1.0 left 723 / 411 / 143 guests with skis
+  in the snow; the 250-guest starter resort had 15 / 0 / 0. With 0.75, four racks per busy building took it from 422 to 0. Same
+  sim speed. Scenario 132.
 
 ### 2026-11-01 · Claude · Terrain parks rebuilt (shipped in 2.70)
 - **Why a rebuild:** Phil asked me to review ChatGPT's paused branch and to rebuild if needed. It was 35 commits behind `main`. Since then

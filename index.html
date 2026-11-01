@@ -8120,6 +8120,7 @@ const GS_PER_REAL = 60;
 // match a real resort; each guest simply fits fewer runs into the day, and
 // each run counts PACE times as much toward satisfaction and tiredness.
 const AGENT = 1;
+let rackUse = new Map(), rackMin = -1, rackVer = 0; // ski racks: see rackCount
 const PACE = 4;
 const RUN_W = PACE * 0.7;
 // Each run tires a guest this much (relative to its scaled length), so most ski well into the afternoon.
@@ -8770,8 +8771,9 @@ const FIG_GEO = {
     [new THREE.BoxGeometry(0.11, 0.14, 0.08).translate(0, 0.29, 0), W1],
     [new THREE.BoxGeometry(0.17, 0.035, 0.05).translate(0, 0.32, 0.01), W1],
   ]),
-  pants: mergeColored([
-    [new THREE.BoxGeometry(0.1, 0.16, 0.075).translate(0, 0.14, 0), W1],
+  pants: mergeColored([[new THREE.BoxGeometry(0.1, 0.16, 0.075).translate(0, 0.14, 0), W1]]),
+  // drawn apart from the legs, so a guest whose skis are on a rack walks around in boots
+  skis: mergeColored([
     [new THREE.BoxGeometry(0.035, 0.012, 0.42).translate(-0.032, 0.01, 0.03), [0.28, 0.28, 0.32]],
     [new THREE.BoxGeometry(0.035, 0.012, 0.42).translate(0.032, 0.01, 0.03), [0.28, 0.28, 0.32]],
   ]),
@@ -8781,7 +8783,7 @@ const FIG_GEO = {
   ]),
 };
 const figMeshes = {};
-for (const k of ['jacket', 'pants', 'head']) {
+for (const k of ['jacket', 'pants', 'head', 'skis']) {
   const m = new THREE.InstancedMesh(FIG_GEO[k], new THREE.MeshLambertMaterial({ vertexColors: true }), MAX_G);
   m.setColorAt(0, new THREE.Color(1, 1, 1));
   m.count = 0; m.frustumCulled = false;
@@ -8831,7 +8833,7 @@ function newToday() {
     night: { guests: 0, stayed: 0, lifts: 0, runs: {} }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
     injuries: 0, helped: 0, unhelped: 0, rescues: [], patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
-    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0 }, satSum: 0, satN: 0,
+    complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0, rack: 0 }, satSum: 0, satN: 0,
   };
 }
 
@@ -9052,6 +9054,7 @@ function queueSlot(L, k) {
   return { x: lx + px * side + dx * along, z: lz + pz * side + dz * along };
 }
 function goQueue(g, L, mode) {
+  if (g.rack != null) skisBack(g); // only a missed pickup gets here with skis on a rack
   if (viaHub(g, L.a, { k: 'hubQueue', lid: L.id, aid: L.hubBottom ? L.hubBottom.id : 0 })) return;
   L.incoming++;
   g.L = L;
@@ -9288,6 +9291,7 @@ function topDecision(g, L, skipVisit, skipHub = false) {
   return true;
 }
 function startSki(g, T, s) {
+  if (g.rack != null) skisBack(g);
   g.onSkis = true;
   g.st = 'ski'; g.T = T; g.s = s;
   g.nb = 0;
@@ -9520,7 +9524,7 @@ function makeGuest(car, x, z) {
     severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
-    xUntil: undefined, xZone: undefined, hotel: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined
+    xUntil: undefined, xZone: undefined, hotel: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined
   };
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -9687,7 +9691,10 @@ function arrive(g) {
   } else if (t.k === 'bld') {
     const B = bldById(t.bid);
     if (!B) return resumeGuest(g);
+    if (rackStop(g, B, t)) return;
     joinBuildingQueue(g, B);
+  } else if (t.k === 'skis') {
+    resumeGuest(g);
   } else if (t.k === 'hotel') { // back in their room: for a rest, or for the night
     if (g.nap) return hotelNap(g);
     g.gone = true; gById.delete(g.id);
@@ -10158,10 +10165,10 @@ function endDay() {
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay, parkHits: today.parkHits || 0, park: parkReport(),
-    meals: today.meals ? { ...today.meals } : null,
+    meals: today.meals ? { ...today.meals } : null, racks: rackReport(),
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
   };
-  guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0;
+  guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0; rackMin = -1;
   endOps();
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) { const y = B.yday; initBldSim(B); B.yday = y; }
@@ -11059,10 +11066,12 @@ function writeFig(n, x, y, z, yaw, sy, g, pitch = 0) {
   _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, sy * figScale, figScale); _v.set(x, y, z);
   _m.compose(_v, _q, _s);
   for (const k of ['jacket', 'pants', 'head']) _m.toArray(figMeshes[k].instanceMatrix.array, n * 16);
+  (g.rack != null ? NO_SKIS : _m).toArray(figMeshes.skis.instanceMatrix.array, n * 16);
   figMeshes.jacket.instanceColor.setXYZ(n, ...hexRGB(g.jc));
   figMeshes.pants.instanceColor.setXYZ(n, ...hexRGB(g.pc));
   figMeshes.head.instanceColor.setXYZ(n, ...hexRGB(g.hc));
 }
+const NO_SKIS = new THREE.Matrix4().makeScale(0, 0, 0);
 const rgbCache = new Map();
 function hexRGB(h) {
   let v = rgbCache.get(h);
@@ -11074,6 +11083,40 @@ for (const k of ['jacket', 'pants', 'head']) {
   m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_G * 3), 3);
 }
 for (const k of ['body', 'cabin']) carMeshes[k].instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CARS * 3).fill(1), 3);
+figMeshes.skis.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_G * 3).fill(1), 3);
+// Skis left on racks, and in the snow when the racks are full: one batch, redrawn when a pair comes or goes.
+const RACK_SKI_COLS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0xf2f2f2, 0x24272e, 0x1b8fa6];
+const RACK_SKI_MAX = 4000;
+const rackSkiMesh = new THREE.InstancedMesh(mergeColored([
+  [new THREE.BoxGeometry(0.02, 0.26, 0.006).translate(-0.012, 0, 0), W1], [new THREE.BoxGeometry(0.02, 0.26, 0.006).translate(0.012, 0, 0), W1],
+]), new THREE.MeshLambertMaterial({ vertexColors: true }), RACK_SKI_MAX);
+rackSkiMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(RACK_SKI_MAX * 3), 3);
+rackSkiMesh.count = 0; rackSkiMesh.frustumCulled = false; rackSkiMesh.castShadow = true;
+scene.add(rackSkiMesh);
+let rackDrawn = -1;
+function drawRacks(show) {
+  const use = state.phase === 'open' ? rackCount() : null, sig = show && use ? rackVer : -2;
+  if (sig === rackDrawn) return;
+  rackDrawn = sig;
+  let n = 0;
+  const put = (p, yaw, lean, i, sink) => {
+    if (n >= RACK_SKI_MAX) return;
+    _e.set(lean, yaw, (i % 3 - 1) * (sink ? 0.12 : 0), 'YXZ'); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(p.x, p.y + 0.125 - sink, p.z);
+    _m.compose(_v, _q, _s); _m.toArray(rackSkiMesh.instanceMatrix.array, n * 16);
+    rackSkiMesh.instanceColor.setXYZ(n++, ...hexRGB(RACK_SKI_COLS[(i * 5 + 3) % RACK_SKI_COLS.length]));
+  };
+  if (sig >= 0) for (const B of world.buildings) {
+    if (!B.rackSlots) continue;
+    const yaw = B.rot * Math.PI / 2, on = (use.get(B.id) || 0) * AGENT, cap = rackCap(B), k = B.rackSlots.length;
+    // a building's rack is drawn shorter than it holds, so it shows how full it is
+    const shown = B.type === 'rack' ? Math.min(k, on) : on ? clamp(Math.round(on / cap * k), 1, k) : 0;
+    for (let i = 0; i < shown; i++) put(B.rackSlots[i], yaw, -0.28, i + B.id, 0);
+    const snow = Math.min(B.snowSlots.length, (use.get(-B.id) || 0));
+    for (let i = 0; i < snow; i++) put(B.snowSlots[i], yaw, 0, i + B.id, 0.05);
+  }
+  rackSkiMesh.count = n;
+  rackSkiMesh.instanceMatrix.needsUpdate = true; rackSkiMesh.instanceColor.needsUpdate = true;
+}
 
 function guestPos(g) {
   if (g.st === 'inside' && g.deck >= 0) {
@@ -11144,7 +11187,8 @@ function drawPeople() {
   // event figures; with figures hidden, only the torch glows still show
   if (state.phase === 'open') { const m = drawPond(drawRace(drawTorches(showFigs ? n : MAX_G))); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
   drawBuses();
-  for (const k of ['jacket', 'pants', 'head']) {
+  drawRacks(showFigs);
+  for (const k of ['jacket', 'pants', 'head', 'skis']) {
     figMeshes[k].count = n;
     figMeshes[k].instanceMatrix.needsUpdate = true;
     figMeshes[k].instanceColor.needsUpdate = true;
@@ -11212,6 +11256,7 @@ function serializeSim() {
   };
 }
 function restoreSim(sim) {
+  rackMin = -1;
   guests = []; cars = []; schedule = []; gById.clear(); today = null; buses = []; busPending = 0; runOps = null; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) initBldSim(B);
@@ -11292,6 +11337,8 @@ const BTYPES = {
     desc: 'A seat for tired skiers to catch their breath and get a little energy back. Put one by a lift or beside a trail; skiers stop as they pass.' },
   picnic: { name: 'Picnic table', where: 'any', cost: 3500, accent: 0x9a6b3c, seats: 6, w: 1.0, d: 1.0, upkeep: 10, decor: true, plop: true, noPad: true,
     desc: 'Room for a group to sit down and rest. Guests get a little energy back; families love them.' },
+  rack: { name: 'Ski rack', where: 'any', cost: 800, accent: 0x3d6f9e, racks: 12, w: 0.9, d: 0.4, upkeep: 2, decor: true, plop: true, noPad: true,
+    desc: 'Room for 12 pairs of skis. Skiers leave their skis on a rack while they eat, shop or use the restroom. Each building has a rack by its door for about three quarters of its seats; on busy days, put extra racks close to the door so nobody has to stick their skis in the snow.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
     desc: 'Fits guests with skis and boots when they arrive.' },
   tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
@@ -11326,11 +11373,11 @@ const BTYPES = {
     ],
   },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel'];
 // The build menu's sections.
 // The build menu's tabs: [key, label, building types].
 const BGROUPS = [['food', 'Food', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['shops', 'Shops', ['rental', 'tuning', 'store', 'gift']],
-  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Hotels', ['hotel']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'firepit', 'lamp', 'tlight']]];
+  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Hotels', ['hotel']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'firepit', 'lamp', 'tlight']]];
 // The tab you were on last, remembered on this device.
 let bTabNow = null;
 function bTab() { if (bTabNow == null) { try { bTabNow = localStorage.getItem('mm.bTab') || 'food'; } catch (e) { bTabNow = 'food'; } } return bTabNow; }
@@ -11360,6 +11407,7 @@ const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes 
   tree: '<path d="M12 2.5L6.5 10h3l-4 6.5h13l-4-6.5h3z"/><path d="M12 16.5v5"/>',
   bench: '<path d="M5 4.5h14M5 8h14"/><path d="M6.5 4.5v8M17.5 4.5v8"/><rect x="2.5" y="12.5" width="19" height="3" rx="1"/><path d="M5.5 15.5l-1 5M18.5 15.5l1 5"/>',
   picnic: '<path d="M3 8h18"/><path d="M7.5 8L4.5 20M16.5 8l3 12M5.5 15h13"/>',
+  rack: '<path d="M3 9h18M3 20h18M4 9v11M20 9v11"/><path d="M8 3l1 17M11 3l1 17M15 3l1 17"/>',
   firepit: '<path d="M12 3c1 3 5 5 5 9.3a5 5 0 0 1-10 0c0-2 1-3.4 2-4.3 0 2 1 3 2 3 0-3-1-5 1-8z"/><path d="M4 21h16"/>',
   lamp: '<path d="M12 10.5v10.5M9 21h6"/><path d="M9 4h6l1 6.5H8z"/><path d="M12 2v2"/>',
   tlight: '<path d="M7 21V4"/><path d="M4 21h6"/><rect x="8.5" y="3" width="6" height="4.5" rx="1"/><path d="M16.5 2.5l2-1M17 5.2h2.5M16.5 8l2 1"/>',
@@ -11371,7 +11419,7 @@ const bIcon = (k, tier) => (k === 'lodge' && tier ? bIcon('lodge' + tier) : `<sv
 const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a warm-up', lodge: 'Lunch, warm-up and restrooms', restaurant: 'Sit-down lunch', fine: 'Pricey meals, big spenders', bar: 'Drinks and après-ski',
   rental: 'Rents skis to guests', tuning: 'Rentals plus ski tuning', store: 'Sells gear and clothing', gift: 'Souvenirs and small treats', school: 'Lessons for beginners', kids: 'Day camp for young kids',
   patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over',
-  tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing' };
+  tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 12 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
 const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
@@ -11809,6 +11857,20 @@ function modelPicnic() {
   for (const x of [-0.2, 0, 0.2]) { k.seat(x, 0.12, 0.31, Math.PI); k.seat(x, 0.12, -0.31, 0); }
   return k;
 }
+// Ski racks: a steel frame the skis lean on (the skis themselves are drawn with the guests, in drawRacks).
+// A building's own rack stands just in front of it, on the side of the door away from the line.
+function rackLayout(b) {
+  const s = bspec(b);
+  if (b.type === 'rack') return { L: 0.8, x: 0, z: 0, n: s.racks };
+  const L = clamp(s.w / 2 - 0.45, 0.3, 0.8);
+  return { L, x: -s.w / 2 + L / 2 + 0.08, z: b.rackZ ?? s.d / 2 + 0.3, n: Math.max(4, Math.round(L / 0.065)) };
+}
+function rackFrame(k, L, y) {
+  for (const x of [-L / 2, L / 2]) k.add(bx(0.022, 0.17, 0.022), STEEL, x, y + 0.085, 0);
+  k.add(bx(L + 0.02, 0.018, 0.022), STEEL, 0, y + 0.165, 0);
+  k.add(bx(L, 0.014, 0.045), STEEL, 0, y + 0.02, 0.06);
+}
+function modelRack() { const k = new Kit(); rackFrame(k, 0.8, 0); return k; }
 // A planted tree is drawn with the forest's own tree, in one batch with every other planted tree; its
 // building only shows a stand-in while it's being placed.
 function modelTree(tier, b, ghost) {
@@ -12031,7 +12093,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel };
+const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, rack: modelRack, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel };
 /* ---------- Modern mountain alternatives; opt-in registry, no live style selection yet. ---------- */
 // Same Kit/box pipeline and shared wood, stone and glow as classic buildings. No new textures.
 const MODERN_METAL = accentMat(0x252b30);
@@ -13013,6 +13075,7 @@ const OTHER_NAMES = {
   tree: ['Tree'],
   bench: ['Bench'],
   picnic: ['Picnic table'],
+  rack: ['Ski rack'],
   bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
   tuning: ['Tune & Demo Center', 'Edge Works', 'Wax On', 'Edge & Base', 'The Tuning Fork', 'Sharp Edges', 'Base Grind'],
   store: ['Ski Store', 'Summit Outfitters', 'Base Camp Gear', 'Powder Room Outfitters', 'The Gear Garage', 'Alpine Supply', 'Peak Performance', 'Slope Shop'],
@@ -13033,7 +13096,7 @@ const OTHER_NAMES = {
   hotel: ['Summit House Hotel', 'The Alpenglow', 'Powder Inn', 'Snowberry Lodge Hotel', 'The Timberline', 'Firstlight Hotel', 'Ridgeview Inn', 'The Lift Line Hotel'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'rack', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -13056,6 +13119,14 @@ function buildingVisual(b, ghost) {
   const fh = Math.max(0.25, (top - fs.hmin) * VEX + 0.25);
   if (!ghost && BY_ROAD.includes(b.type)) { const back = -s.d / 2 - 0.03, front = BAY_FRONT[b.type]; k.add(bx(s.w + 0.06, fh, front - back), BM.stone, 0, -fh / 2 + 0.01, (front + back) / 2); }
   else if (!ghost && !(b.type === 'firepit' && b.bare) && !BTYPES[b.type].noPad) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
+  if (RACK_TYPES.includes(b.type)) { // its own ski rack, standing on the ground in front, clear of any deck or steps
+    const r0 = rackLayout({ type: b.type, tier: b.tier }), x0 = r0.x - r0.L / 2, x1 = r0.x + r0.L / 2;
+    let front = s.d / 2;
+    for (const [geo] of k.parts) { geo.computeBoundingBox(); const q = geo.boundingBox; if (q.min.y < 0.3 && q.min.x < x1 && q.max.x > x0) front = Math.max(front, q.max.z); }
+    b.rackZ = front + 0.18;
+    const r = rackLayout(b), p = toWorld(b, r.x, r.z);
+    k.push(r.x, 0, r.z); rackFrame(k, r.L, Math.max(-fh, heightAt(p.x, p.z) - baseY)); k.pop();
+  }
   const g = k.build();
   g.position.set(b.x, baseY, b.z);
   g.rotation.y = b.rot * Math.PI / 2;
@@ -13075,6 +13146,7 @@ function addBuilding(b) {
   if (BY_ROAD.includes(b.type)) addDriveway(b);
   if (b.type === 'school') b.door = toWorld(b, 0, s.d / 2 + 0.2);
   if (b.type === 'tlight') faceTrail(b);
+  rackSpots(b, v.fh);
   // each building gets its own window glow, so a closed one can go dark
   b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
   b.winLights = windowLights(b);
@@ -13084,6 +13156,15 @@ function addBuilding(b) {
   initBldSim(b);
   if (b.type === 'tree') plantDirty = true;
   renderer.shadowMap.needsUpdate = true;
+}
+// Where guests stand to leave their skis, where each pair goes on the rack, and where skis go in the snow.
+function rackSpots(b, fh) {
+  if (!rackCap(b)) return;
+  const r = rackLayout(b), o = toWorld(b, r.x, r.z), y = b.type === 'rack' ? b.baseY : Math.max(b.baseY - fh, heightAt(o.x, o.z));
+  b.rackP = toWorld(b, r.x, r.z + 0.3);
+  b.rackSlots = Array.from({ length: r.n }, (_, i) => ({ ...toWorld(b, r.x - r.L / 2 + (i + 0.5) * r.L / r.n, r.z + 0.045), y }));
+  b.snowSlots = Array.from({ length: 8 }, (_, i) => { const p = toWorld(b, r.x + r.L / 2 - 0.08 - i * 0.08, r.z + 0.4 + (i % 2) * 0.07); return { ...p, y: heightAt(p.x, p.z) }; });
+  rackDrawn = -1;
 }
 // Planted trees: one batch for all of them, redrawn whenever one is planted or removed.
 const PLANT_CAP = 6000;
@@ -13140,7 +13221,7 @@ function restyleBuilding(b) {
   bldGroup.remove(b.group);
   b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   const v = buildingVisual(b, false);
-  b.group = v.group; b.baseY = v.baseY;
+  b.group = v.group; b.baseY = v.baseY; rackSpots(b, v.fh);
   b.group.traverse((o) => { if (o.isMesh && o.material === BM.glow) { if (!b.glowMat) b.glowMat = BM.glow.clone(); o.material = b.glowMat; } });
   b.winLights = windowLights(b);
   b.group.traverse((o) => { if (o.isMesh && o.material.isMeshLambertMaterial) nightLit(o.material, true); });
@@ -13574,10 +13655,85 @@ function maybeApres(g) {
 }
 function startVisit(g, B, svc, resume) {
   g.svc = svc; g.bid = B.id; g.resume = resume;
-  const A = sameHub(g, B.door);
-  if (A && walkHub(g, A, B.door, { k: 'bld', bid: B.id })) return;
-  if (viaHub(g, B.door, { k: 'bld', bid: B.id })) return;
-  setMove(g, B.door, g.onSkis ? 'glide' : 'walk', { k: 'bld', bid: B.id });
+  // A skier heads for a free rack first (the one by the door, or another close by), then walks in.
+  const R = needsRack(g, B) ? pickRack(B) : null;
+  const to = R ? R.rackP : B.door, then = R ? { k: 'bld', bid: B.id, rid: R.id } : { k: 'bld', bid: B.id };
+  const A = sameHub(g, to);
+  if (A && walkHub(g, A, to, then)) return;
+  if (viaHub(g, to, then)) return;
+  setMove(g, to, g.onSkis ? 'glide' : 'walk', then);
+}
+/* ---------- Ski racks ----------
+   Skiers leave their skis on a rack before going in to eat, shop or use the restroom, walk around in boots,
+   and pick them up on the way out. Each of those buildings has a rack by its door for about half its seats
+   and stalls; a placed rack (decor) serves any of those doors within RACK_R. With every rack full, skis go
+   in the snow by the door: a small letdown, and now and then someone grabs the wrong pair. */
+const RACK_TYPES = ['lodge', 'cafe', 'restaurant', 'fine', 'bar', 'store', 'gift', 'restroom', 'hrest'];
+const RACK_R = 3, RACK_GRACE = 5, RACK_SHARE = 0.75; // a placed rack's reach (30 m); a new resort's first days go easy
+const rackCap = (B) => { const s = bspec(B); return B.type === 'rack' ? s.racks : RACK_TYPES.includes(B.type) ? Math.round(((s.seats || 0) + (s.stalls || 0)) * RACK_SHARE) : 0; };
+const needsRack = (g, B) => RACK_TYPES.includes(B.type) && g.rack == null && !g.sight && !g.local && !g.needsRental;
+const rackGrace = () => state.season <= 1 && ((state.seasonStats && state.seasonStats.days) || 0) < RACK_GRACE;
+// Pairs on each rack, keyed by rack id (a building's own rack has the building's id; skis in the snow by a
+// door are keyed by minus its id). Recounted from the guests every game minute, so nothing can drift.
+function rackCount() {
+  const m = Math.floor(state.time);
+  if (m === rackMin) return rackUse;
+  rackMin = m; rackUse = new Map(); rackVer++;
+  for (const g of guests) if (g.rack != null && !g.gone) rackUse.set(g.rack, (rackUse.get(g.rack) || 0) + 1);
+  return rackUse;
+}
+const rackRoom = (R) => rackCap(R) - (rackCount().get(R.id) || 0) * AGENT;
+function pickRack(B) {
+  if (rackRoom(B) > 0) return B; // the rack by the door comes first
+  let best = null, bd = RACK_R;
+  for (const R of world.buildings) {
+    if (R.type !== 'rack' || rackRoom(R) <= 0) continue;
+    const d = distXZ(R, B.door);
+    if (d < bd) { bd = d; best = R; }
+  }
+  return best;
+}
+// On arrival: leave the skis (on a rack, or in the snow), then walk to the door. True while still on the way.
+function rackStop(g, B, t) {
+  if (!needsRack(g, B)) return false;
+  let R = t.rid != null ? bldById(t.rid) : null;
+  if (!R || rackRoom(R) <= 0) R = pickRack(B); // it filled up on the way: the next free one
+  const at = R ? R.rackP : B.door;
+  if (distXZ(g, at) > 0.4) { setMove(g, at, g.onSkis ? 'glide' : 'walk', R ? { k: 'bld', bid: B.id, rid: R.id } : { k: 'bld', bid: B.id }); return true; }
+  dropSkis(g, B, R);
+  if (distXZ(g, B.door) > 0.4) { setMove(g, B.door, 'walk', { k: 'bld', bid: B.id }); return true; }
+  return false;
+}
+// The day's skis in the snow, busiest doors first (none during a new resort's first easy days).
+function rackReport() {
+  const at = Object.entries(today.rackAt || {}).map(([id, n]) => ({ id: +id, name: (bldById(+id) || {}).name || 'a building', n })).sort((a, b) => b.n - a.n);
+  const n = at.reduce((a, x) => a + x.n, 0);
+  return n ? { n, at: at.slice(0, 3), easy: !!today.rackEasy } : null;
+}
+function dropSkis(g, B, R) {
+  g.onSkis = false; g.rack = R ? R.id : -B.id;
+  rackCount().set(g.rack, (rackUse.get(g.rack) || 0) + 1); rackVer++;
+  if (R) return;
+  const at = today.rackAt || (today.rackAt = {});
+  at[B.id] = (at[B.id] || 0) + AGENT;
+  if (rackGrace()) { today.rackEasy = true; return; }
+  if (g.snowSkis) return; // it only stings the first time each day
+  g.snowSkis = true; g.sat = Math.max(0, g.sat - 3); today.complaints.rack = (today.complaints.rack || 0) + 1;
+  if (Math.random() < 0.5) thought(g, `No room on the ski racks at ${B.name}, so my skis are in a snowbank.`);
+}
+// On the way out: walk back for the skis first. False once they're back on (or the rack is gone).
+function fetchSkis(g) {
+  const R = bldById(Math.abs(g.rack)), p = R && (g.rack < 0 ? R.door : R.rackP);
+  if (p && distXZ(g, p) > 0.4) { setMove(g, p, 'walk', { k: 'skis' }); return true; }
+  if (g.rack < 0 && !rackGrace() && Math.random() < 0.04) { g.sat = Math.max(0, g.sat - 5); thought(g, 'Someone took my skis from the snowbank by mistake. It took ages to swap them back.'); }
+  skisBack(g);
+  return false;
+}
+function skisBack(g) {
+  const n = rackCount().get(g.rack) || 0;
+  if (n > 1) rackUse.set(g.rack, n - 1); else rackUse.delete(g.rack);
+  g.rack = undefined; rackVer++;
+  g.onSkis = !hubAt(g); // inside a guest area, skiers carry their skis
 }
 function bldQueueSlot(B, pool, k) {
   const a = B.rot * Math.PI / 2, fx = Math.sin(a), fz = Math.cos(a), sx = Math.cos(a), sz = -Math.sin(a);
@@ -13796,6 +13952,7 @@ function leaveBuilding(g, B) {
   resumeGuest(g);
 }
 function resumeGuest(g) {
+  if (g.rack != null && fetchSkis(g)) return;
   const r = g.resume;
   g.resume = null;
   if (!r) return baseDecision(g);
@@ -14399,6 +14556,7 @@ function capOf(type, s) {
     case 'firepit': return `${s.seats} seats around the fire · free`;
     case 'tree': return 'Just for looks';
     case 'bench': case 'picnic': return `${s.seats} seats · a free rest`;
+    case 'rack': return `Holds ${s.racks} pairs of skis for guests visiting buildings close by`;
     case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
     case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
@@ -14497,7 +14655,7 @@ function bldDraftSheet() {
       ${themeSeg(tab[2].some(themed))}
       <div class="btabs" role="tablist">${BGROUPS.map(([k, label]) => `<button role="tab" data-action="bTab" data-v="${k}" aria-selected="${k === tab[0]}">${label}</button>`).join('')}</div>
       ${BGROUPS.map((g) => `<div class="bpick rows" data-tab="${g[0]}" ${g === tab ? '' : 'hidden'}>${cards(g)}</div>`).join('')}
-      <p class="help">${tab[0] === 'decor' ? 'Trees plant with each tap. Benches and picnic tables let you adjust their position and angle before confirming.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
+      <p class="help">${tab[0] === 'decor' ? 'Trees plant with each tap. Benches, picnic tables and ski racks let you adjust their position and angle before confirming.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name;
@@ -14635,6 +14793,11 @@ function buyOffsite() {
   toast(`${next.label}: ${next.spaces} off-site spaces · −${money(next.cost)}${hasStation() ? '' : '. Build a shuttle station so guests can ride from it.'}`, !hasStation());
   renderSheet(); scheduleSave();
 }
+function rackLive(B) {
+  if (!RACK_TYPES.includes(B.type)) return '';
+  const snow = (today && today.rackAt && today.rackAt[B.id]) || 0;
+  return `<br><b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${rackCap(B)} pairs on its ski rack${snow ? ` · <b>${snow}</b> left in the snow today` : ''}`;
+}
 function bldLive(B) {
   const s = bspec(B);
   switch (B.type) {
@@ -14657,6 +14820,7 @@ function bldLive(B) {
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
     case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting in their rooms`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
+    case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
     default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle`;
   }
@@ -14698,7 +14862,8 @@ function bldSheet(B) {
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${t.tiers ? s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
-    ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}</p>` : ''}
+    ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
+    ${RACK_TYPES.includes(B.type) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
     <dl class="kv">
       <div><dt>${visitsLabel}</dt><dd>${visits}</dd></div>
       ${B.type === 'clinic' ? '' : B.type === 'patrol'
@@ -15405,6 +15570,7 @@ function advice() {
     if ((c.noRental || 0) > 0 && !world.buildings.some((B) => RENTS.includes(B.type))) add(false, `${c.noRental} guests wanted to rent skis. A rental shop at the base pays for itself.`, 'Build a rental shop', () => pickBuilding('rental'));
     if ((c.food || 0) > 20) hungerAdvice(r, add);
     parkAdvice(r, add);
+    if (r.racks && !r.racks.easy && r.racks.n >= 15) add(false, `${r.racks.n} guests found the ski racks full and left their skis in the snow, mostly at ${esc(r.racks.at[0].name)}. Put a ski rack or two close to its door.`, 'Build a ski rack', () => pickBuilding('rack'));
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
   if (!state.summer && lotCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
@@ -16549,6 +16715,7 @@ function adviceFor(r) {
     [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
     [(c.boring || 0) * 10, `${c.boring} strong skiers found too little challenging terrain. A steeper trail would bring them back.`],
     [(c.rr || 0) * 5, `${c.rr} guests couldn’t find a restroom in time. Restrooms are cheap and keep guests happy.`],
+    [(c.rack || 0) * 3, r.racks ? `${c.rack} guests found the ski racks full and left their skis in the snow, mostly at ${r.racks.at[0].name}. A ski rack (Build › Decor) holds 12 pairs for ${money(BTYPES.rack.cost)}.` : ''],
     [(r.rev.refunds || 0), `${money(r.rev.refunds || 0)} in tickets was refunded to guests who never got on a lift. More lift capacity from the base would help.`],
     ...opsTips(r),
     [r.bases ? r.bases.stranded * 60 + (!r.bases.gondola && !r.bases.shuttle && r.bases.lots[1] && r.bases.lots[0] ? 600 : 0) : 0, r.bases && r.bases.stranded
@@ -16679,6 +16846,7 @@ function showReport(r = state.lastReport, past = false) {
   if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
   if (c.price) note(2, `${c.price} guests decided a price was too high.`);
   if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
+  if (r.racks) note(r.racks.easy ? 1 : 2, r.racks.easy ? `${r.racks.n} guests found the ski racks full and stuck their skis in the snow. Guests go easy on a new resort for its first few days; after that, it bothers them.` : `${c.rack} guests found the ski racks full and left their skis in the snow: ${r.racks.at.map((x) => `${esc(x.name)} ${x.n}`).join(', ')}. Put ski racks close to those doors.`);
   if (c.noRental) note(3, `${c.noRental} guests needed rental gear and had to rent in town.`);
   if (c.rentOut) note(3, `The rental shop ran out of skis for ${c.rentOut} guests.`);
   if (c.noSchool) note(2, `${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
@@ -19221,6 +19389,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.75', date: 'Nov 1, 2026', title: 'Ski racks', items: ['Skiers now take their skis off before going in to eat, shop or use the restroom. They leave them on a ski rack by the door and walk around in their boots, then pick them up on the way out. Watch the racks fill up with skis at lunch.', 'Every lodge, café, restaurant, bar, shop and restroom has its own rack, with room for about three quarters of its seats.', 'New in Build › Decor: a ski rack ($800) with room for 12 pairs. Guests use any rack close to the door when the building’s own rack is full.', 'When every rack is full, skiers stick their skis in a snowbank, and they don’t like it. The day report shows where it happened. A new resort gets its first few days free of this.'] },
   { v: '2.74', date: 'Nov 1, 2026', title: 'Spring skiing into May, and a tidier What’s new', items: ['Spring bonus days can now run into May. Keep opening while the average trail base stays at 18 inches or more, as late as May 31.', 'May is warmer and quieter: fewer people come, and snowmaking stops after April 30, so May runs on the snow that’s left.', 'What’s new is tidier: updates are grouped by day for the last week and by week before that, with the newest open. Tap an update’s title to read it. Small fixes are folded into one line in each group.'] },
   { v: '2.73', date: 'Nov 1, 2026', title: 'No more lost trails, and a gondola fix', items: [
     'If you draw a trail or a lift and then close the card or pick another tool before building it, the game now asks first: build it, throw it away, or keep editing. Before, the drawing just disappeared.',
