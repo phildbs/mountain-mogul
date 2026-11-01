@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.73.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 689eec7; 129-unbuilt-draft, 127-lone-pine and 19 related scenarios passed locally).
+**Live: 2.75.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 85d321e; 132-ski-racks, 32-old-saves and 29 related scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.75: ski racks. Skiers rack skis before going indoors and walk in boots; Decor › Ski rack (12 pairs). See Claude's Nov 1 note.
 - Site card: `og-image.jpg` is now Frost Run at night (lit trails, fireworks), from Phil's promo trailers. The meta tags
   load it as `og-image.jpg?v=2` so sites refresh cached previews; bump the number when the image changes. No game change,
   no version. (Claude, Nov 1)
@@ -118,7 +119,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** 2.75 ski racks on `ccr-e055dcda-83l2bz` (Claude), awaiting Phil's preview and Publish. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
@@ -139,7 +140,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-e055dcda-83l2bz` | Claude | 2.75 ski racks: skiers rack skis before going indoors; Decor › Ski rack. See Claude's Nov 1 note. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -307,7 +307,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-01 · Claude · Ski racks (2.75, awaiting Publish)
+### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
 - **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and
   guests complain. Built as its own release before any other decor.
 - **Rules:** `RACK_TYPES` (lodge, café, restaurant, fine, bar, store, gift, both restrooms) have a built-in rack for
