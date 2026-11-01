@@ -117,7 +117,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`): one long ridge from an expert summit down to a beginner summit (`RB`), green along the crest (goal Ridge run). Town off the south edge (S3 dropped); road splits at a crossroads: main lot (grows west: `lotWest`) and East lot. Title: orange New 3D mountains button (`NEW_MTN.ids`, hides once both tried); list puts `is3d` first, tags 3D / Legacy; pictures are game snapshots `img/<id>.jpg` (`M.photo`, `paintThumbs`). Lone Pine's big card and `lone-pine-hill.jpg` removed. Preview only until Phil says Publish. | Nov 1, 2026 |
+| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`): one long ridge from an expert summit down to a beginner summit (`RB`), green along the crest (goal Ridge run). Town off the south edge (S3 dropped); road splits at a crossroads: main lot (grows west: `lotWest`) and East lot. Title: orange New 3D mountains button (`NEW_MTN.ids`, hides once both tried); list puts `is3d` first, tags 3D / Classic; pictures are game snapshots `img/<id>.jpg` (`M.photo`, `paintThumbs`). Lone Pine's big card and `lone-pine-hill.jpg` removed. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

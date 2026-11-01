@@ -4,12 +4,12 @@
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
-  // the title screen points to the new 3D mountains; the list puts them first, tagged 3D, the rest Legacy
+  // the title screen points to the new 3D mountains; the list puts them first, tagged 3D, the rest Classic
   eq(await g.ev(`[!$('newMtn').hidden, $('newMtn').innerText.replace(/\\s+/g, ' ').trim()]`), [true, 'NEW 3D mountains ›'], 'an orange New 3D mountains button');
   await g.click('#newMtn'); await g.wait(300);
   const list = await g.ev(`[...document.querySelectorAll('#titleSlots .scard.pick h2')].map((h) => h.innerText.replace(/\\s+/g, ' ').trim())`);
   eq(list.slice(0, 2), ['LONE PINE HILL3D', 'RIDGEBACK3D'], 'the 3D mountains first');
-  assert(list.slice(2, 6).every((t) => /LEGACY$/.test(t)), `the others tagged Legacy: ${list}`);
+  assert(list.slice(2, 6).every((t) => /CLASSIC$/.test(t)), `the others tagged Classic: ${list}`);
   await g.wait(1500);
   eq(await g.ev(`(() => { const cv = document.querySelector('#titleSlots canvas[data-mt=lonepine]'), px = cv.getContext('2d').getImageData(360, 300, 1, 1).data; return [photoCache.has('img/lonepine.jpg') && photoCache.get('img/lonepine.jpg').naturalWidth, px[3] > 0]; })()`), [720, true], 'its card shows the snapshot from the game');
   await g.click('[data-slot=pick][data-mt=lonepine]'); await g.reloaded();
