@@ -4,14 +4,15 @@
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
-  // featured on the title screen: a large card with a thank-you, and a way straight in
-  const f = await g.ev(`({ shown: !$('featMtn').hidden, pill: !$('newMtn').hidden, text: $('featMtn').innerText, painted: !!$('featMtn').querySelector('img[src="lone-pine-hill.jpg"]') })`);
-  assert(f.shown && !f.pill && f.painted, 'a large feature card, with its picture, instead of the small new-mountain pill');
-  assert(/Lone Pine Hill/i.test(f.text) && /first 3D mountain/i.test(f.text) && /Thank you/.test(f.text), `the card names it and thanks players: ${f.text}`);
-  await g.click('[data-slot=new]'); await g.wait(100);
-  assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)) && await g.ev(`$('featMtn').hidden`), 'picker lists Lone Pine Hill, and the feature card steps aside');
-  await g.click('[data-slot=pickNo]'); await g.wait(100);
-  await g.click('#featMtn [data-feat=pick]'); await g.reloaded();
+  // the title screen points to the new 3D mountains; the list puts them first, tagged 3D, the rest Legacy
+  eq(await g.ev(`[!$('newMtn').hidden, $('newMtn').innerText.replace(/\\s+/g, ' ').trim()]`), [true, 'NEW 3D mountains ›'], 'an orange New 3D mountains button');
+  await g.click('#newMtn'); await g.wait(300);
+  const list = await g.ev(`[...document.querySelectorAll('#titleSlots .scard.pick h2')].map((h) => h.innerText.replace(/\\s+/g, ' ').trim())`);
+  eq(list.slice(0, 2), ['LONE PINE HILL3D', 'RIDGEBACK3D'], 'the 3D mountains first');
+  assert(list.slice(2, 6).every((t) => /LEGACY$/.test(t)), `the others tagged Legacy: ${list}`);
+  await g.wait(1500);
+  eq(await g.ev(`(() => { const cv = document.querySelector('#titleSlots canvas[data-mt=lonepine]'), px = cv.getContext('2d').getImageData(360, 300, 1, 1).data; return [photoCache.has('img/lonepine.jpg') && photoCache.get('img/lonepine.jpg').naturalWidth, px[3] > 0]; })()`), [720, true], 'its card shows the snapshot from the game');
+  await g.click('[data-slot=pick][data-mt=lonepine]'); await g.reloaded();
   const m = await g.ev(`({ id: MOUNTAIN.id, cash: state.cash, vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH), goals: goalList().map((G) => G.id),
     lots: lotCount(), names: [lotName(0), lotName(1)], town: !!townMesh, w2: PARCELS.some((p) => p.id === 'W2'), parcels: PARCELS.length,
     summitZ: PLAY1 - LONE_S[1] * PN - HALF, main: lotSite(0), north: lotSite(1), branch: branchPath().length,
@@ -66,9 +67,11 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`goalList().find((G) => G.id === 'bothSides').prog()`), 'Now one up the shady north side, round the back of the hill.', 'the next goal points round the back');
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
   assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Lone Pine Hill');
-  eq(await g.ev(`[$('featMtn').hidden, $('newMtn').hidden]`), [true, true], 'the feature card leaves the title screen once you have a Lone Pine resort');
+  eq(await g.ev(`$('newMtn').hidden`), false, 'the button stays while there is a new 3D mountain left to try');
+  await g.ev(`localStorage.setItem('mm.seen.ridgeback', '1'); renderSlots()`);
+  eq(await g.ev(`$('newMtn').hidden`), true, 'and goes once you have tried both');
   await g.ev(`slots.list = slots.list.filter((s) => s.mountain !== 'lonepine'); CLOUD.own = []; renderSlots()`);
-  eq(await g.ev(`$('featMtn').hidden`), true, 'and stays gone after that resort is deleted');
+  eq(await g.ev(`$('newMtn').hidden`), true, 'and stays gone after that resort is deleted');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

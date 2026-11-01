@@ -11,7 +11,7 @@ export default async function ({ browser, url }) {
   // Juniper from the picker
   await g.ev(`showTitle()`); await g.wait(300);
   await g.click('[data-slot=new]'); await g.wait(200);
-  eq(await g.ev(`[...document.querySelectorAll('#titleSlots .pick h2')].map((h) => h.textContent).slice(0, 3)`), ['Maple Notch', 'Juniper Ridge', 'Raven Peak'], 'the picker lists Maple first, then Juniper');
+  eq(await g.ev(`[...document.querySelectorAll('#titleSlots .pick h2')].map((h) => h.firstChild.textContent).slice(0, 5)`), ['Lone Pine Hill', 'Ridgeback', 'Maple Notch', 'Juniper Ridge', 'Raven Peak'], 'the picker lists the 3D mountains first, then Maple, then Juniper');
   await g.page.close();
 
   // an existing player on Juniper keeps it after a reload

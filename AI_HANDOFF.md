@@ -117,7 +117,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`, working name): one long ridge from an expert summit (NE, bare) down to a beginner summit (W), heights from the nearest point on the crest (`RB`), so the crest is a green all along (goal Ridge run). Town off the south edge (S3 parcel dropped); one road in, splitting at a crossroads in the valley: main lot west, East lot (`branch`, side 'south'). Scenario 128. Preview only until Phil says Publish. | Nov 1, 2026 |
+| `ccr-d5f0faef-j5qzg1` | Claude | 2.72 Ridgeback (`ridgeback`): one long ridge from an expert summit down to a beginner summit (`RB`), green along the crest (goal Ridge run). Town off the south edge (S3 dropped); road splits at a crossroads: main lot (grows west: `lotWest`) and East lot. Title: orange New 3D mountains button (`NEW_MTN.ids`, hides once both tried); list puts `is3d` first, tags 3D / Legacy; pictures are game snapshots `img/<id>.jpg` (`M.photo`, `paintThumbs`). Lone Pine's big card and `lone-pine-hill.jpg` removed. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -126,7 +126,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
   cliffs. Existing custom mountains still play.
 - Twin Notch has mostly been played in automated runs; watch feedback for balance and pathing.
 - `index.html` is one large file. Search by function name rather than line numbers; they move.
-- The title-screen new-mountain feature (`NEW_MTN`, Lone Pine Hill's large card) switches itself off on Jan 31, 2027.
+- The title-screen New 3D mountains button (`NEW_MTN`) switches itself off on Feb 28, 2027.
 - Stray screenshots from Oct 18 are committed in the repo root (`mb-*.png`, `mbp-*.png`, `tc-*.png`) and
   are served publicly. Probably safe to delete; ask the owner first.
 - Two scenarios share number 84 (`84-lunch-lots`, `84-movable-trails`). Use the next free number for new tests.
