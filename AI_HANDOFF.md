@@ -54,9 +54,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.72.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 3c1562e; 128-ridgeback, 127-lone-pine, parking, two-base, title, photos and old-save scenarios passed locally).
+**Live: 2.73.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 689eec7; 129-unbuilt-draft, 127-lone-pine and 19 related scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.73: leaving a drawn, unbuilt trail or lift (card X/Done, toolbar, keys 1–5, Escape, list items) asks first: Build /
+  Throw it away / Keep editing (`unbuiltDraft`, `leaveDraft`, shown in the `#crisis` modal; scenario 129). Village gondolas
+  over a hump (ground more than 2 units above the station line) follow the ground in `liftLayout` instead of running level
+  on giant towers; layouts are rebuilt on load, so existing ones fix themselves.
 - 2.72: Ridgeback (`ridgeback`): one long ridge from an expert summit (NE, bare above the trees) down to a beginner
   summit (W); heights come from the nearest point on the crest (`RB`), so the crest is a green all along (goal Ridge run).
   Town off the south edge (S3 not sold); one road splits at a crossroads: main lot growing west (`lotWest`, entered from
@@ -123,7 +127,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | 2.73: leaving a drawn, unbuilt trail or lift (card X/Done, toolbar, keys 1–5, Escape, list items) asks first: Build / Throw it away / Keep editing (`unbuiltDraft`, `leaveDraft`, in the `#crisis` modal). Scenario 129. Also: village gondolas over a hump (more than 2 units above the station line) follow the ground in `liftLayout` instead of running level on giant towers (Phil spotted it on a Lone Pine resort). Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
