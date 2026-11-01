@@ -2153,6 +2153,64 @@ MOUNTAINS.lonepine = (() => {
     },
   };
 })();
+// Ridgeback: two peaks joined by a ridge. A gentle, wooded beginner peak to the west and a tall expert peak to the
+// northeast, bald and rocky on top, with a low saddle between. Two roads from the town off the west side: one to a
+// family base under the beginner peak, one round to a base under the expert peak's north face.
+const RB = { b: [0.27, 0.58], e: [0.7, 0.64], hb: 13, he: 30, dip: 6 }; // the two summits, their heights, and how deep the saddle
+// The smoother of two heights: like the higher one, but with a rounded crease where they meet.
+const smax = (a, b, k = 1.2) => Math.max(a, b) + k * Math.log(1 + Math.exp(-Math.abs(a - b) / k));
+MOUNTAINS.ridgeback = (() => {
+  const fork = [-0.06, 0.5]; // in town, where the road splits
+  return {
+    id: 'ridgeback',
+    name: 'Ridgeback',
+    level: 'Intermediate', dot: 'var(--blue)',
+    blurb: 'Two peaks joined by a ridge: a gentle, wooded beginner peak above the family base, and a tall, bald expert peak with a rocky bowl. Ski the ridge from one to the other.',
+    cash: 2600000,
+    weather: { storm: 1.05, wind: 1.6, warm: 0.95 }, // the ridge catches the wind
+    skiers: [0.3, 0.34, 0.23, 0.13],
+    draw: 1, costs: 1.05,
+    seed: 7307,
+    baseFt: 2240,
+    treeline: 12, // woods on the lower slopes; open snow on top of the beginner peak, bare rock and snow up the expert one
+    town: [-0.12, 0.5], townParcel: 'W2',
+    road: catmull([[-0.27, 0.52], [-0.17, 0.505], fork, [0.0, 0.38], [0.07, 0.24], [0.17, 0.165], [0.3, 0.15]], 8), // out of town to the family base, under the beginner peak
+    branch: catmull([fork, [-0.01, 0.66], [0.05, 0.82], [0.18, 0.905], [0.4, 0.915]], 8), // the other way, round to the expert base, north
+    lots: [[0.4, 0.915, 'North lot', 'north', 'branch']],
+    creek: catmull([[0.62, 0.3], [0.74, 0.2], [0.86, 0.1], [1.0, 0.02], [1.3, -0.2]], 10),
+    height(u, v) {
+      const s = this.seed, U = 160;
+      let h = 2 + 0.5 * fbm(u * 3, v * 3, s + 1, 3);
+      // How far out from a summit, as a share of its reach R; a peak can reach further along one direction (a spur),
+      // and less far to the north.
+      const out = (c, R, dir, far, north = 1) => { const x = u - c[0], y = (v - c[1]) / (v > c[1] ? north : 1), al = x * dir[0] + y * dir[1], ac = -x * dir[1] + y * dir[0]; return Math.hypot(al / (al > 0 ? R * far : R), ac / R); };
+      const shape = (r, H, p, k) => { const t = clamp(r, 0, 1), e = (Math.hypot(t, k) - k) / (Math.hypot(1, k) - k); return H * Math.pow(1 - e, p); };
+      const dx = RB.b[0] - RB.e[0], dy = RB.b[1] - RB.e[1], L = Math.hypot(dx, dy), toB = [dx / L, dy / L];
+      // The beginner peak: rounded, between the two roads, with a long, gentle south face down to the family base.
+      const B = shape(out(RB.b, 0.32, [0, -1], 1.5), RB.hb, 1.1, 0.16);
+      // The expert peak: tall and steep near the top, with a long spur running down toward the beginner peak: the ridge.
+      const E = shape(out(RB.e, 0.46, toB, 1.2, 0.7), RB.he, 1.6, 0.14); // a short, steep north face over the expert base
+      // A sharper crest along the ridge, so it reads as a ridge and not just a slope.
+      const t = clamp(((u - RB.e[0]) * toB[0] + (v - RB.e[1]) * toB[1]) / L, 0, 1), d = Math.hypot(u - RB.e[0] - toB[0] * L * t, v - RB.e[1] - toB[1] * L * t) * U;
+      const crest = 2.2 * Math.exp(-((d / 6) ** 2)) * sstep(0.05, 0.25, t) * (1 - sstep(0.4, 0.55, t));
+      // The saddle, a low notch in the ridge a little nearer the beginner peak, so each peak stands on its own.
+      const sd = Math.hypot(u - lerp(RB.e[0], RB.b[0], 0.62), v - lerp(RB.e[1], RB.b[1], 0.62));
+      h += Math.max(0, smax(B, E + crest) - RB.dip * Math.exp(-((sd / 0.075) ** 2)));
+      // Folds for trail lines: gentle on the beginner peak, rougher on the expert one.
+      const rough = sstep(4, 14, h) * (0.4 + 0.9 * sstep(14, 26, h)) * (1 - sstep(RB.he - 3, RB.he + 0.5, h - 2)); // none on the summit, where the lifts top out
+      h += rough * (1.1 * fbm(u * 6, v * 6, s + 5, 4) + 0.9 * ridged(u * 8, v * 8, s + 9, 3) - 0.5);
+      // The expert bowl, scooped into the north-west face under a rocky headwall, and a cliff band on the east face.
+      const bw = Math.hypot(u - (RB.e[0] - 0.1), v - (RB.e[1] + 0.07));
+      h -= 6 * Math.exp(-((bw / 0.085) ** 2));
+      const ea = Math.hypot(u - (RB.e[0] + 0.12), v - (RB.e[1] - 0.04));
+      h += 3 * (1 - sstep(0.05, 0.13, ea)) * sstep(0.02, 0.06, u - RB.e[0]) * sstep(-0.01, 0.01, Math.sin(v * 60) * 0.02 + (Math.hypot(u - RB.e[0], v - RB.e[1]) - 0.12));
+      // Low, wooded hills beyond the property line, leaving flat ground round town.
+      const side = Math.max(0, -u, u - 1, -v, v - 1), tn = Math.hypot(u - this.town[0], v - this.town[1]);
+      h += 9 * sstep(0.06, 0.22, side) * (0.6 + 0.8 * fbm(u * 4, v * 4, s + 13, 3)) * sstep(0.08, 0.2, tn);
+      return h;
+    },
+  };
+})();
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
    already carries a mountain id (saves, slots, the online summary, visits, reloads) carries the recipe too. */
@@ -3624,6 +3682,7 @@ const TRAIL_PLACE = {
 };
 // Each mountain's own flavour, by rating.
 const TRAIL_LOCAL = {
+  ridgeback: [['Bunny Hill', 'Sunny Slope', 'Family Way', 'Village Green', 'Lollygag'], ['Saddle Run', 'Spine', 'Ridgeline', 'Backbone', 'Crossover'], ['Hackles', 'Headwall', 'The Bowl', 'Razorback'], ['Ridgeback Chute', 'Rock Garden', 'Cliffhanger']],
   lonepine: [['Pine Needle', 'Sunny Side', 'Town Line', 'Lazy Loop', 'Pinecone'], ['Lone Pine', 'Main Street', 'Water Tower', 'Steeple', 'Sap Run'], ['North Face', 'Shady Side', 'Headwall', 'The Bowl'], ['Rock Band', 'Lone Wolf']],
   twin: [['Easy Twin', 'Notch Road', 'Long Shoulder', 'Valley View', 'Lazy Loop'], ['Gemini', 'Saddle Run', 'Double Take', 'Notch Line', 'Sister Ridge'], ['West Wall', 'Twin Chutes', 'Headwall', 'Split Decision'], ['Notch Top Chute', 'The Gap']],
   juniper: [['Chickadee', 'Sagebrush', 'Wren', 'Juniper Way', 'Meadow Mouse'], ['Blue Jay', 'Juniper Berry', 'Piñon', 'Mesa', 'Cedar Glade'], ['Coyote', 'Hawk’s Claw', 'Juniper Ridge', 'Dust Devil'], ['Thunderhead', 'Rattlesnake Ridge', 'Badlands']],
@@ -3635,7 +3694,7 @@ const LIFT_PLACE = {
   mid: ['Ridge', 'Shoulder', 'Basin', 'Bowl', 'Saddle', 'Lookout', 'Timber', 'Outback', 'Backside', 'Hidden Valley', 'Cirque', 'Glacier'],
   top: ['Summit', 'Skyline', 'Peak', 'Pinnacle', 'Highland', 'Eagle', 'Cloud Nine', 'Top Notch', 'Sky', 'Alpine'],
 };
-const LIFT_LOCAL = { lonepine: ['Lone Pine', 'Pinecone', 'Town Line', 'Sunny Side'], twin: ['Twin', 'Notch', 'Saddle', 'Gemini'], juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
+const LIFT_LOCAL = { ridgeback: ['Ridgeback', 'Saddle', 'Spine', 'Hackles'], lonepine: ['Lone Pine', 'Pinecone', 'Town Line', 'Sunny Side'], twin: ['Twin', 'Notch', 'Saddle', 'Gemini'], juniper: ['Juniper', 'Sagebrush', 'Mesa', 'Piñon'], maple: ['Maple', 'Sugarbush', 'Covered Bridge', 'Granite'], raven: ['Raven', 'Corvid', 'Nightfall', 'Blackwing'] };
 const CARPET_NAMES = ['Magic Carpet', 'Bunny Belt', 'Learning Lane', 'Snowflake Carpet', 'Little Lift', 'Cub Conveyor', 'Easy Rider', 'Wonder Carpet'];
 const pickFree = (list, used) => { const free = list.filter((n) => !used.has(n)); return free.length ? free[Math.floor(Math.random() * free.length)] : null; };
 const heightFrac = (p) => clamp((trueY(p.x, p.z) - MOUNTAIN.baseH) / Math.max(1, MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -15542,6 +15601,17 @@ GOALS.twin = [
   { id: 'crowd500', title: 'Busy valley', how: 'Welcome 500 guests in one day.', day: (r) => r.guests >= 500, prog: () => `Best so far: ${bestGuests()} of 500 guests.` },
   { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
 ];
+// Ridgeback: a lift tops out near each summit (within about 100 m), the beginner peak and the expert peak.
+const nearSummit = (p, c) => Math.hypot(p.x - (PLAY0 + c[0] * PN - HALF), p.z - (PLAY1 - c[1] * PN - HALF)) < 10;
+GOALS.ridgeback = [
+  { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
+  { id: 'bothPeaks', title: 'Two peaks', how: 'Run lifts to the top of both peaks on the same day.', day: () => [RB.b, RB.e].every((c) => world.lifts.some((L) => L.open && nearSummit(L.b, c))),
+    prog: () => { const has = [RB.b, RB.e].map((c) => world.lifts.some((L) => nearSummit(L.b, c))); return has[0] && has[1] ? 'Open both on the same day.' : has[0] ? 'Now one to the top of the expert peak.' : has[1] ? 'Now one to the top of the beginner peak.' : 'Build a lift to the top of each peak.'; } },
+  { id: 'overRidge', title: 'Over the ridge', how: 'Have guests park at both lots on the same day.', day: (r) => !!(r.bases && r.bases.lots.every((n) => n > 0)),
+    prog: () => (!lotSize(1) ? `Build the ${lotName(1)} under the expert peak first.` : 'Give guests something to ride from the North lot.') },
+  { id: 'experts', title: 'Black diamond ridge', how: 'Have three black diamond trails open on the same day.', day: () => openSigns().filter((g) => g >= 2).length >= 3, prog: () => `Black diamonds open now: ${openSigns().filter((g) => g >= 2).length} of 3.` },
+  { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
+];
 // Custom mountains share one set of goals.
 GOALS.custom = [
   { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
@@ -19137,6 +19207,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.72', date: 'Nov 1, 2026', title: 'Ridgeback', items: [
+    'A new mountain, Ridgeback: two peaks joined by a ridge. A gentle beginner peak rises between the roads, and a tall expert peak, bare rock and snow on top, has a bowl and a cliff band.',
+    'The same little town sends a road to each side: the main lot under the beginner peak, and a North lot under the expert peak’s steep north face.',
+    'Five goals of its own, including Two peaks (a lift to the top of each) and Over the ridge (guests parked at both lots on the same day).',
+  ] },
   { v: '2.71.1', date: 'Nov 1, 2026', title: 'Lone Pine Hill card steps aside', small: true, items: [
     'Once you’ve started a resort on Lone Pine Hill, its big card leaves your title screen, so your own mountains come first.',
   ] },
