@@ -57,6 +57,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.77.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on de3cbc2; related scenarios and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.77.2: online saves carry `music` (on now) and `musicEver` in the summary; stats.html shows Music on and Tried music tiles (per player, latest save, 7 days with 30-day fallback). `admin_stats` updated on live. Phil's request. (Claude, Nov 1)
 - 2.77.1: guests spread across all parking lots (weighted by lift fit × free spaces) instead of filling the main lot first. Player request. (Claude, Nov 1)
 - 2.77: lift mid-stations, one per chairlift or gondola: get off or on partway up. See Claude's Nov 1 note.
 - 2.76.2: learning areas follow the snow (faded/brown when thin, hidden in summer) instead of always drawing white. Player report.
@@ -146,7 +147,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-b0ff8d99-6j07ye` | Claude | 2.77.2: music on/off and "ever turned on" sent with online saves; two tiles on stats.html (needs `supabase/stats.sql` re-run on live). | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
