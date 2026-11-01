@@ -18124,6 +18124,8 @@ const MUSIC = [
   { file: 'music/snowy-save-point.mp3', title: 'Snowy Save Point' },
   { file: 'music/powder-day.mp3', title: 'Powder Day' },
   { file: 'music/fresh-tracks.mp3', title: 'Fresh Tracks' },
+  { file: 'music/cold-snap.mp3', title: 'Cold Snap' },
+  { file: 'music/last-run.mp3', title: 'Last Run' },
 ];
 const music = { on: false, vol: 0.5, el: null, gain: null, order: [], i: 0, fails: 0, fadeT: 0, held: false }; // held: paused by hand
 try { const m = JSON.parse(localStorage.getItem('mm.music') || 'null'); if (m) { music.on = m.on === true; if (m.vol >= 0 && m.vol <= 1) music.vol = +m.vol; } } catch (e) { /* storage blocked or broken */ }
@@ -18152,12 +18154,13 @@ function musicEl() {
   a.onerror = () => { if (++music.fails >= MUSIC.length) { setMusic(false); toast('Music couldn’t load. Try again later.', true); } else musicNext(); };
   return a;
 }
-function musicLevel(v) { if (music.gain) music.gain.gain.value = v; else if (music.el) music.el.volume = v; }
+function musicLevel(v) { v = Math.min(1, Math.max(0, v)); if (music.gain) music.gain.gain.value = v; else if (music.el) music.el.volume = v; }
 // Ease the volume to a level over ms, then call done.
 function musicFade(to, ms, done) {
   cancelAnimationFrame(music.fadeT);
   const from = music.gain ? music.gain.gain.value : music.el ? music.el.volume : 0, t0 = performance.now();
-  const step = (now) => { const k = Math.min(1, (now - t0) / ms); musicLevel(from + (to - from) * k); if (k < 1) music.fadeT = requestAnimationFrame(step); else if (done) done(); };
+  // A frame's time can be just before t0, so k is kept from going below 0.
+  const step = (now) => { const k = Math.min(1, Math.max(0, (now - t0) / ms)); musicLevel(from + (to - from) * k); if (k < 1) music.fadeT = requestAnimationFrame(step); else if (done) done(); };
   if (document.hidden) { musicLevel(to); if (done) done(); } else music.fadeT = requestAnimationFrame(step);
 }
 function musicPlay() {

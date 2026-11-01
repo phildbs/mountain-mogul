@@ -323,7 +323,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   without cover art (`ffmpeg -i in.mp3 -map 0:a -map_metadata -1 -b:a 128k music/<name>.mp3`), about 2.3 MB a song.
   Second: `first-chair.mp3` (First Chair, a slower take of the same tune, lowered 2.5 dB to match),
   `pixel-chalet.mp3` (−1.5 dB) and `snowy-save-point.mp3` (−2.8 dB), both 2:44;
-  `powder-day.mp3` (Phil's Pixel Powder, −2.2 dB) and `fresh-tracks.mp3` (Pixel Slopes, −1 dB), both upbeat, about 2:42. Match loudness with
+  `powder-day.mp3` (Phil's Pixel Powder, −2.2 dB) and `fresh-tracks.mp3` (Pixel Slopes, −1 dB), both upbeat, about 2:42;
+  `cold-snap.mp3` (Frostbite Peak, −3.7 dB, 2:54) and `last-run.mp3` (another Alpine Arcade take, −2 dB, 2:56). Eight songs,
+  about 21 minutes, Phil's full set for now. Match loudness with
   `-af volumedetect` (mean about −20 dB). Next song hides while there's only one. Scenario 133-music.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
