@@ -146,6 +146,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-b0ff8d99-6j07ye` | Claude | 2.77.2: music on/off and "ever turned on" sent with online saves; two tiles on stats.html (needs `supabase/stats.sql` re-run on live). | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

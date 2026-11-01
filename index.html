@@ -18385,10 +18385,10 @@ const MUSIC = [
   { file: 'music/last-run.mp3', title: 'Last Run' },
   { file: 'music/apres-jam.mp3', title: 'Après Jam' },
 ];
-const music = { on: false, vol: 0.5, el: null, gain: null, order: [], i: 0, fails: 0, fadeT: 0, held: false }; // held: paused by hand
-try { const m = JSON.parse(localStorage.getItem('mm.music') || 'null'); if (m) { music.on = m.on === true; if (m.vol >= 0 && m.vol <= 1) music.vol = +m.vol; } } catch (e) { /* storage blocked or broken */ }
+const music = { on: false, ever: false, vol: 0.5, el: null, gain: null, order: [], i: 0, fails: 0, fadeT: 0, held: false }; // held: paused by hand
+try { const m = JSON.parse(localStorage.getItem('mm.music') || 'null'); if (m) { music.on = m.on === true; music.ever = m.ever === true || music.on; if (m.vol >= 0 && m.vol <= 1) music.vol = +m.vol; } } catch (e) { /* storage blocked or broken */ }
 const MUSIC_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-function musicSave() { try { localStorage.setItem('mm.music', JSON.stringify({ on: music.on, vol: music.vol })); } catch (e) { /* still plays */ } }
+function musicSave() { try { localStorage.setItem('mm.music', JSON.stringify({ on: music.on, ever: music.ever, vol: music.vol })); } catch (e) { /* still plays */ } }
 // A fresh shuffle each session, so it doesn't always start with the same song.
 function musicShuffle() { music.order = MUSIC.map((_, k) => k); for (let k = music.order.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [music.order[k], music.order[j]] = [music.order[j], music.order[k]]; } music.i = 0; }
 function musicTrack() { return MUSIC[music.order[music.i]]; }
@@ -18445,7 +18445,7 @@ function musicNext() {
   if (music.on) musicPlay(); else musicSync();
 }
 function setMusic(on) {
-  music.on = !!on && MUSIC.length > 0; musicSave();
+  music.on = !!on && MUSIC.length > 0; if (music.on) music.ever = true; musicSave();
   if (music.on) musicPlay(); else musicPause(true);
   musicSync();
 }
@@ -18648,7 +18648,7 @@ async function cloudSave(manual, forReferral = false) {
     refreshResortPhoto();
     const save = saveData(false);
     save.savedAt = 0;
-    const summary = summaryDoc();
+    const summary = { ...summaryDoc(), music: music.on, musicEver: music.ever }; // music: for the owner's stats page
     const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
     if (json.length > 1500000) throw { code: 'too_big' };
     if (json !== CLOUD.sentJson) {
@@ -19766,6 +19766,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.77.2', date: 'Nov 1, 2026', title: 'Music counts', items: ['Your online save now notes whether you have music on, and whether you’ve ever turned it on, so we can see how many players enjoy the soundtrack. Nothing changes in how music plays.'] },
   { v: '2.77.1', date: 'Nov 1, 2026', title: 'Guests use every lot', small: true, items: ['Thanks for the feedback! With more than one parking lot, guests now spread across all of them from the morning, instead of filling the main lot first.', 'Guests still lean toward the lot whose lifts and runs suit them best, and emptier lots draw more cars, so your lots fill up together.'] },
   { v: '2.77', date: 'Nov 1, 2026', title: 'Lift mid-stations', items: ['Chairlifts and gondolas can now have a mid-station. Open a lift overnight and choose Add a mid-station, then tap along its line to place it.', 'Riders can get off at the mid-station to ski the lower runs, and guests can get on there to ride the upper half, in the seats nobody took at the bottom. Experts can lap the top without riding from the base every time.', 'Trails can start and end at a mid-station, just like at a lift’s ends. Paint a guest area around it for a mid-mountain lodge stop.', 'The lift’s panel shows how many got off and on at the mid-station today. It costs 30% of the lift’s base price, and its crew adds a quarter to the lift’s running cost.'] },
   { v: '2.76.2', date: 'Nov 1, 2026', title: 'Green learning areas in summer', small: true, items: ['Thanks for the report! Learning areas no longer stay white all summer. They melt with the rest of the mountain and come back when the snow does.', 'A learning area with thin snow now looks thin and patchy, just like a trail.'] },

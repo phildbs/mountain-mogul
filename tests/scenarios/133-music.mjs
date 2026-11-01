@@ -7,6 +7,10 @@ export default async function ({ browser, url }) {
     await g.click('#startBtn'); await g.wait(300);
     await g.ev(`state.welcomed=true; $('hint').hidden=true;`);
     eq(await g.ev(`[music.on, !!music.el, $('mMusicV').textContent, $('mMusicBox').hidden]`), [false, false, 'Off', true], 'music starts off and loads nothing');
+    // The online save carries the music choice for the owner's stats page: on now, and ever turned on.
+    const cloudMusic = async () => { await g.ev(`saveNow(); CLOUD.lastUp = 0; cloudSave(true)`); await g.wait(400);
+      return g.ev(`(() => { const r = JSON.parse(localStorage.getItem('FAKE_DB')).rows.find((x) => x.id === slots.active); return r && [r.summary.music, r.summary.musicEver]; })()`); };
+    eq(await cloudMusic(), [false, false], 'the online save says music is off and was never on');
     await g.page.locator('#badge').click();
     await g.page.locator('#mMusic').click();
     await g.page.waitForFunction(() => window.__dbg('music.el && !music.el.paused && music.el.currentTime > 0.2'), null, { timeout: 15000 });
@@ -40,13 +44,17 @@ export default async function ({ browser, url }) {
     await g.click('#startBtn'); await g.wait(300);
     await g.page.locator('#badge').click(); await g.page.locator('#mMusic').click(); await g.wait(1000);
     eq(await g.ev(`[music.on, music.el.paused, $('mMusicBox').hidden, JSON.parse(localStorage.getItem('mm.music')).on]`), [false, true, true, false], 'turning music off fades it out and remembers');
+    eq(await g.ev(`[music.ever, JSON.parse(localStorage.getItem('mm.music')).ever]`), [true, true], 'and remembers it was turned on once');
+    eq(await cloudMusic(), [false, true], 'the online save says music is off now but was turned on');
     // Songs that can't load: music turns itself off with a message instead of looping on errors.
     await g.ev(`for (const t of MUSIC) t.file = 'music/missing-' + t.file.split('/').pop(); music.el.src = '';`);
     await g.page.locator('#mMusic').click(); await g.wait(2000);
     eq(await g.ev(`[music.on, $('mMusicV').textContent]`), [false, 'Off'], 'missing songs turn music off');
     assert((await g.ev(`$('toasts') ? $('toasts').textContent : document.body.textContent`)).includes('Music couldn’t load'), 'and say so');
     await g.ev(`localStorage.setItem('mm.music', 'broken')`); await g.page.reload(); await g.reloaded();
-    eq(await g.ev(`[music.on, music.vol]`), [false, 0.5], 'a broken stored choice falls back to off');
+    eq(await g.ev(`[music.on, music.ever, music.vol]`), [false, false, 0.5], 'a broken stored choice falls back to off');
+    await g.ev(`localStorage.setItem('mm.music', JSON.stringify({ on: true, vol: 0.4 }))`); await g.page.reload(); await g.reloaded();
+    eq(await g.ev(`[music.on, music.ever]`), [true, true], 'music left on from before this tracking counts as turned on');
     eq(g.errors, [], 'no page errors');
     await g.page.close();
   }

@@ -59,6 +59,18 @@ begin
                      coalesce((summary->>'stars')::int, 0) as stars, updated_at,
                      exists (select 1 from featured f where f.mountain_id = mountains.id and f.picked) as featured
               from mountains where coalesce((summary->>'lifts')::int, 0) > 0 order by updated_at desc limit 300) t),
+    -- Music, from each player's most recently saved resort that carries the choice (added in 2.77.2; older saves have none).
+    -- on: music is on now. ever: turned it on at some point on that device (only known from 2.77.2, or if it was on then).
+    'music', (select jsonb_build_object(
+                'players_7d', count(*) filter (where updated_at > now() - interval '7 days'),
+                'on_7d', count(*) filter (where updated_at > now() - interval '7 days' and m_on),
+                'ever_7d', count(*) filter (where updated_at > now() - interval '7 days' and m_ever),
+                'players_30d', count(*) filter (where updated_at > now() - interval '30 days'),
+                'on_30d', count(*) filter (where updated_at > now() - interval '30 days' and m_on),
+                'ever_30d', count(*) filter (where updated_at > now() - interval '30 days' and m_ever))
+              from (select distinct on (owner) updated_at,
+                           coalesce((summary->>'music')::boolean, false) m_on, coalesce((summary->>'musicEver')::boolean, false) m_ever
+                    from mountains where summary ? 'music' order by owner, updated_at desc) x),
     'feedback_count', (select count(*) from feedback where message not like '💡 Idea:%'),
     'feedback', (select coalesce(jsonb_agg(f), '[]'::jsonb) from (
                    select created_at, message from feedback where message not like '💡 Idea:%' order by created_at desc limit 10) f),
