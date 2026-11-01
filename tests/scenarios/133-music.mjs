@@ -10,6 +10,7 @@ export default async function ({ browser, url }) {
     await g.page.locator('#badge').click();
     await g.page.locator('#mMusic').click();
     await g.page.waitForFunction(() => window.__dbg('music.el && !music.el.paused && music.el.currentTime > 0.2'), null, { timeout: 15000 });
+    eq(await g.ev(`!music.gain && music.el.volume > 0`), true, 'phones and computers play the song straight from the audio element');
     eq(await g.ev(`[music.on, $('mMusicV').textContent, $('mMusic').getAttribute('aria-checked'), $('mMusicBox').hidden, $('menu').hidden, JSON.parse(localStorage.getItem('mm.music')).on]`),
       [true, 'On', 'true', false, false, true], 'turning music on plays a song, shows the controls and keeps the menu open');
     assert(await g.ev(`MUSIC.some((t) => music.el.src.endsWith(t.file) && t.title === $('musName').textContent)`), 'the playing song is named');
@@ -47,4 +48,20 @@ export default async function ({ browser, url }) {
     eq(g.errors, [], 'no page errors');
     await g.page.close();
   }
+  // An iPhone without the 'playback' audio setting plays the song directly, so the silent switch can't mute it;
+  // its volume slider would do nothing there, so it hides (the phone's buttons set the volume).
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, isMobile: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1' });
+  await ctx.route('https://accounts.google.com/**', (r) => r.abort());
+  const page = await ctx.newPage(), errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(url); await page.waitForFunction(() => window.__dbg && !document.getElementById('loading'), null, { timeout: 60000 });
+  const ev = (c) => page.evaluate((x) => window.__dbg(x), c);
+  await page.tap('#startBtn'); await page.waitForTimeout(500);
+  await ev(`state.welcomed=true; $('hint').hidden=true; $('badge').click();`);
+  await page.tap('#mMusic');
+  await page.waitForFunction(() => window.__dbg('music.el && !music.el.paused && music.el.currentTime > 0.2'), null, { timeout: 15000 });
+  eq(await ev(`[MUSIC_IOS, !!music.gain, $('musVol').hidden]`), [true, false, true], 'an older iPhone plays the song directly, with the slider hidden');
+  eq(errors, [], 'no page errors on the iPhone');
+  await ctx.close();
 }

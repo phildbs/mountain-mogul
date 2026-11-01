@@ -314,7 +314,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   Off by default; `mm.music` in localStorage keeps `{ on, vol }`. Clicking Music leaves the menu open so the volume can be set.
 - Songs are listed in `MUSIC` (`{ file, title }`) and live in `music/`. Nothing downloads until music is on (`preload = 'none'`,
   the audio element is made on first use). Shuffled each session, then played in order.
-- Volume and fades go through a Web Audio gain node, because iPhones ignore `audio.volume`. Browsers need a tap before sound,
+- Songs play straight from the `<audio>` element (Phil heard nothing on Android with everything routed through Web Audio).
+  Only iPhones with `navigator.audioSession` use a Web Audio gain node (they ignore `audio.volume`), with the session set to
+  `'playback'` so the silent switch doesn't mute it; older iPhones play directly and hide the slider. Browsers need a tap before sound,
   so music left on starts on the first `pointerdown`/`touchend`/`keydown` (title screen included). Hidden tab: pause; back:
   resume unless the player paused by hand (`music.held`). If every song fails to load, music turns itself off with a toast.
 - Songs are Phil's, made with Google Flow. First one: `alpine-arcade.mp3` (Alpine Arcade, 2:23). Re-encode each to 128 kbps

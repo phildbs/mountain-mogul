@@ -216,7 +216,7 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .menu .mgrp:first-child { padding-top: 4px; }
 .menu .msep { height: 1px; background: var(--line); margin: 6px 4px; }
 .mmusic { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 4px; padding: 0 4px 6px 6px; }
-.mmusic button[hidden] { display: none; }
+.mmusic [hidden] { display: none; }
 .mmusic button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; }
 .mmusic svg { width: 14px; height: 14px; fill: currentColor; }
 .mmusic .mus-name { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -18122,6 +18122,7 @@ const MUSIC = [
 ];
 const music = { on: false, vol: 0.5, el: null, gain: null, order: [], i: 0, fails: 0, fadeT: 0, held: false }; // held: paused by hand
 try { const m = JSON.parse(localStorage.getItem('mm.music') || 'null'); if (m) { music.on = m.on === true; if (m.vol >= 0 && m.vol <= 1) music.vol = +m.vol; } } catch (e) { /* storage blocked or broken */ }
+const MUSIC_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function musicSave() { try { localStorage.setItem('mm.music', JSON.stringify({ on: music.on, vol: music.vol })); } catch (e) { /* still plays */ } }
 // A fresh shuffle each session, so it doesn't always start with the same song.
 function musicShuffle() { music.order = MUSIC.map((_, k) => k); for (let k = music.order.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [music.order[k], music.order[j]] = [music.order[j], music.order[k]]; } music.i = 0; }
@@ -18129,14 +18130,20 @@ function musicTrack() { return MUSIC[music.order[music.i]]; }
 function musicEl() {
   if (music.el) return music.el;
   const a = music.el = new Audio(); a.preload = 'none';
-  // iPhones ignore an audio element's own volume, so the slider and fades go through Web Audio where there is one.
+  // Songs play straight from the audio element. iPhones ignore its volume, so there the slider and fades go through
+  // Web Audio, which they mute on the silent switch unless told it's music ('playback', like a video). Older iPhones
+  // without that setting play it directly too (the phone's volume buttons still work).
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { const ctx = new AC(), g = ctx.createGain(); ctx.createMediaElementSource(a).connect(g); g.connect(ctx.destination); music.gain = g; music.ctx = ctx; }
+    if (AC && MUSIC_IOS && navigator.audioSession) {
+      navigator.audioSession.type = 'playback';
+      const ctx = new AC(), g = ctx.createGain(); ctx.createMediaElementSource(a).connect(g); g.connect(ctx.destination); music.gain = g; music.ctx = ctx;
+    }
   } catch (e) { music.gain = null; }
   a.onended = () => musicNext();
   a.onplaying = () => { music.fails = 0; musicUnwake(); musicSync(); };
   a.onpause = musicSync;
+  a.onwaiting = () => { $('musName').textContent = 'Loading…'; };
   a.onerror = () => { if (++music.fails >= MUSIC.length) { setMusic(false); toast('Music couldn’t load. Try again later.', true); } else musicNext(); };
   return a;
 }
@@ -18153,7 +18160,7 @@ function musicPlay() {
   music.held = false;
   const a = musicEl(), tr = musicTrack();
   if (!a.src || !a.src.endsWith(tr.file)) a.src = tr.file;
-  if (music.ctx && music.ctx.state === 'suspended') music.ctx.resume().catch(() => {});
+  if (music.ctx && music.ctx.state !== 'running') music.ctx.resume().catch(() => {});
   musicLevel(0);
   const p = a.play();
   if (p && p.catch) p.catch(() => { /* the browser wants a tap first: musicWake starts it */ });
@@ -18184,6 +18191,7 @@ function musicSync() {
   $('musName').textContent = MUSIC.length ? musicTrack().title : '';
   $('musNext').hidden = MUSIC.length < 2; // a single song simply repeats
   $('musVol').value = Math.round(music.vol * 100);
+  $('musVol').hidden = !!music.el && !music.gain && MUSIC_IOS; // there the phone's own buttons set the volume
   $('musPlay').innerHTML = playing ? '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3" width="3" height="10" rx=".6"/><rect x="9.5" y="3" width="3" height="10" rx=".6"/></svg>' : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z"/></svg>';
   $('musPlay').setAttribute('aria-label', playing ? 'Pause music' : 'Play music');
   $('musPlay').title = playing ? 'Pause' : 'Play';
