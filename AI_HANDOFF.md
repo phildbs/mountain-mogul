@@ -321,7 +321,8 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   resume unless the player paused by hand (`music.held`). If every song fails to load, music turns itself off with a toast.
 - Songs are Phil's, made with Google Flow. First one: `alpine-arcade.mp3` (Alpine Arcade, 2:23). Re-encode each to 128 kbps
   without cover art (`ffmpeg -i in.mp3 -map 0:a -map_metadata -1 -b:a 128k music/<name>.mp3`), about 2.3 MB a song.
-  Next song hides while there's only one. Scenario 133-music.
+  Second: `first-chair.mp3` (First Chair, a slower take of the same tune, lowered 2.5 dB to match). Match loudness with
+  `-af volumedetect` (mean about −20 dB). Next song hides while there's only one. Scenario 133-music.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
 - **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and
