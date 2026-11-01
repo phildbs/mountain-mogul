@@ -21,32 +21,32 @@ export default async function ({ browser, url }) {
   assert(m.town && !m.w2 && m.parcels === 23, 'a town off the west side, where no land is for sale');
   // the north lot: room for two sections and a row behind, and its cars take the second road
   const n = await g.ev(`(() => {
-    const clear = [slotBox(0, 0, 1), slotBox(0, 1, 1), slotBox(1, 0, 1)].map(lotLandBlock);
+    const clear = [slotBox(0, 0, 1), slotBox(0, 1, 1), slotBox(0, 2, 1)].map(lotLandBlock);
     state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();
     const i = stalls.findIndex((s) => s.lot === 1), p = carPath(stalls[i]), last = p[p.length - 1];
     const fork = ROAD_WORLD[BRANCH_WORLD.findIndex((q, k) => q !== ROAD_WORLD[k]) - 1];
     return { clear, north: stalls.filter((s) => s.lot === 1).length, start: p[0] === ROAD_WORLD[0], viaFork: p.includes(fork), ends: Math.hypot(last.x - stalls[i].x, last.z - stalls[i].z) < 0.01,
       offMain: !p.includes(ROAD_WORLD[ROAD_WORLD.length - 1]), behind: stalls[i].z < lotSite(1).z };
   })()`);
-  eq(n.clear, ['', '', ''], 'north lot sections on clear, level ground');
+  eq(n.clear, ['', '', ''], 'room for three north lot sections on clear, level ground');
   assert(n.north === 96 && n.start && n.viaFork && n.ends && n.offMain && n.behind, `north cars drive in from town, take the fork and park behind the end of the road: ${JSON.stringify(n)}`);
   // driving between the bases goes back to the fork and out the other road
   const via = await g.ev(`(() => { const r = roadBetween(lotSite(0), lotSite(1)), fork = ROAD_WORLD[BRANCH_WORLD.findIndex((q, k) => q !== ROAD_WORLD[k]) - 1];
     return { fork: r.includes(fork), town: r.some((p) => p.x < fork.x - 1), starts: Math.hypot(r[0].x - lotSite(0).x, r[0].z - lotSite(0).z) < 1 }; })()`);
   eq(via, { fork: true, town: false, starts: true }, 'the shuttle route turns at the fork, without a trip out of town');
-  eq(await g.ev(`[baseOf(lotSite(0)), baseOf(lotSite(1)), baseOf({ x: 4, z: 50 })]`), [0, 1, 0], 'each side of the hill is its own base');
+  eq(await g.ev(`[baseOf(lotSite(0)), baseOf(lotSite(1)), baseOf({ x: -8, z: 62 })]`), [0, 1, 0], 'each side of the hill is its own base');
   // a starter resort on the sunny side: a chair from the south base to near the top, a green, a blue and a lodge
   await g.click('#startBtn'); await g.wait(400);
   const built = await g.ev(`(() => {
     state.lotLayout = [[0, 0, 0]]; state.lotSections = 1; buildLot();
-    const i = evalLift({x:4,z:52},{x:3,z:-6},'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i,'double'); computeNetwork();
+    const i = evalLift({x:-8,z:62},{x:4,z:-6},'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i,'double'); computeNetwork();
     const L = world.lifts[0];
-    for (const w of [[[6,-4],[12,4],[9,25],[31,41],[9,54]], [[0,-4],[-11,1],[-4,19],[-24,24],[-10,36],[-1,54]]]) {
+    for (const w of [[[1,-4],[-5,6],[-3,23],[-14,32],[-31,48],[-13,64]], [[7,-4],[12,10],[10,30],[0,50],[-4,64]]]) {
       const pts = w.map(([x,z]) => ({x, z, y: heightAt(x,z)})), t = evalTrail(pts, 'wide');
       if (t.an.problems.length) throw new Error('trail: ' + t.an.problems); commitTrail(t, pts, 'wide'); computeNetwork();
     }
     let lodge = null;
-    for (const [x, z] of [[14,56],[-16,54],[16,50],[12,60]]) for (const r of [0, Math.PI / 2]) { if (lodge) break; const b = evalBuilding('lodge', x, z, r); if (!b.problems.length) { commitBuilding(b, 'lodge', x, z, r); lodge = [x, z]; } }
+    for (const [x, z] of [[6,64],[-20,60],[8,58],[4,70],[-30,62]]) for (const r of [0, Math.PI / 2]) { if (lodge) break; const b = evalBuilding('lodge', x, z, r); if (!b.problems.length) { commitBuilding(b, 'lodge', x, z, r); lodge = [x, z]; } }
     if (!lodge) throw new Error('no lodge spot');
     computeNetwork(); syncLabels();
     return { fromBase: L.fromBase, ratings: world.trails.map(trailSign), north: haloNorth(L.a) };
