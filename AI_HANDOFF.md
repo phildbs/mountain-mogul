@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.76.1.** Phil approved publication on Nov 1 (quick-fix tier plus the full GitHub run green on 5193482; 132-ski-racks, 133-music, 32-old-saves and 10 related scenarios passed locally).
+**Live: 2.76.2.** Phil approved publication on Nov 1 (quick-fix tier plus the full GitHub run green on 11f4349; 28-learning, 113-painted-areas, 17-base-snow and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.76.2: learning areas follow the snow (faded/brown when thin, hidden in summer) instead of always drawing white. Player report.
 - 2.76.1: roomier ski racks after player feedback: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out.
 - 2.76: background music, menu › Music (play/pause, next song, volume; off by default). Nine songs by Phil made with
   Google Flow Music, credited in the guide and changelog. See Claude's note. (Claude, Nov 1)
@@ -143,7 +144,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-e4b45021-ym505d` | Claude | 2.76.2: learning areas follow the snow, so they aren't white in summer. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
