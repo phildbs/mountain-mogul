@@ -57,6 +57,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.77.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on de3cbc2; related scenarios and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.77.3: guests with no runs yet stay past their planned leaving time (until close at most), and late arrivals plan 120–210 minutes. Was the cause of daily no-ride refunds. Scenario `135-no-ride-refunds`; probe `tests/refund-probe.mjs`. Changelog carries an apology, at Phil's request. (Claude, Nov 1)
 - 2.77.2: online saves carry `music` (on now) and `musicEver` in the summary; stats.html shows Music on and Tried music tiles (per player, latest save, 7 days with 30-day fallback). `admin_stats` updated on live. Phil's request. (Claude, Nov 1)
 - 2.77.1: guests spread across all parking lots (weighted by lift fit × free spaces) instead of filling the main lot first. Player request. (Claude, Nov 1)
 - 2.77: lift mid-stations, one per chairlift or gondola: get off or on partway up. See Claude's Nov 1 note.
@@ -147,7 +148,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-7830a804-sjbfae` | Claude | 2.77.3: guests no longer go home refunded without a run (late arrivals, slow starts) | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
