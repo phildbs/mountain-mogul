@@ -1,18 +1,23 @@
-// Halo Mountain: a lone hill in the middle, and two roads out of a town off the west side: one to the main lot on
+// Lone Pine Hill: a lone hill in the middle, and two roads out of a town off the west side: one to the main lot on
 // the sunny south side, one round to a north lot. North cars drive the first road as far as the fork, then the
 // second; the town's land isn't for sale.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
+  // featured on the title screen: a large card with a thank-you, and a way straight in
+  const f = await g.ev(`({ shown: !$('featMtn').hidden, pill: !$('newMtn').hidden, text: $('featMtn').innerText, painted: !!$('featMtn').querySelector('img[src="lone-pine-hill.jpg"]') })`);
+  assert(f.shown && !f.pill && f.painted, 'a large feature card, with its picture, instead of the small new-mountain pill');
+  assert(/Lone Pine Hill/i.test(f.text) && /first 3D mountain/i.test(f.text) && /Thank you/.test(f.text), `the card names it and thanks players: ${f.text}`);
   await g.click('[data-slot=new]'); await g.wait(100);
-  assert(/Halo Mountain/i.test(await g.ev(`$('titleSlots').innerText`)), 'picker lists Halo Mountain');
-  await g.click('[data-slot=pick][data-mt=halo]'); await g.reloaded();
+  assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)) && await g.ev(`$('featMtn').hidden`), 'picker lists Lone Pine Hill, and the feature card steps aside');
+  await g.click('[data-slot=pickNo]'); await g.wait(100);
+  await g.click('#featMtn [data-feat=pick]'); await g.reloaded();
   const m = await g.ev(`({ id: MOUNTAIN.id, cash: state.cash, vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH), goals: goalList().map((G) => G.id),
     lots: lotCount(), names: [lotName(0), lotName(1)], town: !!townMesh, w2: PARCELS.some((p) => p.id === 'W2'), parcels: PARCELS.length,
-    summitZ: PLAY1 - HALO_S[1] * PN - HALF, main: lotSite(0), north: lotSite(1), branch: branchPath().length,
+    summitZ: PLAY1 - LONE_S[1] * PN - HALF, main: lotSite(0), north: lotSite(1), branch: branchPath().length,
     // the two roads share the stretch through town, then part at the fork
     shared: BRANCH_WORLD.findIndex((p, i) => p !== ROAD_WORLD[i]), branchOnGround: branchPath().slice(0, -1).every((p) => roadDist(p.x, p.z) < 0.6) })`);
-  eq([m.id, m.cash], ['halo', 2300000], 'Halo Mountain with its starting cash');
+  eq([m.id, m.cash], ['lonepine', 2300000], 'Lone Pine Hill with its starting cash');
   assert(m.vert > 400 && m.vert < 800, `a gentle hill (${m.vert} ft vertical)`);
   eq(m.goals, ['firstDay', 'bothSides', 'mix', 'crowd400', 'profit'], 'its own goals');
   eq([m.lots, m.names], [2, ['Main lot', 'North lot']], 'a main lot and a north lot');
@@ -49,7 +54,7 @@ export default async function ({ browser, url }) {
     for (const [x, z] of [[6,64],[-20,60],[8,58],[4,70],[-30,62]]) for (const r of [0, Math.PI / 2]) { if (lodge) break; const b = evalBuilding('lodge', x, z, r); if (!b.problems.length) { commitBuilding(b, 'lodge', x, z, r); lodge = [x, z]; } }
     if (!lodge) throw new Error('no lodge spot');
     computeNetwork(); syncLabels();
-    return { fromBase: L.fromBase, ratings: world.trails.map(trailSign), north: haloNorth(L.a) };
+    return { fromBase: L.fromBase, ratings: world.trails.map(trailSign), north: loneNorth(L.a) };
   })()`);
   assert(built.fromBase && !built.north, 'the lift starts in the base area on the south side');
   assert(built.ratings.includes(0), `a green from the top, winding across the sunny side (${built.ratings})`);
@@ -60,7 +65,7 @@ export default async function ({ browser, url }) {
   assert(r.goals.includes('First chair'), 'first goal on the first day');
   eq(await g.ev(`goalList().find((G) => G.id === 'bothSides').prog()`), 'Now one up the shady north side, round the back of the hill.', 'the next goal points round the back');
   await g.ev(`saveNow(); $('mTitle').onclick()`); await g.wait(500);
-  assert(/Halo Mountain/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Halo Mountain');
+  assert(/Lone Pine Hill/i.test(await g.ev(`$('titleSlots').innerText`)), 'saved mountain listed as Lone Pine Hill');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

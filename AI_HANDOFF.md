@@ -110,7 +110,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d5f0faef-j5qzg1` | Claude | Halo Mountain preview: a fifth mountain, a lone hill in the middle. Two roads leave a town off the west side (scenery; the W2 parcel is dropped): `road` to the main lot on the south side, `branch` (forks in town) to a North lot. `BRANCH_WORLD`/`ROUTES`/`roadBetween` route cars, buses and shuttles; `baseOf` uses plain distance when a mountain has a branch. Phil asked for two roads instead of a ring (Nov 1). Preview only until Phil says Publish. | Nov 1, 2026 |
+| `ccr-d5f0faef-j5qzg1` | Claude | 2.71 Lone Pine Hill (id `lonepine`): a fifth mountain, a big lone hill filling most of the land. Two roads leave a town off the west side (scenery; the W2 parcel is dropped): `road` to the main lot (south), `branch` (forks in town) to a North lot. `BRANCH_WORLD`/`ROUTES`/`roadBetween` route cars, buses and shuttles; `baseOf` uses plain distance when a mountain has a branch. Featured on the title screen with a large card (`#featMtn`, photo `lone-pine-hill.jpg`) and a thank-you. Scenario 127. Preview only until Phil says Publish. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -119,7 +119,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
   cliffs. Existing custom mountains still play.
 - Twin Notch has mostly been played in automated runs; watch feedback for balance and pathing.
 - `index.html` is one large file. Search by function name rather than line numbers; they move.
-- The title-screen "New mountain" flag (`NEW_MTN`) switches itself off on Dec 15, 2026.
+- The title-screen new-mountain feature (`NEW_MTN`, Lone Pine Hill's large card) switches itself off on Jan 31, 2027.
 - Stray screenshots from Oct 18 are committed in the repo root (`mb-*.png`, `mbp-*.png`, `tc-*.png`) and
   are served publicly. Probably safe to delete; ask the owner first.
 - Two scenarios share number 84 (`84-lunch-lots`, `84-movable-trails`). Use the next free number for new tests.
