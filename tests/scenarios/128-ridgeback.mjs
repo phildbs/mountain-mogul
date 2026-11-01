@@ -26,7 +26,13 @@ export default async function ({ browser, url }) {
   assert(m.town && !m.s3 && m.w2, 'a town off the south edge, where that land is not for sale');
   assert(m.south && m.shared > 5 && m.crossIn, `one road in from the south, splitting at a crossroads on the property (${m.shared} points shared)`);
   assert(m.main.x < m.B.x && m.main.z > m.B.z + 40 && m.east.x > m.E.x && m.east.z > m.E.z + 40, 'main lot below the beginner peak, East lot below the expert peak');
-  eq(m.clear, ['', '', '', ''], 'room for the main lot to grow east under the road, and for the East lot');
+  eq(m.clear, ['', '', '', ''], 'room for the main lot to grow, and for the East lot');
+  // the road runs straight into the end of the main lot, which grows west, away from it
+  const lot = await g.ev(`(() => { state.lotLayout = [[0, 0, 0], [0, 1, 0]]; state.lotSections = 2; buildLot(); const e = lotSite(0), b = [slotBox(0, 0), slotBox(0, 1)];
+    const i = stalls.findIndex((s) => s.x < b[1].x1), p = carPath(stalls[i]), last = p[p.length - 1];
+    return { west: b[0].x1 < e.x && b[1].x1 < b[0].x0, along: b[0].z0 < e.z && b[0].z1 > e.z, clearOfRoad: [0, 1].every((k) => !footprintStats(b[k]).road || k === 0),
+      parks: Math.hypot(last.x - stalls[i].x, last.z - stalls[i].z) < 0.01, enters: p[ROAD_WORLD.length].x > stalls[i].x }; })()`);
+  eq(lot, { west: true, along: true, clearOfRoad: true, parks: true, enters: true }, 'the main lot lines up with the end of the road and grows west; cars come into each section from its east side');
   await g.click('#startBtn'); await g.wait(400);
   const built = await g.ev(`(() => {
     state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();

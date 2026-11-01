@@ -2173,9 +2173,9 @@ MOUNTAINS.ridgeback = (() => {
     baseFt: 2240,
     treeline: 17, // woods up the beginner peak and along the lower ridge; bare rock and snow on the expert peak's upper half
     town: [0.7, -0.08], townParcel: 'S3', // off the south edge, on land that isn't for sale
-    road: catmull([[0.71, -0.32], [0.7, -0.12], [0.66, 0.0], cross, [0.42, 0.115], [0.26, 0.115], [0.18, 0.105], [0.13, 0.085]], 8), // up from town, then west to the family base; the lot grows back east just below it
+    road: catmull([[0.71, -0.32], [0.7, -0.12], [0.66, 0.0], cross, [0.42, 0.115], [0.3, 0.11], [0.24, 0.1]], 8), // up from town, then west to the family base
     branch: catmull([cross, [0.66, 0.2], [0.72, 0.27], [0.76, 0.3]], 8), // east from the crossroads to the expert base
-    lots: [[0.76, 0.3, 'East lot', 'south', 'branch']],
+    lots: [[0.76, 0.3, 'East lot', 'south', 'branch']], lotWest: true, // the main lot grows west from the end of the road
     creek: catmull([[0.93, 0.5], [0.97, 0.42], [1.04, 0.34], [1.3, 0.2]], 10),
     height(u, v) {
       const s = this.seed, U = 160;
@@ -8603,7 +8603,7 @@ let lotSitesCache = null;
 function lotSite(lot) {
   if (!lotSitesCache) {
     const e = roadEnd();
-    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, route: ROAD_WORLD, up: false }, ...(MOUNTAIN.lots || []).map(([u, v, , side, onBranch]) => {
+    lotSitesCache = [{ x: e.x, z: e.z, road: ROAD_WORLD.length, route: ROAD_WORLD, up: false, west: !!MOUNTAIN.lotWest }, ...(MOUNTAIN.lots || []).map(([u, v, , side, onBranch]) => {
       // at the end of the second road, like the main lot at the end of the first
       if (onBranch) { const R = BRANCH_WORLD, q = R[R.length - 1]; return { x: q.x, z: q.z, road: R.length, route: R, up: side !== 'south', south: side === 'south', end: true }; }
       const p = { x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF };
@@ -8621,7 +8621,8 @@ const rowDir = (lot) => (lot && lotSite(lot).up ? 'behind' : 'below');
 const slotOrigin = (row, col, lot = 0) => {
   const e = lotSite(lot);
   // up the mountain side of the road, on the valley side of it (south), or at the end of the road (the main lot)
-  return { x: e.x + 0.9 + col * (LOT.w + 0.7), z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
+  // a main lot can grow west instead, when its road comes in from the east (Ridgeback)
+  return { x: e.west ? e.x - 0.9 - LOT.w - col * (LOT.w + 0.7) : e.x + 0.9 + col * (LOT.w + 0.7), z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
 };
 function sectionOrigin(k) { const [row, col, lot] = lotSlot(k); return slotOrigin(row, col, lot); }
 const slotBox = (row, col, lot = 0) => { const o = slotOrigin(row, col, lot); return { x0: o.x, x1: o.x + LOT.w, z0: o.z, z1: o.z + LOT.d }; };
@@ -8723,16 +8724,17 @@ function buildLot() {
     lotGroup.add(lotMesh(o));
     const [row, col, lot] = lotSlot(k);
     if (col) {
-      const x0 = slotOrigin(row, col - 1, lot).x + LOT.w - 0.05, x1 = o.x + 0.05;
+      const a = slotOrigin(row, col - 1, lot).x, x0 = Math.min(a, o.x) + LOT.w - 0.05, x1 = Math.max(a, o.x) + 0.05; // the gap between this section and the last
       for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
     }
-    if (row === 1 && col === 0 && !lot) lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
+    if (row === 1 && col === 0 && !lot) lotLinks.add(lotSite(0).west ? linkMesh(o.x + LOT.w - 0.05, o.x + LOT.w + 0.9, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4) : linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
     if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4; lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
         const x = o.x + 0.25 + c * 0.5;
-        const ex = row || lot ? slotOrigin(row, 0, lot).x - 0.45 : o.x - 0.45; // the second row, and other lots, are reached by the drive on their west side
+        const ex = !lot && lotSite(0).west ? (row ? slotOrigin(row, 0).x : o.x) + LOT.w + 0.45 // a west-growing main lot is entered from its east side
+          : row || lot ? slotOrigin(row, 0, lot).x - 0.45 : o.x - 0.45; // the second row, and other lots, are reached by the drive on their west side
         stalls.push({ x, z: za + side * 0.95, aisle: { x, z: za }, entry: { x: ex, z: za }, row, lot, heading: side < 0 ? Math.PI : 0, car: null });
       }
     }
@@ -9424,7 +9426,7 @@ function makeSchedule(n) {
 }
 function carPath(stall) {
   if (stall.lot) { const s = lotSite(stall.lot); return [...s.route.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
-  if (stall.row) { const o = slotOrigin(0, 0); return [...ROAD_WORLD, { x: o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
+  if (stall.row) { const o = slotOrigin(0, 0); return [...ROAD_WORLD, { x: lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
   return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
