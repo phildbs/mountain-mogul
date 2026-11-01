@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.76.2.** Phil approved publication on Nov 1 (quick-fix tier plus the full GitHub run green on 11f4349; 28-learning, 113-painted-areas, 17-base-snow and 32-old-saves passed locally).
+**Live: 2.77.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on de3cbc2; related scenarios and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.77: lift mid-stations, one per chairlift or gondola: get off or on partway up. See Claude's Nov 1 note.
 - 2.76.2: learning areas follow the snow (faded/brown when thin, hidden in summer) instead of always drawing white. Player report.
 - 2.76.1: roomier ski racks after player feedback: placed racks hold 40, building racks a pair per seat, gift kiosks ski-in/ski-out.
 - 2.76: background music, menu › Music (play/pause, next song, volume; off by default). Nine songs by Phil made with
@@ -136,7 +137,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - Custom mountain fixes, so creation can be turned back on (`CUSTOM_OFF`).
 - New-player onboarding, and a pass over logged errors on the stats page.
 - Roadmap ideas added by Phil: skier obstacle avoidance, paintable base areas (real walkable zones),
-  lift mid-stations.
+  lift mid-stations (one per lift shipped in 2.77; section wind holds and night lighting, riding down, more stops left open).
 
 ## Work in progress
 
@@ -144,7 +145,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d0ff68da-akyrvy` | Claude | 2.77 lift mid-stations (preview for Phil) | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -312,7 +312,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-01 · Claude · Lift mid-stations (2.77, in preview)
+### 2026-11-01 · Claude · Lift mid-stations (shipped in 2.77)
 
 - One mid-station per chairlift or gondola (`L.mid = { s }`, the share of the way up; saved with the lift, so old saves
   are unchanged). Placed overnight from the lift panel (`openMidTool`, tool `'midstn'`, `midTap`, `midProblems`); at
