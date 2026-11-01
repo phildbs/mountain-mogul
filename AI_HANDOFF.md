@@ -57,7 +57,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.77.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on de3cbc2; related scenarios and 32-old-saves passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
-- Stats page (no game version): tabs (Overview, Feedback, Resorts, Health; remembered, or `stats.html#feedback`). Feedback is one list with All/Ideas/Feedback filters, each note showing the sender (profile name, else resort creator; Guest; Deleted account), "All N from them", what they were doing (version, resort, season, lifts, device) and a Visit button. New owner-only `admin_feedback(lim)` in `supabase/feedback.sql`, applied on live Nov 1. Notes store no resort id, so it matches the sender's save on the same mountain (same name first), else their latest; 94 of 101 notes matched. Page falls back to admin_stats' lists if the function is missing. Possible follow-up: add the cloud resort id to `feedbackContext()` for exact matches. Phil's request. (Claude, Nov 1)
+- Stats page (no game version): tabs (Overview, Feedback, Resorts, Health; remembered, or `stats.html#feedback`). Feedback is one list with All/Ideas/Feedback filters, each note showing the sender (profile name, else resort creator; Guest; Deleted account), "All N from them", what they were doing (version, resort, season, lifts, device) and a Visit button. New owner-only `admin_feedback(lim)` in `supabase/feedback.sql`, applied on live Nov 1. Published Nov 1 (Phil said Publish; docs tier). Notes store no resort id, so it matches the sender's save on the same mountain (same name first), else their latest; 94 of 101 notes matched. Page falls back to admin_stats' lists if the function is missing. Possible follow-up: add the cloud resort id to `feedbackContext()` for exact matches. Phil's request. (Claude, Nov 1)
 - 2.77.3: guests with no runs yet stay past their planned leaving time (until close at most), and late arrivals plan 120–210 minutes. Was the cause of daily no-ride refunds. Scenario `135-no-ride-refunds`; probe `tests/refund-probe.mjs`. Changelog carries an apology, at Phil's request. (Claude, Nov 1)
 - 2.77.2: online saves carry `music` (on now) and `musicEver` in the summary; stats.html shows Music on and Tried music tiles (per player, latest save, 7 days with 30-day fallback). `admin_stats` updated on live. Phil's request. (Claude, Nov 1)
 - 2.77.1: guests spread across all parking lots (weighted by lift fit × free spaces) instead of filling the main lot first. Player request. (Claude, Nov 1)
@@ -149,7 +149,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-2f742e1b-qbg78u` | Claude | Stats page tidy-up: tabs, and feedback shows who sent it with a Visit link to their resort. No game change. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
