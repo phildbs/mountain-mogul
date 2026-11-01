@@ -17,6 +17,9 @@ export default async function ({ browser, url }) {
     assert(fits, `the music controls fit the menu at ${width}px`);
     await g.page.locator('#musVol').fill('20');
     eq(await g.ev(`[music.vol, JSON.parse(localStorage.getItem('mm.music')).vol]`), [0.2, 0.2], 'the volume slider sets and remembers the volume');
+    eq(await g.ev(`[MUSIC.length < 2, $('musNext').hidden]`), [true, true], 'with one song, Next song is hidden and the song repeats');
+    await g.ev(`MUSIC.push({ file: MUSIC[0].file + '?copy', title: 'Second song' }); music.order = [0, 1]; music.i = 0; musicSync();`);
+    eq(await g.ev(`$('musNext').hidden`), false, 'with two songs, Next song shows');
     const first = await g.ev(`music.el.src`);
     await g.page.locator('#musNext').click(); await g.wait(300);
     assert(await g.ev(`music.el.src`) !== first, 'Next song changes the song');

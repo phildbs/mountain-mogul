@@ -140,7 +140,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-56c181fe-dypj06` | Claude | 2.76 background music player (menu › Music). Placeholder songs until Phil sends his MP3s. | Nov 1, 2026 |
+| `ccr-56c181fe-dypj06` | Claude | 2.76 background music player (menu › Music). First song (Alpine Arcade) in; more to come from Phil. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -317,8 +317,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Volume and fades go through a Web Audio gain node, because iPhones ignore `audio.volume`. Browsers need a tap before sound,
   so music left on starts on the first `pointerdown`/`touchend`/`keydown` (title screen included). Hidden tab: pause; back:
   resume unless the player paused by hand (`music.held`). If every song fails to load, music turns itself off with a toast.
-- `music/placeholder-*.mp3` are synthesized stand-ins (about 50 s each). Replace them and the `MUSIC` list with Phil's
-  Google Flow songs before publishing; aim for 96–128 kbps MP3, about 2–3 MB a song. Scenario 133-music.
+- Songs are Phil's, made with Google Flow. First one: `alpine-arcade.mp3` (Alpine Arcade, 2:23). Re-encode each to 128 kbps
+  without cover art (`ffmpeg -i in.mp3 -map 0:a -map_metadata -1 -b:a 128k music/<name>.mp3`), about 2.3 MB a song.
+  Next song hides while there's only one. Scenario 133-music.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75)
 - **Idea:** Phil's, from the decorations brainstorm: skiers take skis off before going indoors and walk in boots; too few racks and
