@@ -15,7 +15,7 @@ export default async function ({ browser, url }) {
       // one road in from the south, splitting in the valley
       south: ROAD_WORLD[0].z > 90, shared: fork, crossIn: inProperty(BRANCH_WORLD[fork - 1].x, BRANCH_WORLD[fork - 1].z),
       main: lotSite(0), east: lotSite(1), B, E,
-      clear: [slotBox(0, 1, 0), slotBox(1, 0, 0), slotBox(0, 0, 1), slotBox(0, 1, 1)].map(lotLandBlock) };
+      clear: [slotBox(0, 1, 0), slotBox(0, 2, 0), slotBox(0, 0, 1), slotBox(0, 1, 1)].map(lotLandBlock) };
   })()`);
   eq([m.id, m.cash], ['ridgeback', 2600000], 'Ridgeback with its starting cash');
   eq(m.goals, ['firstDay', 'bothPeaks', 'ridgeRun', 'twoBases', 'profit'], 'its own goals');
@@ -26,7 +26,7 @@ export default async function ({ browser, url }) {
   assert(m.town && !m.s3 && m.w2, 'a town off the south edge, where that land is not for sale');
   assert(m.south && m.shared > 5 && m.crossIn, `one road in from the south, splitting at a crossroads on the property (${m.shared} points shared)`);
   assert(m.main.x < m.B.x && m.main.z > m.B.z + 40 && m.east.x > m.E.x && m.east.z > m.E.z + 40, 'main lot below the beginner peak, East lot below the expert peak');
-  eq(m.clear, ['', '', '', ''], 'room for lot sections and a second row at the main lot, and for the East lot');
+  eq(m.clear, ['', '', '', ''], 'room for the main lot to grow east under the road, and for the East lot');
   await g.click('#startBtn'); await g.wait(400);
   const built = await g.ev(`(() => {
     state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();
