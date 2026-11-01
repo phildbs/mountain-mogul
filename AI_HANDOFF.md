@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.70.** Phil approved publication after the full GitHub Tests run passed on `87dbb772369c1148d95a55d98ecd0d94008ea84e`.
+**Live: 2.70.1.** Phil approved publication on Nov 1 (quick-fix tier: 28-learning, 54-evenings and 82-building-styles passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.70.1: ski school practice snow drawn with a solid texture, so the sky no longer shows through it (see Decisions and lessons: see-through textures).
 - 2.70: terrain parks (Trail › Terrain park): rollers, flat box, small jump, rails, big jump and halfpipe; park fans ride them, others go
   around; Park report page, What next? advice, blueprints while open, moving features. Rebuilt by Claude; see Claude's Nov 1 note.
 - 2.69.1: pond skim and race-finish crowds face the action (a flipped sign in `drawCrowd`); pond waders face the way they walk. See Claude's note.
@@ -109,7 +110,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-b2da79d7-jaez7c` | Claude | 2.70.1: ski school practice snow drawn solid so the sky stops showing through it | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
