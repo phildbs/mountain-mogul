@@ -52,11 +52,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-10-31)
+## Current status (updated 2026-11-01)
 
-**Live: 2.69.1.** Phil approved publication after the full GitHub Tests run passed on `eaf46a9ce77300f48767c45e2a2d28bf5a45dc1f`.
+**Live: 2.70.** Phil approved publication after the full GitHub Tests run passed on `87dbb772369c1148d95a55d98ecd0d94008ea84e`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.70: terrain parks (Trail › Terrain park): rollers, flat box, small jump, rails, big jump and halfpipe; park fans ride them, others go
+  around; Park report page, What next? advice, blueprints while open, moving features. Rebuilt by Claude; see Claude's Nov 1 note.
 - 2.69.1: pond skim and race-finish crowds face the action (a flipped sign in `drawCrowd`); pond waders face the way they walk. See Claude's note.
 - 2.69: hotels: base-only, three sizes (12/40/120 rooms) in all three themes; rooms booked each morning; hotel guests need no parking, ride
   first chair, can rest in their room once a day and head out again; room price in Business › Prices. See Claude's note.
@@ -89,7 +91,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** terrain parks (2.70 preview) rebuilt by Claude on current `main` at Phil's request (Nov 1), on `ccr-4f420d32-a79w7t`. It replaces ChatGPT's paused `feature/terrain-parks-preview`, which was left untouched. Not approved for release yet.
+**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations"): trail map boards, billboards, statues, fountains, flags,
@@ -107,7 +109,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-4f420d32-a79w7t` | Claude | Terrain parks 2.70 preview, rebuilt from scratch on current `main` (see Claude's Nov 1 note), with the report page, advice, blueprints and moving. Roadmap card moved to Done at Phil's request. Waiting for Phil. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -268,7 +269,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-01 · Claude · Terrain parks rebuilt (2.70 preview)
+### 2026-11-01 · Claude · Terrain parks rebuilt (shipped in 2.70)
 - **Why a rebuild:** Phil asked me to review ChatGPT's paused branch and to rebuild if needed. It was 35 commits behind `main`. Since then
   2.67 had shaped trails into per-section widths (`t.ws`, `sampleHW`), so its fixed `TRAIL_WIDTHS[t.width].hw` placement no longer
   matched trails. It had no guests using the features, no costs and no demand. Its models (`park-models.js`) were about 4× the skiers'
