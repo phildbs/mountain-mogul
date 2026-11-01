@@ -3261,7 +3261,7 @@ function replantable(k, blocks) {
   const x = trees.x[k], z = trees.z[k], p = { x, z };
   if (blocks.has(cellKey(Math.round(x), Math.round(z)))) return false;
   if (sampleGrid(ROADD, x + HALF, z + HALF) < 3) return false;
-  return !world.lifts.some((L) => distToSeg(p, L.a, L.b) < 2.2 || distXZ(p, L.a) < 4.4 || distXZ(p, L.b) < 4.8);
+  return !world.lifts.some((L) => distToSeg(p, L.a, L.b) < 2.2 || distXZ(p, L.a) < 4.4 || distXZ(p, L.b) < 4.8 || (L.midUp && distXZ(p, L.midUp.a) < 4.4));
 }
 function clearedInBrush(p, r, cb) {
   const gx = p.x + HALF, gz = p.z + HALF, r2 = r * r;
@@ -3425,7 +3425,7 @@ function setTool(tool) {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -3647,6 +3647,14 @@ const LIFT_TYPES = {
 };
 const isVillage = (L) => !!LIFT_TYPES[L.type].village;
 const liftCapacity = (t) => Math.round(t.seats * t.speed * 3600 / (t.spacing * 10) / 10) * 10;
+// A mid-station partway up a chairlift or gondola (`L.mid = { s }`, s the share of the way up): riders can get off
+// there, and guests can get on there for the upper half, in seats nobody from the bottom took. It stays MID_GAP
+// from each end so its clearing never runs into theirs. It costs a share of the lift's base price, and its crew
+// adds to the lift's running cost.
+const MID_GAP = 12, MID_OP = 0.25;
+const canMid = (type) => !LIFT_TYPES[type].surface && !LIFT_TYPES[type].village;
+const midCost = (type) => Math.round(LIFT_TYPES[type].base * 0.3 / 1000) * 1000;
+const midAt = (a, b, s) => ({ x: a.x + (b.x - a.x) * s, z: a.z + (b.z - a.z) * s });
 const LIFT_COLORS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0x1aa3b8, 0xc23f6e, 0x4f5d73];
 const world = { trails: [], lifts: [], nextId: 1 };
 const trailGroup = new THREE.Group(), liftGroup = new THREE.Group(), draftGroup = new THREE.Group();
@@ -3851,7 +3859,7 @@ function surfaceIndex() {
     for (const sm of t.samples) { const hw = sampleHW(t, sm); put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, hw, id: t.id }); }
     for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: sampleHW(t, e) * 1.45, id: t.id });
   }
-  for (const L of world.lifts) { pads.push({ x: L.a.x, z: L.a.z, r: 4.6, id: -1 }); pads.push({ x: L.b.x, z: L.b.z, r: 5.1, id: -1 }); }
+  for (const L of world.lifts) { pads.push({ x: L.a.x, z: L.a.z, r: 4.6, id: -1 }); pads.push({ x: L.b.x, z: L.b.z, r: 5.1, id: -1 }); if (L.midUp) pads.push({ x: L.midUp.a.x, z: L.midUp.a.z, r: 4.6, id: -1 }); }
   return { grid, pads, C };
 }
 function edgeMask(idx, selfId) {
@@ -4426,10 +4434,10 @@ function makePad(x, z, r) {
 }
 function rebuildPads() {
   for (const m of [...padGroup.children]) { padGroup.remove(m); m.geometry.dispose(); }
-  for (const L of world.lifts) { padGroup.add(makePad(L.a.x, L.a.z, 5)); padGroup.add(makePad(L.b.x, L.b.z, 5.5)); }
+  for (const L of world.lifts) { padGroup.add(makePad(L.a.x, L.a.z, 5)); padGroup.add(makePad(L.b.x, L.b.z, 5.5)); if (L.midUp) padGroup.add(makePad(L.midUp.a.x, L.midUp.a.z, 5)); }
   for (const t of realTrails()) {
     for (const s of [t.samples[0], t.samples[t.samples.length - 1]]) {
-      if (world.lifts.some((L) => distXZ(s, L.a) < 3 || distXZ(s, L.b) < 3)) continue;
+      if (world.lifts.some((L) => distXZ(s, L.a) < 3 || distXZ(s, L.b) < 3 || (L.midUp && distXZ(s, L.midUp.a) < 3))) continue;
       padGroup.add(makePad(s.x, s.z, sampleHW(t, s) * 1.45 + 0.6));
     }
   }
@@ -4511,7 +4519,7 @@ function cabinGeo() {
 const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
   k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : LIFT_TYPES[k].cabin ? cabinGeo() : chairGeo(LIFT_TYPES[k].seats)]));
 
-function liftLayout(a, b, type) {
+function liftLayout(a, b, type, mid) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
   const ya = heightAt(a.x, a.z), yb = heightAt(b.x, b.z);
   const at = (s) => heightAt(a.x + dx * s, a.z + dz * s);
@@ -4535,6 +4543,8 @@ function liftLayout(a, b, type) {
     for (let j = 1; j < 60; j++) { lift = Math.max(lift, at(j / 60) + CLEAR - lerp(ya, yb, j / 60) - TERM_H); hump = Math.max(hump, at(j / 60) - lerp(ya, yb, j / 60)); }
     for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: hump > 2 ? at(t / nT) + TOWER_H : lerp(ya, yb, t / nT) + TERM_H + lift });
   } else for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
+  // A mid-station: the cable comes down to station height partway up, with no tower crowding it.
+  if (mid) { for (let k = sup.length - 1; k >= 0; k--) if (!sup[k].term && Math.abs(sup[k].s - mid) * hlen < 2) sup.splice(k, 1); sup.push({ s: mid, y: at(mid) + TERM_H, term: true, mid: true }); }
   sup.sort((p, q) => p.s - q.s);
   // Add towers wherever the cable would sag into the ground.
   for (let iter = 0; iter < 40; iter++) {
@@ -4577,6 +4587,27 @@ function makeTerminal(p, y, heading, color, top) {
   return t;
 }
 
+// A mid-station: a roofed platform the chairs pass through on both sides, with the operator's hut beside it.
+// A gondola's is a barn like its end stations.
+function makeMidStation(p, y, heading, color, type) {
+  const t = new THREE.Group(), roofMat = accentMat(color), gon = type === 'gondola';
+  // tilted with the slope, so the cable, which follows the ground, runs through it rather than out of its roof
+  const sx = Math.sin(heading) * 1.5, sz = Math.cos(heading) * 1.5, pitch = Math.atan2(heightAt(p.x + sx, p.z + sz) - heightAt(p.x - sx, p.z - sz), 3);
+  t.position.set(p.x, y, p.z); t.rotation.set(0, heading, 0, 'YXZ'); t.rotateX(-pitch);
+  const add = (m, x, yy, z, sx = 1, sy = 1, sz = 1) => { m.position.set(x, yy, z); m.scale.set(sx, sy, sz); m.castShadow = true; m.receiveShadow = true; t.add(m); };
+  add(new THREE.Mesh(PAD_GEO, CONCRETE), 0, 0.02, 0, 1.2, 1, 1.25);
+  if (gon) {
+    add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0xe8e4dc })), 0, 0.9, 0, 2.6, 1.8, 3.6);
+    add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0x3a4250 })), 0, 1.0, 0, 2.63, 0.32, 3.0);
+    add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), roofMat), 0, 1.88, 0, 3.0, 0.18, 4.0);
+  } else {
+    for (const [x, z] of [[-0.82, -1.3], [0.82, -1.3], [-0.82, 1.3], [0.82, 1.3]]) add(new THREE.Mesh(POLE_GEO, STEEL), x, 0, z, 1, 1.25, 1);
+    add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), roofMat), 0, 1.27, 0, 1.9, 0.1, 2.9);
+    add(new THREE.Mesh(HUT_GEO, WOOD), 1.3, 0.24, 0);
+    add(new THREE.Mesh(ROOF_GEO, roofMat), 1.3, 0.63, 0);
+  }
+  return t;
+}
 // A magic carpet: a dark belt on the snow under a clear half-round tunnel, with a loading mat and booth at each end.
 function carpetVisual(L, lay) {
   const g = new THREE.Group(), { dx, dz, hlen } = lay, nx = -dz / hlen, nz = dx / hlen, R = 0.36, K = 9;
@@ -4640,6 +4671,8 @@ function buildLiftVisual(L, lay, withChairs) {
     }
     g.add(t);
   }
+  const ms = lay.sup.findIndex((s) => s.mid);
+  if (ms >= 0) { const s = lay.sup[ms], p = midAt(L.a, L.b, s.s); g.add(makeMidStation(p, heightAt(p.x, p.z), heading, L.color, L.type)); }
 
   // Cable loop: up on one side, down on the other. A carpet's belt returns underneath itself.
   const up = lay.sup.map((s) => new THREE.Vector3(L.a.x + dx * s.s + px, s.y, L.a.z + dz * s.s + pz));
@@ -4654,6 +4687,7 @@ function buildLiftVisual(L, lay, withChairs) {
     const cum = (path) => { const c = [0]; for (let i = 1; i < path.length; i++) c.push(c[i - 1] + path[i].distanceTo(path[i - 1])); return c; };
     L.upPath = up; L.downPath = down; L.upCum = cum(up); L.downCum = cum(down);
     L.upLen = L.upCum[L.upCum.length - 1]; L.total = L.upLen + L.downCum[L.downCum.length - 1];
+    L.midP = ms >= 0 ? L.upCum[ms] : 0; // how far along the cable a chair passes the mid-station
     const type = LIFT_TYPES[L.type];
     L.chairCount = Math.max(2, Math.floor(L.total / type.spacing));
     L.chairs = new THREE.InstancedMesh(CHAIR_GEOS[L.type], new THREE.MeshLambertMaterial({ color: L.color, vertexColors: true }), L.chairCount);
@@ -4742,11 +4776,30 @@ function liftStats(L, lay) {
     towers: lay.sup.filter((s) => !s.term && !s.belt).length,
   };
 }
+// A mid-station joins the network as two stops on its lift: `midLo`, where riders from the bottom get off (trails
+// start there, as at a lift's top), and `midUp`, where guests line up to ride on to the top (trails end there, as at
+// a lift's bottom). Both follow their lift for type, opening and wind; their ids are strings, so never a lift's.
+function syncMid(L) {
+  if (!L.mid || !L.midP) { L.midLo = L.midUp = null; return; }
+  const p = midAt(L.a, L.b, L.mid.s), part = (o) => Object.defineProperties(o, {
+    open: { get: () => L.open }, windHold: { get: () => L.windHold }, planOff: { get: () => L.planOff },
+    type: { get: () => L.type }, color: { get: () => L.color }, lay: { get: () => L.lay }, name: { get: () => `${L.name} mid-station` },
+  });
+  L.midLo = part({ id: 'ml' + L.id, parent: L, a: L.a, b: p, fromBase: false, departing: [], transfers: [], feeders: [] });
+  L.midUp = part({ id: 'mu' + L.id, parent: L, a: p, b: L.b, fromBase: false, feeders: [], queue: [], incoming: 0, qVersion: 0, upLen: L.upLen - L.midP, riders: [] });
+  // Its line boards into the seats left free by riders from the bottom (L.midFree, a running average).
+  Object.defineProperties(L.midUp, {
+    departing: { get: () => L.departing }, transfers: { get: () => L.transfers }, hubTop: { get: () => L.hubTop },
+    stats: { get: () => ({ cap: Math.max(10, L.stats.cap * (L.midFree ?? 0.6)), ride: L.stats.ride * (1 - L.midP / L.upLen) }) },
+  });
+}
+function midParts() { return world.lifts.flatMap((L) => (L.midUp ? [L.midLo, L.midUp] : [])); }
 function addLift(L) {
-  L.lay = liftLayout(L.a, L.b, L.type);
+  L.lay = liftLayout(L.a, L.b, L.type, L.mid && L.mid.s);
   L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
+  syncMid(L);
   initLiftSim(L);
   world.lifts.push(L);
 }
@@ -4831,7 +4884,7 @@ function clearTreeSet(set) {
 const STATION_R = 6, TRANSFER_R = 22;
 // Nearby stations can also connect by a short uphill walk: at most 100 m across and 20 m up.
 function liftTransferMode(L, M) {
-  if (L === M || isVillage(L) || isVillage(M)) return null;
+  if ((L.parent || L) === (M.parent || M) || isVillage(L) || isVillage(M)) return null; // a mid-station's own lift isn't a transfer
   if (L.hubTop && L.hubTop === M.hubBottom) return 'walk';
   if (M.fromBase) return null;
   const d = distXZ(L.b, M.a);
@@ -4881,6 +4934,7 @@ function dryEnd(p) {
     const da = distXZ(p, L.a), db = distXZ(p, L.b);
     if (da < bd) { bd = da; best = { kind: 'lift', obj: L }; }
     if (db < bd) { bd = db; best = { kind: 'top', obj: L }; } // a lift's top: ski on down its runs
+    if (L.midUp && distXZ(p, L.midUp.a) < bd) { bd = distXZ(p, L.midUp.a); best = { kind: 'lift', obj: L.midUp }; }
   }
   if (best) return best;
   return isBase(p) ? { kind: 'base' } : null;
@@ -4892,6 +4946,8 @@ function connAt(p, self, which) {
     if (which === 'start' && distXZ(p, L.b) < STATION_R) return { kind: 'lift', obj: L };
     if (which === 'end' && distXZ(p, L.a) < STATION_R) return { kind: 'lift', obj: L };
   }
+  // A mid-station: trails start where riders get off, and end where the line for the upper half forms.
+  for (const L of world.lifts) if (L.midUp && distXZ(p, L.midUp.a) < STATION_R) return { kind: 'lift', obj: which === 'start' ? L.midLo : L.midUp };
   // A trail ending at the top of a lower lift carries on down whichever of its runs the skier likes.
   if (which === 'end') for (const L of world.lifts) if (!isVillage(L) && distXZ(p, L.b) < STATION_R) return { kind: 'top', obj: L };
   const o = trailNear(p, self);
@@ -5325,8 +5381,8 @@ function hubSheet(A) {
 }
 function cacheHubs() {
   for (const A of world.areas.filter(isHub)) {
-    A.loads = world.lifts.filter((L) => !isVillage(L) && hubAt(L.a) === A);
-    A.tops = world.lifts.filter((L) => !isVillage(L) && hubAt(L.b) === A);
+    A.loads = [...world.lifts, ...midParts().filter((M) => M.queue)].filter((L) => !isVillage(L) && hubAt(L.a) === A);
+    A.tops = [...world.lifts, ...midParts().filter((M) => !M.queue)].filter((L) => !isVillage(L) && hubAt(L.b) === A);
     A.starts = world.trails.filter((T) => hubAt(T.samples[0]) === A);
     A.ends = world.trails.filter((T) => hubAt(T.samples[T.samples.length - 1]) === A);
     A.buildings = world.buildings.filter((B) => hubAt(B.door) === A);
@@ -5357,7 +5413,7 @@ function cacheHubs() {
     A.routes = new Map(); A.routesAll = new Map();
     for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.walk, k)); }
   }
-  for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); }
+  for (const L of world.lifts) { L.hubBottom = hubAt(L.a); L.hubTop = hubAt(L.b); if (L.midUp) { L.midLo.hubTop = L.midUp.hubBottom = hubAt(L.midUp.a); } }
   for (const B of world.buildings) B.isBase = isBase(B.door) || !!(hubAt(B.door)?.basePoint);
 }
 // Walking routes to the usual spots are cached with the network; any other painted spot is worked out when first needed.
@@ -5690,18 +5746,23 @@ function computeNetwork() {
     L.fromBase = isBase(L.a) || !!(L.hubBottom && L.hubBottom.basePoint);
     L.feeders = world.trails.filter((t) => t.to && ((t.to.kind === 'lift' && t.to.obj === L) || (t.to.kind === 'hub' && t.to.obj === L.hubBottom)));
     L.departing = world.trails.filter((t) => liftTrailMode(L, t));
+    if (L.midUp) {
+      L.midLo.departing = world.trails.filter((t) => liftTrailMode(L.midLo, t));
+      L.midUp.feeders = world.trails.filter((t) => t.to && ((t.to.kind === 'lift' && t.to.obj === L.midUp) || (t.to.kind === 'hub' && t.to.obj === L.midUp.hubBottom)));
+    }
   }
   // Nearby loading stations: glide across level/downhill ground, or walk a short gentle rise.
-  for (const L of world.lifts) {
-    L.transfers = world.lifts.filter((M) => liftTransferMode(L, M));
-  }
-  for (const M of world.lifts) M.transferFrom = world.lifts.filter((L) => L.transfers.includes(M));
+  // A mid-station counts both ways: a top where riders get off, and a bottom where a line forms.
+  const tops = [...world.lifts, ...midParts().filter((M) => !M.queue)], loads = [...world.lifts, ...midParts().filter((M) => M.queue)];
+  for (const L of tops) L.transfers = loads.filter((M) => liftTransferMode(L, M));
+  for (const M of loads) M.transferFrom = tops.filter((L) => L.transfers.includes(M));
   // Which lifts and trails a guest arriving at the base can reach.
   const liftR = new Set(world.lifts.filter((L) => L.fromBase));
   const trailR = new Set(), hubR = new Set(world.areas.filter((A) => isHub(A) && A.basePoint));
   for (let changed = true; changed;) {
     changed = false;
     for (const L of liftR) if (L.hubTop && !hubR.has(L.hubTop)) { hubR.add(L.hubTop); changed = true; }
+    for (const L of [...liftR]) if (L.midUp && !liftR.has(L.midLo)) { liftR.add(L.midLo); liftR.add(L.midUp); changed = true; } // riders pass the mid-station
     for (const T of trailR) if (T.to && T.to.kind === 'hub' && !hubR.has(T.to.obj)) { hubR.add(T.to.obj); changed = true; }
     for (const A of hubR) {
       for (const L of A.loads) if (!liftR.has(L)) { liftR.add(L); changed = true; }
@@ -5742,13 +5803,13 @@ function computeNetwork() {
       if (ret.has(t) || !t.to) continue;
       if ((t.to.kind === 'hub' && hubRet.has(t.to.obj)) || t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
     }
-    for (const L of world.lifts) {
-      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)))) { liftRet.add(L); changed = true; }
+    for (const L of [...world.lifts, ...midParts()]) {
+      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)) || (L.midLo && liftRet.has(L.midLo)))) { liftRet.add(L); changed = true; }
     }
   }
   for (const A of world.areas.filter(isHub)) { A.reachable = hubR.has(A); A.returns = hubRet.has(A); }
   for (const t of world.trails) { t.reachable = trailR.has(t); t.drains = drains.has(t); t.returns = ret.has(t); }
-  for (const L of world.lifts) { L.reachable = liftR.has(L); L.returns = liftRet.has(L); }
+  for (const L of [...world.lifts, ...midParts()]) { L.reachable = liftR.has(L); L.returns = liftRet.has(L); }
   rebuildPads();
   const sidx = surfaceIndex();
   for (const t of world.trails) refreshTrailMesh(t, sidx);
@@ -5771,7 +5832,7 @@ scene.add(band);
 function snapEnd(p) {
   // A trail end connects when it sits in a lift station's clearing, on another
   // trail, or in the base area. The point stays where it was placed.
-  const snap = world.lifts.some((L) => distXZ(p, L.a) < STATION_R || distXZ(p, L.b) < STATION_R)
+  const snap = world.lifts.some((L) => distXZ(p, L.a) < STATION_R || distXZ(p, L.b) < STATION_R || (L.midUp && distXZ(p, L.midUp.a) < STATION_R))
     || !!trailNear(p, null) || !!hubAt(p) || isBase(p);
   return { x: p.x, z: p.z, snap };
 }
@@ -5795,9 +5856,11 @@ function describeConn(c, which) {
   if (c && c.kind === 'hub') return `${which === 'start' ? 'Starts in' : 'Walk to lifts, trails and services in'} ${c.obj.name}.`;
   if (which === 'start') {
     if (!c || c.kind === 'base') return 'Starts on an open slope with no lift.';
+    if (c.kind === 'lift' && c.obj.parent) return `Starts at the ${c.obj.parent.name} mid-station.`;
     return c.kind === 'lift' ? `Starts at the top of ${c.obj.name}.` : `Branches off ${c.obj.name}.`;
   }
   if (!c) return 'Ends on an open slope with no lift.';
+  if (c.kind === 'lift' && c.obj.parent) return `Ends at the ${c.obj.parent.name} mid-station, where guests can ride on up.`;
   if (c.kind === 'lift') return `Ends at the bottom of ${c.obj.name}.`;
   if (c.kind === 'top') return `Ends at the top of ${c.obj.name}, joining its runs.`;
   if (c.kind === 'trail') return `Joins ${c.obj.name}.`;
@@ -6180,6 +6243,7 @@ function evalLift(a0, b0, type, allowPlans, self) {
   const lineBlock = world.buildings.find((B) => segNearBox(a, b, boxOf(B), 0.8) || boxDist(a, boxOf(B)) < 2.5 || boxDist(b, boxOf(B)) < 2.5);
   if (lineBlock) problems.push(`Too close to ${lineBlock.name}.`);
   if (lotBoxes().some((lb) => boxDist(a, lb) < 1.5 || boxDist(b, lb) < 1.5)) problems.push('A station can’t go on the parking lot.');
+  if (self && self.mid) for (const m of midProblems(self, self.mid.s, a, b, type)) problems.push(`Mid-station: ${m}`); // it stays the same share of the way up
   const treeSet = liftTreeSet(a, b);
   const build = Math.round((t.base + t.perUnit * lay.slopeM / 10) / 1000) * 1000;
   const cost = build + treeSet.size * TREE_COST;
@@ -6281,6 +6345,112 @@ function upgradeLift(L, type) {
   computeNetwork(); syncLabels(); updateCash(true);
   toast(`Upgraded to a ${LIFT_TYPES[type].long.toLowerCase()} · −${money(up.cost)}`);
   renderSheet(); scheduleSave();
+}
+/* ---------- Mid-stations (lift panel › Add a mid-station) ----------
+   Overnight, tap along the lift's line to place one; the panel shows the price or what's wrong with the spot. */
+const ftOfU = (u) => fmtFt(Math.round(u * 32.81 / 10) * 10);
+function midProblems(L, s, a = L.a, b = L.b, type = L.type) {
+  const t = LIFT_TYPES[type], p = midAt(a, b, s), hlen = distXZ(a, b), out = [];
+  if (!canMid(type)) return [`A ${t.long.toLowerCase()} can’t have a mid-station.`];
+  if (hlen < MID_GAP * 2) return [`This lift is too short for a mid-station. It needs at least ${ftOfU(MID_GAP * 2)} between its stations.`];
+  if (s * hlen < MID_GAP - 0.01 || (1 - s) * hlen < MID_GAP - 0.01) out.push(`Too close to an end station. Keep it at least ${ftOfU(MID_GAP)} from each end.`);
+  if (!inProperty(p.x, p.z)) out.push('The mid-station must be on your property.');
+  if (sampleGrid(GR, p.x + HALF, p.z + HALF) > 0.5) out.push('The ground here is too steep for a station. Try a flatter spot on the line.');
+  for (const M of world.lifts) if (M !== L && [M.a, M.b, ...(M.midUp ? [M.midUp.a] : [])].some((q) => distXZ(p, q) < 4)) { out.push(`Too close to the ${M.name} stations.`); break; }
+  const B = world.buildings.find((B) => boxDist(p, boxOf(B)) < 2.5);
+  if (B) out.push(`Too close to ${B.name}.`);
+  if (lotBoxes().some((lb) => boxDist(p, lb) < 1.5)) out.push('A station can’t go on the parking lot.');
+  return out;
+}
+function midTrees(p) { const set = new Set(); treesInBrush(p, 4.2, (k) => set.add(k)); return set; }
+function midInfo(L, s) {
+  const p = midAt(L.a, L.b, s), treeSet = midTrees(p), build = midCost(L.type);
+  return { s, p, treeSet, build, cost: build + treeSet.size * TREE_COST, problems: midProblems(L, s) };
+}
+// A first spot to show: the free spot nearest halfway up.
+function midDefault(L) {
+  for (let k = 0; k <= 30; k++) for (const s of [0.5 + k * 0.01, 0.5 - k * 0.01]) if (!midProblems(L, s).length) return s;
+  return 0.5;
+}
+var midDraft = null, midGhost = null; // var: setTool can run before this line on load
+function clearMidGhost() { if (midGhost) { liftGroup.remove(midGhost); disposeGroup(midGhost); midGhost = null; } }
+function showMidGhost() {
+  clearMidGhost();
+  const d = midDraft; if (!d) return;
+  const info = midInfo(d.L, d.s), mat = info.problems.length ? FEAT_GHOST_BAD : FEAT_GHOST_OK;
+  midGhost = makeMidStation(info.p, heightAt(info.p.x, info.p.z) + 0.05, d.L.lay.heading, d.L.color, d.L.type);
+  midGhost.traverse((o) => { if (o.isMesh) { o.material = mat; o.castShadow = false; o.renderOrder = 5; } });
+  liftGroup.add(midGhost);
+}
+function openMidTool(L) {
+  if (visiting || state.phase !== 'closed' || !canMid(L.type) || L.mid) return;
+  setTool('midstn');
+  midDraft = { L, s: midDefault(L) };
+  showMidGhost(); renderSheet();
+}
+function closeMidTool() { const L = midDraft && midDraft.L; clearMidGhost(); midDraft = null; setTool('explore'); if (L) select({ kind: 'lift', obj: L }); }
+function midTap(p) {
+  const d = midDraft; if (!d || !p) return;
+  const { a, b } = d.L, dx = b.x - a.x, dz = b.z - a.z, h2 = dx * dx + dz * dz;
+  const s = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / h2, 0.02, 0.98), q = midAt(a, b, s);
+  if (Math.hypot(p.x - q.x, p.z - q.z) > 8) { toast('Tap on the lift’s line to place the mid-station.', true); return; }
+  d.s = Math.round(s * 1000) / 1000; showMidGhost(); renderSheet();
+}
+function midToolSheet() {
+  const d = midDraft; if (!d) return '';
+  const L = d.L, info = midInfo(L, d.s), short = info.cost > state.cash, tap = isCoarse ? 'Tap' : 'Click';
+  const up = Math.round(d.s * 100);
+  return `<div class="sheet-title"><h3>Mid-station on ${esc(L.name)}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <p class="help">A stop partway up. Riders can get off there to ski the lower runs, and guests can get on there to ride the upper half, in seats nobody took at the bottom. Trails can start and end at it, just like at the lift’s ends.</p>
+    <p class="help"><b>${tap} along the lift line to move it.</b> About ${up}% of the way up.</p>
+    ${problemsHtml(info.problems)}
+    <div class="costs"><span>Mid-station</span><span>${money(info.build)}</span></div>
+    ${info.treeSet.size ? `<div class="costs"><span>Clearing ${info.treeSet.size} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>` : ''}
+    <p class="help">Its crew adds about ${Math.round(MID_OP * 100)}% to the lift’s running cost.</p>
+    <button class="btn wide" data-action="midBuild" ${!info.problems.length && !short ? '' : 'disabled'}>${short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button>
+    <button class="link" data-action="exitTool">Not now</button>`;
+}
+function buildMid() {
+  const d = midDraft; if (!d || state.phase !== 'closed' || visiting) return;
+  const L = d.L, info = midInfo(L, d.s);
+  if (info.problems.length || info.cost > state.cash) return;
+  pushUndo(`adding a mid-station to ${L.name}`);
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  L.mid = { s: d.s }; L.cost = (L.cost || 0) + info.build;
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Built a mid-station on ${L.name} · −${money(info.cost)}. Build trails from it, or end trails at it.`);
+  closeMidTool(); scheduleSave();
+}
+function removeMid(L) {
+  if (!L.mid || state.phase !== 'closed' || visiting) return;
+  pushUndo(`removing the ${L.name} mid-station`);
+  const back = Math.round(midCost(L.type) * 0.25);
+  state.cash += back; L.cost = Math.max(0, (L.cost || 0) - midCost(L.type));
+  L.mid = undefined;
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+  toast(`Removed the ${L.name} mid-station · +${money(back)}. Trails there no longer connect to the lift.`);
+  renderSheet(); scheduleSave();
+}
+// On the lift's panel: what the mid-station did today, or a way to add one.
+function liftMidSection(L) {
+  if (!canMid(L.type)) return '';
+  const closed = state.phase === 'closed' && !visiting;
+  if (!L.midUp) {
+    if (!closed) return '';
+    return distXZ(L.a, L.b) < MID_GAP * 2 ? '' : `<button class="btn secondary" data-action="midOpen">Add a mid-station · from ${money(midCost(L.type))}</button>`;
+  }
+  const D = L.midLo, U = L.midUp, live = state.phase === 'open' && today;
+  const from = [...U.feeders.map((t) => t.name), ...U.transferFrom.map((M) => `the top of ${M.name}`)];
+  const lines = [
+    D.departing.length ? `From the mid-station: ${D.departing.map((t) => t.name).join(', ')}.` : 'No trails leave the mid-station yet, so riders stay on to the top.',
+    from.length ? `Guests get on there from ${from.join(', ')}.` : '',
+    live ? `Today: ${((today.midOff || {})[L.id] || 0) * AGENT} got off and ${((today.midOn || {})[L.id] || 0) * AGENT} got on there · ${U.queue.length * AGENT} in line, about ${Math.round(liftWait(U))} min.` : '',
+  ].filter(Boolean);
+  return `<div class="field-label">Mid-station · ${Math.round(L.mid.s * 100)}% of the way up</div><p class="conn">${lines.map(esc).join('<br>')}</p>
+    ${closed ? `<button class="link" data-action="midRemove">Remove the mid-station · ${money(Math.round(midCost(L.type) * 0.25))} back</button>` : ''}`;
 }
 // Moving a building costs a fifth of what it took to build (at least $500), plus any clearing and leveling.
 const moveFee = (B) => Math.max(500, Math.round((B.spent || BTYPES[B.type].cost) * 0.2 / 100) * 100);
@@ -6677,6 +6847,7 @@ function renderSheet() {
   else if (state.tool === 'lift') html = liftDraftSheet();
   else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'tpark') html = parkToolSheet();
+  else if (state.tool === 'midstn') html = midToolSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
@@ -7236,6 +7407,7 @@ function liftSheet(L) {
     ${assetPlans('lift', L)}
     ${liftColorPicker(L)}
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${liftMidSection(L)}
     ${liftUpgradeSection(L)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
     ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
@@ -7269,6 +7441,9 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'liftUpOpen' && obj) { liftUpFor = obj.id; renderSheet(); }
   else if (a === 'liftUpClose') { liftUpFor = null; renderSheet(); }
   else if (a === 'liftUp' && obj) upgradeLift(obj, b.dataset.v);
+  else if (a === 'midOpen' && obj) openMidTool(obj);
+  else if (a === 'midRemove' && obj) removeMid(obj);
+  else if (a === 'midBuild') buildMid();
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
@@ -7281,7 +7456,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else leaveDraft(() => setTool('explore')); }
+  else if (a === 'exitTool') { if (state.tool === 'midstn') closeMidTool(); else if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else leaveDraft(() => setTool('explore')); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -8100,7 +8275,7 @@ function serializeWorld() {
   return {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off })) : undefined })),
-    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost })),
+    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
@@ -8846,7 +9021,11 @@ const gById = new Map();
 const trailById = (id) => world.trails.find((t) => t.id === id);
 // Trails the player built, without the ski lines generated inside learning areas.
 const realTrails = () => world.trails.filter((t) => !t.virtual);
-const liftById = (id) => world.lifts.find((L) => L.id === id);
+const liftById = (id) => {
+  if (typeof id !== 'string') return world.lifts.find((L) => L.id === id);
+  const L = world.lifts.find((o) => id.slice(2) === String(o.id)); // a mid-station stop: 'mu' to ride on up, 'ml' to get off
+  return L ? (id[1] === 'u' ? L.midUp : L.midLo) : null;
+};
 const SKI_SPEED = [0.38, 0.46, 0.53, 0.58].map((v) => v / PACE); // units per game second on a moderate pitch
 const WALK = 0.13 / PACE, GLIDE = 0.35 / PACE, CAR_SPEED = 0.8 / PACE;
 const PATROL_SPEED = 0.9 / PACE, PATROL_TOW = 0.45 / PACE;
@@ -8992,16 +9171,25 @@ function vLift(L, g, depth, memo) {
     v = -(liftWait(L) + 0.25 * liftRideMinutes(L) + 0.5) * g.qh + (g.seenLift[L.id] ? 0 : 1.5 * g.explore);
     if (L.type === 'gondola' && todayWx().hi < 20) v += 2.5; // a warm ride on a cold day
     if (depth < 4) {
-      let b = -30;
-      if (L.hubTop) b = Math.max(b, vHub(L.hubTop, g, depth + 1, memo, L.b));
-      for (const D of L.departing) if (runnable(D) && !(L.hubTop && hubAt(D.samples[0]) === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth + 1, memo));
-      for (const M of L.transfers || []) if (canLoad(M) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth + 1, memo) - liftTransferCost(L, M));
+      let b = exitsV(L, g, depth + 1, memo);
+      // With a mid-station, riders can get off partway and skip the rest of the ride.
+      if (L.midLo) b = Math.max(b, exitsV(L.midLo, g, depth + 1, memo) + 0.25 * midSaved(L) * g.qh);
       v += 0.85 * b;
     }
   }
   memo.set(key, v);
   return v;
 }
+// The best way on from a lift's top (or a mid-station where riders get off).
+function exitsV(L, g, depth, memo) {
+  let b = -30;
+  if (L.hubTop) b = Math.max(b, vHub(L.hubTop, g, depth, memo, L.b));
+  for (const D of L.departing) if (runnable(D) && !(L.hubTop && hubAt(D.samples[0]) === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth, memo));
+  for (const M of L.transfers || []) if (canLoad(M) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth, memo) - liftTransferCost(L, M));
+  return b;
+}
+// Minutes of riding a guest skips by getting off at the mid-station.
+const midSaved = (L) => L.midUp ? liftRideMinutes(L.midUp) : 0;
 // A shared junction is scored like other routes, with a short walk charged for each choice.
 function hubChoices(A, g, depth, memo, here) {
   const out = [], cost = (p) => 0.5 + hubDistance(A, here, p) * 0.04;
@@ -9598,14 +9786,16 @@ function carArrived(car) {
 /* ---------- Lifts ---------- */
 function initLiftSim(L) {
   L.queue = []; L.incoming = 0; L.qVersion = 0; L.xq = null; L.xBudget = null;
+  if (L.midUp) { L.midUp.queue = []; L.midUp.incoming = 0; L.midUp.qVersion = 0; }
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
 function stepLift(L, dt, crew = patrolCrew()) {
   const staff = crew.filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
   const riding = L.riders.some((r) => r.length) || staff.some((c) => c.st === 'returnride');
-  if (!(canLoad(L) || riding || (L.open && L.queue.length))) return;
+  const U = L.midUp, midQ = U ? U.queue.length + U.incoming : 0;
+  if (!(canLoad(L) || riding || (L.open && (L.queue.length || midQ)))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
-  if (!riding && !staffWaiting && !L.queue.length && !L.incoming && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
+  if (!riding && !staffWaiting && !L.queue.length && !L.incoming && !midQ && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
   const total = L.total, gap = total / L.chairCount;
   const slow = liftMode(L) === 'slow';
   const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
@@ -9613,12 +9803,13 @@ function stepLift(L, dt, crew = patrolCrew()) {
   L.phase = (L.phase + dp) % total;
   for (let i = 0; i < L.chairCount; i++) {
     const p0 = ((old + i * gap) % total + total) % total, p1 = p0 + dp;
+    if (U && p0 < L.midP && p1 >= L.midP) midStop(L, i, staff);
     if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i, staff);
     if (p1 >= total) loadBottom(L, i, staff);
   }
   // Lifts draw power while they run: all day, then at night only for night skiing or to bring riders up.
-  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || riding || staffWaiting)) {
-    const c = LIFT_OP_HOUR[L.type] * dt / 3600 * (slow ? SLOW.cost : 1);
+  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || midQ || riding || staffWaiting)) {
+    const c = LIFT_OP_HOUR[L.type] * (U ? 1 + MID_OP : 1) * dt / 3600 * (slow ? SLOW.cost : 1);
     today.exp.lifts += c; state.cash -= c;
     if (state.time >= closeTime()) today.night.lifts += c;
     if (today.liftCost) today.liftCost[L.id] = (today.liftCost[L.id] || 0) + c;
@@ -9641,6 +9832,39 @@ function unloadTop(L, i, staff = patrolCrew()) {
     if (!topDecision(g, L)) { g.chair = i; keep.push(id); thought(g, 'No way down from up here! Riding back.'); }
   }
   L.riders[i] = keep;
+}
+// A chair passing the mid-station: riders who'd rather ski from here get off, then the line there fills the free seats.
+function midStop(L, i, staff) {
+  const D = L.midLo, U = L.midUp, keep = [], memo = new Map();
+  for (const id of L.riders[i]) {
+    const g = gById.get(id);
+    if (!g) continue;
+    if (g.sight) { keep.push(id); continue; } // sightseers ride to the top for the view
+    const off = exitsV(D, g, 0, memo);
+    if (off <= -30 || noisy(off) <= noisy(exitsV(L, g, 0, memo) - 0.25 * midSaved(L) * g.qh)) { keep.push(id); continue; }
+    g.x = D.b.x; g.z = D.b.z; g.chair = -1;
+    if (!topDecision(g, D)) { g.chair = i; keep.push(id); continue; }
+    g.runs++; today.midOff = today.midOff || {}; today.midOff[L.id] = (today.midOff[L.id] || 0) + 1;
+  }
+  L.riders[i] = keep;
+  const used = new Set(keep.map((id) => (gById.get(id) || {}).seat));
+  for (const c of staff) if (c.st === 'returnride' && c.chair === i) used.add(c.seat);
+  const seats = LIFT_TYPES[L.type].seats, free = seats - used.size;
+  L.midFree = (L.midFree ?? 0.6) * 0.95 + free / seats * 0.05;
+  if (!canLoad(U) || !U.queue.length) return;
+  U.qVersion++;
+  for (let n = 0; n < seats && U.queue.length; n++) {
+    if (used.has(n)) continue;
+    const g = U.queue.shift(), wait = state.time - g.qStart;
+    today.waitSum += wait; today.waitN++;
+    today.liftWait[L.id] = (today.liftWait[L.id] || 0) + wait;
+    today.liftRiders[L.id] = (today.liftRiders[L.id] || 0) + 1;
+    today.midOn = today.midOn || {}; today.midOn[L.id] = (today.midOn[L.id] || 0) + 1;
+    if (wait > g.pat) { g.sat -= (wait - g.pat) * 1.1; today.complaints.wait++; g.waitOver = (g.waitOver || 0) + wait - g.pat; thought(g, `Waited ${Math.round(wait)} minutes for ${U.name}.`); }
+    g.sat = clamp(g.sat, 0, 100);
+    g.st = 'ride'; g.L = L; g.chair = i; g.seat = n; g.seenLift[L.id] = true;
+    L.riders[i].push(g.id);
+  }
 }
 function loadBottom(L, i, staff = patrolCrew()) {
   for (const id of L.riders[i]) {
@@ -9896,7 +10120,7 @@ const bldModeIn = (P, B) => { const m = P.bld[B.id] || 'open'; return m === 'lun
 const lotsIn = (P) => clamp(P.lots == null ? state.lotSections : P.lots, 1, state.lotSections);
 // The plan the resort is running right now (during an open day), or null.
 let runOps = null;
-const liftMode = (L) => (runOps && runOps.lifts[L.id]) || 'full';
+const liftMode = (L) => (runOps && runOps.lifts[(L.parent || L).id]) || 'full';
 const bldMode = (B) => (runOps && runOps.bld[B.id]) || 'open';
 const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
 const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
@@ -10039,6 +10263,7 @@ function simStep(dt) {
     for (const L of world.lifts) if (!isVillage(L)) {
       L.qVersion++;
       for (const g of L.queue.splice(0)) { g.leaving = true; if (L.fromBase) baseDecision(g); else goCar(g); }
+      if (L.midUp) { L.midUp.qVersion++; for (const g of L.midUp.queue.splice(0)) { g.leaving = true; goCar(g); } }
     }
   }
   if (nightClearout()) today.nightClearoutMinutes = (today.nightClearoutMinutes || 0) + dt / 60;
@@ -11281,7 +11506,7 @@ function serializeSim() {
     guests: guests.map(saveGuest),
     // A parked car finds its road again when it leaves (carLeave), so only moving cars keep a path.
     cars: cars.map((c) => { const { path, ...rest } = c; return c.st === 'parked' ? rest : { ...rest, path }; }),
-    lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), incoming: L.incoming, riders: L.riders })),
+    lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), incoming: L.incoming, riders: L.riders, midQ: L.midUp ? L.midUp.queue.map((g) => g.id) : undefined, midIn: L.midUp ? L.midUp.incoming : undefined })),
   };
 }
 function restoreSim(sim) {
@@ -11327,6 +11552,7 @@ function restoreSim(sim) {
     L.phase = s.phase; L.incoming = s.incoming || 0;
     L.queue = s.queue.map((id) => gById.get(id)).filter(Boolean);
     if (s.riders && s.riders.length === L.chairCount) L.riders = s.riders;
+    if (L.midUp && s.midQ) { L.midUp.queue = s.midQ.map((id) => gById.get(id)).filter(Boolean); L.midUp.incoming = s.midIn || 0; }
   }
 }
 /* =====================================================================
@@ -15396,7 +15622,7 @@ function middayWind() {
   setWindHolds(pm);
   if (reopened.length) toast(`Winds eased to ${fmtWind(pm)}. ${reopened.map((L) => L.name).join(', ')} ${reopened.length === 1 ? 'is' : 'are'} spinning again.`);
   if (held.length) toast(`Winds picked up to ${fmtWind(pm)}. ${held.map((L) => L.name).join(', ')} went on wind hold.`, true);
-  for (const L of held) for (const g of L.queue.splice(0)) { if (L.fromBase) baseDecision(g); else hikeOut(g); }
+  for (const L of held) { for (const g of L.queue.splice(0)) { if (L.fromBase) baseDecision(g); else hikeOut(g); } if (L.midUp) for (const g of L.midUp.queue.splice(0)) hikeOut(g); }
   today.pmHolds = world.lifts.filter((L) => L.windHold).map((L) => L.name);
 }
 function avgBase() {
@@ -16295,9 +16521,10 @@ function resampleTrail(t) {
 }
 function rebuildLift(L) {
   liftGroup.remove(L.group); disposeGroup(L.group);
-  L.lay = liftLayout(L.a, L.b, L.type); L.stats = liftStats(L, L.lay);
+  L.lay = liftLayout(L.a, L.b, L.type, L.mid && L.mid.s); L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
+  syncMid(L);
   initLiftSim(L);
 }
 function rebuildBuilding(B) {
@@ -17185,6 +17412,7 @@ function setOpen(kind, obj, open) {
   if (kind === 'trail') styleTrail(obj);
   if (kind === 'lift' && !obj.open && state.phase === 'open') {
     for (const g of obj.queue.splice(0)) { if (obj.fromBase) baseDecision(g); else hikeOut(g); }
+    if (obj.midUp) for (const g of obj.midUp.queue.splice(0)) hikeOut(g);
   }
   labelsDirty = true; renderSheet(); scheduleSave();
 }
@@ -17903,6 +18131,7 @@ function pointerEnd(e) {
 function onTap(x, y, ptype) {
   const p = pickTerrain(x, y);
   if (state.tool === 'tpark') parkTap(p);
+  else if (state.tool === 'midstn') midTap(p);
   else if (draft.kind) draftTap(p);
   else if (state.tool === 'clear' && state.landMode === 'doze') dozeAt(x, y);
   else if (state.tool === 'explore') {
@@ -17966,7 +18195,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
-    if (draft.shaping) cancelShape();
+    if (state.tool === 'midstn') closeMidTool();
+    else if (draft.shaping) cancelShape();
     else if (draft.movingTrail) cancelTrailMove();
     else if (draft.movingLift) cancelLiftMove();
     else if (unbuiltDraft()) leaveDraft(() => renderSheet());
@@ -19527,6 +19757,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.77', date: 'Nov 1, 2026', title: 'Lift mid-stations', items: ['Chairlifts and gondolas can now have a mid-station. Open a lift overnight and choose Add a mid-station, then tap along its line to place it.', 'Riders can get off at the mid-station to ski the lower runs, and guests can get on there to ride the upper half, in the seats nobody took at the bottom. Experts can lap the top without riding from the base every time.', 'Trails can start and end at a mid-station, just like at a lift’s ends. Paint a guest area around it for a mid-mountain lodge stop.', 'The lift’s panel shows how many got off and on at the mid-station today. It costs 30% of the lift’s base price, and its crew adds a quarter to the lift’s running cost.'] },
   { v: '2.76.2', date: 'Nov 1, 2026', title: 'Green learning areas in summer', small: true, items: ['Thanks for the report! Learning areas no longer stay white all summer. They melt with the rest of the mountain and come back when the snow does.', 'A learning area with thin snow now looks thin and patchy, just like a trail.'] },
   { v: '2.76.1', date: 'Nov 1, 2026', title: 'Roomier ski racks', small: true, items: ['Thanks for the feedback on ski racks! A placed ski rack now holds 40 pairs instead of 12, so you need far fewer of them.', 'Every building’s own rack now has a space for each seat, so most resorts won’t need extra racks at all.', 'Gift kiosks are ski-in, ski-out: guests keep their skis on to buy a souvenir.'] },
   { v: '2.76', date: 'Nov 1, 2026', title: 'Background music', items: ['Turn on Music in the menu (tap your resort’s name) for calm songs while you build. Pause, skip to the next song and set the volume right there.', 'Music is off until you turn it on, and your choice is remembered on this device. It goes quiet while the game is in another tab.', 'Nine songs, about 24 minutes, made for Mountain Mogul with Google Flow Music.'] },

@@ -144,6 +144,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-d0ff68da-akyrvy` | Claude | 2.77 lift mid-stations (preview for Phil) | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -310,6 +311,23 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-01 · Claude · Lift mid-stations (2.77, in preview)
+
+- One mid-station per chairlift or gondola (`L.mid = { s }`, the share of the way up; saved with the lift, so old saves
+  are unchanged). Placed overnight from the lift panel (`openMidTool`, tool `'midstn'`, `midTap`, `midProblems`); at
+  least `MID_GAP` (12 units) from each end. Costs `midCost` (30% of the type's base); running cost ×(1 + `MID_OP`).
+- The network sees it as two stops (`syncMid`): `L.midLo` (a "top": trails start there, `departing`/`transfers`) and
+  `L.midUp` (a "bottom" with its own `queue`; trails end there). Both have string ids (`'ml5'`, `'mu5'`) that
+  `liftById` resolves, and getters that follow the lift (open, wind, type, name). `midParts()` lists them; tops are
+  lifts + `midLo`s, loaders are lifts + `midUp`s. Riding guests keep `g.L` = the real lift.
+- `stepLift` calls `midStop` when a chair passes `L.midP` (cable distance): riders compare `exitsV(midLo)` with staying
+  on (`exitsV(L)` minus the upper ride) and may get off; then the mid line fills free seats. `L.midFree` tracks the
+  share of free seats, which sets the mid line's capacity estimate. `vLift` counts getting off at the mid-station.
+- Left for later (Phil's call): wind holds and night lighting by section, riding down from the mid-station, more than
+  one per lift, angle stations. Phil didn't want extra stops on the village gondola.
+- Scenario `134-mid-stations`. `tests/express-routing.mjs` extracts functions by name, so `midParts` and `exitsV` are
+  plain `function`s and in its list.
 
 ### 2026-11-01 · Claude · Background music (shipped in 2.76)
 
