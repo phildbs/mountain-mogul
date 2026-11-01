@@ -57,6 +57,9 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 **Live: 2.73.** Phil approved publication on Nov 1 (feature tier: full GitHub run green on 689eec7; 129-unbuilt-draft, 127-lone-pine and 19 related scenarios passed locally).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- Site card: `og-image.jpg` is now Frost Run at night (lit trails, fireworks), from Phil's promo trailers. The meta tags
+  load it as `og-image.jpg?v=2` so sites refresh cached previews; bump the number when the image changes. No game change,
+  no version. (Claude, Nov 1)
 - 2.74: spring bonus days run to May 31 (`SPRING_LAST = 181`) while the average trail base holds 18". `CLIMATE` warms
   to 58/35 by May 31, May demand ×0.6, and snowmaking (trails, base, painted areas) stops after Apr 30 (`GUNS_LAST`,
   `gunsPacked`). Sims: normal Auto snowmaking reached May on 1 day in 9 seasons; guns on full all winter stay open all
@@ -133,7 +136,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-e362c29f-8s2y1a` | Claude | New site card (`og-image.jpg`) from the Frost Run promo shots. | Nov 1, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
