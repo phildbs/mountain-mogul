@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
   const guards = await g.ev(`(() => {
     const B = world.buildings.find(B => B.type === 'truck'), L = world.buildings.find(B => B.type === 'lodge');
     const person = () => Object.assign(makeGuest({id:null}, B.door.x,B.door.z), {
-      fat:70,stam:100,sat:80,warmed:false,ate:true,leaveAt:1000,leaving:false,night:false,
+      fat:70,stam:100,sat:80,runs:3,warmed:false,ate:true,leaveAt:1000,leaving:false,night:false,
       apresGuest:false,sight:false,spend:1000,pat:20,resume:{k:'ski',tid:world.trails[0].id,s:5}
     });
     const blocked = (extra) => !warmAfterMeal(Object.assign(person(),extra),B);
