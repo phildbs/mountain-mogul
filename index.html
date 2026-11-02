@@ -2344,6 +2344,14 @@ function sampleGrid(arr, gx, gz) {
   return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
 }
 function heightAt(x, z) { return sampleGrid(HT, x + HALF, z + HALF) * VEX; }
+// The height of the drawn ground: its triangles, which can sit above heightAt's smooth blend on a sharp bank.
+function meshHeightAt(x, z) {
+  const gx = clamp(x + HALF, 0, WN - 0.0001), gz = clamp(z + HALF, 0, WN - 0.0001), i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
+  const a = HT[j * NV + i], b = HT[j * NV + i + 1], c = HT[(j + 1) * NV + i], d = HT[(j + 1) * NV + i + 1];
+  const h = (i + j) & 1 ? (fx + fz <= 1 ? a + (b - a) * fx + (c - a) * fz : d + (c - d) * (1 - fx) + (b - d) * (1 - fz))
+    : fz >= fx ? a + (d - c) * fx + (c - a) * fz : a + (b - a) * fx + (d - b) * fz;
+  return h * VEX;
+}
 function inWorld(x, z) { return x > -HALF && x < HALF && z > -HALF && z < HALF; }
 /* ---------- Land: parcels beyond the original property, bought or leased ----------
    A band 16 deep all round the property: five 32-wide parcels on each side and a 16 x 16 parcel at
@@ -3827,6 +3835,10 @@ function bridgeSpans(samples) {
 const surfaceAt = (x, z, deckY, onDeck) => (onDeck ? Math.max(heightAt(x, z), deckY * VEX) : heightAt(x, z));
 // How much earthworks may move a cell: none in the water, blending back in up the banks.
 const creekKeep = (idx) => sstep(1.15, 1.45, CREEKD[idx]);
+// Grading never touches the roadbed: buildings, lots and trails beside the road bank down to it instead of
+// lifting or burying the road. Buildings stand at least 1.8 from its centre, so their pads still level fully.
+const roadKeep = (idx) => sstep(ROAD_HW + 0.3, ROAD_HW + 0.65, ROADD[idx]);
+const groundKeep = (idx) => creekKeep(idx) * roadKeep(idx);
 
 function analyzeTrail(samples) {
   const n = samples.length;
@@ -5943,7 +5955,7 @@ function trailEarthwork(samples, target, hw, dry) {
     const x = i - HALF, z = j - HALF;
     let best = -1, bd = reach * reach;
     for (let k = 0; k < samples.length; k++) { const dx = samples[k].x - x, dz = samples[k].z - z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = k; } }
-    const w = (1 - sstep(hw * 0.9, reach, Math.sqrt(bd))) * creekKeep(j * NV + i);
+    const w = (1 - sstep(hw * 0.9, reach, Math.sqrt(bd))) * groundKeep(j * NV + i);
     if (best >= 0 && w > 0) verts.push([j * NV + i, best, w]);
   }
   const orig = verts.map(([idx]) => HT[idx]);
@@ -5978,7 +5990,7 @@ function bridgeEarthwork(samples, hw, dry) {
     // Under the deck it only cuts, down to the deck: the gap below it (and the water) stays open.
     // Elsewhere it may also fill. Neither touches the water itself.
     if (best.bridge && HT[idx] < best.y) continue;
-    const w = (1 - sstep(hw + 0.3, reach, Math.sqrt(bd))) * (best.bridge ? sstep(0.8, 1.0, CREEKD[idx]) : creekKeep(idx));
+    const w = (1 - sstep(hw + 0.3, reach, Math.sqrt(bd))) * (best.bridge ? sstep(0.8, 1.0, CREEKD[idx]) : groundKeep(idx));
     if (w <= 0) continue;
     const nh = lerp(HT[idx], best.y, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
@@ -6260,6 +6272,8 @@ function evalLift(a0, b0, type, allowPlans, self) {
   const lineBlock = world.buildings.find((B) => segNearBox(a, b, boxOf(B), 0.8) || boxDist(a, boxOf(B)) < 2.5 || boxDist(b, boxOf(B)) < 2.5);
   if (lineBlock) problems.push(`Too close to ${lineBlock.name}.`);
   if (lotBoxes().some((lb) => boxDist(a, lb) < 1.5 || boxDist(b, lb) < 1.5)) problems.push('A station can’t go on the parking lot.');
+  if (roadDist(a.x, a.z) < ROAD_HW + 1.8 || roadDist(b.x, b.z) < ROAD_HW + 1.8) problems.push('A station can’t go on the access road.');
+  else if (lay.sup.some((p) => !p.term && !p.belt && roadDist(a.x + lay.dx * p.s, a.z + lay.dz * p.s) < ROAD_HW + 0.4)) problems.push('A lift tower would stand on the access road. Move the line a little.');
   if (self && self.mid) for (const m of midProblems(self, self.mid.s, a, b, type)) problems.push(`Mid-station: ${m}`); // it stays the same share of the way up
   const treeSet = liftTreeSet(a, b);
   const build = Math.round((t.base + t.perUnit * lay.slopeM / 10) / 1000) * 1000;
@@ -8628,6 +8642,24 @@ const BRANCH_WORLD = (() => {
   return [...ROAD_WORLD.slice(0, k + 1), ...pts.slice(1)];
 })();
 const ROUTES = BRANCH_WORLD ? [ROAD_WORLD, BRANCH_WORLD] : [ROAD_WORLD];
+// The drive into the main lot: the road's last few units bend to meet the lot square on, along its first aisle,
+// instead of running into its corner at an angle. `k` is the last road point kept before the bend.
+const LOT_DRIVE = (() => {
+  const R = ROAD_WORLD, e = R[R.length - 1], s = MOUNTAIN.lotWest ? -1 : 1;
+  const T = { x: e.x + s * 0.95, z: e.z + 0.2 }; // just inside the lot's edge (slotOrigin: 0.9 off the road's end), at its first aisle
+  let k = R.length - 1, back = 0;
+  while (k > 0 && back < 4) { back += Math.hypot(R[k].x - R[k - 1].x, R[k].z - R[k - 1].z); k--; }
+  const A = R[k], B = R[Math.min(R.length - 1, k + 1)], L = Math.hypot(B.x - A.x, B.z - A.z) || 1, h = Math.hypot(T.x - A.x, T.z - A.z) * 0.4;
+  const c1 = { x: A.x + (B.x - A.x) / L * h, z: A.z + (B.z - A.z) / L * h }, c2 = { x: T.x - s * h, z: T.z };
+  const n = Math.max(4, Math.ceil(h / 0.2)), pts = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+    pts.push({ x: a * A.x + b * c1.x + c * c2.x + d * T.x, z: a * A.z + b * c1.z + c * c2.z + d * T.z });
+  }
+  return { k, pts, lane: { x: e.x + s * 0.45, z: T.z } }; // lane: where cars turn along the lot's edge to their aisle
+})();
+// Cars to the main lot: along the road, round the bend and onto the lane beside the lot.
+const MAIN_DRIVE = [...ROAD_WORLD.slice(0, LOT_DRIVE.k + 1), ...LOT_DRIVE.pts.filter((p, i) => i % 3 === 2), LOT_DRIVE.lane];
 // The route and the point along it nearest p.
 function routeNear(p) {
   let best = [ROAD_WORLD, 0], bd = Infinity;
@@ -8662,19 +8694,20 @@ const ROAD_TEX = (() => {
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 })();
-const ROAD_MAT = hazeMaterial('haze', { map: ROAD_TEX, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+// Drawn after trails (which are see-through), so a trail that crosses the road never paints snow over it.
+const ROAD_MAT = hazeMaterial('haze', { map: ROAD_TEX, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const DRIVEWAY_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 let roadMesh = null;
 let roadPathCache = null;
 function roadPath() {
   if (roadPathCache) return roadPathCache;
   const raw = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF }));
-  const out = [];
-  for (let k = 0; k < raw.length - 1; k++) {
+  const K = ROAD_WORLD[LOT_DRIVE.k], out = [], last = raw.findIndex((p) => p.x === K.x && p.z === K.z); // where the bend starts
+  for (let k = 0; k < last; k++) {
     const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
     for (let i = 0; i < n; i++) out.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) });
   }
-  const e = raw[raw.length - 1], f = raw[raw.length - 2], d = Math.hypot(e.x - f.x, e.z - f.z) || 1;
-  out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
+  out.push(raw[last], LOT_DRIVE.pts[0]); // the driveway takes over from here (lotDrivePath)
   return (roadPathCache = out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1));
 }
 // Where the road crosses the creek it goes over on a bridge: the deck runs level from bank to bank
@@ -8810,27 +8843,37 @@ function branchPath() {
   out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
   return (branchPathCache = out);
 }
-let branchMesh = null;
+let branchMesh = null, driveMesh = null;
+const DRIVE_HW = 0.75; // the driveway narrows to this by the lot
+const lotDrivePath = () => [ROAD_WORLD[LOT_DRIVE.k], ...LOT_DRIVE.pts];
 function buildRoad() {
   if (roadMesh) { scene.remove(roadMesh); roadMesh.geometry.dispose(); }
   if (branchMesh) { scene.remove(branchMesh); branchMesh.geometry.dispose(); branchMesh = null; }
+  if (driveMesh) { scene.remove(driveMesh); driveMesh.geometry.dispose(); }
   roadMesh = roadRibbon(roadPath(), 0.05);
+  // the driveway into the main lot: plain asphalt, narrowing from the road's width to the lot's lane
+  driveMesh = roadRibbon(lotDrivePath(), 0.06, DRIVEWAY_MAT, (t) => lerp(ROAD_HW, DRIVE_HW, sstep(0, 0.7, t)));
   // a touch lower than the access road, so the access road is the one on top where they fork
   if (MOUNTAIN.branch) branchMesh = roadRibbon(branchPath(), 0.035);
   buildRoadBridges();
 }
-function roadRibbon(P, lift) {
+function roadRibbon(P, lift, mat = ROAD_MAT, hwAt = () => ROAD_HW) {
   const pos = [], uv = [], hz = [], idx = [];
-  let along = 0;
+  let along = 0, total = 0;
+  for (let k = 1; k < P.length; k++) total += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
   for (let k = 0; k < P.length; k++) {
     const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)];
     const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz) || 1, nx = -dz / d, nz = dx / d;
     if (k) along += Math.hypot(P[k].x - P[k - 1].x, P[k].z - P[k - 1].z);
-    for (let s = 0; s <= 2; s++) {
-      const o = (s - 1) * ROAD_HW, x = P[k].x + nx * o, z = P[k].z + nz * o;
-      pos.push(x, roadY(x, z) + lift, z); uv.push(s / 2, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
+    const hw = hwAt(along / (total || 1));
+    for (let s = 0; s <= 4; s++) {
+      const o = (s / 2 - 1) * hw, x = P[k].x + nx * o, z = P[k].z + nz * o;
+      // never under the ground: where a bank meets the road, its triangles can rise above the smooth height
+      let y = roadY(x, z);
+      for (const [a, c] of [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]]) y = Math.max(y, meshHeightAt(x + nx * a - nz * c, z + nz * a + nx * c) - 0.02);
+      pos.push(x, y + lift, z); uv.push(s / 4, along / ROAD_TILE); hz.push(hazeAt(x + HALF, z + HALF));
     }
-    if (k) { const r = (k - 1) * 3; for (const c of [0, 1]) idx.push(r + c, r + c + 1, r + c + 3, r + c + 1, r + c + 4, r + c + 3); }
+    if (k) { const r = (k - 1) * 5; for (let c = 0; c < 4; c++) idx.push(r + c, r + c + 1, r + c + 5, r + c + 1, r + c + 6, r + c + 5); }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -8838,8 +8881,8 @@ function roadRibbon(P, lift) {
   geo.setAttribute('haze', new THREE.Float32BufferAttribute(hz, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, ROAD_MAT);
-  m.receiveShadow = true; m.renderOrder = 1;
+  const m = new THREE.Mesh(geo, mat);
+  m.receiveShadow = true; m.renderOrder = 2.5; // after trails (2), before light pools (3)
   scene.add(m);
   return m;
 }
@@ -8994,6 +9037,8 @@ function buildLot() {
       for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
     }
     if (row === 1 && col === 0 && !lot) lotLinks.add(lotSite(0).west ? linkMesh(o.x + LOT.w - 0.05, o.x + LOT.w + 0.9, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4) : linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
+    // the main lot's lane, from where the road comes in down its edge to the last aisle
+    if (!row && !col && !lot) { const w = lotSite(0).west, x = w ? o.x + LOT.w - 0.05 : o.x - 0.9; lotLinks.add(linkMesh(x, x + 0.95, o.z + 1.4, o.z + LOT.d - 0.95)); }
     if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4; lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
@@ -9717,8 +9762,8 @@ function makeSchedule(n) {
 }
 function carPath(stall) {
   if (stall.lot) { const s = lotSite(stall.lot); return [...s.route.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
-  if (stall.row) { const o = slotOrigin(0, 0); return [...ROAD_WORLD, { x: lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
-  return [...ROAD_WORLD, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
+  if (stall.row) { const o = slotOrigin(0, 0); return [...MAIN_DRIVE, { x: lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
+  return [...MAIN_DRIVE, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
 // With more than one lot, a carload leans toward the base whose lifts and runs suit its lead skier, and
@@ -17117,7 +17162,7 @@ function levelBrush(p, r, target, strength, dry) {
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const d = Math.hypot(i - gx, j - gz);
     if (d > r) continue;
-    const idx = j * NV + i, w = (1 - sstep(r * 0.5, r, d)) * strength * creekKeep(idx);
+    const idx = j * NV + i, w = (1 - sstep(r * 0.5, r, d)) * strength * groundKeep(idx);
     const nh = lerp(HT[idx], target, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
     if (!dry) HT[idx] = nh;
@@ -17132,7 +17177,7 @@ function levelRect(bb, target, margin, dry) {
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF;
     const d = Math.hypot(Math.max(bb.x0 - 0.3 - x, 0, x - bb.x1 - 0.3), Math.max(bb.z0 - 0.3 - z, 0, z - bb.z1 - 0.3));
-    const idx = j * NV + i, w = (1 - sstep(0, margin, d)) * creekKeep(idx);
+    const idx = j * NV + i, w = (1 - sstep(0, margin, d)) * groundKeep(idx);
     if (w <= 0) continue;
     const nh = lerp(HT[idx], target, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
@@ -17291,6 +17336,8 @@ function restoreTerrain(b64) {
     for (let i = 0; i + 1 < f.length; i += 2) HT[f[i]] = f[i + 1];
     // Before bridges, a trail across the creek filled its bed in. Dig it back out; the trail now bridges it.
     for (let k = 0; k < NV * NV; k++) if (CREEKD[k] < 1.9) HT[k] = lerp(HT0[k], HT[k], creekKeep(k));
+    // Before 2.82.2, building pads and lots beside the road could lift or bury it. Put the roadbed back.
+    for (let k = 0; k < NV * NV; k++) if (ROADD[k] < ROAD_HW + 0.65) HT[k] = lerp(HT0[k], HT[k], roadKeep(k));
   }
   applyTerrainChange(0, 0, WN, WN);
 }
@@ -20495,6 +20542,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.82.2', date: 'Nov 2, 2026', title: 'A clear road and a proper driveway', small: true, items: [
+    'Fixed: buildings and parking placed beside the access road could bury part of it under snow or leave it looking smudged. The road now stays clear, with the ground banked down to it, and roads already covered are dug back out when you load.',
+    'The road now ends in a short driveway that meets the main parking lot head on, with a lane down the side of the lot, instead of running into its corner.'] },
   { v: '2.82.1', date: 'Nov 2, 2026', title: 'Night lights refund', small: true, items: ['Fixed: if a day that never ended charged you for night lights and crew for hours on end, the front office refunds the extra charges the next time you open your resort.'] },
   { v: '2.82', date: 'Nov 2, 2026', title: 'Dinner under the lights', items: ['Casual restaurants now stay open during night skiing, on the mountain and at the base. Hungry night skiers can sit down for dinner there.', 'Après is for base and village restaurants. A casual restaurant up the mountain closes when night skiing ends, or at the usual time when there is no night skiing.', 'Fixed: day guests who stay on for night skiing can grab a snack again, even if they had one earlier in the day.'] },
   { v: '2.81.1', date: 'Nov 2, 2026', title: 'Fix for days that never ended', small: true, items: [

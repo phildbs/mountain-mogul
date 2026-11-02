@@ -6,7 +6,7 @@ export default async function ({ browser, url }) {
   // one-lot mountains: the same as ever
   const j = await openGame(browser, url);
   await j.click('#startBtn'); await j.wait(300);
-  eq(await j.ev(`[lotCount(), lotSlot(0), stalls.every((s) => !s.lot), carPath(stalls[0]).length === ROAD_WORLD.length + 3]`), [1, [0, 0, 0], true, true], 'Juniper: one lot, as before');
+  eq(await j.ev(`[lotCount(), lotSlot(0), stalls.every((s) => !s.lot), carPath(stalls[0]).length === MAIN_DRIVE.length + 3 && MAIN_DRIVE[0] === ROAD_WORLD[0]]`), [1, [0, 0, 0], true, true], 'Juniper: one lot, as before');
   eq(await j.ev(`(() => { state.lotLayout = [[0, 0], [0, 1]]; state.lotSections = 2; buildLot(); return [stalls.length, stalls.every((s) => !s.lot)]; })()`), [192, true], 'old two-number layouts still mean the main lot');
   await j.page.close();
 
