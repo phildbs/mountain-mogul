@@ -196,6 +196,19 @@
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
         return { data: out, error: null };
       }
+      if (fn === 'match_join_late') { // take over a computer resort, or an empty slice, before the cut-off
+        const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
+        if (!L || L.status !== 'running') return { data: null, error: { message: 'this match isn\'t running' } };
+        if (L.day > (L.late_days ?? Math.floor(L.days / 4))) return { data: null, error: { message: 'it\'s too late to join this match' } };
+        if (P.some((p) => p.lobby_id === L.id && p.user_id === me)) return { data: null, error: { message: 'already in this match' } };
+        const comp = P.find((p) => p.lobby_id === L.id && !p.user_id);
+        if (comp) { Object.assign(comp, { user_id: me, resort_name: String(args.rname).slice(0, 40), joined_day: L.day }); put(d); return { data: comp.slot, error: null }; }
+        const free = [...Array(L.slots).keys()].filter((s) => !P.some((p) => p.lobby_id === L.id && p.slot === s));
+        if (!free.length) return { data: null, error: { message: 'this match is full' } };
+        P.push({ lobby_id: L.id, slot: free[0], user_id: me, resort_name: String(args.rname).slice(0, 40), joined_day: L.day }); put(d);
+        return { data: free[0], error: null };
+      }
       if (fn === 'match_join' || fn === 'match_leave') {
         const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);
         if (fn === 'match_leave') { m.players = P.filter((p) => !(p.lobby_id === args.lid && p.user_id === me && L && L.status === 'open')); put(d); return { data: null, error: null }; }

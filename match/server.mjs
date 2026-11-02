@@ -46,7 +46,8 @@ async function startLobby(db, game, lobby) {
   const players = await db.select('match_players', { lobby_id: lobby.id });
   if (!players.some((p) => p.user_id)) { await db.update('match_lobbies', { id: lobby.id }, { status: 'closed' }); log(`${lobby.name}: nobody joined, closed`); return; }
   const taken = new Set(players.map((p) => p.slot)), extra = [];
-  for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
+  // Empty slices get computer resorts, unless the lobby keeps them empty until someone joins.
+  if (lobby.computers !== false) for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
   if (extra.length) await db.insert('match_players', extra);
   const all = [...players, ...extra].sort((a, b) => a.slot - b.slot), rows = [];
   let wx = null;
@@ -70,10 +71,31 @@ async function startLobby(db, game, lobby) {
 async function playDay(db, game, lobby) {
   const day = lobby.day + 1, t0 = Date.now();
   const resorts = (await db.select('match_resorts', { lobby_id: lobby.id })).sort((a, b) => a.slot - b.slot);
+  const players = await db.select('match_players', { lobby_id: lobby.id }), joins = [];
+  // Late joiners on an empty slice start a fresh resort tonight.
+  for (const p of players) if (p.user_id && !resorts.some((r) => r.slot === p.slot))
+    resorts.push({ lobby_id: lobby.id, slot: p.slot, day: lobby.day, save: null, summary: { name: p.resort_name, computer: true, fresh: true, start: 0, profit: 0, guests: 0, passes: 0, turnedAway: 0, cap: null } });
+  resorts.sort((a, b) => a.slot - b.slot);
   const pages = [];
   try {
     for (const r of resorts) pages.push(await openResort(game, r.save, r.summary.name));
-    await setWeather(pages.slice(1), await weatherOf(pages[0]));
+    const ref = resorts.findIndex((r) => r.save);
+    await setWeather(pages.filter((_, k) => k !== ref), await weatherOf(pages[ref]));
+    // A player who joined late: they take over a computer resort (or the fresh one above) tonight, with a
+    // catch-up investment in cash for the days they missed. Profit so far stays, unless the lobby says otherwise.
+    for (const [k, r] of resorts.entries()) {
+      const p = players.find((q) => q.slot === r.slot);
+      if (!p || !p.user_id || !r.summary.computer) continue;
+      if (r.summary.fresh) await pages[k].ev(`(() => { const ns = ${JSON.stringify(await pages[ref].ev('Array.from(NS)'))}; for (let i = 0; i < NS.length; i++) NS[i] = ns[i];
+        state.day = ${await pages[ref].ev('state.day')}; refreshSnowState(todayWx()); })()`);
+      const bonus = Math.min(lobby.late_bonus_cap ?? 1000000, (lobby.late_bonus ?? 15000) * (p.joined_day || 0));
+      if (bonus) await pages[k].ev(`state.cash += ${bonus}`);
+      const was = r.summary.name, fresh = r.summary.fresh;
+      Object.assign(r.summary, { name: p.resort_name, computer: false, fresh: undefined, joinedDay: p.joined_day || 0, bonus });
+      if (!fresh && lobby.keep_profit === false) Object.assign(r.summary, { profit: 0, guests: 0, passes: 0, turnedAway: 0 });
+      await pages[k].ev(`state.resortName = ${JSON.stringify(p.resort_name)}`);
+      joins.push(`${p.resort_name} ${fresh ? 'has joined on the empty slice' : `has taken over ${was}`} on day ${p.joined_day || 0}${bonus ? `, with a catch-up investment of ${dollars(bonus)}` : ''}. Welcome!`);
+    }
     // Overnight: each player's orders, in the order they were sent.
     const orders = await db.select('match_orders', { lobby_id: lobby.id, applied_day: ['is', null] }, 'id.asc');
     const done = [];
@@ -82,7 +104,7 @@ async function playDay(db, game, lobby) {
       if (mine.length) done.push(...await pages[k].ev(pageOrders(mine)));
     }
     for (const o of done) await db.update('match_orders', { id: o.id }, { applied_day: day, error: o.ok ? null : o.error });
-    const said = [];
+    const said = [...joins];
     for (const o of orders) {
       const d = done.find((x) => x.id === o.id), who = resorts.find((r) => r.slot === o.slot)?.summary.name;
       if (!d || !d.ok || !who) continue;

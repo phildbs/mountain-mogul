@@ -394,6 +394,11 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   Six reaction emoji, reports, private mutes, admin_chat_reports / hide / ban. match_join now filters resort names.
   Server posts news (start, builds, ticket changes, powder days, final standings). 31 checks in tests/sql/match-chat.sql.
 - Name (Phil, Nov 2): multiplayer is called **King of the Mountain** (title card and window).
+- Late joining (Phil, Nov 2): `supabase/match-late.sql` (DRAFT until Phil runs it; 13 checks in tests/sql/match-late.sql).
+  Per-lobby settings: `computers` (fill empty slices, or leave them dormant until someone joins), `keep_profit` (a
+  takeover keeps the computer's season profit, or starts at $0), `late_days` (cut-off; default a quarter of the
+  match), `late_bonus` $15,000 a missed day up to `late_bonus_cap` $1M, paid as cash (not profit) by the server at the
+  next overnight. match_join_late takes a computer slot first, else an empty one. Server-test covers both kinds.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude

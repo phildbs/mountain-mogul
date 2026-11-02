@@ -57,6 +57,31 @@ try {
   ok(said.some((b) => /has started/.test(b)) && said.some((b) => /Aspen Bowl opened a new lift/.test(b)) && said.some((b) => /ticket at \$55/.test(b)) && said.some((b) => /^Final standings/.test(b)), `the match posts its news (${said.length} messages)`);
   await tick(db, game, T0 + 5 * H);
   ok(L().day === 3, 'a finished match plays no more');
+
+  // Late joiners. Late Cup has computers and resets profit on a takeover; Quiet Cup has no computers at all.
+  const T1 = T0 + 10 * H;
+  await db.insert('match_lobbies', [
+    { id: 'L3', name: 'Late Cup', map: 'match', slots: 3, starts_at: new Date(T1).toISOString(), days: 4, day_minutes: 60, status: 'open', day: 0, prize: null, computers: true, keep_profit: false, late_bonus: 15000, late_bonus_cap: 1000000 },
+    { id: 'L4', name: 'Quiet Cup', map: 'match', slots: 3, starts_at: new Date(T1).toISOString(), days: 4, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true, late_bonus: 15000, late_bonus_cap: 1000000 }]);
+  await db.insert('match_players', [{ lobby_id: 'L3', slot: 0, user_id: U1, resort_name: 'First Hill' }, { lobby_id: 'L4', slot: 0, user_id: U1, resort_name: 'Lonely Hill' }]);
+  await tick(db, game, T1 + 60000);
+  const rows = (l) => db.tables.match_resorts.filter((r) => r.lobby_id === l).sort((a, b) => a.slot - b.slot);
+  ok(rows('L3').length === 3 && rows('L4').length === 1, 'computers fill Late Cup; Quiet Cup leaves its empty slices empty');
+  await tick(db, game, T1 + 2 * H + 60000); // days 1 and 2
+  const comp = rows('L3').find((r) => r.slot === 1), before = { profit: comp.summary.profit, cash: comp.summary.cash, name: comp.summary.name };
+  ok(before.profit !== 0, `the computer resort has made some money by day 2 (${before.profit})`);
+  // Two players join on day 2 (as match_join_late does): one takes over a computer resort, one an empty slice.
+  Object.assign(db.tables.match_players.find((p) => p.lobby_id === 'L3' && p.slot === 1), { user_id: U2, resort_name: 'Powder Palace', joined_day: 2 });
+  await db.insert('match_players', [{ lobby_id: 'L4', slot: 2, user_id: U2, resort_name: 'Quiet Bowl', joined_day: 2 }]);
+  await tick(db, game, T1 + 3 * H + 60000); // day 3
+  const took = rows('L3').find((r) => r.slot === 1).summary, fresh = rows('L4').find((r) => r.slot === 2);
+  ok(took.name === 'Powder Palace' && !took.computer && took.joinedDay === 2, 'the late joiner takes over the computer resort under their own name');
+  ok(took.bonus === 30000 && took.cash > before.cash, `with a catch-up investment of $15,000 a missed day (${took.bonus})`);
+  ok(Math.abs(took.profit) < Math.abs(before.profit) + 20000 && took.profit === took.last.profit, `Late Cup resets their profit to the day they joined (${took.profit})`);
+  ok(fresh && fresh.save && fresh.summary.name === 'Quiet Bowl' && fresh.summary.lifts === 0 && fresh.summary.bonus === 30000, 'in Quiet Cup the joiner gets the empty slice, fresh, with the investment');
+  ok(fresh.save.clock.day === rows('L4')[0].save.clock.day && JSON.stringify(fresh.save.clock.wx) === JSON.stringify(rows('L4')[0].save.clock.wx), 'on the same day and forecast as everyone else');
+  const lateSaid = db.tables.match_messages.filter((m) => m.lobby_id === 'L3' || m.lobby_id === 'L4').map((m) => m.body);
+  ok(lateSaid.some((b) => /Powder Palace has taken over Valley View on day 2, with a catch-up investment of \$30,000/.test(b)) && lateSaid.some((b) => /Quiet Bowl has joined on the empty slice/.test(b)), 'the chat announces them');
 } finally {
   await game.close();
 }

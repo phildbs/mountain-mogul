@@ -20581,7 +20581,7 @@ const mpErr = (e) => { const m = String((e && e.message) || 'Something went wron
 async function loadMp() {
   if (!CLOUD.sb || CLOUD.status === 'offline') { MP.err = 'Multiplayer needs the internet. Check your connection and try again.'; renderMp(); return; }
   try {
-    const { data: lob, error } = await CLOUD.sb.from('match_lobbies').select('id,name,map,slots,starts_at,days,day_minutes,status,day,prize')
+    const { data: lob, error } = await CLOUD.sb.from('match_lobbies').select('*')
       .in('status', ['open', 'running', 'finished']).order('starts_at', { ascending: false }).limit(40);
     if (error) throw error;
     const ids = (lob || []).map((l) => l.id);
@@ -20591,6 +20591,12 @@ async function loadMp() {
     MP.lobbies = lob || []; MP.players = p.data || []; MP.resorts = r.data || []; MP.err = '';
   } catch (e) { MP.err = 'Couldn’t load the lobbies. Try again in a moment.'; }
   renderMp();
+}
+// The resort name form, for joining an open lobby or (late) a running match.
+function joinForm(l, note, late) {
+  return `<form class="mp-join" data-id="${l.id}"${late ? ' data-late="1"' : ''}><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
+    + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">${esc(note)}</span>`
+    + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : late ? 'Join now' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
 }
 function renderMp() {
   if ($('mpModal').hidden) return;
@@ -20631,17 +20637,23 @@ function renderMp() {
     const full = inL(l).length >= l.slots;
     let act = full ? '<span class="help">Full</span>' : guest ? '<button class="btn secondary" type="button" data-mp="signin">Sign in to join</button>'
       : active >= 3 ? '<span class="help">You’re already in three matches.</span>' : `<button class="btn secondary" type="button" data-mp="pick" data-id="${l.id}">Join</button>`;
-    if (MP.joinFor === l.id && !full && !guest) {
-      act = `<form class="mp-join" data-id="${l.id}"><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
-        + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">You’ll get a random slice of the mountain. You can leave until the match starts.</span>`
-        + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
-    }
+    if (MP.joinFor === l.id && !full && !guest) act = joinForm(l, 'You’ll get a random slice of the mountain. You can leave until the match starts.');
     return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${l.prize ? `<div class="mp-sub">Prize: the “${esc(l.prize)}” badge</div>` : ''}<div class="mp-acts">${act}</div></li>`;
   }).join('')}</ul>` : '<p class="help">No open lobbies right now. New matches are announced here, so check back soon.</p>';
   h += '</section>';
-  // Matches being played now that you're not in.
+  // Matches being played now that you're not in. Until the cut-off (the first quarter, unless the lobby says
+  // otherwise) you can still join: you take over a computer resort, or an empty slice, with a catch-up investment.
   const live = L.filter((l) => l.status === 'running' && !mine(l));
-  if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${league(l, -1)}<div class="mp-acts"><button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">Watch</button></div></li>`).join('')}</ul></section>`;
+  const lateEnd = (l) => (l.late_days ?? Math.floor(l.days / 4)), lateRoom = (l) => inL(l).some((p) => !p.user_id) || inL(l).length < l.slots;
+  if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => {
+    const canLate = l.day <= lateEnd(l) && lateRoom(l), bonus = Math.min(l.late_bonus_cap ?? 1000000, (l.late_bonus ?? 15000) * l.day);
+    const takes = inL(l).some((p) => !p.user_id) ? 'take over a computer resort' : 'start on an empty slice';
+    let act = `<button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">Watch</button>`;
+    if (canLate) act += guest ? '<button class="link" type="button" data-mp="signin">Sign in to join</button>' : active >= 3 ? '' : `<button class="link" type="button" data-mp="pick" data-id="${l.id}">Join now</button>`;
+    if (canLate && MP.joinFor === l.id && !guest) act = joinForm(l, `You’ll ${takes}${bonus ? `, with a catch-up investment of ${money(bonus)} for the days you missed` : ''}${l.keep_profit === false || !inL(l).some((p) => !p.user_id) ? '. Your profit counts from today' : ''}.`, true);
+    const late = canLate ? `<div class="mp-sub">Still time to join, until day ${lateEnd(l)}${bonus ? `: catch-up investment ${money(bonus)}` : ''}</div>` : '';
+    return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${late}${league(l, -1)}<div class="mp-acts">${act}</div></li>`;
+  }).join('')}</ul></section>`;
   h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every half hour, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
   const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName';
   $('mpBody').innerHTML = h;
@@ -20828,12 +20840,12 @@ $('mpModal').addEventListener('submit', async (e) => {
   MP.joinName = name;
   if (!name) { MP.joinErr = 'Give your resort a name first.'; renderMp(); return; }
   MP.busy = true; MP.joinErr = ''; renderMp();
-  const { error } = await CLOUD.sb.rpc('match_join', { lid: f.dataset.id, rname: name });
+  const { error } = await CLOUD.sb.rpc(f.dataset.late ? 'match_join_late' : 'match_join', { lid: f.dataset.id, rname: name });
   MP.busy = false;
   if (error) { MP.joinErr = mpErr(error); renderMp(); return; }
   const l = (MP.lobbies || []).find((x) => x.id === f.dataset.id);
   MP.joinFor = null;
-  toast(`You’re in${l ? ` ${l.name}` : ''}!${l ? ` It starts ${mpAt(l.starts_at)}.` : ''}`);
+  toast(f.dataset.late ? `You’re in${l ? ` ${l.name}` : ''}! Your resort is ready after tonight’s overnight.` : `You’re in${l ? ` ${l.name}` : ''}!${l ? ` It starts ${mpAt(l.starts_at)}.` : ''}`);
   loadMp();
 });
 $('cmMe').addEventListener('submit', async (e) => {

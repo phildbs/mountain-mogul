@@ -13,7 +13,7 @@ export default async function ({ browser, url }) {
       { lobby_id: 'L2', slot: 0, user_id: null, resort_name: 'Summit Ridge' }, { lobby_id: 'L2', slot: 1, user_id: 'user-B', resort_name: 'Phil’s Peak' }, { lobby_id: 'L2', slot: 2, user_id: null, resort_name: 'Valley View' },
       { lobby_id: 'L3', slot: 2, user_id: 'user-B', resort_name: 'Old Peak' }, { lobby_id: 'L3', slot: 0, user_id: 'u-y', resort_name: 'Winner Hill' },
       ...[0, 1, 2].map((s) => ({ lobby_id: 'L4', slot: s, user_id: `u-f${s}`, resort_name: `Full ${s}` })),
-      { lobby_id: 'L5', slot: 0, user_id: 'u-z', resort_name: 'Busy Bowl' }],
+      { lobby_id: 'L5', slot: 0, user_id: 'u-z', resort_name: 'Busy Bowl' }, { lobby_id: 'L5', slot: 1, user_id: null, resort_name: 'Valley View' }],
     resorts: [{ lobby_id: 'L2', slot: 0, day: 13, summary: { name: 'Summit Ridge', profit: 45315 } }, { lobby_id: 'L2', slot: 1, day: 13, summary: { name: 'Phil’s Peak', profit: 44000 } },
       { lobby_id: 'L2', slot: 2, day: 13, summary: { name: 'Valley View', profit: 37327 } }, { lobby_id: 'L3', slot: 0, day: 168, summary: { name: 'Winner Hill', profit: 900000 } },
       { lobby_id: 'L3', slot: 2, day: 168, summary: { name: 'Old Peak', profit: 500000 }, save: { big: true } }, { lobby_id: 'L5', slot: 0, day: 3, summary: { name: 'Busy Bowl', profit: 1200 } }],
@@ -62,6 +62,17 @@ export default async function ({ browser, url }) {
   await g.page.waitForFunction(() => !/Powder Palace/.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 });
   const left = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.players.filter((p) => p.lobby_id === 'L1').length);
   eq(left, 1, 'you can leave before the start');
+
+  // Join a match that's already running (Spring Cup, day 3 of 168): take over a computer resort.
+  t = await body();
+  assert(/Spring Cup[\s\S]*Still time to join, until day 42: catch-up investment \$45,000/.test(t), `a running match early on can still be joined (${t.slice(-600)})`);
+  assert(!/Test Cup[\s\S]{0,200}Still time to join/.test(t), 'not one you’re already in');
+  await g.page.click('[data-mp=pick][data-id=L5]');
+  assert(/take over a computer resort, with a catch-up investment of \$45,000/.test(await body()), 'Join now explains the takeover and the investment');
+  await g.page.fill('#mpName', 'Late Lodge'); await g.page.click('.mp-join button[type=submit]');
+  await g.page.waitForFunction(() => /Your matches[\s\S]*Spring Cup[\s\S]*Late Lodge/i.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 });
+  const took = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.players.find((p) => p.lobby_id === 'L5' && p.user_id === 'user-B'));
+  eq([took.slot, took.resort_name, took.joined_day], [1, 'Late Lodge', 3], 'you take over the computer resort on the day you join');
 
   // On a phone: no sideways scrolling.
   await g.page.setViewportSize({ width: 390, height: 844 }); await g.wait(400);
