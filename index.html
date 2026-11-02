@@ -18802,6 +18802,32 @@ let refPhoto = '', refPhotoError = '', refChoosingPhoto = false, refPhotoFor = '
 let refState = { available: false, friends: [], claimed: 0, qualified: 0 }, refMode = 'progress', refClaimBusy = false;
 const REF_KEY = 'mm.invitation';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Where a new player came from, for the stats page: a tag on the link (?src=reddit, or utm_source), the name of
+// the site that linked here (never the full address), or a friend invitation. Noted on the first visit on this
+// device and kept until the server has it; the server ignores accounts that were already playing.
+const SOURCE_KEY = 'mm.source';
+let pendingSource = (() => {
+  const q = new URLSearchParams(location.search), keys = [...q.keys()].filter((k) => k === 'src' || k.startsWith('utm_'));
+  const s = { src: (q.get('src') || q.get('utm_source') || '').trim().slice(0, 40), campaign: (q.get('utm_campaign') || '').trim().slice(0, 60), host: '', invite: UUID_RE.test(q.get('ref') || ''), app: matchMedia('(display-mode: standalone)').matches };
+  if (keys.length) { keys.forEach((k) => q.delete(k)); history.replaceState(null, '', location.pathname + (q.size ? '?' + q : '') + location.hash); }
+  try {
+    const old = localStorage.getItem(SOURCE_KEY);
+    if (old) return old === 'sent' ? null : JSON.parse(old);
+  } catch (e) { return null; } // without storage a first visit can't be told from a return
+  try { s.host = document.referrer ? new URL(document.referrer).hostname.replace(/^www\./, '').slice(0, 80) : ''; } catch (e) { /* none */ }
+  if (s.host === location.hostname.replace(/^www\./, '')) s.host = '';
+  try { localStorage.setItem(SOURCE_KEY, JSON.stringify(s)); } catch (e) { /* send it this time only */ }
+  return s;
+})();
+async function sendSource() {
+  if (!pendingSource || !CLOUD.sb || !CLOUD.uid || REFERRAL_PREVIEW) return;
+  try {
+    const { error } = await CLOUD.sb.rpc('record_source', pendingSource);
+    if (error) return; // try again next visit
+    pendingSource = null;
+    try { localStorage.setItem(SOURCE_KEY, 'sent'); } catch (e) { /* ignore */ }
+  } catch (e) { /* try again next visit */ }
+}
 // Keep the first invitation through sign-in and mountain reloads; never replace its attribution.
 let pendingReferral = (() => {
   if (REFERRAL_PREVIEW) return null;
@@ -19247,6 +19273,7 @@ async function initCloud() {
     }
     setSession(session);
     await acceptReferralLink();
+    sendSource();
     readAuthReturn();
     CLOUD.status = 'live';
     CLOUD.ready = true;
@@ -19769,6 +19796,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.78', date: 'Nov 2, 2026', title: 'How players find us', items: ['The first time you play, the game now notes how you found it: the name of the website that sent you (like Reddit or YouTube), a tag on the link, or a friend’s invitation. Never the full web address, and nothing about what you did there.', 'It helps us see where new players come from, so we know where to share the game. Nothing changes in how you play.'] },
   { v: '2.77.3', date: 'Nov 1, 2026', title: 'Fewer ticket refunds', small: true, items: ['Sorry, everyone: a bug was costing resorts money every day. Some guests bought a ticket, spent the morning renting skis, taking a lesson or having lunch, then went home at their planned time without a single run and got a refund. Guests who haven’t had a run yet now stay on until they’ve skied, so you keep that ticket money.', 'Guests who arrive late in the morning now plan to ski for at least a couple of hours, instead of leaving soon after they park.', 'Thanks to the player who reported it.'] },
   { v: '2.77.2', date: 'Nov 1, 2026', title: 'Music counts', items: ['Your online save now notes whether you have music on, and whether you’ve ever turned it on, so we can see how many players enjoy the soundtrack. Nothing changes in how music plays.'] },
   { v: '2.77.1', date: 'Nov 1, 2026', title: 'Guests use every lot', small: true, items: ['Thanks for the feedback! With more than one parking lot, guests now spread across all of them from the morning, instead of filling the main lot first.', 'Guests still lean toward the lot whose lifts and runs suit them best, and emptier lots draw more cars, so your lots fill up together.'] },

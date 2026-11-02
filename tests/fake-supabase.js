@@ -137,6 +137,13 @@
           return { data: { mountain: row.id, credit: r.balances[row.id], paid: true }, error: null };
         }
       }
+      // record_source: one row per account, kept from the first call (the real one also skips old accounts)
+      if (fn === 'record_source') {
+        if (!me) return { data: null, error: { code: '42501', message: 'not signed in' } };
+        const src = d.sources || (d.sources = {});
+        if (!src[me]) { src[me] = { ...args, src: String(args.src || '').toLowerCase() }; put(d); }
+        return { data: true, error: null };
+      }
       if (fn === 'social_counts') {
         return { data: d.rows.filter((r) => r.public || r.owner === me).map((r) => ({ mountain_id: r.id,
           likes: (d.likes || []).filter((l) => l.mountain_id === r.id).length, visits: (d.visits || []).filter((v) => v.mountain_id === r.id).length })), error: null };

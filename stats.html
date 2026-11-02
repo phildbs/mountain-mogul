@@ -221,6 +221,7 @@ details > summary { cursor: pointer; }
     render(data, got(er, 'admin_errors'), got(rx, 'admin_reactions'), got(pl, 'admin_players'), got(fb, 'admin_feedback'));
     loadCohorts();
     loadRetention();
+    loadSources();
   }
 
   async function loadRetention() {
@@ -267,6 +268,44 @@ details > summary { cursor: pointer; }
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-cunit]');
     if (b) { cohortUnit = b.dataset.cunit; loadCohorts(); }
+  });
+  // Where new players came from: a tag on the link (?src=…), the site that linked them, or a friend invitation.
+  // Sites and tags are named here, so a new one just needs a line in SITES.
+  const SITES = [[/reddit|^redd\.it$/, 'Reddit'], [/youtube|^youtu\.be$/, 'YouTube'], [/^com\.google\.android\.gm$/, 'Gmail'], [/google/, 'Google'], [/bing/, 'Bing'],
+    [/duckduckgo/, 'DuckDuckGo'], [/yahoo/, 'Yahoo'], [/facebook|^fb\.|^m\.facebook|messenger/, 'Facebook'], [/instagram/, 'Instagram'], [/tiktok/, 'TikTok'],
+    [/^t\.co$|twitter|^x\.com$/, 'X (Twitter)'], [/discord/, 'Discord'], [/itch\.io$|^itch$/, 'itch.io'], [/mossquake/, 'MossQuake.com'], [/github|githack/, 'GitHub'],
+    [/crazygames/, 'CrazyGames'], [/poki/, 'Poki'], [/newgrounds/, 'Newgrounds'], [/bluesky|bsky/, 'Bluesky'], [/chatgpt|openai/, 'ChatGPT'], [/claude\.ai/, 'Claude']];
+  const siteName = (x) => (SITES.find(([re]) => re.test(x)) || [])[1];
+  const sourceOf = (g) => g.invite ? 'Friend invitation' : g.src ? `${siteName(g.src) || g.src[0].toUpperCase() + g.src.slice(1)}${g.campaign ? ` · ${g.campaign}` : ''}` : g.host ? siteName(g.host) || g.host : 'Direct or unknown';
+  let sourceDays = 30;
+  try { const v = localStorage.getItem('mm.stats.sourceDays'); if (v) sourceDays = v === 'all' ? null : Number(v); } catch (e) { /* the default */ }
+  async function loadSources() {
+    const el = $('sources'); if (!el) return;
+    const { data, error } = await sb.rpc('admin_sources', { days: sourceDays });
+    const head = `<div class="head"><h2>Where players come from</h2><div class="range" role="group" aria-label="Players who arrived in">${[[7, '7 days'], [30, '30 days'], [null, 'All']].map(([d, l]) => `<button data-sdays="${d ?? 'all'}" aria-pressed="${sourceDays === d}">${l}</button>`).join('')}</div></div>`;
+    if (error) { el.innerHTML = `${head}<p class="note">${/admin_sources/.test(error.message) ? 'Not set up yet. Run <b>supabase/sources.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(error.message)}</span>`}</p>`; return; }
+    const by = new Map();
+    for (const g of data.groups || []) {
+      const k = sourceOf(g), t = by.get(k) || { name: k, players: 0, lift: 0, opened: 0, season2: 0, returned: 0, old_enough: 0, hosts: new Set() };
+      for (const f of ['players', 'lift', 'opened', 'season2', 'returned', 'old_enough']) t[f] += Number(g[f]) || 0;
+      if (g.host) t.hosts.add(g.host);
+      by.set(k, t);
+    }
+    const rows = [...by.values()].sort((a, b) => b.players - a.players), total = rows.reduce((n, r) => n + r.players, 0);
+    const cell = (n, of) => { if (!of) return '<td class="num note">–</td>'; const p = Math.round(n / of * 100); return `<td class="num"><span class="cpct" style="--p:${p}%">${p}%</span><small>${num(n)}</small></td>`; };
+    el.innerHTML = `${head}<p class="note">How new players found the game, from their first visit, and how far they got. Came back: played again on a later day (players from the last day aren’t counted yet).</p>
+      <div class="scroll"><table class="cohorts"><thead><tr><th>Source</th><th class="num">Players</th><th class="num">Built a lift</th><th class="num">Opened a day</th><th class="num">Season 2</th><th class="num">Came back</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td title="${esc([...r.hosts].join(', '))}"><b>${esc(r.name)}</b><small>${pct(r.players, total)} of players</small></td><td class="num">${num(r.players)}</td>${cell(r.lift, r.players)}${cell(r.opened, r.players)}${cell(r.season2, r.players)}${cell(r.returned, r.old_enough)}</tr>`).join('') || `<tr><td colspan="6" class="note">No new players recorded ${sourceDays ? `in the last ${sourceDays} days` : 'yet'}.</td></tr>`}</tbody></table></div>
+      <details class="small"><summary>Tagging your own links, and what “Direct” means</summary>
+        <p class="note">Add a tag to links you post, like <b>mtmogul.com/?src=reddit</b> or <b>?src=youtube-trailer</b>. The tag shows here as the source, even from apps that hide where a link came from. The game tidies it off the address after the first visit.</p>
+        <p class="note"><b>Direct or unknown</b> covers typing the address, bookmarks, and apps that don’t say where a link came from (Discord, Messages and many phone apps). Only players since ${data.since ? esc(new Date(data.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) : 'tracking starts'} are counted.${Number(data.unrecorded) ? ` ${num(data.unrecorded)} new accounts in this period have no source: their first visit was on an older version or offline.` : ''}</p></details>`;
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sdays]');
+    if (!b) return;
+    sourceDays = b.dataset.sdays === 'all' ? null : Number(b.dataset.sdays);
+    try { localStorage.setItem('mm.stats.sourceDays', b.dataset.sdays); } catch (err) { /* fine */ }
+    loadSources();
   });
   // Music on vs off, per player, from their latest online save. Saves only carry it from 2.77.2, so it fills in as people play.
   function musicTiles(m) {
@@ -316,6 +355,7 @@ details > summary { cursor: pointer; }
           <section class="card"><h2>How far players get</h2><p class="note">Share of everyone who opened the game.</p>${bars(funnel, d.visitors)}</section>
           <section class="card"><h2>Mountains picked</h2><p class="note">${num(nBuilt)} resorts with at least one lift${built ? `, not counting ${num(d.mountains - nBuilt)} where nothing was built` : ''}.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
         </div>
+        <section class="card" id="sources"><h2>Where players come from</h2><p class="note">Loading…</p></section>
         <section class="card" id="retention"><h2>Player retention</h2><p class="note">Loading…</p></section>
         <section class="card" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
       </div>
