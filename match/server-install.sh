@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs (or updates) the match server on a fresh Ubuntu 24.04 machine and keeps it running.
 # Needs /etc/mm-match.env with SUPABASE_URL and SUPABASE_SERVICE_KEY (the key lives only there, never in the repo).
-# Progress and the server's log: http://<server IP>/server.log
+# Progress and the server's log: http://<server IP>/server.txt
 set -e
 BRANCH=${BRANCH:-ccr-373e923a-qdafh9}
 export DEBIAN_FRONTEND=noninteractive
@@ -10,6 +10,7 @@ apt-get install -y git python3
 if [ -d /opt/mm/.git ]; then git -C /opt/mm fetch --depth 1 origin "$BRANCH" && git -C /opt/mm reset --hard FETCH_HEAD
 else git clone --depth 1 --branch "$BRANCH" https://github.com/phildbs/mountain-mogul /opt/mm; fi
 mkdir -p /opt/mm/match/out
+ln -sf server.log /opt/mm/match/out/server.txt # the same log, opened as text in a browser instead of downloaded
 (cd /opt/mm/tests && npm install && npx playwright install --with-deps chromium)
 chmod 600 /etc/mm-match.env 2>/dev/null || true
 cat > /etc/systemd/system/mm-match.service <<'EOF'
