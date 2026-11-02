@@ -1498,6 +1498,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="panel visitbar" id="visitBar" hidden>
       <span id="visitText"></span>
       <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
+      <button class="btn secondary" id="visitLeague" hidden>Standings</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
 
@@ -6993,7 +6994,7 @@ function select(feat) {
   if (feat && feat.kind === 'resort') feat = { kind: 'manage', obj: RESORT_TAB_PANEL[resortTab] || 'prices' };
   if (feat && feat.kind === 'weather') feat = { kind: 'manage', obj: 'snow' };
   if (feat && feat.kind === 'manage' && visiting && !VISIT_MANAGE.includes(feat.obj)) feat = { kind: 'manage', obj: 'money' };
-  if (visiting && feat && feat.kind !== 'manage') return; // visits are read only: the lists, snow and finances
+  if (visiting && feat && feat.kind !== 'manage' && feat.kind !== 'match') return; // visits are read only: the lists, snow and finances (and a match's standings)
   if (feat && feat.kind === 'manage') lastManage = feat.obj;
   listBack = null;
   const prev = selected;
@@ -7040,7 +7041,7 @@ function renderSheet() {
   else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'midstn') html = midToolSheet();
-  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet })[selected.kind](selected.obj);
+  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
   syncBizFly();
@@ -20057,6 +20058,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -20152,7 +20154,8 @@ async function initCloud() {
     await loadProfile();
     await settleAccount();
     offerCloudSave();
-    if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
+    if (BOOT.then && BOOT.then.match) openMatch(BOOT.then.match);
+    else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
     else loadPeek(true);
     refreshCommunity();
@@ -20603,7 +20606,7 @@ function renderMp() {
       const p = mine(l), t = table(l), place = t.findIndex((r) => r.slot === p.slot) + 1;
       let body = `<div class="mp-when">You’re <b>${esc(p.resort_name)}</b>${place && l.status !== 'open' ? ` · ${l.status === 'finished' ? 'you came' : 'now'} <b>${mpPlace(place)}</b> of ${t.length}` : ''}</div><div class="mp-when">${when(l)}</div>`;
       if (l.status !== 'open' && t.length) body += league(l, p.slot);
-      if (l.status === 'running') body += '<p class="help">The match screen, where you build and watch your day, is coming soon.</p>';
+      if (l.status !== 'open') body += `<div class="mp-acts"><button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">${l.status === 'running' ? 'Go to your resort' : 'Look back'}</button></div>`;
       if (l.status === 'open') body += `<div class="mp-acts"><button class="link" type="button" data-mp="leave" data-id="${l.id}">Leave this lobby</button></div>`;
       return `<li class="mp-card">${head(l)}${body}</li>`;
     }).join('')}</ul>` : '<p class="help">You’re not in a match yet. Join an open lobby below.</p>';
@@ -20627,7 +20630,7 @@ function renderMp() {
   h += '</section>';
   // Matches being played now that you're not in.
   const live = L.filter((l) => l.status === 'running' && !mine(l));
-  if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${league(l, -1)}</li>`).join('')}</ul></section>`;
+  if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${league(l, -1)}<div class="mp-acts"><button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">Watch</button></div></li>`).join('')}</ul></section>`;
   h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every half hour, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
   const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName';
   $('mpBody').innerHTML = h;
@@ -20654,12 +20657,122 @@ $('mpModal').addEventListener('click', async (e) => {
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
     renderMp(); if ($('mpName')) $('mpName').focus();
   } else if (what === 'cancel') { MP.joinFor = null; renderMp(); }
+  else if (what === 'open') openMatch(b.dataset.id);
   else if (what === 'leave') {
     const { error } = await CLOUD.sb.rpc('match_leave', { lid: b.dataset.id });
     if (error) toast(mpErr(error), true); else toast('You’ve left the lobby.');
     loadMp();
   }
 });
+/* ---------- Multiplayer: the match screen ----------
+   Your resort in a match, as the match server last saved it, read only for now (building comes next), with
+   your rivals' lifts, trails and buildings drawn on their slices of the mountain. Every player's game turns the
+   mountain so their own slice is in front: slice k sits k thirds of a turn round the summit, so a rival's
+   things turn by the difference between their slice and yours. Spectators watch from the first slice. */
+let matchView = null;
+const rivalGroup = new THREE.Group();
+scene.add(rivalGroup);
+async function openMatch(lid) {
+  if (!CLOUD.sb) return;
+  if (MOUNTAIN.id !== 'match') { if (!visiting && onThisMountain() && state.started) saveNow(); reloadInto({ match: lid }, 'match'); return; }
+  toast('Heading to the match…');
+  let lob, players, resorts;
+  try {
+    const [a, b, c] = await Promise.all([CLOUD.sb.from('match_lobbies').select('*').eq('id', lid).maybeSingle(),
+      CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name').eq('lobby_id', lid),
+      CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', lid)]);
+    if (a.error || b.error || c.error || !a.data) throw new Error('load');
+    lob = a.data; players = b.data || []; resorts = c.data || [];
+  } catch (e) { toast('Couldn’t load that match. Try again in a moment.', true); return; }
+  const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : 0, mine = resorts.find((r) => r.slot === slot);
+  if (!mine || !mine.save) { toast(lob.status === 'open' ? 'That match hasn’t started yet.' : 'That match’s resorts aren’t ready yet.', true); return; }
+  closeMp(); $('community').hidden = true; setTool('explore');
+  const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort';
+  visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid };
+  if (matchView) clearInterval(matchView.timer);
+  matchView = { lobby: lob, players, resorts, slot, me: !!me };
+  document.body.classList.add('visiting');
+  select(null);
+  applySave(mine.save);
+  $('resortName').textContent = name;
+  $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false;
+  $('visitHome').textContent = 'Back to title';
+  if (!state.started) startGame(null);
+  afterLoad();
+  drawRivals();
+  matchBar();
+  matchView.timer = setInterval(matchTick, 20000);
+}
+// Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
+// part of your resort, so your guests never ride a rival's lift.
+function drawRivals() {
+  for (const o of [...rivalGroup.children]) { rivalGroup.remove(o); if (o.userData.rival) o.geometry.dispose(); }
+  if (!matchView) return;
+  const [cu, cv] = CROWN.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
+  matchView.drawn = 0;
+  for (const r of matchView.resorts) {
+    if (r.slot === matchView.slot || !r.save || !r.save.world) continue;
+    const phi = (r.slot - matchView.slot) * 2 * Math.PI / CROWN.n, c = Math.cos(phi), sn = Math.sin(phi);
+    const turn = (p) => ({ x: cx + (p.x - cx) * c - (p.z - cz) * sn, z: cz + (p.x - cx) * sn + (p.z - cz) * c });
+    const w = r.save.world;
+    for (const L of w.lifts || []) {
+      try { const a = turn(L.a), b = turn(L.b), lay = liftLayout(a, b, L.type, L.mid && L.mid.s); rivalGroup.add(buildLiftVisual({ ...L, a, b }, lay, false)); matchView.drawn++; } catch (e) { /* skip one that won't draw */ }
+    }
+    for (const t of w.trails || []) {
+      try {
+        const pts = (t.pts || []).map(turn), hw = TRAIL_WIDTHS[t.width] ? TRAIL_WIDTHS[t.width].hw : 2, sm = trailSamples(pts, hw);
+        if (sm.length < 2) continue;
+        const col = RATINGS[analyzeTrail(sm).rating].col, pos = [], idx = [];
+        for (let i = 0; i < sm.length; i++) {
+          const p = sm[i], q = sm[Math.min(sm.length - 1, i + 1)], o = sm[Math.max(0, i - 1)], dx = q.x - o.x, dz = q.z - o.z, d = Math.hypot(dx, dz) || 1, nx = -dz / d * hw, nz = dx / d * hw;
+          pos.push(p.x + nx, heightAt(p.x + nx, p.z + nz) + 0.25, p.z + nz, p.x - nx, heightAt(p.x - nx, p.z - nz) + 0.25, p.z - nz);
+          if (i < sm.length - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+        }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: new THREE.Color(...col), transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+        m.userData.rival = true; rivalGroup.add(m); matchView.drawn++;
+      } catch (e) { /* skip */ }
+    }
+    for (const B of w.buildings || []) {
+      try { const p = turn(B), v = buildingVisual({ ...B, x: p.x, z: p.z }, false); v.group.rotation.y -= phi; rivalGroup.add(v.group); matchView.drawn++; } catch (e) { /* skip */ }
+    }
+  }
+  if (typeof renderer !== 'undefined' && renderer) renderer.shadowMap.needsUpdate = true;
+}
+const matchNext = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
+const matchTable = () => [...matchView.resorts].sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
+function matchBar() {
+  if (!matchView) return;
+  const l = matchView.lobby, t = matchTable(), place = t.findIndex((r) => r.slot === matchView.slot) + 1;
+  const when = l.status === 'finished' ? `finished after ${l.days} days` : l.day ? `day ${l.day} of ${l.days} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
+  $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${matchView.me ? `${mpPlace(place)} of ${t.length}` : `watching <b>${esc(visiting.name)}</b>`} · ${when}`;
+  if (selected && selected.kind === 'match') renderSheet();
+}
+function matchSheet() {
+  const l = matchView.lobby, t = matchTable(), mine = (t.find((r) => r.slot === matchView.slot) || { summary: {} }).summary;
+  return `<div class="sheet-title"><h3>Standings</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">${esc(l.name)} on Crown Peak. The most season profit wins${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
+    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>
+    <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
+      <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
+    <p class="help">Building and changing prices from here comes next.</p>`;
+}
+// Every 20 seconds: the countdown, and a fresh copy of the match once the server has played another day.
+async function matchTick() {
+  if (!matchView || !visiting || !visiting.match) { if (matchView) clearInterval(matchView.timer); return; }
+  matchBar();
+  if (matchView.lobby.status !== 'running' || Date.now() < matchNext(matchView.lobby) + 15000) return;
+  const { data } = await CLOUD.sb.from('match_lobbies').select('*').eq('id', matchView.lobby.id).maybeSingle().then((r) => r, () => ({}));
+  if (!data || !matchView || data.day === matchView.lobby.day) return;
+  const { data: rs } = await CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', data.id).then((r) => r, () => ({}));
+  if (!rs || !matchView) return;
+  matchView.lobby = data; matchView.resorts = rs;
+  const mine = rs.find((r) => r.slot === matchView.slot);
+  if (mine && mine.save) { applySave(mine.save); afterLoad(); }
+  drawRivals(); matchBar();
+  toast(`Day ${data.day} is done. Tap Standings for the table.`);
+}
+$('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target.closest('.mp-join'); if (!f || MP.busy) return;

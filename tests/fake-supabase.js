@@ -75,8 +75,8 @@
         let rows = (m[key] || []).filter((r) => table !== 'match_lobbies' || r.status !== 'closed');
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
         for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
-        if (table === 'match_resorts') rows = rows.map(({ save, ...r }) => r); // the window never needs whole saves
-        return { data: rows, error: null };
+        if (table === 'match_resorts' && !q.cols.split(',').includes('save')) rows = rows.map(({ save, ...r }) => r); // only the columns asked for, like the real one
+        return { data: q.single ? rows[0] || null : rows, error: null };
       }
       if (table === 'featured') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
