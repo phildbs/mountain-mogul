@@ -1,0 +1,41 @@
+#cloud-config
+# Multiplayer step 2: sets up a fresh Ubuntu 24.04 server by itself on first boot (Hetzner "Cloud config").
+# It installs Node and Chromium, fetches the game from GitHub, plays a test match and times big resorts,
+# then shows the results at http://<server IP>/index.txt . No keys or passwords: it only reads the public repo,
+# and the test match uses the fake database, never the real one.
+package_update: true
+packages: [git, curl, python3]
+write_files:
+  - path: /etc/systemd/system/mm-results.service
+    content: |
+      [Unit]
+      Description=Mountain Mogul test results page
+      After=network-online.target
+      [Service]
+      ExecStart=/usr/bin/python3 -m http.server 80 --directory /opt/mm/match/out
+      Restart=always
+      [Install]
+      WantedBy=multi-user.target
+  - path: /opt/mm-run.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Plays the test match, then the catch-up timing, writing progress to the results page as it goes.
+      set -x
+      cd /opt/mm
+      mkdir -p match/out
+      O=match/out/index.txt
+      { echo "Mountain Mogul server test, started $(date -u)"; nproc; free -m; echo; } > $O
+      echo "== Test match: 4 players, 21 days ==" >> $O
+      PLAYERS=4 DAYS=21 node match/runner.mjs >> $O 2>&1
+      echo; echo "== Catch-up timing (ms per game day) ==" >> $O
+      (cd tests && DAYS=2 node catchup-bench.mjs) >> $O 2>&1
+      echo "Finished $(date -u)" >> $O
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+  - git clone --depth 1 --branch ccr-373e923a-qdafh9 https://github.com/phildbs/mountain-mogul /opt/mm
+  - mkdir -p /opt/mm/match/out && echo "Setting up... check back in about 10 minutes." > /opt/mm/match/out/index.txt
+  - systemctl daemon-reload && systemctl enable --now mm-results
+  - cd /opt/mm/tests && npm install && npx playwright install --with-deps chromium
+  - /opt/mm-run.sh
