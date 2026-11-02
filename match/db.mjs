@@ -11,7 +11,8 @@ export function restDb(url, key) {
   const call = async (method, path, body, prefer) => {
     const r = await fetch(base + path, { method, headers: { ...head, ...(prefer ? { Prefer: prefer } : {}) }, body: body ? JSON.stringify(body) : undefined });
     if (!r.ok) throw new Error(`${method} ${path.split('?')[0]}: ${r.status} ${(await r.text()).slice(0, 300)}`);
-    return r.status === 204 ? null : r.json();
+    const text = await r.text(); // a write with return=minimal answers 201 with no body at all
+    return text ? JSON.parse(text) : null;
   };
   return {
     select: (table, filters, order) => call('GET', `${table}?select=*${Object.keys(filters || {}).length ? '&' + qs(filters) : ''}${order ? `&order=${order}` : ''}`),

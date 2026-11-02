@@ -13,13 +13,16 @@ mkdir -p /opt/mm/match/out
 ln -sf server.log /opt/mm/match/out/server.txt # the same log, opened as text in a browser instead of downloaded
 (cd /opt/mm/tests && npm install && npx playwright install --with-deps chromium)
 chmod 600 /etc/mm-match.env 2>/dev/null || true
-cat > /etc/systemd/system/mm-match.service <<'EOF'
+cat > /etc/systemd/system/mm-match.service <<EOF
 [Unit]
 Description=Mountain Mogul match server
 After=network-online.target
 [Service]
 WorkingDirectory=/opt/mm
 EnvironmentFile=/etc/mm-match.env
+# Every start (and the server restarts itself when the branch moves) brings it up to date first.
+ExecStartPre=-/bin/sh -c 'git -C /opt/mm fetch -q --depth 1 origin $BRANCH && git -C /opt/mm reset -q --hard FETCH_HEAD && cd /opt/mm/tests && npm install --silent'
+Environment=MM_BRANCH=$BRANCH
 ExecStart=/usr/bin/node match/server.mjs
 StandardOutput=append:/opt/mm/match/out/server.log
 StandardError=append:/opt/mm/match/out/server.log

@@ -10,6 +10,8 @@
 //   - after the last day it ranks the resorts by season profit and gives badges to the top three players.
 // The games run in an invisible browser on the match map, which never saves anything itself.
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
 import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY } from './market.mjs';
 import { restDb } from './db.mjs';
@@ -127,8 +129,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!url || !key) { console.error('Set SUPABASE_URL and SUPABASE_SERVICE_KEY (see match/server-setup.yaml).'); process.exit(1); }
   const db = restDb(url, key), game = await startGame();
   log('match server running');
-  for (;;) {
+  // Updates: when the branch on GitHub moves on, stop between ticks; the service restarts us and pulls it first.
+  const branch = process.env.MM_BRANCH, git = (...a) => execFileSync('git', a, { cwd: dirname(fileURLToPath(import.meta.url)), encoding: 'utf8', timeout: 30000 }).trim();
+  const here = branch ? git('rev-parse', 'HEAD') : null;
+  for (let n = 0; ; n++) {
     await tick(db, game).catch((e) => log('tick failed:', e.stack || e));
+    if (branch && n % 5 === 4) {
+      try { const there = git('ls-remote', 'origin', branch).split(/\s/)[0]; if (there && there !== here) { log(`update found (${there.slice(0, 7)}), restarting`); await game.close(); process.exit(0); } }
+      catch (e) { log('update check failed:', e.message); }
+    }
     await new Promise((r) => setTimeout(r, 60000));
   }
 }
