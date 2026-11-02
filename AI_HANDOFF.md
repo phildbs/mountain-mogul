@@ -133,7 +133,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** 2.81 more decor on `ccr-98a8d455-sh9jl9`, waiting for Phil's preview feedback. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
@@ -154,6 +154,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-98a8d455-sh9jl9` | Claude | 2.81: trail map boards, string lights, holiday trees, floodlights (see Claude's Nov 2 decor note) | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -357,6 +358,22 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   `cold-snap.mp3` (Frostbite Peak, −3.7 dB, 2:54) and `last-run.mp3` (another Alpine Arcade take, −2 dB, 2:56). Then `apres-jam.mp3`
   (Pixel Jamboree, −2.3 dB, 2:52). Nine songs, about 24 minutes, Phil's full set for now. Match loudness with
   `-af volumedetect` (mean about −20 dB). Next song hides while there's only one. Scenario 133-music.
+
+### 2026-11-02 · Claude · More decor (2.81, in preview)
+- Phil asked for trail map signs, string lights, seasonal lights and floodlights for extra-wide trails. New decor types (all `decor`,
+  `plop`, `noPad` except `flood`): `tmap`, `strlight`, `xtree` (holiday tree), `flood`. Decor tab order: tree, bench, picnic, rack,
+  tmap, firepit, lamp, strlight, xtree, tlight, flood.
+- **Bulb colours:** `BULB_SETS` (warm white / holiday colours / icy blue), saved as `B.hue` (absent = warm, so old saves are fine).
+  Picked on the card (`bulbHue`), free any time; `bulbPick` makes new ones match the last pick. Seasonal = the player's choice only,
+  per Phil's Nov 1 call. Bulbs use shared `bulbMat(hex)` materials, dimmed by day and brightened at dusk in `bulbGlow`.
+- **Trail map:** one shared canvas texture (`TMAP`, `drawTrailMap`), redrawn from `computeNetwork` only when its signature changes.
+  Painted looking uphill (the way the lifts climb), hillshade, forest dots, trails by rating, lifts dashed, lot and buildings.
+- **Floodlight:** `faceTrail` also sets `floodAt` (up to 8 units toward the nearest trail centre) and `floodR` (trail half-width + 2.5,
+  6.5–9.5) for the light map. Night power: `FLOOD_POWER` (2.5) trail lights each. Placed lights only light the picture; there's still
+  no gameplay effect of dark snow (auto poles sit at hw+0.55 on alternating sides, so trails wider than ~Wide show a dark middle).
+- **Small effect:** `lightsNearVenues()` (string lights and holiday trees within 14 units of an après venue door, cached per game hour)
+  adds 0.01 each to `apresChance`, capped at 0.04. Trail map boards have no effect yet (idea: fewer lost/mismatched trail picks).
+- Headless renders need `patchNightMaterials()` before a night screenshot (it otherwise runs every 90 frames). Scenario 140.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75 and 2.76.1)
 - **2.76.1, after a player's feedback the same day:** placed racks looked as big as building racks but held 12 (now 40, drawn
