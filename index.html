@@ -2418,8 +2418,12 @@ for (let n = 0; n < 5; n++) {
 }
 for (const [id, name, i0, j0] of [['NW', 'Northwest corner', PLAY0 - PD, PLAY0 - PD], ['NE', 'Northeast corner', PLAY1, PLAY0 - PD], ['SW', 'Southwest corner', PLAY0 - PD, PLAY1], ['SE', 'Southeast corner', PLAY1, PLAY1]])
   PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD });
-if (MOUNTAIN.match) PARCELS.length = 0; // the land round your slice is your rivals'
-else if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
+// On a match map only the land in front of your own slice is for sale (the valley below your base); the rest
+// lies under your rivals' slices. A parcel qualifies when all of it sits well inside your slice's angle.
+if (MOUNTAIN.match) {
+  const sec = Math.PI / MOUNTAIN.slices, ok = (gx, gz) => { const u = (gx - PLAY0) / PN, v = (PLAY1 - gz) / PN; return Math.abs(Math.atan2(u - CROWN.c[0], CROWN.c[1] - v)) < sec - 0.06; };
+  for (let k = PARCELS.length - 1; k >= 0; k--) { const p = PARCELS[k]; if (![[p.i0, p.j0], [p.i1, p.j0], [p.i0, p.j1], [p.i1, p.j1]].every(([i, j]) => ok(i, j))) PARCELS.splice(k, 1); }
+} else if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
 let landRects = []; // parcels that are yours (bought or leased, permits through)
 const LAND = { i0: PLAY0, i1: PLAY1, j0: PLAY0, j1: PLAY1 };
 const inRect = (p, gx, gz) => gx >= p.i0 && gx <= p.i1 && gz >= p.j0 && gz <= p.j1;
@@ -2823,20 +2827,23 @@ function buildTrees() {
 let boundaryLine = null;
 function buildBoundary() {
   if (boundaryLine) { scene.remove(boundaryLine); boundaryLine.geometry.dispose(); boundaryLine.material.dispose(); }
-  const T = PD, n = WN / T, own = (ti, tj) => ti >= 0 && tj >= 0 && ti < n && tj < n && (AREA ? landRects.some((p) => inRect(p, ti * T + T / 2, tj * T + T / 2)) : inGridLand(ti * T + T / 2, tj * T + T / 2));
+  const T = PD, n = WN / T, held = (ti, tj) => landRects.some((p) => inRect(p, ti * T + T / 2, tj * T + T / 2)),
+    own = (ti, tj) => ti >= 0 && tj >= 0 && ti < n && tj < n && (AREA ? held(ti, tj) : inGridLand(ti * T + T / 2, tj * T + T / 2)),
+    // on a match map a bought parcel joins your wedge: no line between them, from either side
+    beside = (ti, tj) => own(ti, tj) || (AREA && inArea(ti * T + T / 2, tj * T + T / 2));
   const pts = [], at = (gx, gz) => new THREE.Vector3(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 0.35, gz - HALF);
   const edge = (x0, z0, x1, z1) => { for (let t = 0; t < T; t += 0.5) { pts.push(at(x0 + (x1 - x0) * t / T, z0 + (z1 - z0) * t / T), at(x0 + (x1 - x0) * (t + 0.5) / T, z0 + (z1 - z0) * (t + 0.5) / T)); } };
   for (let tj = 0; tj < n; tj++) for (let ti = 0; ti < n; ti++) {
     if (!own(ti, tj)) continue;
     const x = ti * T, z = tj * T;
-    if (!own(ti, tj - 1)) edge(x, z, x + T, z);
-    if (!own(ti + 1, tj)) edge(x + T, z, x + T, z + T);
-    if (!own(ti, tj + 1)) edge(x, z + T, x + T, z + T);
-    if (!own(ti - 1, tj)) edge(x, z, x, z + T);
+    if (!beside(ti, tj - 1)) edge(x, z, x + T, z);
+    if (!beside(ti + 1, tj)) edge(x + T, z, x + T, z + T);
+    if (!beside(ti, tj + 1)) edge(x, z + T, x + T, z + T);
+    if (!beside(ti - 1, tj)) edge(x, z, x, z + T);
   }
   if (AREA) for (let k = 0, m = AREA.length - 1; k < AREA.length; m = k++) { // the wedge's own edges
     const [xa, za] = AREA[m], [xb, zb] = AREA[k], L = Math.hypot(xb - xa, zb - za);
-    for (let t = 0; t < L; t += 1) pts.push(at(xa + (xb - xa) * t / L, za + (zb - za) * t / L), at(xa + (xb - xa) * Math.min(L, t + 0.5) / L, za + (zb - za) * Math.min(L, t + 0.5) / L));
+    for (let t = 0; t < L; t += 1) if (!landRects.some((p) => inRect(p, xa + (xb - xa) * (t + 0.25) / L, za + (zb - za) * (t + 0.25) / L))) pts.push(at(xa + (xb - xa) * t / L, za + (zb - za) * t / L), at(xa + (xb - xa) * Math.min(L, t + 0.5) / L, za + (zb - za) * Math.min(L, t + 0.5) / L));
   }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   boundaryLine = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({ color: 0xdf562c, dashSize: 1.4, gapSize: 1.0, transparent: true, opacity: 0.75, fog: false }));
@@ -7886,7 +7893,7 @@ const toggleAllLabels = () => { const any = LABEL_KINDS.some((k) => labelsOn[k])
    is paid every night from then on and can be handed back while nothing of yours stands on it. Each
    parcel you take on makes the next one dearer. Land comes up for sale after your first week open. */
 const LAND_PERMIT_DAYS = 3, LEASE_RATE = 0.0015, LAND_STEP = 0.15, LAND_OPEN_DAYS = 7;
-const landOpen = () => state.sandbox || state.season > 1 || ((state.seasonStats && state.seasonStats.days) || 0) >= LAND_OPEN_DAYS || (state.land || []).length > 0;
+const landOpen = () => MATCH_PREVIEW || state.sandbox || state.season > 1 || ((state.seasonStats && state.seasonStats.days) || 0) >= LAND_OPEN_DAYS || (state.land || []).length > 0;
 const landHeld = (id) => (state.land || []).find((l) => l.id === id);
 const landPrice = (p) => Math.round(parcelInfo(p).base * (1 + LAND_STEP * (state.land || []).length) / 10000) * 10000;
 const leaseOf = (price) => Math.round(price * LEASE_RATE / 10) * 10;
