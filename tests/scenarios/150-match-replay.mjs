@@ -13,7 +13,7 @@ export default async function ({ browser, url }) {
   // Day 2 began 5 minutes ago (slots of 30 minutes: day 2 started at the start time plus 60 minutes).
   const match = { lobbies: [{ id: 'R1', name: 'Replay Cup', map: 'match', slots: 3, starts_at: ago(65), days: 168, day_minutes: 30, status: 'running', day: 2, prize: null }],
     players: [0, 1, 2].map((s) => ({ lobby_id: 'R1', slot: s, user_id: [null, 'user-B', null][s], resort_name: names[s] })),
-    resorts: [0, 1, 2].map((s) => ({ lobby_id: 'R1', slot: s, day: 2, save, summary: { name: names[s], profit: 100 * s, guests: 300 } })),
+    resorts: [0, 1, 2].map((s) => ({ lobby_id: 'R1', slot: s, day: 2, save, summary: { name: names[s], profit: 100 * s, guests: 300 } })), orders: [],
     days: [{ lobby_id: 'R1', day: 2, results: { wx: 'sunny', share: [100, 150, 90], resorts: [{ slot: 0, guests: 99, profit: 1000 }, { slot: 1, guests: 148, profit: 4099 }, { slot: 2, guests: 88, profit: -200 }] } }] };
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
@@ -41,6 +41,16 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused, state.tool]`), ['closed', false, true, 'lift'], 'picking a build tool pauses the day so you can build');
   await g.wait(200); eq(await g.ev('RIVAL_SKI.mesh.visible'), false, 'rivals’ skiers go when the day pauses');
   await g.ev(`setTool('explore')`);
+  await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  // Parking any time: the button works while the day plays; the day pauses and the section is ordered.
+  const lots = await g.ev('state.lotSections');
+  await g.ev(`(() => { state.cash = Math.max(state.cash, 2e6); select({ kind: 'manage', obj: 'parking' }); renderSheet(); })()`); await g.wait(300);
+  const btn = await g.ev(`(() => { const b = [...document.querySelectorAll('#sheet [data-action=expandLot]')].find((x) => !x.disabled); if (b) b.click(); return !!b; })()`);
+  await g.wait(500);
+  eq([btn, await g.ev('state.lotSections'), await g.ev('!!matchView.replay'), await g.ev('matchView.paused')], [true, lots + 1, false, true], 'parking can be added while the day plays: it pauses and the section is added');
+  const lotOrders = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => o.payload.what === 'lot').length);
+  eq(lotOrders, 1, 'and it goes to the server for the next overnight');
+  await g.ev(`select(null); setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   // Reports opens the past days.
   await g.click('#visitReports'); await g.wait(300);

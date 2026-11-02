@@ -405,6 +405,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   panel (`MC`, realtime channel plus 20 s poll), the live day (`startReplay`, automatic; a build tool pauses it, Explore resumes; plays day N locally with the server's
   share from match_days, paced so 8:00 to 17:15 fills the first 25 of each 30 min; ends with the server's own day report; Reports opens Money history).
   Scenarios 146 to 150. Not yet: skiers on rivals' slices, the Plans/remove/land/ops orders, stats.html tools.
+- Rule (Phil, Nov 2): in a match players must be able to do everything whenever they're on, even if it only queues for the next overnight. Build tools pause the live day; panel actions like parking (`lotBuildable()`) pause it too. Keep this for every new match action.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude

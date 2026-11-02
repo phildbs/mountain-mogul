@@ -8650,6 +8650,7 @@ function mainLotBlock() {
 }
 // Growing the main lot by a section: row 0 along the road, 1 the row below, null wherever it fits next.
 function growLot(row, lot = 0) {
+  if (matchPlay && matchView && matchView.replay) { const sel = selected; stopReplay(false); matchView.paused = true; select(sel); toast('The live day is paused while you add parking. Pick Explore to go back to it.'); }
   if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
   const block = row == null ? mainLotBlock() : lotGrowBlock(row, lot);
   if (block) { toast(block, true); return; }
@@ -8675,8 +8676,10 @@ function shrinkLot() {
   if (selected && selected.obj === 'lotgrow') setTimeout(fitLotView, 60);
 }
 // The Grow the main lot panel: tap a + on the map (or a button here) to add a section there.
+// In a match you can add parking any time: it's ordered for the next overnight (the live day pauses while you do).
+const lotBuildable = () => state.phase === 'closed' || !!matchPlay;
 function lotGrowPanel() {
-  const closed = state.phase === 'closed', short = state.cash < LOT_EXPAND_COST, many = lotCount() > 1;
+  const closed = lotBuildable(), short = state.cash < LOT_EXPAND_COST, many = lotCount() > 1;
   const block = (lot) => {
     const fresh = lot && !lotSize(lot), w = [lotGrowBlock(0, lot), lotGrowBlock(1, lot)];
     const btns = fresh ? `<button class="btn secondary" data-action="expandLot" data-row="0" data-lot="${lot}" ${closed && !w[0] && !short ? '' : 'disabled'}>Build the ${esc(lotName(lot).toLowerCase())}</button>`
@@ -8708,7 +8711,7 @@ function updateLotMarks() {
       for (let lot = 0; lot < lotCount(); lot++) for (const row of [0, 1]) {
         if (row === 1 && rowLen(1, lot) >= rowLen(0, lot)) continue; // nothing to show under a full second row (or behind an empty lot)
         const why = lotGrowBlock(row, lot), fresh = lot && !lotSize(lot);
-        const bb = slotBox(row, rowLen(row, lot), lot), ok = !why && state.phase === 'closed';
+        const bb = slotBox(row, rowLen(row, lot), lot), ok = !why && lotBuildable();
         const pts = [], at = (x, z) => pts.push(new THREE.Vector3(x, heightAt(x, z) + 0.15, z));
         for (const [x, z] of [[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x1, bb.z1], [bb.x0, bb.z1], [bb.x0, bb.z0]]) at(x, z);
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: ok ? 0xe3a51c : 0x8a94a3, dashSize: 0.7, gapSize: 0.5, depthTest: false, transparent: true, fog: false }));
@@ -15767,7 +15770,7 @@ function bldDraftSheet() {
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
     const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
       + (g[0] === 'transport' ? extra('manage', 'parking', 'parking', 'Off-site parking', 'Overflow lots, shuttled in', offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking')
-        + extra('manage', 'lotgrow', 'car', lotCount() > 1 ? 'Grow your parking' : 'Grow the main lot', 'More spaces by the road', state.phase === 'closed' ? `+${SPACES_PER_SECTION} spaces a section` : 'Add overnight', state.phase === 'closed' ? money(LOT_EXPAND_COST) : '') : '');
+        + extra('manage', 'lotgrow', 'car', lotCount() > 1 ? 'Grow your parking' : 'Grow the main lot', 'More spaces by the road', lotBuildable() ? `+${SPACES_PER_SECTION} spaces a section` : 'Add overnight', lotBuildable() ? money(LOT_EXPAND_COST) : '') : '');
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
       ${themeSeg(tab[2].some(themed))}
       <div class="btabs" role="tablist">${BGROUPS.map(([k, label]) => `<button role="tab" data-action="bTab" data-v="${k}" aria-selected="${k === tab[0]}">${label}</button>`).join('')}</div>
@@ -18186,10 +18189,10 @@ function resortSheet() {
   if (visiting) return visitResortSheet();
   const r = state.lastReport;
   const used = stalls.filter((s) => s.car).length;
-  const canExpand = state.phase === 'closed' && !mainLotBlock();
+  const canExpand = lotBuildable() && !mainLotBlock();
   const short = state.cash < LOT_EXPAND_COST;
   const lotBtn = mainLotBlock() ? ''
-    : `<button class="btn secondary" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${state.phase !== 'closed' ? 'Expand parking overnight' : short ? `Need ${money(LOT_EXPAND_COST - state.cash)} more for parking` : `Add ${SPACES_PER_SECTION} parking spaces · ${money(LOT_EXPAND_COST)}`}</button>`;
+    : `<button class="btn secondary" data-action="expandLot" ${canExpand && !short ? '' : 'disabled'}>${!lotBuildable() ? 'Expand parking overnight' : short ? `Need ${money(LOT_EXPAND_COST - state.cash)} more for parking` : `Add ${SPACES_PER_SECTION} parking spaces · ${money(LOT_EXPAND_COST)}`}</button>`;
   const nervous = state.debt > creditLimit();
   const tabs = [['prices', 'Prices'], ['ops', 'Operations'], ['resort', 'Resort'], ['bank', nervous ? 'Bank ⚠' : 'Bank']];
   const head = `<div class="sheet-title"><h3>Resort</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
@@ -18461,19 +18464,19 @@ function bldPlanMode(B) {
 // shuttles and town buses run on each kind of day, and the parking price.
 function parkingPanel() {
   const live = state.phase === 'open';
-  const block = mainLotBlock(), canExpand = state.phase === 'closed' && !block, short = state.cash < LOT_EXPAND_COST;
+  const block = mainLotBlock(), canExpand = lotBuildable() && !block, short = state.cash < LOT_EXPAND_COST;
   const lot = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Main lot</b><span class="pill ${lotOpenN(0) < lotSize(0) ? 'warn' : 'on'}">${lotOpenN(0)} of ${lotSize(0)} open</span></div>
       <div class="l2"><span>${live ? `<b>${lotUsed(0)}</b> of ` : ''}${lotOpenN(0) * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
-      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${state.phase === 'closed' && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
+      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${lotBuildable() && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
       ${visiting ? '' : '<div class="l3"><button class="link" data-action="manage" data-v="lotgrow">Choose where on the map ›</button></div>'}
-      ${visiting || block ? '' : (() => { const w0 = lotGrowBlock(0), w1 = lotGrowBlock(1); const note = state.phase !== 'closed' ? 'Parking is added overnight.' : [w0, w1].filter(Boolean).join(' '); return `<p class="help lot-help">${esc(note || `Each section is ${SPACES_PER_SECTION} spaces. Grow it along the road, or a row below under the first.`)} Now ${rowLen(0)} across${rowLen(1) ? ` and 2 rows deep` : ''}.</p>`; })()}
+      ${visiting || block ? '' : (() => { const w0 = lotGrowBlock(0), w1 = lotGrowBlock(1); const note = !lotBuildable() ? 'Parking is added overnight.' : [w0, w1].filter(Boolean).join(' '); return `<p class="help lot-help">${esc(note || `Each section is ${SPACES_PER_SECTION} spaces. Grow it along the road, or a row below under the first.`)} Now ${rowLen(0)} across${rowLen(1) ? ` and 2 rows deep` : ''}.</p>`; })()}
     </li>`;
   // the other lots: build one, then grow it the same way
   const others = Array.from({ length: lotCount() - 1 }, (_, i) => i + 1).map((k) => {
-    const n = lotSize(k), w = [lotGrowBlock(0, k), lotGrowBlock(1, k)], ok = state.phase === 'closed' && !short;
-    const btns = !n ? `<button class="chip" data-action="expandLot" data-row="0" data-lot="${k}" title="${esc(w[0] || `Build it: ${SPACES_PER_SECTION} spaces`)}" ${!w[0] && ok ? '' : 'disabled'}>Build it${state.phase === 'closed' && !w[0] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`
-      : [[0, 'Along the road'], [1, rowWord(k)]].map(([row, label], i) => `<button class="chip" data-action="expandLot" data-row="${row}" data-lot="${k}" title="${esc(w[i] || `Add ${SPACES_PER_SECTION} spaces`)}" ${!w[i] && ok ? '' : 'disabled'}>${label}${state.phase === 'closed' && !w[i] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`).join('');
+    const n = lotSize(k), w = [lotGrowBlock(0, k), lotGrowBlock(1, k)], ok = lotBuildable() && !short;
+    const btns = !n ? `<button class="chip" data-action="expandLot" data-row="0" data-lot="${k}" title="${esc(w[0] || `Build it: ${SPACES_PER_SECTION} spaces`)}" ${!w[0] && ok ? '' : 'disabled'}>Build it${lotBuildable() && !w[0] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`
+      : [[0, 'Along the road'], [1, rowWord(k)]].map(([row, label], i) => `<button class="chip" data-action="expandLot" data-row="${row}" data-lot="${k}" title="${esc(w[i] || `Add ${SPACES_PER_SECTION} spaces`)}" ${!w[i] && ok ? '' : 'disabled'}>${label}${lotBuildable() && !w[i] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`).join('');
     return `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(lotName(k))}</b><span class="pill ${!n ? 'off' : lotOpenN(k) < n ? 'warn' : 'on'}">${!n ? 'Not built' : `${lotOpenN(k)} of ${n} open`}</span></div>
       <div class="l2">${n ? `<span>${live ? `<b>${lotUsed(k)}</b> of ` : ''}${lotOpenN(k) * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span>` : `<span>A second base: a lot of its own beside the road, ${SPACES_PER_SECTION} spaces a section.</span>`}</div>
@@ -21298,6 +21301,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.83.5', date: 'Nov 2, 2026', title: 'Parking any time in matches', small: true, items: ['King of the Mountain: you can add parking whenever you’re on, not just at night. The live day pauses while you do, and the new section opens the next morning like everything else.'] },
   { v: '2.83.4', date: 'Nov 2, 2026', title: 'Match cash fix', small: true, items: ['Fixed: in King of the Mountain, coming back into a match could show your cash below zero, adding up changes that cost more than you had. The server only ever built what you could pay for; now your screen shows the same, with a message about any change it will skip.'] },
   { v: '2.83.3', date: 'Nov 2, 2026', title: 'Clearing trees in matches', small: true, items: ['King of the Mountain: the landscape tool is back in matches. Clear trees with the brush or bulldoze them one at a time; they go overnight, like everything else. Painting areas, levelling and replanting are coming next.'] },
   { v: '2.83.2', date: 'Nov 2, 2026', title: 'Parking in matches', small: true, items: ['King of the Mountain: you can now grow your parking lot in a match. It’s built overnight, like everything else.', 'Fixed: going back into a match showed your resort without the things you’d built since the last day, so it looked as if they were lost. They were always kept; now they show straight away.'] },
