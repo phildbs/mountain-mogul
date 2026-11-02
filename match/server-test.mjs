@@ -53,6 +53,8 @@ try {
   ok(Math.abs(R(1).summary.profit) < 400000, `building a lift doesn't count as a loss (${R(1).summary.profit})`);
   const table = [0, 1, 2].map((s) => R(s).summary).sort((a, b) => b.profit - a.profit);
   console.log('League table:', table.map((s, i) => `${i + 1}. ${s.name} ${s.profit}`).join(', '));
+  const said = (db.tables.match_messages || []).map((m) => m.body);
+  ok(said.some((b) => /has started/.test(b)) && said.some((b) => /Aspen Bowl opened a new lift/.test(b)) && said.some((b) => /ticket at \$55/.test(b)) && said.some((b) => /^Final standings/.test(b)), `the match posts its news (${said.length} messages)`);
   await tick(db, game, T0 + 5 * H);
   ok(L().day === 3, 'a finished match plays no more');
 } finally {

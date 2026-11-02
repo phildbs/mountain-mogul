@@ -19,6 +19,14 @@ import { restDb } from './db.mjs';
 const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest'], COMPUTER_PRICE = 65;
 const MAX_DAYS_PER_TICK = 3; // catching up after the server was down: a few days a minute, not all at once
 const log = (...a) => console.log(new Date().toISOString(), ...a);
+const dollars = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
+// Match news in the lobby's chat. Never stops a match: if the chat isn't set up, it's skipped.
+async function news(db, lobby, day, lines) {
+  if (!lines.length) return;
+  try { await db.insert('match_messages', lines.map((body) => ({ lobby_id: lobby.id, user_id: null, slot: null, name: lobby.name.slice(0, 40), body: body.slice(0, 200), kind: 'news', day }))); }
+  catch (e) { log(`${lobby.name}: news skipped (${e.message.slice(0, 80)})`); }
+}
+const BUILT = { lift: 'a new lift', trail: 'a new trail', building: 'a new building' };
 
 export async function startGame() {
   const server = await startServer(), browser = await launch();
@@ -55,6 +63,7 @@ async function startLobby(db, game, lobby) {
   }
   await db.upsert('match_resorts', rows);
   await db.update('match_lobbies', { id: lobby.id }, { status: 'running', day: 0 });
+  await news(db, lobby, 0, [`${lobby.name} has started: ${all.map((p) => p.resort_name).join(', ')}. Opening day is in ${lobby.day_minutes} minutes. Good luck!`]);
   log(`${lobby.name}: started with ${all.filter((p) => p.user_id).length} players and ${all.filter((p) => !p.user_id).length} computer resorts`);
 }
 
@@ -73,6 +82,13 @@ async function playDay(db, game, lobby) {
       if (mine.length) done.push(...await pages[k].ev(pageOrders(mine)));
     }
     for (const o of done) await db.update('match_orders', { id: o.id }, { applied_day: day, error: o.ok ? null : o.error });
+    const said = [];
+    for (const o of orders) {
+      const d = done.find((x) => x.id === o.id), who = resorts.find((r) => r.slot === o.slot)?.summary.name;
+      if (!d || !d.ok || !who) continue;
+      if (o.kind === 'build' && BUILT[o.payload.what]) said.push(`${who} opened ${BUILT[o.payload.what]}.`);
+      if (o.kind === 'price' && o.payload.ticket != null) said.push(`${who} set its lift ticket at ${dollars(o.payload.ticket)}.`);
+    }
     // The town's skiers and pass buyers, shared; then every resort plays its day at once.
     const alone = await Promise.all(pages.map((g) => g.ev(PAGE_ALONE)));
     const share = splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = splitSkiers(alone.map((a) => a.passes));
@@ -87,6 +103,9 @@ async function playDay(db, game, lobby) {
     await db.upsert('match_resorts', rows);
     await db.upsert('match_days', [{ lobby_id: lobby.id, day, results: { wx: results[0].wx, alone, share, passShare, resorts: results.map((x, k) => ({ slot: resorts[k].slot, ...x })) } }]);
     await db.update('match_lobbies', { id: lobby.id }, { day });
+    const snow = +(String(results[0].wx).match(/([\d.]+)in/) || [])[1] || 0;
+    if (snow >= 6) said.unshift(`Powder day! ${snow} inches of new snow overnight.`);
+    await news(db, lobby, day, [...new Set(said)]);
     log(`${lobby.name}: day ${day} of ${lobby.days} in ${((Date.now() - t0) / 1000).toFixed(1)} s, ${results.map((x, k) => `${resorts[k].summary.name} ${x.guests}`).join(', ')}`);
     if (day >= lobby.days) await finish(db, lobby, rows);
   } finally {
@@ -108,6 +127,7 @@ async function finish(db, lobby, rows) {
   });
   if (badges.length) await db.upsert('match_badges', badges);
   await db.update('match_lobbies', { id: lobby.id }, { status: 'finished' });
+  await news(db, lobby, lobby.days, [`Final standings: ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${dollars(r.summary.profit)}`).join(', ')}. Congratulations!`]);
   log(`${lobby.name}: finished. ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${r.summary.profit}`).join(', ')}`);
 }
 

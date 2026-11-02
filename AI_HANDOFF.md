@@ -387,6 +387,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Match length (Phil, Nov 2): 30-minute days (:00 and :30; the last 5 min of each is night). Beta lobbies: 168 days
   (3.5 real days, one season). Normal: 7 days = 336 days, two seasons with a summer between; short-season option
   168. Summer and the second season are untested on the server: test before the first 336-day lobby.
+- Chat (Phil, Nov 2): `supabase/match-chat.sql` (DRAFT until Phil runs it). One board per match; players post as their
+  resort, signed-in spectators as their public profile name or "Spectator"; guests read only. match_say checks sign-in,
+  chat bans, 10 s rate limit, 200 chars and `match_clean` (word list in match_blocked_words, DB only; whole words plus
+  joined single letters, words of 5+ letters also inside others). Finished matches keep chat, closed to new posts.
+  Six reaction emoji, reports, private mutes, admin_chat_reports / hide / ban. match_join now filters resort names.
+  Server posts news (start, builds, ticket changes, powder days, final standings). 31 checks in tests/sql/match-chat.sql.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
