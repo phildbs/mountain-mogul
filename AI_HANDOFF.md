@@ -368,6 +368,10 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   (+$54K), $45 +$17K (340 turned away), $85 -$1K. With passes $299/399/499 the $299 pass sold $102K vs $33K at $499.
   Starter resorts roughly break even on ordinary days, so short tests are decided by pass money; a full-season
   match spreads it out.
+- Database: `supabase/multiplayer.sql` is LIVE (Phil ran it in the SQL editor, Nov 2). Six match_* tables (RLS on,
+  read-only for clients except own orders) and match_join / match_leave / admin_match_lobby / admin_match_close.
+  Checked by `tests/sql/multiplayer.sql` (23 checks) on a throwaway local Postgres, not on live. Advisor warnings
+  for these are the expected kinds (signed-in can call the security-definer functions; guests can read).
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
