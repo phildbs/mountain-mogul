@@ -10211,8 +10211,8 @@ const liftMode = (L) => (runOps && runOps.lifts[(L.parent || L).id]) || 'full';
 const bldMode = (B) => (runOps && runOps.bld[B.id]) || 'open';
 const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
 const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
-// Open at night for night skiers: food and warm-ups, restrooms, rentals and the patrol.
-const NIGHT_OPEN = ['lodge', 'cafe', 'truck', 'restroom', 'hrest', 'rental', 'tuning', 'patrol', 'clinic', 'firepit', 'bench', 'picnic'];
+// Open at night for night skiers: food and warm-ups, a sit-down dinner, restrooms, rentals and the patrol.
+const NIGHT_OPEN = ['lodge', 'cafe', 'truck', 'restaurant', 'restroom', 'hrest', 'rental', 'tuning', 'patrol', 'clinic', 'firepit', 'bench', 'picnic'];
 function bldOpenNow(B) {
   const m = bldMode(B);
   if (m === 'closed') return false;
@@ -11056,7 +11056,7 @@ function maybeStayNight(g) {
   g.fat = Math.min(g.fat, g.stam * 0.6); // a second wind
   recordMealOutcome(g);
   g.night = true; g.stayedNight = true; g.leaveAt = nightEnd() - Math.random() * 60; today.night.stayed += AGENT;
-  g.warmed = false; nightSnack(g); // a new session, and it's colder now
+  g.warmed = false; g.snacked = false; nightSnack(g); // a new session, and it's colder now
   thought(g, 'Staying for night skiing under the lights!');
   return true;
 }
@@ -14153,6 +14153,7 @@ function needs(g) {
 function svcFor(B, need) {
   const o = offers(B);
   if (need === 'lunch') return ['food', 'dine', 'finedine', 'snack'].find((x) => o.includes(x)) || null;
+  if (need === 'snack' && B.type === 'restaurant' && state.time >= closeTime()) return 'dine'; // hungry night skiers can sit down for dinner
   return o.includes(need) ? need : null;
 }
 function bestVisit(g, here, radius, baseToo, list, needList) {
@@ -14210,7 +14211,7 @@ function maybeVisit(g, here, radius, baseToo, resume) {
   return true;
 }
 /* ---------- Après-ski ----------
-   With après on in the day's plan, the bar, the lodge, the restaurants and base cafés and trucks stay open after the lifts
+   With après on in the day's plan, the bar, the lodge, fine dining and base restaurants, cafés and trucks stay open after the lifts
    close, until 7 PM (or an hour after night skiing ends). Guests heading home stop in for a drink or a
    meal, more so when they've had a good day, on weekends and sunny afternoons, and when there's a bar.
    It's reported on its own page of the day report. */
@@ -14225,7 +14226,8 @@ const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
 const BASE_APRES = ['cafe', 'truck'];
 // A café or truck needs a far smaller evening crew than a lodge or bar.
 const APRES_CREW = { cafe: 0.5, truck: 0.3 };
-const apresType = (B) => APRES_VENUES.includes(B.type) || (BASE_APRES.includes(B.type) && B.isBase);
+// A casual restaurant up the mountain feeds night skiers, but après is for the base and village ones.
+const apresType = (B) => (APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase);
 const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
@@ -14347,7 +14349,7 @@ function maybeApres(g) {
   }
   if (!g.apres) return false;
   g.apresDone = true;
-  const list = world.buildings.filter((B) => (B.type === 'restaurant' || B.type === 'fine') && bldOpenNow(B));
+  const list = world.buildings.filter((B) => (B.type === 'restaurant' || B.type === 'fine') && apresType(B) && bldOpenNow(B));
   let best = null, bd = Infinity;
   for (const B of list) { const d = distXZ(B.door, g); if (d < bd && (d < 14 || B.isBase)) { bd = d; best = B; } }
   if (!best) return false;
@@ -14547,7 +14549,7 @@ function serve(g, B) {
       (g.priceRetry || (g.priceRetry = {}))[svc] = { price };
     }
     if (svc === 'warm') g.warmed = true;
-    if (svc === 'snack') g.snacked = true;
+    if (svc === 'snack' || svc === 'dine') g.snacked = true;
     if (svc === 'rent') { g.needsRental = false; g.sat -= 4; }
     shopDone(g, svc);
     return leaveBuilding(g, B);
@@ -14603,7 +14605,7 @@ function finishVisit(g) {
     g.warmed = true; g.fat = Math.max(0, g.fat - g.stam * (cafe ? 0.3 : 0.25)); g.sat += cafe ? 5 : 3;
     thought(g, g.apresGuest ? `A hot drink at ${name} to end a great day.` : cafe ? `A hot chocolate at ${name}. Toasty and recharged!` : 'A hot chocolate break. Feeling recharged!');
   }
-  else if (svc === 'dine') { g.ate = true; g.sat += 8; thought(g, `What a meal at ${name}!`); }
+  else if (svc === 'dine') { g.ate = true; g.snacked = true; g.sat += 8; thought(g, `What a meal at ${name}!`); }
   else if (svc === 'shop') { shopDone(g, svc); g.sat += 1; thought(g, `Picked up a souvenir at ${name}.`); }
   else if (svc === 'gear') { shopDone(g, svc); g.sat += 6; thought(g, `New goggles from ${name}. I can actually see now!`); }
   else if (svc === 'tune') { shopDone(g, svc); g.sat += 4; g.onSkis = true; thought(g, `Fresh edges from ${name}. These skis rip!`); }
@@ -18461,7 +18463,7 @@ function apresOpsHtml(P) {
     ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map(([k, l]) => [String(k), l]), 'Last call')}` : ''}
     <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base for guests to go to after skiing.'
       : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? ', with late-night pay and security after 10' : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
-      : 'Keep the bar, lodge, restaurants and base cafés and food trucks open after the lifts close for guests heading home.'}</p>
+      : 'Keep the bar, lodge, fine dining and base restaurants, cafés and food trucks open after the lifts close for guests heading home.'}</p>
     ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after 10 PM</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
       <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? 'Cheaper, but past 11 PM a rowdy night can cost you some reputation, more so on weeknights.' : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
 }
@@ -20492,6 +20494,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.82', date: 'Nov 2, 2026', title: 'Dinner under the lights', items: ['Casual restaurants now stay open during night skiing, on the mountain and at the base. Hungry night skiers can sit down for dinner there.', 'Après is for base and village restaurants. A casual restaurant up the mountain closes when night skiing ends, or at the usual time when there is no night skiing.', 'Fixed: day guests who stay on for night skiing can grab a snack again, even if they had one earlier in the day.'] },
   { v: '2.81.1', date: 'Nov 2, 2026', title: 'Fix for days that never ended', small: true, items: [
     'Fixed: with night skiing on, a day could run all night and never end, with a few guests stuck finding their way home.',
     'Guests heading home no longer circle a trail that only leads back to where they started. If there’s no open way down, they hike out, and the day report says where and why.',
