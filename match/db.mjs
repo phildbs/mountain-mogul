@@ -3,7 +3,8 @@
 // or { column: ['is', null] }.
 
 export function restDb(url, key) {
-  const base = url.replace(/\/$/, '') + '/rest/v1/', head = { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+  // A newer secret key (sb_secret_...) goes in apikey alone; an older service_role key (a JWT) also as the bearer.
+  const base = url.replace(/\/$/, '') + '/rest/v1/', head = { apikey: key, ...(key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}), 'Content-Type': 'application/json' };
   const qs = (filters = {}) => Object.entries(filters).map(([c, v]) => `${c}=${Array.isArray(v)
     ? (v[0] === 'in' ? `in.(${v[1].map(encodeURIComponent).join(',')})` : `${v[0]}.${v[1]}`)
     : `eq.${encodeURIComponent(v)}`}`).join('&');
