@@ -54,13 +54,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.82.2.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 0987f86).
+**Live: 2.82.3.** Phil approved publication on Nov 2 after checking it on iPad (quick-fix tier).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
-- 2.82.3 (preview, not published): title screen scrolls on iPad. From player reports. `#title` was `pointer-events: none` (children
+- 2.82.3: title screen scrolls on iPad. Published Nov 2 (Phil checked it on iPad; quick-fix tier: 144, 01, 13, 74 passed). From player reports. `#title` was `pointer-events: none` (children
   `auto`) so taps fell through to the 3D view; iPad Safari won't touch-scroll a box like that, and gaps between cards hit the canvas.
   `#title` now takes touches itself (canvas input ignores everything until `state.started`); `#title.out` goes back to `none` while it
-  fades. Chromium scrolled either way when the finger was on a card, so the Safari side is unverified here (no WebKit in the container).
+  fades. Chromium scrolled either way when the finger was on a card, so the Safari side was checked by Phil on iPad.
   Scenario 144. (Claude, Nov 2)
 - 2.82.2: a clear road and a driveway. Published Nov 2 (full GitHub run green on 0987f86). From Phil's screenshot: pads beside the road
   graded across it (levelRect's 2.5 margin), burying it in snow. `roadKeep`/`groundKeep` stop all grading (pads, lots, trails, brush)
@@ -179,7 +179,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-f6b48459-lzhzh3` | Claude | 2.82.3: title screen scrolls on iPad (preview, waiting for Phil) | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
