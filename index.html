@@ -1799,6 +1799,10 @@ let practice = false;
 // Developer tools: add ?dev to the address. `simulating` is true while days are fast-forwarded.
 const DEV = new URLSearchParams(location.search).has('dev');
 const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPreview') === '1';
+// Multiplayer map preview: ?matchMap=1 opens the match range to look around and build on. Nothing is saved, on
+// this device or online, so it never mixes with a player's own resorts or the leaderboards.
+const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1';
+const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
 const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'reputation', 'snow', 'money', 'plans', 'land'];
 const isPhone = () => matchMedia('(max-width: 640px)').matches;
@@ -1873,6 +1877,7 @@ const BOOT_KEY = SAVE_KEY + '.boot';
 const BOOT = (() => { try { return JSON.parse(sessionStorage.getItem(BOOT_KEY)) || {}; } catch (e) { return {}; } })();
 try { sessionStorage.removeItem(BOOT_KEY); } catch (e) { /* ignore */ }
 function bootMountainId() {
+  if (MATCH_PREVIEW) return 'match';
   if (BOOT.mt) return BOOT.mt;
   try {
     const s = JSON.parse(localStorage.getItem(SLOTS_KEY));
@@ -2228,6 +2233,44 @@ MOUNTAINS.ridgeback = (() => {
 // Each built-in mountain's picture for the title screen, a snapshot from the game. The 3D mountains, skiable
 // from every side, are marked and listed first; the older ones face a valley.
 for (const id of ['juniper', 'maple', 'raven', 'twin', 'lonepine', 'ridgeback']) MOUNTAINS[id].photo = `img/${id}.jpg`;
+// Multiplayer match maps, kept out of MOUNTAINS so they never show in the mountain list or the leaderboards.
+// The match range: every player's property is one face of a long range, and the faces either side are mirror
+// images of it, so the slopes meet seamlessly at each property line and every player starts on the same ground.
+// A spur ridge runs down each property line, so each face is its own bowl, and the summits meet at saddles.
+const MATCH_MAPS = {};
+MATCH_MAPS.match = {
+  id: 'match',
+  name: 'Rival Range',
+  match: true,
+  level: 'Intermediate', dot: 'var(--blue)',
+  blurb: 'A long range of matching peaks above one valley town. Each resort has a face of its own between two spur ridges, with rivals on the faces either side.',
+  cash: 2500000,
+  weather: { storm: 1, wind: 1, warm: 1 },
+  skiers: [0.33, 0.35, 0.22, 0.1],
+  draw: 1, costs: 1,
+  seed: 5531,
+  baseFt: 3400,
+  treeline: 33, // bare rock and snow on the summits and the top of each spur
+  road: catmull([[0.6, -0.34], [0.55, -0.16], [0.51, -0.04], [0.49, 0.055]], 10), // up the valley from town to the base
+  creek: catmull([[1.03, 0.36], [1.04, 0.16], [1.07, -0.04], [1.12, -0.3]], 10), // down the far side of the east ridge
+  height(u, v) {
+    const s = this.seed, k = Math.floor(u), p = u - k, x = k & 1 ? 1 - p : p; // x: across this face, mirrored next door
+    let h = 2 + 0.9 * fbm(x * 3, v * 3, s + 1, 3);
+    // The face: highest in the middle, lower toward the property lines where it meets the next face.
+    const rise = Math.pow(sstep(0.06, 1.0, v), 1.25), lat = 0.55 + 0.45 * Math.exp(-(((x - 0.5) / 0.42) ** 2));
+    h += 33 * rise * lat;
+    h += 9 * Math.exp(-((x - 0.5) ** 2 + (v - 0.92) ** 2) / 0.0256); // the summit
+    // A spur ridge down each property line: higher than the bowl beside it on the way up, a saddle at the top.
+    const edge = Math.min(x, 1 - x);
+    h += 8 * Math.exp(-((edge / 0.08) ** 2)) * sstep(0.12, 0.5, v) * (1 - 0.5 * sstep(0.85, 1.05, v));
+    // Gentle folds and ledges that make natural trail lines, none on the valley floor.
+    const relief = sstep(0.12, 0.45, v);
+    h += relief * (1.5 * fbm(x * 6, v * 2.4, s + 5, 4) + 1.1 * ridged(x * 8, v * 2.8, s + 9, 3) - 0.6);
+    // Higher peaks behind the range.
+    if (v > 0.9) h += 16 * Math.pow(sstep(0.92, 1.4, v), 1.2) * (0.6 + 0.6 * ridged(x * 3.5, v * 3, s + 11, 4));
+    return h;
+  },
+};
 MOUNTAINS.lonepine.is3d = MOUNTAINS.ridgeback.is3d = true;
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
@@ -2318,7 +2361,7 @@ function customBlurb(r) {
 // A mountain by id: one of the built-in ones, or a custom recipe.
 function mountainDef(mt) {
   if (isCustomId(mt)) { const r = parseRecipe(mt.slice(2)); if (r) return makeCustom(r); }
-  return MOUNTAINS[mt] || MOUNTAINS.juniper;
+  return MOUNTAINS[mt] || MATCH_MAPS[mt] || MOUNTAINS.juniper;
 }
 // Leaderboards: one per built-in mountain, and one for every custom mountain together.
 const boardOf = (mt) => (isCustomId(mt) ? 'custom' : mt || 'juniper');
@@ -3055,7 +3098,7 @@ function decodeCleared(b64) {
   }
 }
 function loadSave() {
-  if (REFERRAL_PREVIEW) return null;
+  if (NO_SAVE) return null;
   if (!saveKey()) return null;
   try {
     const raw = localStorage.getItem(saveKey());
@@ -3071,7 +3114,7 @@ function scheduleSave() {
 }
 let lastSaveLen = 0;
 function saveNow() {
-  if (REFERRAL_PREVIEW) return;
+  if (NO_SAVE) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   try {
@@ -3085,9 +3128,9 @@ function saveNow() {
 const newId = () => crypto.randomUUID();
 const slotById = (id) => slots.list.find((s) => s.id === id) || null;
 const activeSlot = () => slotById(slots.active);
-function writeSlots() { if (REFERRAL_PREVIEW) return; try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
+function writeSlots() { if (NO_SAVE) return; try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
 function readSlots() {
-  if (REFERRAL_PREVIEW) { slots = { active: null, list: [] }; return; }
+  if (NO_SAVE) { slots = { active: null, list: [] }; return; }
   try {
     const s = JSON.parse(localStorage.getItem(SLOTS_KEY));
     if (s && Array.isArray(s.list)) slots = s;
@@ -3186,7 +3229,7 @@ function saveData(withSim) {
       cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   };
 }
-function clearSave() { if (REFERRAL_PREVIEW) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
+function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
   clearUndo(); heatStamp = null;
@@ -19340,7 +19383,7 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual, forReferral = false) {
-  if (REFERRAL_PREVIEW || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
+  if (NO_SAVE || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
   if (refClaimBusy && !forReferral) { scheduleCloud(); return; }
   const slot = activeSlot(), uploadUid = CLOUD.uid;
   // Never save over another account's mountain that is sitting on this device.
@@ -20003,7 +20046,7 @@ function readAuthReturn() {
 
 }
 async function initCloud() {
-  if (REFERRAL_PREVIEW) { CLOUD.status = 'offline'; return; }
+  if (NO_SAVE) { CLOUD.status = 'offline'; return; }
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; refreshCommunity(); return; }
   try {
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -22090,6 +22133,13 @@ function start(hot) {
     else if (!document.hidden && !state.started && CLOUD.ready) refreshMine(); // back on the title: anything newer from another device?
   });
   initCloud();
+  if (MATCH_PREVIEW) { // straight onto the match range, a fresh resort that never saves
+    $('title').hidden = true; $('hud').hidden = false; state.started = true;
+    state.resortName = 'Match preview'; state.welcomed = true;
+    $('resortName').textContent = state.resortName;
+    styleSnowVisuals(); refreshTimebar(true); select(null);
+    toast('Multiplayer map preview: your land is inside the orange line, with rivals on the faces either side. Nothing here is saved.');
+  }
   if (REFERRAL_PREVIEW) {
     $('title').hidden = true; $('hud').hidden = false; state.started = true;
     state.resortName = 'Snowpine Village'; state.welcomed = true;
