@@ -378,6 +378,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   checks). Season profit = sum of daily operating profit, so building isn't a loss. The REST layer is untested against
   live from here (this container can't reach supabase.co); first real test is on the Hetzner box via
   `match/server-install.sh`.
+- Live view (Phil's choice, Nov 2): the server plays each day in ~1.5 s per resort at the start of its hour and saves.
+  The client replays the day in step with the clock (8 am at the hour, close ~45 min later, then night) as its own
+  visual simulation of its slice and rivals' slices, from the saved resorts and that day's skier share. The server's
+  numbers stay official; the replay only has to look right. No live streaming of skier positions.
+- Live test, Nov 2: "Test Cup" lobby 731afdbb-... (Phil + 2 computers, 6 days of 10 min) on the Hetzner box. First
+  install hit an empty-reply bug (fixed in db.mjs); the box now self-updates when the branch moves (verified).
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
