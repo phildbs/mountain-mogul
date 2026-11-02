@@ -54,9 +54,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.80.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 0d0743c; related scenarios and 32-old-saves passed locally).
+**Live: 2.81.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 518212c; full local run 140 of 141, the one failure 136 only after a pre-existing 109 flake).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.81: more decor. Published Nov 2 (feature tier: full GitHub run green on 518212c). Trail map boards, string-light chains, holiday trees,
+  floodlights; easier tapping on thin objects; tighter tree clearing for every building. See Claude's Nov 2 decor note. Rollback past
+  2.81 drops these pieces from saves that have them. Flaky: 109 sometimes throws in `refreshTimebar` (`EVENTS[ev.type]` undefined),
+  and 136 then fails once. Not looked into. (Claude, Nov 2)
 - 2.80: condos. Published Nov 2 (feature tier: full GitHub run green on 0d0743c; scenario 139 and related scenarios incl. 32-old-saves passed locally). Chalet/duplex/townhomes in three themes, base or slopeside (lower third, trail by the door), sell or rent, owner mood with slow real consequences, buyers limited by resort size. See Claude's Nov 2 note. Rollback past 2.80 breaks saves with condos. (Claude, Nov 2)
 - 2.79: leaderboard on demand. Published Nov 2 (full GitHub run green on cd2c18e). Only ~61 of ~650 weekly players visited a resort, yet every game open downloaded the full board (~250 KB) and `social_counts` (~88 KB). `supabase/board.sql` (applied on live Nov 2): `board_peek(mt, me, best)` (~300 bytes), `record_board_open(what)` → `analytics_private.board_opens`, owner-only `admin_board_opens(days)`. Game: `loadPeek`/`boardStanding()` drive the title card and Leaderboard button; full `loadBoard` only from `cmTab` (not Profile) and the in-game sheet, with a skeleton while loading (`CLOUD.boardLoaded`). Title Community card restyled (rank, cup icon, top 3 plus you). stats.html: Leaderboard and Browse section. Scenario 138; 75 updated. Check the stats section after a few days to decide on the leaderboards' future. (Claude, Nov 2)
 - 2.78.2: less egress. Published Nov 2 (full GitHub run green on 09b83b8). Free-plan egress was 5.23 / 5 GB. Since Oct 16 the board query (~250 KB, 500 public summaries) ran 79k times and `social_counts()` (~88 KB, every resort) 97k times. `cloudSave` no longer force-reloads the board after each upload; `loadBoard` throttle 20 s → 60 s; `socialBonus` asks `social_counts` for one row with `.eq('mountain_id', id)` (fake client's `rpc` supports `.eq`). Not tried against live from the container (proxy blocks supabase.co); PostgREST supports filters on table-returning functions. Scenario 137 extended. If egress stays high: page the board, or add a slimmer board summary. (Claude, Nov 2)
@@ -133,7 +137,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - 2.58.x: one ski patrol choice with 1–6 patrollers, fair payroll. 2.57.x: unit toggles, night closing, routing.
 - 2.47–2.56: Twin Notch, themes, glades, trail editing, invitations, scenic resort photos, venue breakdowns.
 
-**Active:** 2.81 more decor on `ccr-98a8d455-sh9jl9`, waiting for Phil's preview feedback. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
+**Active:** nothing in progress. ChatGPT's `feature/terrain-parks-preview` is superseded by 2.70; delete it if Phil agrees.
 
 **Upcoming / candidates** (owner to prioritise)
 - Decorations (roadmap card "More decorations", now Ongoing with ski racks): Phil's Nov 1 calls for the rest: small gameplay effects are
@@ -154,7 +158,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-98a8d455-sh9jl9` | Claude | 2.81: trail map boards, string lights, holiday trees, floodlights (see Claude's Nov 2 decor note) | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -359,7 +362,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   (Pixel Jamboree, −2.3 dB, 2:52). Nine songs, about 24 minutes, Phil's full set for now. Match loudness with
   `-af volumedetect` (mean about −20 dB). Next song hides while there's only one. Scenario 133-music.
 
-### 2026-11-02 · Claude · More decor (2.81, in preview)
+### 2026-11-02 · Claude · More decor (shipped in 2.81)
 - Phil asked for trail map signs, string lights, seasonal lights and floodlights for extra-wide trails. New decor types (all `decor`,
   `plop`, `noPad` except `flood`): `tmap`, `strlight`, `xtree` (holiday tree), `flood`. Decor tab order: tree, bench, picnic, rack,
   tmap, firepit, lamp, strlight, xtree, tlight, flood.
