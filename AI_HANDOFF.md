@@ -151,6 +151,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-72829cfc-ib4j32` | Claude | 2.78.2: less egress. Dashboard showed 5.23 / 5 GB egress (free plan) on Nov 2. Since Oct 16: board query (500 public summaries, ~250 KB) 79k calls, `social_counts()` (all resorts, ~88 KB) 97k calls. `cloudSave` no longer force-reloads the board after each upload; board throttle 20 s → 60 s; `socialBonus` filters `social_counts` with `.eq('mountain_id', id)` (fake client's `rpc` now supports `.eq`). | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

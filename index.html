@@ -10478,7 +10478,7 @@ async function socialBonus() {
   socialAt = Date.now();
   const id = slots.active;
   const [counts, pick] = await Promise.all([
-    CLOUD.sb.rpc('social_counts').then((r) => r, () => ({ data: null })),
+    CLOUD.sb.rpc('social_counts').eq('mountain_id', id).then((r) => r, () => ({ data: null })), // just this resort's row, not every resort's
     CLOUD.sb.from('featured').select('mountain_id').eq('mountain_id', id).eq('picked', true).then((r) => r, () => ({ data: null })),
   ]);
   if (slots.active !== id || visiting || !counts || !counts.data) return;
@@ -18671,7 +18671,7 @@ async function cloudSave(manual, forReferral = false) {
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
-    loadBoard(true);
+    // No board reload here: your own row is drawn from the game itself, and the board (~250 KB) loads when it's opened.
   } catch (e) {
     const full = /mountain_limit/.test(String(e && e.message));
     CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.'
@@ -18700,7 +18700,7 @@ async function fetchSave(id) {
 }
 // Leaderboards refresh when you look at them, at most once every 20 seconds.
 async function loadBoard(force) {
-  if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 20000)) return;
+  if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 60000)) return; // the whole board is ~250 KB: not too often
   CLOUD.boardAt = Date.now();
   const [{ data, error }, picks, social] = await Promise.all([
     CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500),
@@ -19800,6 +19800,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.78.2', date: 'Nov 2, 2026', title: 'Less waiting on the server', small: true, items: ['The game now downloads much less from our server: the leaderboards no longer reload after every online save, and checking for new likes on your resort only asks about your resort, not every resort.', 'Leaderboards still refresh when you open them. Nothing changes in how you play.'] },
   { v: '2.78.1', date: 'Nov 2, 2026', title: 'Lighter online saves', small: true, items: ['Your resort now saves online every couple of minutes instead of every 30 seconds, and quick days are grouped into one upload. This keeps our server fast as more of you play.', 'Your game still saves on your device after every day, and online straight away when you leave or go back to the title screen, so nothing is lost.'] },
   { v: '2.78', date: 'Nov 2, 2026', title: 'How players find us', items: ['The first time you play, the game now notes how you found it: the name of the website that sent you (like Reddit or YouTube), a tag on the link, or a friend’s invitation. Never the full web address, and nothing about what you did there.', 'It helps us see where new players come from, so we know where to share the game. Nothing changes in how you play.'] },
   { v: '2.77.3', date: 'Nov 1, 2026', title: 'Fewer ticket refunds', small: true, items: ['Sorry, everyone: a bug was costing resorts money every day. Some guests bought a ticket, spent the morning renting skis, taking a lesson or having lunch, then went home at their planned time without a single run and got a refund. Guests who haven’t had a run yet now stay on until they’ve skied, so you keep that ticket money.', 'Guests who arrive late in the morning now plan to ski for at least a couple of hours, instead of leaving soon after they park.', 'Thanks to the player who reported it.'] },

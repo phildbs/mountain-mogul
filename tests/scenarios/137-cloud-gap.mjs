@@ -1,5 +1,6 @@
 // Online saves rewrite the whole resort, so routine uploads (including the end of a day) wait a couple of
 // minutes after the last one. Leaving the game or going to the title screen still uploads straight away.
+// Uploads don't reload the whole leaderboard, and the like check fetches only this resort's counts.
 import { openGame, eq, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -16,8 +17,10 @@ export default async function ({ browser, url }) {
   await g.ev(`playDay()`); await g.wait(800);
   eq(await g.ev(`window.__ups`), 0, 'a day ending soon after an upload waits');
   eq(await g.ev(`!!CLOUD.upTimer`), true, 'and an upload is scheduled for later');
-  await g.ev(`CLOUD.lastUp = Date.now() - CLOUD_GAP - 1; playDay()`); await g.wait(800);
+  await g.ev(`window.__boardAt = CLOUD.boardAt; CLOUD.lastUp = Date.now() - CLOUD_GAP - 1; playDay()`); await g.wait(800);
   eq(await g.ev(`window.__ups`), 1, 'a day ending after the gap uploads straight away');
+  eq(await g.ev(`window.__boardAt === CLOUD.boardAt`), true, 'an upload does not reload the whole leaderboard');
+  eq(await g.ev(`(async () => { socialAt = 0; const r = await CLOUD.sb.rpc('social_counts').eq('mountain_id', slots.active); return r.data.length; })()`), 1, 'like counts come back for just this resort');
   await g.ev(`state.cash += 1000; cloudSaveNow()`); await g.wait(800);
   eq(await g.ev(`window.__ups`), 2, 'leaving the game still uploads straight away');
   eq(await g.ev(`CLOUD.error || ''`), '', 'no upload errors');

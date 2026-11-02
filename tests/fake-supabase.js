@@ -110,7 +110,13 @@
     },
     from: (table) => query(table),
     // set_profile: signed-in players only; the name goes on all their resorts (blank while private)
-    rpc: async (fn, args) => {
+    // Like the real client, rpc results can be filtered with .eq (e.g. social_counts for one resort).
+    rpc: (fn, args) => {
+      const filt = (p) => Object.assign(p, { eq: (k, v) => filt(p.then((r) => (Array.isArray(r.data) ? { ...r, data: r.data.filter((x) => x[k] === v) } : r))) });
+      return filt(rpcCall(fn, args));
+    },
+  }) };
+  async function rpcCall(fn, args) {
       const d = db(), me = uid();
       // Referral UI fixtures. Real authorization/qualification rules are tested in SQL.
       if (fn.startsWith('referral_') && d.referrals) {
@@ -159,6 +165,5 @@
       (d.profiles || (d.profiles = {}))[me] = { name: n, public: !!args.ppublic };
       for (const r of d.rows) if (r.owner === me) r.summary = { ...r.summary, creator: args.ppublic ? n : '' };
       put(d); return { data: { name: n, public: !!args.ppublic }, error: null };
-    },
-  }) };
+  }
 })();
