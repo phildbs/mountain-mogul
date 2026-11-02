@@ -9285,7 +9285,13 @@ function hubDecision(g, A, skipVisit = false) {
   const resume = { k: 'hub', aid: A.id };
   if (!g.leaving && !skipVisit) { const v = bestVisit(g, g, Infinity, false, A.buildings, needs(g)); if (v) { startVisit(g, v.B, v.svc, resume); return; } }
   if (!g.leaving && seekMeal(g, { k: 'hub', A, p: { x: g.x, z: g.z } }, resume)) return;
-  const choices = hubChoices(A, g, 0, new Map(), g);
+  // Heading home, a trail that only leads back into this same junction gets nobody closer to the car. If a guest
+  // still keeps landing back here (a longer loop), they give up and walk down rather than circle all night.
+  if (g.leaving) {
+    const L = g.hubLoop && g.hubLoop.aid === A.id ? g.hubLoop : (g.hubLoop = { aid: A.id, n: 0 });
+    if (++L.n > 3) { const w = today.noWayDown || (today.noWayDown = {}); w[A.name] = (w[A.name] || 0) + AGENT; return hikeOut(g, `No open trail down from ${A.name}, so I hiked out.`); }
+  }
+  const choices = hubChoices(A, g, 0, new Map(), g).filter((c) => !(g.leaving && c.k === 'ski' && c.T.to && c.T.to.kind === 'hub' && c.T.to.obj === A));
   let best = null, value = -Infinity;
   for (const c of choices) { const v = noisy(c.v); if (v > value) { value = v; best = c; } }
   if (!best) return hikeOut(g);
@@ -9449,9 +9455,9 @@ function loopArrive(b) {
     g.st = 'xbus'; b.riders.push(g.id); seats--;
   }
 }
-function hikeOut(g) {
+function hikeOut(g, why) {
   g.sat -= 12; today.complaints.stranded++;
-  thought(g, 'The lift was closed, so I had to hike out.');
+  thought(g, why || 'The lift was closed, so I had to hike out.');
   goCar(g);
 }
 function updateLeaving(g) {
@@ -9814,7 +9820,7 @@ function makeGuest(car, x, z) {
     severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
-    xUntil: undefined, xZone: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined
+    xUntil: undefined, xZone: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined
   };
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -10496,7 +10502,7 @@ function endDay() {
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
-    leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
+    leftLines: today.leftLines, noWayDown: today.noWayDown || null, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0, naps: today.naps || 0 } : null,
     condo: ownerMood || today.condoEmpty || today.condoSold ? { sold: today.condoSold || 0, sales: today.condoSales || 0, owners: today.ownerGuests || 0, renters: today.renters || 0, rented: today.condoRented || 0, empty: today.condoEmpty || 0, dues: today.condoDues || 0, skiHome: today.skiHome || 0, mood: ownerMood } : null,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
@@ -14229,7 +14235,7 @@ function dayHardEnd() {
   let e = closeTime() + DAY_HARD_END - DAY_CLOSE;
   if (apresOn()) e = Math.max(e, apresEnd() + 10);
   if (nightEnd()) e = Math.max(e, nightEnd() + 30);
-  if (nightClearout()) e = Math.max(e, state.time + 1); // finish the final descent before ending the day
+  if (nightClearout()) e = Math.max(e, Math.min(state.time + 1, nightEnd() + 90)); // finish the final descent, but never keep the day open all night
   return e;
 }
 const lastCall = () => (runOps && runOps.lastCall) || APRES_END;
@@ -17763,7 +17769,9 @@ function showReport(r = state.lastReport, past = false) {
   if (c.noSchool) note(2, `${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
   if (c.boring) note(2, `${c.boring} strong skiers found too little challenging terrain.`);
   if (r.baseBare) note(5, `<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
-  if (c.stranded) note(3, `${c.stranded} guests had to hike out because a lift was stopped.`);
+  const noWay = Object.entries(r.noWayDown || {}), noWayN = noWay.reduce((a, [, n]) => a + n, 0);
+  if (noWayN) note(4, `${noWayN} guests were stuck at ${noWay.map(([n]) => esc(n)).join(' and ')} after the lifts closed: the only open trails there lead back to the same spot. They hiked out. Open a trail from there down to the base.`);
+  if (c.stranded > noWayN) note(3, `${c.stranded - noWayN} guests had to hike out because a lift was stopped.`);
   const notes = ranked.sort((x, y) => y[0] - x[0] || x[1] - y[1]).map((n) => n[2]);
   // The summary skips notes that repeat what the tip already says (the same count of guests, say).
   const tipNums = new Set((tip || '').match(/\d[\d,]{1,}/g) || []);
@@ -20484,6 +20492,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.81.1', date: 'Nov 2, 2026', title: 'Fix for days that never ended', small: true, items: [
+    'Fixed: with night skiing on, a day could run all night and never end, with a few guests stuck finding their way home.',
+    'Guests heading home no longer circle a trail that only leads back to where they started. If there’s no open way down, they hike out, and the day report says where and why.',
+  ] },
   { v: '2.81', date: 'Nov 2, 2026', title: 'Trail maps, string lights and floodlights', show: ['decor', 'Open Decor'], items: [
     'Four new decorations under Buildings › Decor.',
     'Trail map board: a painted map of your own trails and lifts, with your resort’s name on top. It updates itself as you build.',
