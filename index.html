@@ -20782,20 +20782,23 @@ function drawRivals() {
   for (const o of [...rivalGroup.children]) { rivalGroup.remove(o); if (o.userData.rival) o.geometry.dispose(); }
   if (!matchView) return;
   const [cu, cv] = CROWN.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
-  matchView.drawn = 0;
+  matchView.drawn = 0; RIVAL_SKI.slices = [];
   for (const r of matchView.resorts) {
     if (r.slot === matchView.slot || !r.save || !r.save.world) continue;
     const phi = (r.slot - matchView.slot) * 2 * Math.PI / CROWN.n, c = Math.cos(phi), sn = Math.sin(phi);
     const turn = (p) => ({ x: cx + (p.x - cx) * c - (p.z - cz) * sn, z: cz + (p.x - cx) * sn + (p.z - cz) * c });
-    const w = r.save.world;
+    const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [] };
+    RIVAL_SKI.slices.push(sl);
     for (const L of w.lifts || []) {
-      try { const a = turn(L.a), b = turn(L.b), lay = liftLayout(a, b, L.type, L.mid && L.mid.s); rivalGroup.add(buildLiftVisual({ ...L, a, b }, lay, false)); matchView.drawn++; } catch (e) { /* skip one that won't draw */ }
+      try { const a = turn(L.a), b = turn(L.b), lay = liftLayout(a, b, L.type, L.mid && L.mid.s); rivalGroup.add(buildLiftVisual({ ...L, a, b }, lay, false)); matchView.drawn++;
+        sl.lifts.push({ a: { ...a, y: heightAt(a.x, a.z) }, b: { ...b, y: heightAt(b.x, b.z) }, len: Math.hypot(b.x - a.x, b.z - a.z) }); } catch (e) { /* skip one that won't draw */ }
     }
     for (const t of w.trails || []) {
       try {
         const pts = (t.pts || []).map(turn), hw = TRAIL_WIDTHS[t.width] ? TRAIL_WIDTHS[t.width].hw : 2, sm = trailSamples(pts, hw);
         if (sm.length < 2) continue;
         const col = RATINGS[analyzeTrail(sm).rating].col, pos = [], idx = [];
+        sl.trails.push({ pts: sm.map((p) => ({ x: p.x, z: p.z, y: heightAt(p.x, p.z) + 0.05 })), len: (sm.length - 1) * 0.5 });
         for (let i = 0; i < sm.length; i++) {
           const p = sm[i], q = sm[Math.min(sm.length - 1, i + 1)], o = sm[Math.max(0, i - 1)], dx = q.x - o.x, dz = q.z - o.z, d = Math.hypot(dx, dz) || 1, nx = -dz / d * hw, nz = dx / d * hw;
           pos.push(p.x + nx, heightAt(p.x + nx, p.z + nz) + 0.25, p.z + nz, p.x - nx, heightAt(p.x - nx, p.z - nz) + 0.25, p.z - nz);
@@ -20811,6 +20814,7 @@ function drawRivals() {
     }
   }
   if (typeof renderer !== 'undefined' && renderer) renderer.shadowMap.needsUpdate = true;
+  try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; }
 }
 const matchNext = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
 const matchTable = () => [...matchView.resorts].sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
@@ -21009,6 +21013,7 @@ async function startReplay(manual) {
   if (!matchView) return;
   matchView.starting = false;
   const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
+  if (res) { RIVAL_SKI.share = Object.fromEntries(res.resorts.map((r, i) => [r.slot, res.share[i] || 0])); try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; } }
   const n = k >= 0 ? res.share[k] || 0 : 0;
   if (!n) { matchView.nothing = l.day; if (manual) toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
   if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
@@ -21043,6 +21048,62 @@ function stopReplay(done) {
   const r = state.lastReport;
   if (r && r.day != null) showReport(r, true); // the server's own report of the day: the official one
   else if (off) toast(`Day ${day} is over. Official: ${off.guests.toLocaleString('en-US')} guests, ${signedMoney(off.profit)} for the day.`);
+}
+/* ---------- Multiplayer: skiers on your rivals' slices ----------
+   While the day plays, little skiers ride your rivals' lifts and ski down their trails, as many as each rival's
+   share of the town's skiers that day. They're for looking at only: drawn in one batch, never part of your
+   resort, and switched off for good if anything about them goes wrong, so they can't spoil the match screen. */
+const RIVAL_SKI = { on: true, mesh: null, slices: [], ghosts: [], share: {} };
+function rivalSkiersBuild() {
+  RIVAL_SKI.ghosts = [];
+  if (!RIVAL_SKI.on || !matchView) return;
+  if (!RIVAL_SKI.mesh) {
+    const geo = new THREE.BoxGeometry(0.32, 0.8, 0.32); geo.translate(0, 0.4, 0);
+    RIVAL_SKI.mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xffffff }), 360);
+    RIVAL_SKI.mesh.frustumCulled = false; RIVAL_SKI.mesh.count = 0; scene.add(RIVAL_SKI.mesh);
+  }
+  const col = new THREE.Color();
+  for (const sl of RIVAL_SKI.slices) {
+    if (!sl.lifts.length || !sl.trails.length) continue;
+    const share = RIVAL_SKI.share[sl.slot] ?? ((sl.last && sl.last.guests) || 0);
+    const n = Math.min(120, Math.round(share * 0.18));
+    for (let k = 0; k < n; k++) {
+      const g = { sl, mode: 'lift', i: Math.floor(Math.random() * sl.lifts.length), p: Math.random(), d: 0 };
+      if (Math.random() < 0.6) { g.mode = 'ski'; g.i = Math.floor(Math.random() * sl.trails.length); g.d = Math.random() * sl.trails[g.i].len; }
+      RIVAL_SKI.mesh.setColorAt(RIVAL_SKI.ghosts.length, col.setHex(JACKETS[Math.floor(Math.random() * JACKETS.length)]));
+      RIVAL_SKI.ghosts.push(g);
+    }
+  }
+  if (RIVAL_SKI.mesh.instanceColor) RIVAL_SKI.mesh.instanceColor.needsUpdate = true;
+}
+const nearest = (list, p, key) => { let best = 0, bd = Infinity; list.forEach((x, k) => { const q = key(x), d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = k; } }); return { k: best, d: bd }; };
+function rivalSkiersTick(dt) {
+  const M = RIVAL_SKI.mesh;
+  if (!M) return;
+  const live = !!(matchView && matchView.replay && state.phase === 'open' && RIVAL_SKI.ghosts.length);
+  M.visible = live;
+  if (!live) return;
+  const pace = clamp(state.speed / 0.37, 0.2, 4), m = new THREE.Matrix4(), s = clamp(cam.viewH / 55, 1, 1.6);
+  let n = 0;
+  for (const g of RIVAL_SKI.ghosts) {
+    const sl = g.sl;
+    let x, y, z;
+    if (g.mode === 'lift') {
+      const L = sl.lifts[g.i];
+      g.p += dt * pace * 1.4 / Math.max(10, L.len);
+      if (g.p >= 1) { g.mode = 'ski'; const t = nearest(sl.trails, L.b, (T) => T.pts[0]); g.i = t.d < 25 ? t.k : Math.floor(Math.random() * sl.trails.length); g.d = 0; }
+      x = L.a.x + (L.b.x - L.a.x) * g.p; y = L.a.y + (L.b.y - L.a.y) * g.p + 1.2; z = L.a.z + (L.b.z - L.a.z) * g.p;
+    }
+    if (g.mode === 'ski') {
+      const T = sl.trails[g.i];
+      g.d += dt * pace * 4.5;
+      if (g.d >= T.len) { g.mode = 'lift'; const end = T.pts[T.pts.length - 1], l = nearest(sl.lifts, end, (L) => L.a); g.i = l.d < 30 ? l.k : Math.floor(Math.random() * sl.lifts.length); g.p = 0; g.d = 0; }
+      else { const f = g.d / 0.5, i = Math.min(T.pts.length - 2, Math.floor(f)), u = f - i, a = T.pts[i], b = T.pts[i + 1]; x = a.x + (b.x - a.x) * u; y = a.y + (b.y - a.y) * u; z = a.z + (b.z - a.z) * u; }
+    }
+    if (x === undefined) continue;
+    m.makeScale(s, s, s); m.setPosition(x, y, z); M.setMatrixAt(n++, m);
+  }
+  M.count = n; M.instanceMatrix.needsUpdate = true;
 }
 $('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
 $('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
@@ -22633,6 +22694,7 @@ function frame(now) {
   if (draft.dirty) recomputeDraft();
   if (practice && state.started && !visiting) tutTick();
   if (state.started && !visiting) syncShowSpeed();
+  if (RIVAL_SKI.mesh) { try { rivalSkiersTick(dt); } catch (e) { RIVAL_SKI.on = false; RIVAL_SKI.mesh.visible = false; } }
   if (state.started && state.phase === 'open' && state.speed > 0) {
     let gdt = dt * GS_PER_REAL * (showSlow() ? Math.min(1, state.speed) : state.speed);
     while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }

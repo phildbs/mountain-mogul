@@ -8,7 +8,7 @@ export default async function ({ browser, url }) {
   await m.ev(`(() => { openDay(); state.speed = 0; let n = 0; while (state.phase === 'open' && n++ < 200000) simStep(1.5); nextDay(); })()`);
   const save = await m.page.evaluate(() => window.__dbg('saveData')(false));
   await m.page.close();
-  const g = await openGame(browser, url);
+  const g = await openGame(browser, url, { render: !!process.env.SHOTS });
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString(), names = ['Summit Ridge', 'Phil’s Peak', 'Rival Run'];
   // Day 2 began 5 minutes ago (slots of 30 minutes: day 2 started at the start time plus 60 minutes).
   const match = { lobbies: [{ id: 'R1', name: 'Replay Cup', map: 'match', slots: 3, starts_at: ago(65), days: 168, day_minutes: 30, status: 'running', day: 2, prize: null }],
@@ -23,16 +23,23 @@ export default async function ({ browser, url }) {
   // The day plays by itself.
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   const w = await g.ev(`({ time: state.time, want: replayClock(matchView.lobby), speed: state.speed, bar: document.getElementById('visitText').innerText, btn: document.getElementById('visitWatch').innerText, expected: today.expected })`);
-  assert(Math.abs(w.time - w.want) < 5 && Math.abs(w.want - (480 + 555 * 5 / 25)) < 3, `today plays by itself, at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
+  assert(Math.abs(w.time - w.want) < (process.env.SHOTS ? 15 : 5) && Math.abs(w.want - (480 + 555 * 5 / 25)) < 3, `today plays by itself, at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
   assert(w.speed > 0.25 && w.speed < 0.5, `in step with the clock (${w.speed.toFixed(2)})`);
   eq(w.expected, 150, 'with the share of skiers the server gave this resort');
   assert(/watching day 2 live/.test(w.bar) && w.btn === 'Pause the day', 'the bar says so');
   await g.wait(3000);
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
+  const rv = await g.ev(`(() => { const own = world.lifts[0].a, M = RIVAL_SKI.mesh, m = new THREE.Matrix4(), p = new THREE.Vector3(), far = [];
+    for (let i = 0; i < M.count; i++) { M.getMatrixAt(i, m); p.setFromMatrixPosition(m); far.push(Math.hypot(p.x - own.x, p.z - own.z)); }
+    return { n: RIVAL_SKI.ghosts.length, shown: M.count, visible: M.visible, on: RIVAL_SKI.on, minFar: Math.min(...far) }; })()`);
+  eq([rv.on, rv.visible, rv.n], [true, true, Math.round(100 * 0.18) + Math.round(90 * 0.18)], 'rivals have skiers too, in proportion to their share of the day');
+  if (process.env.SHOTS) { await g.ev("document.getElementById('updCard').hidden = true; cam.viewH = 150; cam.viewGoal = null; updateCamera()"); await g.wait(2500); await g.page.screenshot({ path: 'rival-skiers.png' }); }
+  assert(rv.shown === rv.n && rv.minFar > 25, `on their own slices, away from yours (${JSON.stringify(rv)})`);
 
   // A build tool pauses it; Explore picks it up again.
   await g.ev(`setTool('lift')`); await g.wait(300);
   eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused, state.tool]`), ['closed', false, true, 'lift'], 'picking a build tool pauses the day so you can build');
+  await g.wait(200); eq(await g.ev('RIVAL_SKI.mesh.visible'), false, 'rivals’ skiers go when the day pauses');
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   // Reports opens the past days.
