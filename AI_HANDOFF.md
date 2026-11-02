@@ -167,7 +167,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-65f9e233-ylnmqr` | Claude | Night lights refund for days that never ended (2.82.1 preview) | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -335,7 +334,7 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
-### 2026-11-02 · Claude · Night lights refund (2.82.1 preview)
+### 2026-11-02 · Claude · Night lights refund (shipped in 2.82.1)
 
 - Before 2.81.1 a day could run for game-weeks (guests circling a loop trail), and `nightCost` charged lights and
   crew for every clear-out minute. A live resort (Aspen Heights, Juniper) was charged $2.64M and $259K on two
