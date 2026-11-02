@@ -59,6 +59,12 @@ export const pageOrders = (orders) => `(() => {
           if (i.an.problems.length) throw new Error(i.an.problems[0]); pay(i); commitTrail(i, pts, p.width || 'medium');
         } else if (p.what === 'building') {
           const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building'); pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0);
+        } else if (p.what === 'trees') {
+          // Trees cleared by the brush or the bulldozer: only on your own land, as many as the cash covers.
+          const set = new Set();
+          for (const k of p.ks || []) { if (set.size * TREE_COST + TREE_COST > state.cash) break; if (Number.isInteger(k) && trees.alive[k] && inProperty(trees.x[k], trees.z[k])) set.add(k); }
+          if (!set.size && (p.ks || []).length) throw new Error('no trees to clear there');
+          state.cash -= set.size * TREE_COST; clearTreeSet(set);
         } else if (p.what === 'lot') {
           const n = state.lotSections; if (state.cash < LOT_EXPAND_COST) throw new Error('not enough cash');
           growLot(p.row ?? null, p.lot || 0); if (state.lotSections === n) throw new Error('the parking lot can’t grow there');

@@ -27,7 +27,7 @@ export default async function ({ browser, url }) {
   await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView)'), null, { timeout: 20000 });
   const ui = await g.ev(`({ visiting: !!visiting, play: document.body.classList.contains('matchplay'), lift: getComputedStyle(document.getElementById('tLift')).display !== 'none',
     clear: getComputedStyle(document.getElementById('tClear')).display !== 'none', go: getComputedStyle(document.getElementById('tbGo')).display !== 'none' })`);
-  eq(ui, { visiting: false, play: true, lift: true, clear: false, go: false }, 'your own running match is played, with the build tools and without the ones the server can’t do');
+  eq(ui, { visiting: false, play: true, lift: true, clear: true, go: false }, 'your own running match is played, with the build tools and without the ones the server can’t do');
 
   // Build a lift: it's on your screen at once, and the order goes to the server.
   const built = await g.ev(`(() => { setTool('lift'); const i = evalLift({ x: ${spot[0]}, z: ${spot[1]} }, { x: ${spot[2]}, z: ${spot[3]} }, 'double'); commitLift(i, 'double'); computeNetwork(); setTool('explore'); return world.lifts.length; })()`);
@@ -65,6 +65,21 @@ export default async function ({ browser, url }) {
   eq(await g.ev('state.lotSections'), lot0 + 1, 'the lot grows on your screen');
   o = await orders();
   eq(o.filter((x) => x.what === 'lot').length, 1, 'and goes to the server');
+  // The landscape tool: clearing trees with the brush, and the bulldozer on one tree.
+  const tr = await g.ev(`(() => {
+    setTool('clear'); state.landMode = 'trees'; const before = trees.alive.reduce((a, x) => a + x, 0);
+    let spot = null; for (let x = -30; x <= 30 && !spot; x += 3) for (let z = 20; z <= 60 && !spot; z += 3) { let n = 0; treesInBrush({ x, z }, 3, () => n++); if (n > 3 && inProperty(x, z)) spot = { x, z }; }
+    stroke.active = true; clearAt(spot); endStroke(); stroke.active = false;
+    const after = trees.alive.reduce((a, x) => a + x, 0); setTool('explore');
+    return { cleared: before - after, spot };
+  })()`);
+  assert(tr.cleared > 3, `the brush clears trees on your screen (${tr.cleared})`);
+  await g.wait(400);
+  o = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((x) => x.payload.what === 'trees').map((x) => x.payload.ks.length));
+  eq(o, [tr.cleared], 'and the exact trees go to the server');
+  const blocked2 = await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'landMode'; b.dataset.v = 'area'; select({ kind: 'manage', obj: 'snow' }); document.getElementById('sheet').appendChild(b); b.click(); return [state.landMode, document.getElementById('toast').textContent]; })()`);
+  assert(blocked2[0] !== 'area' && /isn’t part of King of the Mountain yet/.test(blocked2[1]), `painting areas isn't in matches yet, and says so (${blocked2})`);
+  o = await orders();
   const sentBefore = o.length;
 
   // Back to the title and in again: what's still waiting for tonight is back on your screen, and not sent twice.
@@ -74,7 +89,8 @@ export default async function ({ browser, url }) {
   await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView) && world.lifts.length === 2'), null, { timeout: 20000 });
   const back = await g.ev(`({ lifts: world.lifts.length, lots: state.lotSections, ticket: state.ticket, bar: document.getElementById('visitText').innerText })`);
   eq([back.lifts, back.lots, back.ticket], [2, lot0 + 1, 49], 'your queued lift, parking and price are still there');
-  assert(/2 changes open/.test(back.bar), `the bar still counts them (${back.bar})`);
+  eq(await g.ev(`trees.alive.reduce((a, x) => a + x, 0) < ${await g.ev('trees.n')}`), true, 'and so are the trees you cleared');
+  assert(/3 changes open/.test(back.bar), `the bar still counts them (${back.bar})`);
   await g.wait(800);
   eq((await orders()).length, sentBefore, 'nothing was sent twice');
   await g.click('#visitHome'); await g.reloaded();

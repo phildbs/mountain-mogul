@@ -745,7 +745,7 @@ body.visiting .badge { cursor: default; }
 .mc-form .btn { width: auto; padding: 8px 14px; }
 .mc-err { margin: 0; color: var(--steep); font-size: 13px; }
 body.matchview .tb-speed, body.matchview #tbGo, body.matchview .tb-wait { display: none; }
-body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
+body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
 /* Buy me a coffee: slimmer than the cards above it, in the coffee site's yellow. */
@@ -3488,6 +3488,7 @@ function clearAt(p) {
     state.cash -= TREE_COST;
     state.cleared++;
     stroke.trees++; stroke.cost += TREE_COST;
+    if (matchPlay) (stroke.mks || (stroke.mks = [])).push(k); // in a match, the trees cleared go to the server
     if (n < 30) spawnPuff(trees.x[k], trees.y[k] + trees.s[k], trees.z[k]);
     n++;
   });
@@ -3537,6 +3538,8 @@ function endStroke() {
   if (stroke.broke) toast(`Not enough cash to ${plant ? 'replant' : 'clear'} more trees`, true);
   else if (stroke.trees) toast(`${plant ? 'Replanted' : 'Cleared'} ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
   if (stroke.trees && world.areas.some(isGlade)) { computeNetwork(); syncLabels(); } // a glade's trees set its rating
+  if (matchPlay && !matchView.quiet && stroke.mks && stroke.mks.length && !plant) matchOrder('build', { what: 'trees', ks: stroke.mks });
+  stroke.mks = null;
   stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null;
 }
 
@@ -3644,7 +3647,9 @@ function dozeAt(sx, sy) {
   if (visiting || state.phase !== 'closed') return;
   const o = dozeTarget(sx, sy);
   if (!o) { toast('Nothing to bulldoze there. Tap a tree, light, seat, fence section or snow gun.'); return; }
+  if (matchPlay && o.kind !== 'tree') { toast('In King of the Mountain the bulldozer clears trees for now. The rest is coming.', true); return; }
   if (o.kind === 'tree') {
+    if (matchPlay && !matchView.quiet && state.cash >= TREE_COST) matchOrder('build', { what: 'trees', ks: [o.k] });
     if (state.cash < TREE_COST) { toast('Not enough cash to clear this tree.', true); return; }
     pushUndo('bulldozing a tree');
     clearTreeSet(new Set([o.k]));
@@ -7652,7 +7657,7 @@ sheet.addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read)
-  if (matchPlay && !MATCH_ACTIONS.includes(a) && a) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails, buildings and parking, and set prices.', true); return; }
+  if (matchPlay && a && (!MATCH_ACTIONS.includes(a) || (a === 'landMode' && !['trees', 'doze'].includes(b.dataset.v)))) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails, buildings and parking, clear trees, and set prices.', true); return; }
   if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
@@ -20767,7 +20772,7 @@ async function openMatch(lid) {
   const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort', play = !!me && lob.status === 'running';
   if (matchView) clearInterval(matchView.timer);
   matchView = { lobby: lob, players, resorts, slot, me: !!me, pending: 0 };
-  if (play) { visiting = null; matchPlay = { lobby: lid, slot }; document.body.classList.add('matchplay'); }
+  if (play) { visiting = null; matchPlay = { lobby: lid, slot }; document.body.classList.add('matchplay'); if (!['trees', 'doze'].includes(state.landMode)) state.landMode = 'trees'; }
   else { visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
   select(null);
   applySave(mine.save);
@@ -20898,6 +20903,7 @@ async function matchApplyPending() {
         else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length) commitTrail(i, pts, p.width || 'medium'); }
         else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
         else if (p.what === 'lot') growLot(p.row ?? null, p.lot || 0);
+        else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k])); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
       } catch (e) { /* one that no longer fits is skipped here; the server says why overnight */ }
     }
   } finally { matchView.quiet = false; }
@@ -20906,7 +20912,7 @@ async function matchApplyPending() {
 }
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
-  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot'];
+  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode'];
 const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
 function matchOrder(kind, payload) {
   if (!matchPlay || !CLOUD.sb) return;
@@ -21288,6 +21294,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.83.3', date: 'Nov 2, 2026', title: 'Clearing trees in matches', small: true, items: ['King of the Mountain: the landscape tool is back in matches. Clear trees with the brush or bulldoze them one at a time; they go overnight, like everything else. Painting areas, levelling and replanting are coming next.'] },
   { v: '2.83.2', date: 'Nov 2, 2026', title: 'Parking in matches', small: true, items: ['King of the Mountain: you can now grow your parking lot in a match. It’s built overnight, like everything else.', 'Fixed: going back into a match showed your resort without the things you’d built since the last day, so it looked as if they were lost. They were always kept; now they show straight away.'] },
   { v: '2.83.1', date: 'Nov 2, 2026', title: 'Rival skiers', items: ['King of the Mountain: while your day plays, you can see skiers riding your rivals’ lifts and skiing their trails, as many as came to each resort that day.'] },
   { v: '2.83', date: 'Nov 2, 2026', title: 'King of the Mountain (beta)', items: [
