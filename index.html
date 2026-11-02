@@ -20890,6 +20890,9 @@ async function matchApplyPending() {
   const list = data || [];
   if (!matchView) return;
   matchView.quiet = true;
+  let short = 0;
+  // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
+  const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
   try {
     for (const o of list) {
       try {
@@ -20899,16 +20902,17 @@ async function matchApplyPending() {
           if (p.ticketPeak !== undefined) state.ticketPeak = p.ticketPeak;
           if (p.pass != null) state.passPrice = p.pass;
           if (p.prices) Object.assign(state.prices, p.prices);
-        } else if (p.what === 'lift') { const i = evalLift(p.a, p.b, p.type); if (!i.problems.length) commitLift(i, p.type); }
-        else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length) commitTrail(i, pts, p.width || 'medium'); }
-        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
-        else if (p.what === 'lot') growLot(p.row ?? null, p.lot || 0);
-        else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k])); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
+        } else if (p.what === 'lift') { const i = evalLift(p.a, p.b, p.type); if (!i.problems.length && fits(i)) commitLift(i, p.type); }
+        else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length && fits(i)) commitTrail(i, pts, p.width || 'medium'); }
+        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
+        else if (p.what === 'lot') { if (state.cash < LOT_EXPAND_COST) short++; else growLot(p.row ?? null, p.lot || 0); }
+        else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k]).slice(0, Math.max(0, Math.floor(state.cash / TREE_COST)))); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
       } catch (e) { /* one that no longer fits is skipped here; the server says why overnight */ }
     }
   } finally { matchView.quiet = false; }
   if (list.length) { computeNetwork(); clearUndo(); renderSheet(); }
-  matchView.pending = list.filter((o) => o.kind === 'build').length; matchView.sent = matchPrices(); matchBar();
+  matchView.pending = list.filter((o) => o.kind === 'build').length - short; matchView.sent = matchPrices(); matchBar();
+  if (short) toast(`${short === 1 ? 'One of your changes costs' : `${short} of your changes cost`} more than the cash you have left, so ${short === 1 ? 'it won’t be' : 'they won’t be'} built tonight.`, true);
 }
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
@@ -21294,6 +21298,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.83.4', date: 'Nov 2, 2026', title: 'Match cash fix', small: true, items: ['Fixed: in King of the Mountain, coming back into a match could show your cash below zero, adding up changes that cost more than you had. The server only ever built what you could pay for; now your screen shows the same, with a message about any change it will skip.'] },
   { v: '2.83.3', date: 'Nov 2, 2026', title: 'Clearing trees in matches', small: true, items: ['King of the Mountain: the landscape tool is back in matches. Clear trees with the brush or bulldoze them one at a time; they go overnight, like everything else. Painting areas, levelling and replanting are coming next.'] },
   { v: '2.83.2', date: 'Nov 2, 2026', title: 'Parking in matches', small: true, items: ['King of the Mountain: you can now grow your parking lot in a match. It’s built overnight, like everything else.', 'Fixed: going back into a match showed your resort without the things you’d built since the last day, so it looked as if they were lost. They were always kept; now they show straight away.'] },
   { v: '2.83.1', date: 'Nov 2, 2026', title: 'Rival skiers', items: ['King of the Mountain: while your day plays, you can see skiers riding your rivals’ lifts and skiing their trails, as many as came to each resort that day.'] },

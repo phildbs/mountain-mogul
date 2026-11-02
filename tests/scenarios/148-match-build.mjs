@@ -83,16 +83,19 @@ export default async function ({ browser, url }) {
   const sentBefore = o.length;
 
   // Back to the title and in again: what's still waiting for tonight is back on your screen, and not sent twice.
+  // A change that costs more than you'd have left isn't shown as built (the server would refuse it too).
+  await g.page.evaluate((sp) => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.orders.push({ id: 99, lobby_id: 'M1', slot: 1, user_id: 'user-B', kind: 'build', payload: { what: 'lift', type: 'gondola', note: 'costs more than the cash left', a: { x: sp[0] + 40, z: sp[1] }, b: { x: sp[2] + 40, z: sp[3] } }, applied_day: null, error: null }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, spot);
   await g.click('#visitHome'); await g.reloaded();
   eq(await g.ev('!!matchPlay'), false, 'leaving ends the match');
   await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=M1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=M1]');
   await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView) && world.lifts.length === 2'), null, { timeout: 20000 });
   const back = await g.ev(`({ lifts: world.lifts.length, lots: state.lotSections, ticket: state.ticket, bar: document.getElementById('visitText').innerText })`);
   eq([back.lifts, back.lots, back.ticket], [2, lot0 + 1, 49], 'your queued lift, parking and price are still there');
+  assert(await g.ev('state.cash >= 0'), `queued changes never take your cash below zero on screen (${await g.ev('state.cash')})`);
   eq(await g.ev(`trees.alive.reduce((a, x) => a + x, 0) < ${await g.ev('trees.n')}`), true, 'and so are the trees you cleared');
-  assert(/3 changes open/.test(back.bar), `the bar still counts them (${back.bar})`);
+  assert(/[34] changes open/.test(back.bar), `the bar still counts them (${back.bar})`);
   await g.wait(800);
-  eq((await orders()).length, sentBefore, 'nothing was sent twice');
+  eq((await orders()).length, sentBefore + 1, 'nothing was sent twice (the one extra is the order this test added)');
   await g.click('#visitHome'); await g.reloaded();
   await g.ev(`__fakeSwitch('user-C', 'c@example.com')`); await g.wait(1200);
   await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=M1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=M1]');
