@@ -49,6 +49,7 @@ export const pageOrders = (orders) => `(() => {
         if (p.ticket != null) state.ticket = clamp(Math.round(+p.ticket) || 0, 0, 500);
         if (p.ticketPeak !== undefined) state.ticketPeak = p.ticketPeak == null ? null : clamp(Math.round(+p.ticketPeak) || 0, 0, 500);
         if (p.pass != null) state.passPrice = clamp(Math.round(+p.pass) || 0, 0, 5000);
+        if (p.prices && typeof p.prices === 'object') for (const [k, v] of Object.entries(p.prices)) if (k in state.prices && Number.isFinite(+v)) state.prices[k] = clamp(Math.round(+v), 0, 1000);
       } else if (o.kind === 'build') {
         const pay = (i) => { if (i.cost > state.cash) throw new Error('not enough cash'); };
         if (p.what === 'lift') {

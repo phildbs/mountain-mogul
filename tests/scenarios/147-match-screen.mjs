@@ -23,7 +23,7 @@ export default async function ({ browser, url }) {
   await g.page.waitForSelector('[data-mp=open][data-id=M1]', { timeout: 10000 });
   await g.page.click('[data-mp=open][data-id=M1]');
   await g.reloaded();
-  await g.page.waitForFunction(() => window.__dbg('!!(visiting && visiting.match && matchView)'), null, { timeout: 20000 });
+  await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView)'), null, { timeout: 20000 });
   const s = await g.ev(`(() => {
     const own = world.lifts[0], box = new THREE.Box3(), mid = (o) => { box.setFromObject(o); const c = new THREE.Vector3(); box.getCenter(c); return c; };
     const rivals = rivalGroup.children.filter((o) => o.type === 'Group' && o.children.length);

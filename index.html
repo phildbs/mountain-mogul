@@ -718,6 +718,7 @@ body.visiting .badge { cursor: default; }
 .mp-sign .help { flex: 1; }
 .mp-sign .btn { width: auto; flex: none; padding: 8px 14px; }
 .pill.done { background: rgba(20, 36, 58, 0.07); color: var(--ink-2); }
+body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=parking], body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
 /* Buy me a coffee: slimmer than the cards above it, in the coffee site's yellow. */
@@ -1840,6 +1841,8 @@ const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPrevi
 // this device or online, so it never mixes with a player's own resorts or the leaderboards.
 const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1';
 const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
+// Playing your own resort in a running match: you build on your copy and each change goes to the match server.
+let matchPlay = null;
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
 const MORE_LISTS = ['more', 'parking', 'ops', 'prices', 'events', 'evenings', 'reputation', 'snow', 'money', 'plans', 'land'];
 const isPhone = () => matchMedia('(max-width: 640px)').matches;
@@ -3190,7 +3193,7 @@ function scheduleSave() {
 }
 let lastSaveLen = 0;
 function saveNow() {
-  if (NO_SAVE) return;
+  if (NO_SAVE || matchPlay) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   try {
@@ -6190,6 +6193,7 @@ function evalTrail(pts, width, allowPlans, grade, ws) {
   return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth, approach, bridges, bridgeCost, lotWarn: reserveHitsTrail(samples, hw) };
 }
 function commitTrail(info, pts, width) {
+  if (matchPlay) matchOrder('build', { what: 'trail', width, pts: pts.map((p) => ({ x: p.x, z: p.z })) });
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
@@ -6403,6 +6407,7 @@ function evalLift(a0, b0, type, allowPlans, self) {
   return { a, b, lay, problems, treeSet, build, cost, stats, fromBase: isBase(a) || !!hubAt(a)?.basePoint, lotWarn: reserveHitsLift(a, b) };
 }
 function commitLift(info, type) {
+  if (matchPlay) matchOrder('build', { what: 'lift', type, a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z } });
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const made = {
@@ -6621,6 +6626,7 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0, tu
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot, style) {
+  if (matchPlay) matchOrder('build', { what: 'building', type, x, z, rot });
   clearTreeSet(info.treeSet);
   const tier = info.tier || 0;
   state.cash -= info.cost;
@@ -7614,6 +7620,8 @@ sheet.addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort'].includes(a)) return; // visits are read only
+  if (matchPlay && !MATCH_ACTIONS.includes(a)) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails and buildings, and set prices.', true); return; }
+  if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -10527,6 +10535,7 @@ function simStep(dt) {
 }
 
 function openDay() {
+  if (matchPlay) { toast('In a match the server plays every day, for every resort at once. What you build opens the next morning.', true); return; }
   if (state.phase !== 'closed' || refClaimBusy) return;
   if (state.bankrupt && !visiting) return showGameOver();
   if (state.summer) return newSeason();
@@ -10709,6 +10718,7 @@ function endDay() {
   if (!simulating && !visiting) { saveNow(); if (Date.now() - CLOUD.lastUp >= CLOUD_GAP) cloudSave(false); else scheduleCloud(); } else scheduleSave();
 }
 function waitDay() {
+  if (matchPlay) return;
   if (state.phase !== 'closed' || state.summer) return;
   if (state.bankrupt && !visiting) return showGameOver();
   endOfDaySnow();
@@ -19137,7 +19147,7 @@ $('badge').onclick = () => {
   $('menu').hidden = !open;
   $('badge').setAttribute('aria-expanded', String(open));
 };
-$('mTitle').onclick = () => { closeMenu(); if (visiting) returnHome(); saveNow(); cloudSaveNow(); showTitle(); };
+$('mTitle').onclick = () => { closeMenu(); if (matchPlay) return leaveMatch(); if (visiting) returnHome(); saveNow(); cloudSaveNow(); showTitle(); };
 $('mHint').onclick = () => { closeMenu(); showHint(true); };
 
 /* ---------- Full screen ---------- */
@@ -19459,7 +19469,7 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual, forReferral = false) {
-  if (NO_SAVE || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
+  if (NO_SAVE || matchPlay || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
   if (refClaimBusy && !forReferral) { scheduleCloud(); return; }
   const slot = activeSlot(), uploadUid = CLOUD.uid;
   // Never save over another account's mountain that is sitting on this device.
@@ -19617,6 +19627,7 @@ function syncUndo() {
   b.title = last ? `Undo ${last.label} (Ctrl+Z)` : 'Nothing to undo';
 }
 function undoLast() {
+  if (matchPlay) { toast('Changes in a match are sent to the server straight away, so they can’t be undone.', true); return; }
   if (state.tool === 'clear' && state.landMode === 'hub' && areaDraft && areaDraft.history && areaDraft.history.length) { undoHubStroke(); return; }
   if (refClaimBusy) return;
   const u = undoStack.pop();
@@ -20154,7 +20165,7 @@ async function initCloud() {
     await loadProfile();
     await settleAccount();
     offerCloudSave();
-    if (BOOT.then && BOOT.then.match) openMatch(BOOT.then.match);
+    if (BOOT.then && typeof BOOT.then.match === 'string') openMatch(BOOT.then.match); // BOOT.then can be a word like 'start', whose .match is a string method
     else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
     else loadPeek(true);
@@ -20687,13 +20698,15 @@ async function openMatch(lid) {
   const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : 0, mine = resorts.find((r) => r.slot === slot);
   if (!mine || !mine.save) { toast(lob.status === 'open' ? 'That match hasn’t started yet.' : 'That match’s resorts aren’t ready yet.', true); return; }
   closeMp(); $('community').hidden = true; setTool('explore');
-  const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort';
-  visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid };
+  const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort', play = !!me && lob.status === 'running';
   if (matchView) clearInterval(matchView.timer);
-  matchView = { lobby: lob, players, resorts, slot, me: !!me };
-  document.body.classList.add('visiting');
+  matchView = { lobby: lob, players, resorts, slot, me: !!me, pending: 0 };
+  if (play) { visiting = null; matchPlay = { lobby: lid, slot }; document.body.classList.add('matchplay'); }
+  else { visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
   select(null);
   applySave(mine.save);
+  state.resortName = name; clearUndo();
+  matchView.sent = matchPrices();
   $('resortName').textContent = name;
   $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false;
   $('visitHome').textContent = 'Back to title';
@@ -20745,7 +20758,9 @@ function matchBar() {
   if (!matchView) return;
   const l = matchView.lobby, t = matchTable(), place = t.findIndex((r) => r.slot === matchView.slot) + 1;
   const when = l.status === 'finished' ? `finished after ${l.days} days` : l.day ? `day ${l.day} of ${l.days} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
-  $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${matchView.me ? `${mpPlace(place)} of ${t.length}` : `watching <b>${esc(visiting.name)}</b>`} · ${when}`;
+  const who = matchView.me ? `${mpPlace(place)} of ${t.length}` : `watching <b>${esc((visiting && visiting.name) || '')}</b>`;
+  const pend = matchPlay && matchView.pending ? ` · <b>${matchView.pending} ${matchView.pending === 1 ? 'change opens' : 'changes open'}</b> tomorrow` : '';
+  $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${who} · ${when}${pend}`;
   if (selected && selected.kind === 'match') renderSheet();
 }
 function matchSheet() {
@@ -20755,11 +20770,12 @@ function matchSheet() {
     <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>
     <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
-    <p class="help">Building and changing prices from here comes next.</p>`;
+    <p class="help">${matchPlay ? 'Build lifts, trails and buildings, and set your prices, any time. Everything you change is sent to the match server and opens the next morning.' : 'You’re looking around: only the resort’s owner can build here.'}</p>`;
 }
 // Every 20 seconds: the countdown, and a fresh copy of the match once the server has played another day.
 async function matchTick() {
-  if (!matchView || !visiting || !visiting.match) { if (matchView) clearInterval(matchView.timer); return; }
+  if (!matchView || !(matchPlay || (visiting && visiting.match))) { if (matchView) clearInterval(matchView.timer); return; }
+  matchSendPrices();
   matchBar();
   if (matchView.lobby.status !== 'running' || Date.now() < matchNext(matchView.lobby) + 15000) return;
   const { data } = await CLOUD.sb.from('match_lobbies').select('*').eq('id', matchView.lobby.id).maybeSingle().then((r) => r, () => ({}));
@@ -20768,9 +20784,41 @@ async function matchTick() {
   if (!rs || !matchView) return;
   matchView.lobby = data; matchView.resorts = rs;
   const mine = rs.find((r) => r.slot === matchView.slot);
-  if (mine && mine.save) { applySave(mine.save); afterLoad(); }
+  if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
+  if (matchPlay) {
+    matchView.pending = 0; matchView.sent = matchPrices();
+    if (data.status !== 'running') { matchPlay = null; document.body.classList.remove('matchplay'); visiting = { id: `match:${data.id}`, match: data.id, name: $('resortName').textContent, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
+    // Anything the server couldn't build, and why.
+    const { data: bad } = await CLOUD.sb.from('match_orders').select('kind,payload,error').eq('lobby_id', data.id).eq('applied_day', data.day).then((r) => r, () => ({}));
+    const fails = (bad || []).filter((o) => o.error);
+    if (fails.length) { drawRivals(); matchBar(); toast(`${fails.length === 1 ? 'One change' : `${fails.length} changes`} couldn’t be built overnight: ${fails[0].error}`, true); return; }
+  }
   drawRivals(); matchBar();
   toast(`Day ${data.day} is done. Tap Standings for the table.`);
+}
+// Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
+const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
+  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport'];
+const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
+function matchOrder(kind, payload) {
+  if (!matchPlay || !CLOUD.sb) return;
+  matchView.pending++; matchBar();
+  CLOUD.sb.from('match_orders').insert({ lobby_id: matchPlay.lobby, slot: matchPlay.slot, kind, payload }).then(({ error }) => {
+    if (error) { matchView.pending = Math.max(0, matchView.pending - 1); matchBar(); toast('Couldn’t send that to the match server. Check your connection: it will be gone after the next day.', true); }
+    else if (kind === 'build') toast('Sent to the match server: it opens tomorrow morning.');
+  }, () => {});
+}
+function matchSendPrices() {
+  if (!matchPlay || !matchView) return;
+  const now = matchPrices();
+  if (now === matchView.sent) return;
+  matchView.sent = now;
+  matchOrder('price', JSON.parse(now));
+}
+function leaveMatch() {
+  matchSendPrices();
+  if (matchView) clearInterval(matchView.timer);
+  setTimeout(() => reloadInto('title'), 400); // a moment for the last change to reach the server
 }
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
@@ -20817,7 +20865,7 @@ $('cmProfile').onsubmit = (e) => {
 };
 $('commBtn').onclick = () => { closeMenu(); if (state.tool !== 'explore') setTool('explore'); select({ kind: 'community', obj: null }); };
 $('mComm').onclick = openCommunity;
-$('visitHome').onclick = returnHome;
+$('visitHome').onclick = () => (matchPlay ? leaveMatch() : returnHome());
 
 /* =====================================================================
    TITLE SCREEN / GAME FLOW

@@ -70,8 +70,20 @@
       // multiplayer: lobbies, players and resorts are readable by anyone (closed lobbies aside); written only
       // by the match server and match_join / match_leave, as in supabase/multiplayer.sql
       if (table.startsWith('match_')) {
+        const m = d.match || (d.match = {});
+        if (table === 'match_orders') { // your own slice of a running match only; you read back only your own
+          const o = m.orders || (m.orders = []);
+          if (q.op === 'insert') {
+            const L = (m.lobbies || []).find((l) => l.id === q.obj.lobby_id), P = (m.players || []).find((p) => p.lobby_id === q.obj.lobby_id && p.slot === q.obj.slot);
+            if (!me || (d.users[me] || {}).anon || !L || L.status !== 'running' || !P || P.user_id !== me) return { data: null, error: { code: '42501', message: 'row-level security' } };
+            o.push({ id: o.length + 1, user_id: me, applied_day: null, error: null, ...q.obj }); put(d); return { data: null, error: null };
+          }
+          let rows = o.filter((r) => r.user_id === me);
+          for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+          return { data: rows, error: null };
+        }
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table ' + table } };
-        const m = d.match || {}, key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts' }[table];
+        const key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts' }[table];
         let rows = (m[key] || []).filter((r) => table !== 'match_lobbies' || r.status !== 'closed');
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
         for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
