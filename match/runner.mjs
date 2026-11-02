@@ -10,29 +10,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
+import { splitSkiers, nextCap, GROW, SHARP } from './market.mjs';
 
 const N = +(process.env.PLAYERS || 3), DAYS = +(process.env.DAYS || 21);
 const PRICES = (process.env.PRICES || '45,65,85').split(',').map(Number);
 const PASSES = (process.env.PASSES || '399').split(',').map(Number);
 const NAMES = ['Aspen Bowl', 'Birch Hollow', 'Cedar Crest', 'Driftwood'];
-// The town's market: rivals grow it a little (more resorts draw more people to the valley), then each resort's
-// draw on its own, price included, decides its share. SHARP > 1 makes a better offer win more than its plain
-// share, so undercutting a rival really takes skiers from them. Season passes are shared the same way.
-const GROW = 0.4, SHARP = 1.5;
-export function splitSkiers(alone, cap = alone.map(() => Infinity)) {
-  const sorted = [...alone].sort((a, b) => b - a), sum = sorted.reduce((a, b) => a + b, 0);
-  if (!sum) return alone.map(() => 0);
-  const town = sorted[0] + GROW * (sum - sorted[0]), w = alone.map((d) => Math.pow(d, SHARP));
-  // A resort that was full last time only takes what it can hold; the skiers it can't take try the others.
-  let out = alone.map(() => 0), left = town, open = alone.map((d, k) => d > 0);
-  for (let pass = 0; pass < alone.length && left > 1; pass++) {
-    const W = w.reduce((a, x, k) => a + (open[k] ? x : 0), 0); if (!W) break;
-    let spill = 0;
-    out = out.map((o, k) => { if (!open[k]) return o; const want = o + left * w[k] / W; if (want > cap[k]) { spill += want - cap[k]; open[k] = false; return cap[k]; } return want; });
-    left = spill;
-  }
-  return out.map(Math.round);
-}
 
 const out = join(dirname(fileURLToPath(import.meta.url)), 'out');
 mkdirSync(out, { recursive: true });
@@ -75,7 +58,7 @@ for (let d = 0; d < DAYS; d++) {
   players.forEach((p, k) => {
     const r = days[k]; Object.keys(p.total).forEach((key) => { p.total[key] += r[key]; });
     // Full: next time it's offered only what it held. Not full: it may have grown, so offer a little more each day.
-    p.cap = r.turnedAway > 0 ? r.guests : p.cap * 1.15;
+    p.cap = nextCap(p.cap, r);
   });
   log.push({ day: d + 1, wall, alone, share, passShare, results: days });
   console.log(`Day ${d + 1} (${days[0].wx}), all ${N} resorts played in ${(wall / 1000).toFixed(1)} s`);

@@ -372,6 +372,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   read-only for clients except own orders) and match_join / match_leave / admin_match_lobby / admin_match_close.
   Checked by `tests/sql/multiplayer.sql` (23 checks) on a throwaway local Postgres, not on live. Advisor warnings
   for these are the expected kinds (signed-in can call the security-definer functions; guests can read).
+- Match server: `match/server.mjs` (loop each minute: start due lobbies with computer resorts in empty slots, play due
+  days, apply `match_orders` overnight, finish with badges), shared rules in `match/market.mjs`, DB layer `match/db.mjs`
+  (REST with service key, or in-memory). `node match/server-test.mjs` plays a 3-day match on the in-memory DB (22
+  checks). Season profit = sum of daily operating profit, so building isn't a loss. The REST layer is untested against
+  live from here (this container can't reach supabase.co); first real test is on the Hetzner box via
+  `match/server-install.sh`.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
