@@ -346,6 +346,17 @@ Newest first. Start each note with the date and who wrote it. Give findings, rec
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
 
+### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
+
+- Phil wants persistent multiplayer: 2–4 signed-in players, official lobbies only (2–3 at a time, set up by Phil),
+  about a real week per match, one game day per real hour, most season profit wins, build any time (big builds open
+  next morning), several matches per player, badges for winners. Its own section with its own saves.
+- Plan doc: https://claude.ai/artifact/JQgtJHs64mifbu15Qb1o7Y (Phil's, ask him for access to comment).
+- `tests/catchup-bench.mjs` times whole headless days. Starter resort (~250 guests): 0.3–0.5 s a day, 1.6–2.3 s with
+  CPU throttled 4×. Big resort (26 lifts, 110 trails, ~1,400 guests): 9–10.5 s, 53–60 s throttled. So phones can't
+  catch up missed days; the plan is a small rented server running `index.html` headless (as the tests do) once an
+  hour, writing results to Supabase. Supabase edge functions are too short-lived for a whole day. Signed: Claude
+
 ### 2026-11-02 · Claude · Night lights refund (shipped in 2.82.1)
 
 - Before 2.81.1 a day could run for game-weeks (guests circling a loop trail), and `nightCost` charged lights and
