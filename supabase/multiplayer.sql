@@ -17,7 +17,7 @@ create table if not exists public.match_lobbies (
   slots integer not null default 3 check (slots between 2 and 4),
   starts_at timestamptz not null,
   days integer not null default 168 check (days between 1 and 400), -- game days; one an hour is a week
-  day_minutes integer not null default 60 check (day_minutes between 5 and 240),
+  day_minutes integer not null default 30 check (day_minutes between 5 and 240), -- days start on the hour and half hour
   status text not null default 'open' check (status in ('open', 'running', 'finished', 'closed')),
   day integer not null default 0,                                   -- the last game day the server played
   prize text,                                                       -- the winner's badge, "Winter Cup champion"
@@ -35,6 +35,8 @@ create table if not exists public.match_players (
   unique (lobby_id, user_id)
 );
 create index if not exists match_players_user on public.match_players (user_id);
+-- Upgrade: half-hour days (Phil, Nov 2): 25 minutes of skiing, then 5 minutes of night to build.
+alter table public.match_lobbies alter column day_minutes set default 30;
 
 -- Each resort as the server last left it: the full save, and a small summary for the league table.
 create table if not exists public.match_resorts (
@@ -163,8 +165,10 @@ begin
   if lower(coalesce(auth.jwt() ->> 'email', '')) <> 'phildbs@gmail.com' or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
     raise exception 'not allowed' using errcode = '42501';
   end if;
+  -- Starts on the next hour or half hour, so every day begins at :00 or :30.
   insert into public.match_lobbies (name, map, slots, starts_at, days, prize)
-    values (pname, pmap, pslots, pstarts, pdays, coalesce(pprize, pname || ' champion')) returning id into nid;
+    values (pname, pmap, pslots, date_trunc('hour', pstarts) + interval '30 minutes' * ceil(extract(epoch from pstarts - date_trunc('hour', pstarts)) / 1800),
+      pdays, coalesce(pprize, pname || ' champion')) returning id into nid;
   return nid;
 end;
 $$;

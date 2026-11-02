@@ -34,6 +34,7 @@ grant all on mp_lobby to anon, authenticated, postgres;
 reset role;
 select pg_temp.ok((select count(*) from public.match_lobbies where name in ('Test Cup', 'Second Cup')) = 2, 'Phil can make lobbies');
 select pg_temp.ok((select prize from public.match_lobbies where name = 'Test Cup') = 'Test Cup champion', 'a lobby gets a default prize');
+select pg_temp.ok((select extract(minute from starts_at) in (0, 30) and extract(second from starts_at) = 0 and starts_at >= now() + interval '1 day' and day_minutes = 30 from public.match_lobbies where name = 'Test Cup'), 'a lobby starts on the next hour or half hour, with half-hour days');
 select pg_temp.as_user(1);
 set role authenticated;
 select pg_temp.ok(pg_temp.fails($$select public.admin_match_lobby('Sneaky Cup', now() + interval '1 day')$$), 'a player cannot make a lobby');
