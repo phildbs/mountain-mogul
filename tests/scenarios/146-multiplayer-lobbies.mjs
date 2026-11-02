@@ -23,7 +23,7 @@ export default async function ({ browser, url }) {
   const open = async () => { await g.click('#mpCard'); await g.page.waitForFunction(() => !/Loading/.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 }); };
 
   // A guest: sees what's on, is asked to sign in, and can't join.
-  assert(await g.page.isVisible('#mpCard') && /King of the Mountain Multiplayer/i.test(await g.page.innerText('#mpCard')), 'the King of the Mountain Multiplayer card is on the title screen');
+  assert(await g.page.isVisible('#mpCard') && /King of the Mountain/i.test(await g.page.innerText('#mpCard')) && /Multiplayer/i.test(await g.page.innerText('#mpCard')), 'the King of the Mountain card, marked Multiplayer, is on the title screen');
   eq(await g.ev(`[!$('newMtn').hidden, $('newMtn').innerText.replace(/\\s+/g, ' ').trim()]`), [true, 'NEW Multiplayer (beta) ›'], 'with an orange New Multiplayer (beta) tag');
   await g.click('#newMtn'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
   await g.click('#mpClose'); await g.ev('renderSlots()');
