@@ -32,9 +32,20 @@ export default async function ({ browser, url }) {
   await g.click('[data-mp=signin]');
   eq(await g.page.isVisible('#mpModal'), false, 'Sign in closes the window, back to the sign-in card');
 
-  // Signed in: your matches first.
+  // The info card comes up the first time, with a way to report bugs.
+  await open(); t = await body();
+  assert(/How King of the Mountain works[\s\S]*This is a beta/.test(t), 'the first visit explains the mode and that it is a beta');
+  await g.page.click('[data-mp=intro-ok]'); await g.wait(200);
+  assert(!/This is a beta/.test(await body()) && /How it works/.test(await body()), 'Got it puts it away, with How it works to bring it back');
+
+  // Signed in without a player name: pick one first.
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   await open();
+  t = await body();
+  assert(/First, pick your player name/.test(t) && /Pick your player name above to join/.test(t) && !(await g.page.$('[data-mp=pick]')), 'no joining until you have a player name');
+  await g.page.fill('#mpPlayerName', 'Phil'); await g.page.click('#mpNameForm button[type=submit]');
+  await g.page.waitForFunction(() => !document.getElementById('mpNameForm'), null, { timeout: 10000 });
+  eq(await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).profiles['user-B']), { name: 'Phil', public: true }, 'the name is saved as your player name');
   t = await body();
   assert(!/Sign in to play/.test(t), 'no sign-in note once signed in');
   assert(/Your matches[\s\S]*Test Cup[\s\S]*now 2nd of 3[\s\S]*Day 13 of 168[\s\S]*next day in/i.test(t), `a running match shows your place and the day (${t.slice(0, 300)})`);

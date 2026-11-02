@@ -18,7 +18,7 @@ export default async function ({ browser, url }) {
       { id: 3, lobby_id: 'C1', user_id: 'u-rival', slot: 2, name: 'Rival Run', body: 'Hidden one', kind: 'chat', day: 1, hidden: true, created_at: at(-39) },
       { id: 4, lobby_id: 'C2', user_id: null, slot: null, name: 'Done Cup', body: 'Final standings: …', kind: 'news', day: 2, hidden: false, created_at: at(-30) }],
     reactions: [{ message_id: 2, user_id: 'u-x', emoji: '😂' }] };
-  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
+  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   const into = async (id) => {
     await g.click('#mpCard'); await g.page.waitForSelector(`[data-mp=open][data-id=${id}]`, { timeout: 10000 }); await g.page.click(`[data-mp=open][data-id=${id}]`);

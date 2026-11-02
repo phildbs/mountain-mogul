@@ -718,6 +718,9 @@ body.visiting .badge { cursor: default; }
 .mp-sign .help { flex: 1; }
 .mp-sign .btn { width: auto; flex: none; padding: 8px 14px; }
 .pill.done { background: rgba(20, 36, 58, 0.07); color: var(--ink-2); }
+.mp-intro { display: grid; gap: 8px; padding: 14px; border-radius: 12px; background: var(--accent-soft); }
+.mp-intro p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.mp-namef { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .mc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .mc-msg { padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); min-width: 0; }
 .mc-msg.mine { background: var(--accent-soft); border-color: transparent; }
@@ -20622,10 +20625,24 @@ function joinForm(l, note, late) {
     + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">${esc(note)}</span>`
     + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : late ? 'Join now' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
 }
+// What King of the Mountain is, shown the first time the window opens (and from How it works).
+const MP_INTRO = `<div class="mp-intro"><b>How King of the Mountain works</b>
+  <p>Each match is one big mountain, Crown Peak, shared by two or three resorts. Your slice runs from your own base up to the summit, with your rivals on the slices beside you.</p>
+  <p>The match keeps going day and night: a new game day every half hour, for three and a half days (one season). Build lifts, trails and buildings and set your prices any time. New things open the next morning, and you can watch each day live.</p>
+  <p>Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins the match, and its badge.</p>
+  <p><b>This is a beta.</b> Things will go wrong. Please tell us about any bug, however small, and we’ll fix it as soon as we can.</p>
+  <div class="mp-acts"><button class="btn" type="button" data-mp="intro-ok">Got it</button><button class="btn secondary" type="button" data-mp="bug">Report a bug</button></div></div>`;
+const mpIntroSeen = () => { try { return !!localStorage.getItem('mm.kotm.intro'); } catch (e) { return true; } };
+const mpNeedsName = () => !CLOUD.guest && !!CLOUD.uid && !(CLOUD.profile && CLOUD.profile.name);
 function renderMp() {
   if ($('mpModal').hidden) return;
-  const me = CLOUD.uid, guest = CLOUD.guest || !me, now = Date.now(), L = MP.lobbies;
-  let h = guest ? '<div class="mp-sign"><p class="help"><b>Sign in to play.</b> Multiplayer is for signed-in players, so every resort in a match has a real owner. You can still look around.</p><button class="btn secondary" type="button" data-mp="signin">Sign in</button></div>' : '';
+  const me = CLOUD.uid, guest = CLOUD.guest || !me, now = Date.now(), L = MP.lobbies, needName = mpNeedsName();
+  let h = MP.intro || !mpIntroSeen() ? MP_INTRO : '<p class="help"><button class="link" type="button" data-mp="intro">How it works</button> · <button class="link" type="button" data-mp="bug">Report a bug</button></p>';
+  // A player name first: it's what rivals and the chat see.
+  if (needName) h += `<form class="mp-join mp-namef" id="mpNameForm"><b>First, pick your player name</b><span class="help">Everyone in a match sees it, in the standings and the chat. It’s also your name on the leaderboards.</span>`
+    + `<input id="mpPlayerName" maxlength="24" autocomplete="off" aria-label="Your player name" value="${esc(MP.pname || '')}">${MP.nameErr ? `<span class="mp-err">${esc(MP.nameErr)}</span>` : ''}`
+    + `<div class="mp-acts"><button class="btn" type="submit">Save my name</button></div></form>`;
+  h += guest ? '<div class="mp-sign"><p class="help"><b>Sign in to play.</b> Multiplayer is for signed-in players, so every resort in a match has a real owner. You can still look around.</p><button class="btn secondary" type="button" data-mp="signin">Sign in</button></div>' : '';
   if (MP.err) h += `<p class="help">${esc(MP.err)}</p>`;
   if (!L) { $('mpBody').innerHTML = h + (MP.err ? '' : '<p class="help">Loading the lobbies…</p>'); return; }
   const inL = (l) => MP.players.filter((p) => p.lobby_id === l.id), mine = (l) => (guest ? null : inL(l).find((p) => p.user_id === me));
@@ -20647,7 +20664,7 @@ function renderMp() {
       const p = mine(l), t = table(l), place = t.findIndex((r) => r.slot === p.slot) + 1;
       let body = `<div class="mp-when">You’re <b>${esc(p.resort_name)}</b>${place && l.status !== 'open' ? ` · ${l.status === 'finished' ? 'you came' : 'now'} <b>${mpPlace(place)}</b> of ${t.length}` : ''}</div><div class="mp-when">${when(l)}</div>`;
       if (l.status !== 'open' && t.length) body += league(l, p.slot);
-      if (l.status !== 'open') body += `<div class="mp-acts"><button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">${l.status === 'running' ? 'Go to your resort' : 'Look back'}</button></div>`;
+      if (l.status !== 'open' && !needName) body += `<div class="mp-acts"><button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">${l.status === 'running' ? 'Go to your resort' : 'Look back'}</button></div>`;
       if (l.status === 'open') body += `<div class="mp-acts"><button class="link" type="button" data-mp="leave" data-id="${l.id}">Leave this lobby</button></div>`;
       return `<li class="mp-card">${head(l)}${body}</li>`;
     }).join('')}</ul>` : '<p class="help">You’re not in a match yet. Join an open lobby below.</p>';
@@ -20659,7 +20676,7 @@ function renderMp() {
   h += '<section class="mp-sec"><h4>Open lobbies</h4>';
   h += open.length ? `<ul class="mp-list">${open.map((l) => {
     const full = inL(l).length >= l.slots;
-    let act = full ? '<span class="help">Full</span>' : guest ? '<button class="btn secondary" type="button" data-mp="signin">Sign in to join</button>'
+    let act = full ? '<span class="help">Full</span>' : guest ? '<button class="btn secondary" type="button" data-mp="signin">Sign in to join</button>' : needName ? '<span class="help">Pick your player name above to join.</span>'
       : active >= 3 ? '<span class="help">You’re already in three matches.</span>' : `<button class="btn secondary" type="button" data-mp="pick" data-id="${l.id}">Join</button>`;
     if (MP.joinFor === l.id && !full && !guest) act = joinForm(l, 'You’ll get a random slice of the mountain. You can leave until the match starts.');
     return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${l.prize ? `<div class="mp-sub">Prize: the “${esc(l.prize)}” badge</div>` : ''}<div class="mp-acts">${act}</div></li>`;
@@ -20673,7 +20690,7 @@ function renderMp() {
     const canLate = l.day <= lateEnd(l) && lateRoom(l), bonus = Math.min(l.late_bonus_cap ?? 1000000, (l.late_bonus ?? 15000) * l.day);
     const takes = inL(l).some((p) => !p.user_id) ? 'take over a computer resort' : 'start on an empty slice';
     let act = `<button class="btn secondary" type="button" data-mp="open" data-id="${l.id}">Watch</button>`;
-    if (canLate) act += guest ? '<button class="link" type="button" data-mp="signin">Sign in to join</button>' : active >= 3 ? '' : `<button class="link" type="button" data-mp="pick" data-id="${l.id}">Join now</button>`;
+    if (canLate) act += guest ? '<button class="link" type="button" data-mp="signin">Sign in to join</button>' : active >= 3 || needName ? '' : `<button class="link" type="button" data-mp="pick" data-id="${l.id}">Join now</button>`;
     if (canLate && MP.joinFor === l.id && !guest) act = joinForm(l, `You’ll ${takes}${bonus ? `, with a catch-up investment of ${money(bonus)} for the days you missed` : ''}${l.keep_profit === false || !inL(l).some((p) => !p.user_id) ? '. Your profit counts from today' : ''}.`, true);
     const late = canLate ? `<div class="mp-sub">Still time to join, until day ${lateEnd(l)}${bonus ? `: catch-up investment ${money(bonus)}` : ''}</div>` : '';
     return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${late}${league(l, -1)}<div class="mp-acts">${act}</div></li>`;
@@ -20699,6 +20716,9 @@ $('mpModal').addEventListener('click', async (e) => {
   if (!b) return;
   const what = b.dataset.mp;
   if (what === 'signin') { closeMp(); $('titleAcct').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (what === 'intro-ok') { try { localStorage.setItem('mm.kotm.intro', '1'); } catch (er) { /* fine */ } MP.intro = false; renderMp(); return; }
+  if (what === 'intro') { MP.intro = true; renderMp(); $('mpBody').scrollTop = 0; return; }
+  if (what === 'bug') { closeMp(); openFeedback('fb'); return; }
   if (what === 'pick') {
     MP.joinFor = b.dataset.id; MP.joinErr = '';
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
@@ -20721,6 +20741,7 @@ const rivalGroup = new THREE.Group();
 scene.add(rivalGroup);
 async function openMatch(lid) {
   if (!CLOUD.sb) return;
+  if (mpNeedsName()) { toast('Pick your player name first.', true); if (MOUNTAIN.id === 'match') reloadInto('title'); else openMp(); return; }
   if (MOUNTAIN.id !== 'match') { if (!visiting && onThisMountain() && state.started) saveNow(); reloadInto({ match: lid }, 'match'); return; }
   toast('Heading to the match…');
   let lob, players, resorts;
@@ -20915,7 +20936,7 @@ function mcShow() {
 }
 const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 function matchChatSheet() {
-  const l = matchView ? matchView.lobby : null, guest = CLOUD.guest || !CLOUD.uid, canSay = !guest && l && ['open', 'running'].includes(l.status);
+  const l = matchView ? matchView.lobby : null, guest = CLOUD.guest || !CLOUD.uid, canSay = !guest && !mpNeedsName() && l && ['open', 'running'].includes(l.status);
   let hidden = 0;
   const rows = MC.msgs.map((m) => {
     if (m.user_id && MC.mutes.has(m.user_id)) { hidden++; return ''; }
@@ -21028,6 +21049,15 @@ $('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (e.target.id === 'mpNameForm') {
+    const n = $('mpPlayerName').value.replace(/\s+/g, ' ').trim().slice(0, 24);
+    MP.pname = n;
+    if (!n) { MP.nameErr = 'Type a name first.'; renderMp(); return; }
+    const err = await saveProfile(n, true);
+    MP.nameErr = err ? 'Couldn’t save that name. Try again in a moment.' : '';
+    if (!err) toast(`Hello, ${n}! Now pick a match.`);
+    renderMp(); return;
+  }
   const f = e.target.closest('.mp-join'); if (!f || MP.busy) return;
   const name = $('mpName').value.replace(/\s+/g, ' ').trim();
   MP.joinName = name;

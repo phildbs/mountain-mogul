@@ -17,7 +17,7 @@ export default async function ({ browser, url }) {
   const match = { lobbies: [{ id: 'M1', name: 'Build Cup', map: 'match', slots: 3, starts_at: at(-60), days: 168, day_minutes: 30, status: 'running', day: 2, prize: null }],
     players: [0, 1, 2].map((s) => ({ lobby_id: 'M1', slot: s, user_id: s === 1 ? 'user-B' : null, resort_name: ['Summit Ridge', 'Phil’s Peak', 'Valley View'][s] })),
     resorts: [0, 1, 2].map((s) => ({ lobby_id: 'M1', slot: s, day: 2, save, summary: { name: ['Summit Ridge', 'Phil’s Peak', 'Valley View'][s], profit: 1000 * s, guests: 100 } })), orders: [] };
-  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
+  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true }, 'user-C': { name: 'Watcher', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   const keysBefore = await g.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('skiTycoon')).sort().join());
   await g.click('#mpCard');
