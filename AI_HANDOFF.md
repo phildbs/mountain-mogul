@@ -54,9 +54,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.81.1.** Phil approved publication on Nov 2 (quick-fix tier: related scenarios passed locally; full GitHub run green on 35ac84e).
+**Live: 2.82.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 7bbee7a).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.82: dinner under the lights. Published Nov 2. From Phil: casual restaurants join `NIGHT_OPEN`; `apresType` keeps a
+  restaurant only when `B.isBase` (base or village), so a mountain one closes at `nightEnd() + 15`. Night skiers' snack need
+  becomes a sit-down `dine` at a restaurant after closing (`svcFor`), which counts as their snack; stay-on day guests reset
+  `snacked`. Store and gift kiosk still close at lift close (Phil may want them open at night). Test 142-night-dinner. (Claude, Nov 2)
 - 2.81.1: days that never ended. Published Nov 2. From player feedback (Aspen Heights, Juniper): the only open trail off a painted
   summit area ended back in it, so leaving guests circled forever, and the night clear-out kept pushing `dayHardEnd` back. Leaving
   guests now skip hub-to-same-hub trails and hike out after 3 laps (`today.noWayDown`, day report note); the clear-out stops at
@@ -163,7 +167,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d936ae6d-j5gxb8` | Claude | 2.82: casual restaurants open for night skiing; après only at base/village restaurants | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
