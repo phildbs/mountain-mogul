@@ -4,7 +4,7 @@ create temp table mc_users(n integer primary key, id uuid default gen_random_uui
 insert into mc_users(n, email, anon) values (0, 'phildbs@gmail.com', false), (1, 'a@mc-test.invalid', false), (2, 'b@mc-test.invalid', false),
   (3, 'spec@mc-test.invalid', false), (4, 'quiet@mc-test.invalid', false), (5, 'guest@mc-test.invalid', true);
 insert into auth.users(id, email, is_anonymous) select id, email, anon from mc_users;
-insert into public.profiles(id, name, public) select id, 'Snowfan', true from mc_users where n = 3;
+insert into public.profiles(id, name, public) select id, case n when 3 then 'Snowfan' else 'Player ' || n end, n <> 4 from mc_users where not anon; -- player 4's name is private
 create temp table mc_results(name text);
 grant all on mc_users, mc_results to anon, authenticated;
 create function pg_temp.ok(cond boolean, label text) returns void language plpgsql as $$
@@ -54,7 +54,7 @@ reset role; select pg_temp.later(); set role authenticated;
 select pg_temp.as_user(3);
 select pg_temp.ok(public.match_say('00000000-0000-0000-0000-0000000000a1', 'Watching from the valley') > 0, 'a signed-in spectator can post');
 select pg_temp.as_user(4);
-select pg_temp.ok(public.match_say('00000000-0000-0000-0000-0000000000a1', 'Hello') > 0, 'a spectator without a profile can post');
+select pg_temp.ok(public.match_say('00000000-0000-0000-0000-0000000000a1', 'Hello') > 0, 'a spectator with a private name can post');
 select pg_temp.as_user(5);
 select pg_temp.ok(pg_temp.err($$select public.match_say('00000000-0000-0000-0000-0000000000a1', 'hi')$$) = 'sign in to chat', 'guests cannot post');
 select pg_temp.ok(pg_temp.err($$insert into public.match_messages (lobby_id, name, body) values ('00000000-0000-0000-0000-0000000000a1', 'x', 'fake news')$$) is not null, 'nobody writes messages directly');

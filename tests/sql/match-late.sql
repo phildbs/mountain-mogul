@@ -2,6 +2,7 @@
 create temp table ml_users(n integer primary key, id uuid default gen_random_uuid(), email text, anon boolean default false);
 insert into ml_users(n, email, anon) values (0, 'phildbs@gmail.com', false), (1, 'a@ml.invalid', false), (2, 'b@ml.invalid', false), (3, 'c@ml.invalid', false), (5, 'g@ml.invalid', true);
 insert into auth.users(id, email, is_anonymous) select id, email, anon from ml_users;
+insert into public.profiles(id, name, public) select id, 'Player ' || n, true from ml_users where not anon;
 create temp table ml_results(name text);
 grant all on ml_users, ml_results to anon, authenticated;
 create function pg_temp.ok(cond boolean, label text) returns void language plpgsql as $$

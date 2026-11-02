@@ -5,6 +5,7 @@ create temp table mp_users(n integer primary key, id uuid default gen_random_uui
 insert into mp_users(n, email, anon) values (0, 'phildbs@gmail.com', false), (1, 'a@mp-test.invalid', false), (2, 'b@mp-test.invalid', false),
   (3, 'c@mp-test.invalid', false), (4, 'd@mp-test.invalid', false), (5, 'guest@mp-test.invalid', true);
 insert into auth.users(id, email, is_anonymous) select id, email, anon from mp_users;
+insert into public.profiles(id, name, public) select id, 'Player ' || n, true from mp_users where not anon; -- everyone who plays has a player name
 create temp table mp_results(name text);
 grant all on mp_users, mp_results to anon, authenticated;
 create function pg_temp.ok(cond boolean, label text) returns void language plpgsql as $$
