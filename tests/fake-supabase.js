@@ -154,6 +154,21 @@
         return { data: d.rows.filter((r) => r.public || r.owner === me).map((r) => ({ mountain_id: r.id,
           likes: (d.likes || []).filter((l) => l.mountain_id === r.id).length, visits: (d.visits || []).filter((v) => v.mountain_id === r.id).length })), error: null };
       }
+      if (fn === 'board_peek') { // your standing on one board, as supabase/board.sql works it out
+        const bo = (mt) => (String(mt || '').startsWith('c:') ? 'custom' : mt || 'juniper');
+        const b = d.rows.filter((r) => r.public && r.id !== args.me && r.summary && r.summary.name && !r.summary.sandbox && bo(r.summary.mt) === args.mt)
+          .map((r) => ({ id: r.id, name: r.summary.name, best: r.summary.bestGuests || 0 }));
+        const mineOk = d.rows.some((r) => r.id === args.me && (r.public || r.owner === me));
+        d.peeks = (d.peeks || 0) + 1; put(d);
+        return { data: { n: b.length, ahead: b.filter((r) => r.best > (args.best || 0)).length, top: b.sort((x, y) => y.best - x.best).slice(0, 3),
+          likes: mineOk ? (d.likes || []).filter((l) => l.mountain_id === args.me).length : 0, visits: mineOk ? (d.visits || []).filter((v) => v.mountain_id === args.me).length : 0 }, error: null };
+      }
+      if (fn === 'record_board_open') {
+        if (!me) return { data: false, error: null };
+        const o = d.boardOpens || (d.boardOpens = []), day = new Date().toISOString().slice(0, 10);
+        if (!o.some((r) => r.player === me && r.day === day && r.what === args.what)) o.push({ player: me, day, what: args.what });
+        put(d); return { data: true, error: null };
+      }
       if (fn === 'roadmap_tally') {
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
         return { data: out, error: null };

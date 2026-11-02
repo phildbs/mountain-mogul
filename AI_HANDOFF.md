@@ -152,6 +152,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-72829cfc-ib4j32` | Claude | 2.79: leaderboard on demand. Only ~61 of ~650 weekly players visited a resort, yet every game open downloaded the full board (~250 KB) and `social_counts` (~88 KB). New `supabase/board.sql` (applied on live Nov 2): `board_peek(mt, me, best)` (~300 bytes: n, ahead, top 3, your likes/visits), `record_board_open(what)` into `analytics_private.board_opens`, owner-only `admin_board_opens(days)`. Game: `loadPeek` for the title card and Leaderboard button (`boardStanding()`); full `loadBoard` only from `cmTab` (not Profile) and the in-game sheet; skeleton while loading. Title Community card restyled. stats.html: Leaderboard and Browse section. Scenarios 138 (new), 75 updated. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

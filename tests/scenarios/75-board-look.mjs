@@ -11,7 +11,8 @@ export default async function ({ browser, url }) {
     await g.page.evaluate(seed); await g.page.reload(); await g.wait(1500);
     await g.click('#startBtn'); await g.wait(300); await g.ev(`showTitle()`); await g.wait(300);
     eq(await g.ev(`[!$('titleComm').hidden, !!$('titleComm').querySelector('.ccard'), !!$('titleSlots').querySelector('.ccard')]`), [wide, wide, !wide], wide ? 'wide: community card heads the right column' : 'phone: community card in line');
-    eq(await g.ev(`document.querySelectorAll('.ccard .cc-top li').length`), 3, 'with the top three');
+    eq(await g.ev(`document.querySelectorAll('.ccard .cc-top li:not(.gap):not(.me)').length`), 3, 'with the top three');
+    eq(await g.ev(`document.querySelector('.ccard .cc-top li.me .md').textContent`), '11', 'and you, further down');
     if (wide) { await g.ev(`$('titleComm').querySelector('[data-slot=board]').click()`); await g.wait(200); eq(await g.ev(`$('community').hidden`), false, 'its Leaderboard button opens the board'); }
     else await g.ev(`openCommunity('board')`);
     await g.wait(300);

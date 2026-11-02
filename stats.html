@@ -222,6 +222,7 @@ details > summary { cursor: pointer; }
     loadCohorts();
     loadRetention();
     loadSources();
+    loadBoardOpens();
   }
 
   async function loadRetention() {
@@ -279,6 +280,20 @@ details > summary { cursor: pointer; }
   const sourceOf = (g) => g.invite ? 'Friend invitation' : g.src ? `${siteName(g.src) || g.src[0].toUpperCase() + g.src.slice(1)}${g.campaign ? ` · ${g.campaign}` : ''}` : g.host ? siteName(g.host) || g.host : 'Direct or unknown';
   let sourceDays = 30;
   try { const v = localStorage.getItem('mm.stats.sourceDays'); if (v) sourceDays = v === 'all' ? null : Number(v); } catch (e) { /* the default */ }
+  // How many players open the leaderboard and Browse, against how many played (saved online) that day.
+  async function loadBoardOpens() {
+    const el = $('boardOpens'); if (!el) return;
+    const { data, error } = await sb.rpc('admin_board_opens', { days: 14 });
+    const head = '<h2>Leaderboard and Browse</h2>';
+    if (error) { el.innerHTML = `${head}<p class="note">${/admin_board_opens/.test(error.message) ? 'Not set up yet. Run <b>supabase/board.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(error.message)}</span>`}</p>`; return; }
+    if (!data.since) { el.innerHTML = `${head}<p class="note">No opens counted yet. Counting starts with game version 2.79.</p>`; return; }
+    const days = (data.days || []).filter((d) => d.day >= data.since);
+    el.innerHTML = `${head}<p class="note">Players who opened each at least once, out of players who played. Counted since ${esc(data.since)}, once per player per day.</p>
+      <div class="scroll"><table class="cohorts"><thead><tr><th>Day</th><th class="num">Played</th><th class="num">Leaderboard</th><th class="num">Browse</th></tr></thead><tbody>
+      <tr><td><b>Last 14 days</b></td><td class="num">${num(data.played)}</td><td class="num">${num(data.board)} <small>${pct(data.board, data.played)}</small></td><td class="num">${num(data.browse)} <small>${pct(data.browse, data.played)}</small></td></tr>
+      ${days.map((d) => `<tr><td>${esc(d.day)}</td><td class="num">${num(d.played)}</td><td class="num">${num(d.board)} <small>${pct(d.board, d.played)}</small></td><td class="num">${num(d.browse)} <small>${pct(d.browse, d.played)}</small></td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
   async function loadSources() {
     const el = $('sources'); if (!el) return;
     const { data, error } = await sb.rpc('admin_sources', { days: sourceDays });
@@ -356,6 +371,7 @@ details > summary { cursor: pointer; }
           <section class="card"><h2>Mountains picked</h2><p class="note">${num(nBuilt)} resorts with at least one lift${built ? `, not counting ${num(d.mountains - nBuilt)} where nothing was built` : ''}.</p>${bars(mts.map(([k, n]) => [k, n, ' ']), Math.max(1, ...mts.map((m) => m[1])))}</section>
         </div>
         <section class="card" id="sources"><h2>Where players come from</h2><p class="note">Loading…</p></section>
+        <section class="card" id="boardOpens"><h2>Leaderboard and Browse</h2><p class="note">Loading…</p></section>
         <section class="card" id="retention"><h2>Player retention</h2><p class="note">Loading…</p></section>
         <section class="card" id="cohorts"><h2>New resorts, step by step</h2><p class="note">Loading…</p></section>
       </div>

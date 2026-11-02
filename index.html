@@ -340,6 +340,10 @@ body.visiting .badge { cursor: default; }
 .board { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .board li { display: grid; grid-template-columns: 24px 1fr auto auto; align-items: center; gap: 8px; padding: 7px 6px; border-radius: 10px; font-size: 13px; }
 .board li.me { background: rgba(37, 101, 212, 0.08); }
+.board.skel li { height: 34px; }
+.board.skel li span { display: block; height: 11px; border-radius: 6px; background: rgba(20, 36, 58, 0.08); animation: skel 1.2s ease-in-out infinite alternate; }
+.board.skel li span:nth-child(3) { width: 64px; }
+@keyframes skel { to { opacity: 0.45; } }
 .board .rk { font-weight: 800; color: var(--ink-2); text-align: right; }
 .board .who { min-width: 0; }
 .board .who b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -645,6 +649,16 @@ body.visiting .badge { cursor: default; }
 .ccard { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; }
 .ccard .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
 .ccard p { margin: 2px 0 0; font-size: 14px; }
+.ccard .cc-head { display: flex; align-items: center; gap: 10px; }
+.ccard .cc-text { flex: 1; min-width: 0; }
+.ccard .cc-ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #b07a0a; background: rgba(245, 197, 66, 0.2); }
+.ccard .cc-ic svg { width: 20px; height: 20px; }
+.ccard .cc-rank { flex: none; text-align: right; line-height: 1; }
+.ccard .cc-rank b { display: block; font: 800 30px var(--display); color: var(--ink); font-variant-numeric: tabular-nums; }
+.ccard .cc-rank span { font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.ccard .cc-top li.gap { display: block; padding: 0; text-align: center; line-height: 6px; color: var(--ink-2); }
+.ccard .cc-top li small { margin-left: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--blue); }
+.ccard .md.mx { width: auto; min-width: 20px; padding: 0 5px; border-radius: 10px; background: var(--ink-2); }
 .ccard .soc { font-size: 12.5px; color: #b8344f; font-weight: 600; }
 .ccard .actions { display: flex; gap: 8px; }
 .ccard .cc-top { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
@@ -18671,7 +18685,8 @@ async function cloudSave(manual, forReferral = false) {
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
-    // No board reload here: your own row is drawn from the game itself, and the board (~250 KB) loads when it's opened.
+    // No full board reload here (your own row comes from the game itself); just refresh your rank.
+    loadPeek(true);
   } catch (e) {
     const full = /mountain_limit/.test(String(e && e.message));
     CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.'
@@ -18699,6 +18714,39 @@ async function fetchSave(id) {
   return sv;
 }
 // Leaderboards refresh when you look at them, at most once every 20 seconds.
+// The title screen and the Leaderboard button only need your rank, the top 3 and your likes, so they ask for
+// just that (~300 bytes). The full board (~250 KB) loads when someone opens the leaderboard or Browse.
+let peekAt = 0;
+async function loadPeek(force) {
+  const mt = boardOf(MOUNTAIN.id), id = slots.active;
+  if (!CLOUD.ready || visiting || practice || !id) return;
+  if (!force && CLOUD.peek && CLOUD.peek.id === id && CLOUD.peek.mt === mt && Date.now() - peekAt < 30000) return;
+  peekAt = Date.now();
+  const mine = onThisMountain() && (state.started || loadSave()) ? summaryDoc() : null;
+  const { data, error } = await CLOUD.sb.rpc('board_peek', { mt, me: id, best: Math.round((mine && mine.bestGuests) || 0) }).then((r) => r, (e) => ({ error: e }));
+  if (error || !data) { if (!CLOUD.boardLoaded) loadBoard(true); return; } // not set up on the server: the full board instead
+  CLOUD.peek = { ...data, mt, id };
+  if (!CLOUD.boardLoaded) (CLOUD.social || (CLOUD.social = new Map())).set(id, { likes: data.likes, visits: data.visits });
+  refreshCommunity();
+  if (!state.started && !$('title').hidden) refreshTitle();
+}
+// Your place on this mountain's busiest-day board, and its top 3: from the full board once it's loaded, else the peek.
+function boardStanding() {
+  const mt = boardOf(MOUNTAIN.id);
+  if (CLOUD.boardLoaded) { const r = ranked('guests', mt), i = r.findIndex((m) => m.me); return { i, n: r.length, top: r.slice(0, 3), me: r[i] }; }
+  const p = CLOUD.peek;
+  if (!p || p.mt !== mt || p.id !== slots.active) return { i: -1, n: 0, top: [] };
+  const me = boardEntries(mt).find((m) => m.me && !m.sandbox);
+  const top = p.top.map((t) => ({ id: t.id, name: t.name, bestGuests: t.best })).concat(me ? [me] : []);
+  return { i: me ? p.ahead : -1, n: p.n + (me ? 1 : 0), top: top.sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)).slice(0, 3), me };
+}
+// Count who opens the leaderboard and Browse (once a day per player, for the stats page).
+const boardOpened = new Set();
+function noteBoardOpen(what) {
+  if (boardOpened.has(what) || !CLOUD.ready || !CLOUD.uid) return;
+  boardOpened.add(what);
+  CLOUD.sb.rpc('record_board_open', { what }).then(() => {}, () => {});
+}
 async function loadBoard(force) {
   if (!CLOUD.ready || (!force && Date.now() - CLOUD.boardAt < 60000)) return; // the whole board is ~250 KB: not too often
   CLOUD.boardAt = Date.now();
@@ -18712,6 +18760,7 @@ async function loadBoard(force) {
   CLOUD.social = new Map(((social && social.data) || []).map((r) => [r.mountain_id, { likes: r.likes, visits: r.visits }]));
   const soc = (id) => CLOUD.social.get(id) || { likes: 0, visits: 0 };
   CLOUD.mountains = data.map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at), ...soc(r.id) })).filter((m) => m.name);
+  CLOUD.boardLoaded = true;
   refreshCommunity();
   if (!state.started && !$('title').hidden) refreshTitle();
 }
@@ -19297,7 +19346,7 @@ async function initCloud() {
     offerCloudSave();
     if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
-    else loadBoard(true);
+    else loadPeek(true);
     refreshCommunity();
     if (state.phase !== 'open') scheduleCloud();
   } catch (e) {
@@ -19439,7 +19488,10 @@ function accountHtml() {
 }
 
 /* ---------- Leaderboard markup, shared by the title screen and the in-game sheet ---------- */
+// Shown for the moment the full board takes to arrive.
+const boardWait = () => `<ol class="board skel" aria-label="Loading the leaderboard">${'<li><span></span><span></span><span></span></li>'.repeat(5)}</ol>`;
 function boardHtml(limit) {
+  if (CLOUD.ready && !CLOUD.boardLoaded) return boardWait();
   const B = BOARDS[CLOUD.board] || BOARDS.guests;
   const all = ranked(CLOUD.board), list = all.slice(0, limit), mine = all.findIndex((m) => m.me);
   const best = Math.max(1, ...all.slice(0, 1).map((m) => B.val(m)));
@@ -19522,6 +19574,7 @@ function browseShelves() {
 }
 function browseHtml() {
   if (CLOUD.status === 'offline') return `<p class="help">${esc(cloudNote())}</p>`;
+  if (CLOUD.ready && !CLOUD.boardLoaded) return boardWait();
   const shelves = browseShelves(), mt = browseMt();
   const mts = `<div class="tabs mts bmts" aria-label="Show mountain"><button data-action="browseMt" data-v="" aria-pressed="${!mt}">All mountains</button>${[...Object.values(MOUNTAINS), { id: 'custom', name: 'Custom', dot: '#8a5cc7' }].map((M) => `<button data-action="browseMt" data-v="${M.id}" aria-pressed="${mt === M.id}"><i class="diff-dot" style="background:${M.dot}"></i>${esc(M.name)}</button>`).join('')}</div>`;
   if (!shelves.length) return mt ? `${mts}<p class="help">No resorts on ${esc(mt === 'custom' ? 'custom mountains' : MOUNTAINS[mt].name)} to browse yet. Try All mountains.</p>` : '<p class="help">No other resorts to browse yet. Check back soon.</p>';
@@ -19537,7 +19590,7 @@ function browseHtml() {
 }
 // Where your resort stands on the board you're looking at, and how far it is to the next one up.
 function standingHtml() {
-  if (visiting || practice || !slots.active) return '';
+  if (visiting || practice || !slots.active || (CLOUD.ready && !CLOUD.boardLoaded)) return ''; // not until the board is here
   const mine = boardOf(MOUNTAIN.id);
   if (!boardMts().has(mine)) return `<div class="standing"><b>${esc(state.resortName)} is filtered out</b><span>Turn on ${esc(MOUNTAINS[mine] ? MOUNTAINS[mine].name : 'Custom')} above to see where you stand.</span></div>`;
   const B = BOARDS[CLOUD.board] || BOARDS.guests, r = ranked(CLOUD.board), i = r.findIndex((m) => m.me);
@@ -19562,7 +19615,7 @@ function cloudNote() {
 }
 // In-game: compare the resort you're on with everyone else.
 function communitySheet() {
-  loadBoard(false);
+  loadBoard(false); noteBoardOpen('board');
   const head = `<div class="sheet-title"><h3>Compare resorts</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   const lead = visiting ? `<p class="help">You’re visiting ${esc(visiting.name)}. Return home to compare your own resort.</p>` : standingHtml();
   return `${head}${lead}${boardHtml(15)}
@@ -19630,12 +19683,14 @@ function refreshCommunity() {
   if ($('cmMe').innerHTML !== me) { $('cmMe').innerHTML = me; fillMe(); }
 }
 function refreshCommBtn() {
-  const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
-  $('commBtnLabel').textContent = !visiting && i >= 0 && r.length > 1 ? `#${i + 1} of ${r.length}` : '';
+  const { i, n } = boardStanding();
+  $('commBtnLabel').textContent = !visiting && i >= 0 && n > 1 ? `#${i + 1} of ${n}` : '';
 }
 function cmTab(t) {
   document.querySelectorAll('[data-cmtab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.cmtab === t)));
   $('cmBoardTab').hidden = t !== 'board'; $('cmProfileTab').hidden = t !== 'profile'; $('cmBrowseTab').hidden = t !== 'browse'; $('cmCreatorTab').hidden = t !== 'creator';
+  if (t !== 'profile') loadBoard(false); // the full board, only now it's needed
+  if (t === 'board' || t === 'browse') noteBoardOpen(t);
 }
 function openCommunity(tab) {
   closeMenu();
@@ -19644,7 +19699,6 @@ function openCommunity(tab) {
   CLOUD.shelf = null; // Browse opens on the overview
   cmTab(['profile', 'browse'].includes(tab) ? tab : 'board');
   $('community').hidden = false;
-  loadBoard(false);
   refreshCommunity();
 }
 function onBoardClick(e) {
@@ -19800,6 +19854,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.79', date: 'Nov 2, 2026', title: 'A fresh Community card', items: ['The Community card on the title screen has a new look: your place on your mountain’s board in big numbers, the top three, and your own resort underneath when you’re further down.', 'The game now starts faster and uses less data: the full leaderboard only downloads when you open it.'] },
   { v: '2.78.2', date: 'Nov 2, 2026', title: 'Less waiting on the server', small: true, items: ['The game now downloads much less from our server: the leaderboards no longer reload after every online save, and checking for new likes on your resort only asks about your resort, not every resort.', 'Leaderboards still refresh when you open them. Nothing changes in how you play.'] },
   { v: '2.78.1', date: 'Nov 2, 2026', title: 'Lighter online saves', small: true, items: ['Your resort now saves online every couple of minutes instead of every 30 seconds, and quick days are grouped into one upload. This keeps our server fast as more of you play.', 'Your game still saves on your device after every day, and online straight away when you leave or go back to the title screen, so nothing is lost.'] },
   { v: '2.78', date: 'Nov 2, 2026', title: 'How players find us', items: ['The first time you play, the game now notes how you found it: the name of the website that sent you (like Reddit or YouTube), a tag on the link, or a friend’s invitation. Never the full web address, and nothing about what you did there.', 'It helps us see where new players come from, so we know where to share the game. Nothing changes in how you play.'] },
@@ -20722,7 +20777,7 @@ function renderSlots() {
   if (!wide) cards.splice(1, 0, comm);
   $('titleComm').hidden = !wide;
   if (wide && $('titleComm').innerHTML !== comm) $('titleComm').innerHTML = comm;
-  if (CLOUD.ready) loadBoard(false);
+  if (CLOUD.ready) loadPeek(false);
   refreshNewBar();
   const flag = newMtnOn() && left > 0;
   // Once you've a resort on each new mountain, the button has done its job: it stays gone even if you delete them.
@@ -20736,18 +20791,21 @@ function renderSlots() {
   box.innerHTML = cards.join('');
   paintThumbs();
 }
-// Community on the title screen: your rank, likes and visits, and a way into the leaderboard and Browse.
+// Community on the title screen: your rank, the top 3 (and you, when you're further down), likes and visits,
+// and a way into the leaderboard and Browse.
+const CUP_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2.5 2.5 0 0 0 3 3.5M17 6h2.5a2.5 2.5 0 0 1-3 3.5M12 14v3M8.5 20h7l-.8-3H9.3z"/></svg>';
 function communityCard() {
-  const r = ranked('guests', boardOf(MOUNTAIN.id)), i = r.findIndex((m) => m.me);
+  const st = boardStanding(), i = st.i, mt = esc(mountainDef(MOUNTAIN.id).name);
   const so = CLOUD.social && slots.active ? CLOUD.social.get(slots.active) : null;
-  const others = CLOUD.mountains.length;
-  const line = i >= 0 && r.length > 1 ? `You’re <b>#${i + 1}</b> of ${r.length} on ${esc(mountainDef(MOUNTAIN.id).name)}`
+  const others = Math.max(0, st.n - (i >= 0 ? 1 : 0)), ranked = i >= 0 && st.n > 1;
+  const line = ranked ? (i === 0 ? `Top of the board on ${mt}!` : `Busiest days on ${mt}`)
     : others ? `<b>${others}</b> ${others === 1 ? 'resort' : 'resorts'} built by other players` : 'See what other players are building';
+  const rank = ranked ? `<div class="cc-rank" aria-label="You’re number ${i + 1} of ${st.n}"><b>#${i + 1}</b><span>of ${st.n}</span></div>` : '';
   const soc = so && (so.likes || so.visits) ? `<span class="soc">❤ ${so.likes} · ${so.visits} ${so.visits === 1 ? 'visit' : 'visits'}</span>` : '';
-  // a peek at the top of this mountain's board: its busiest days
-  const top = ranked('guests', boardOf(MOUNTAIN.id)).slice(0, 3); // the same board as the line above
-  const peek = top.length > 1 ? `<ol class="cc-top">${top.map((m, k) => `<li class="${m.me ? 'me' : ''}"><span class="md m${k + 1}">${k + 1}</span><b>${esc(m.name)}</b><span>${(m.bestGuests || 0).toLocaleString('en-US')}</span></li>`).join('')}</ol>` : '';
-  return `<article class="panel ccard"><div class="cc-text"><div class="eyebrow">Community · busiest days</div><p>${line}</p>${soc}</div>
+  const row = (m, k) => `<li class="${m.me ? 'me' : ''}"><span class="md ${k < 3 ? 'm' + (k + 1) : 'mx'}">${k + 1}</span><b>${esc(m.name)}${m.me ? '<small>You</small>' : ''}</b><span>${(m.bestGuests || 0).toLocaleString('en-US')}</span></li>`;
+  const you = i >= 3 && st.me ? `<li class="gap" aria-hidden="true">⋯</li>${row(st.me, i)}` : '';
+  const peek = st.top.length > 1 ? `<ol class="cc-top">${st.top.map(row).join('')}${you}</ol>` : '';
+  return `<article class="panel ccard"><div class="cc-head"><i class="cc-ic">${CUP_ICON}</i><div class="cc-text"><div class="eyebrow">Community</div><p>${line}</p>${soc}</div>${rank}</div>
     ${peek}
     <div class="actions"><button class="btn secondary" data-slot="board">Leaderboard</button><button class="btn secondary" data-slot="browse">Browse resorts</button></div></article>`;
 }
