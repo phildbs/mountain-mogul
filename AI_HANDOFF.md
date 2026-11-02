@@ -355,7 +355,15 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - `tests/catchup-bench.mjs` times whole headless days. Starter resort (~250 guests): 0.3–0.5 s a day, 1.6–2.3 s with
   CPU throttled 4×. Big resort (26 lifts, 110 trails, ~1,400 guests): 9–10.5 s, 53–60 s throttled. So phones can't
   catch up missed days; the plan is a small rented server running `index.html` headless (as the tests do) once an
-  hour, writing results to Supabase. Supabase edge functions are too short-lived for a whole day. Signed: Claude
+  hour, writing results to Supabase. Supabase edge functions are too short-lived for a whole day.
+- Step 1 done: `match/runner.mjs` plays 2–4 starter resorts in step (one page each, in parallel), one shared forecast
+  (`state.wx` copied from player 1), and splits the town's skiers each morning (`splitSkiers`: town = biggest
+  stand-alone demand + 0.4 × the rest, shared by demand^1.5), injected by swapping `demandForDay` around `openDay`.
+  No `index.html` changes. 4 players × 21 days at $45/65/85/105: $65 won (+$77K), $45 was capped at ~250 guests a
+  day by the starter's size (+$65K), $105 lost $107K. Whole match day for 4 small resorts: 0.3–1.2 s.
+- Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
+  A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
+  per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
 
 ### 2026-11-02 · Claude · Night lights refund (shipped in 2.82.1)
 
