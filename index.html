@@ -3167,7 +3167,7 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined },
       snow: encodeSnow(),
@@ -3211,6 +3211,7 @@ function applySave(sv) {
   if (!Number.isInteger(state.referralCredit) || state.referralCredit < 0 || state.referralCredit > 300000 || state.referralCredit % 100000) state.referralCredit = 0;
   if (!Array.isArray(state.land)) state.land = [];
   if (ok && sv.clock && !('rebated' in sv.clock)) state.rebated = 0; // saved before 2.33.2: may be owed the grooming refund
+  if (ok && sv.clock && !('nightRebated' in sv.clock)) state.nightRebated = 0; // saved before 2.82.1: may be owed the night-lights refund
   if (ok && !visiting) cancelStaleEvent();
   if (satSpaces) {
     // A resort saved with satellite lots gets off-site parking at least as big, free.
@@ -8412,7 +8413,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -20494,6 +20495,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.82.1', date: 'Nov 2, 2026', title: 'Night lights refund', small: true, items: ['Fixed: if a day that never ended charged you for night lights and crew for hours on end, the front office refunds the extra charges the next time you open your resort.'] },
   { v: '2.82', date: 'Nov 2, 2026', title: 'Dinner under the lights', items: ['Casual restaurants now stay open during night skiing, on the mountain and at the base. Hungry night skiers can sit down for dinner there.', 'Après is for base and village restaurants. A casual restaurant up the mountain closes when night skiing ends, or at the usual time when there is no night skiing.', 'Fixed: day guests who stay on for night skiing can grab a snack again, even if they had one earlier in the day.'] },
   { v: '2.81.1', date: 'Nov 2, 2026', title: 'Fix for days that never ended', small: true, items: [
     'Fixed: with night skiing on, a day could run all night and never end, with a few guests stuck finding their way home.',
@@ -21206,6 +21208,39 @@ function maybeRebate() {
   `<button class="btn" id="rebateOk">Thanks!</button>`);
   $('rebateOk').onclick = () => { $('crisis').hidden = true; };
 }
+// A one-off refund (2.82.1): before 2.81.1 guests could circle a trail all night, the day never ended, and
+// the night lights and crew were charged for every extra hour. The most a real night could cost is worked out
+// from the resort as it is now (every lit trail and lift, extra staff, 9 PM plus the 90-minute clear-out), doubled
+// to be safe. A night above that was inflated: it's refunded down to the resort's usual night bill.
+function nightRebate() {
+  const hrs = (NIGHT_HOURS[NIGHT_HOURS.length - 1][0] - Math.min(DAY_CLOSE, SHORT_CLOSE)) / 60 + 1.5;
+  const extra = world.buildings.reduce((n, B) => n + (B.type === 'tlight' ? 1 : B.type === 'flood' ? FLOOD_POWER : 0), 0) * LIGHT_GAP;
+  const len = realTrails().filter((t) => t.lit).reduce((a, t) => a + t.len, 0) + extra;
+  const lifts = world.lifts.filter((L) => L.departing.some((t) => t.lit)).length;
+  const most = (len * LIGHT_HOUR_UNIT + (NIGHT_BASE_HR + NIGHT_LIFT_HR * lifts) * STAFF_LEVELS.extra.cost) * hrs * MOUNTAIN.costs;
+  const seen = new Set(), nights = [];
+  for (const r of state.history || []) {
+    const k = r && r.exp && r.exp.night > 0 && `${r.season}:${r.day}`;
+    if (k && !seen.has(k)) { seen.add(k); nights.push(r.exp.night); }
+  }
+  const usual = nights.filter((n) => n <= most * 2).sort((a, b) => a - b), bad = nights.filter((n) => n > most * 2);
+  const fair = usual.length ? usual[Math.floor(usual.length / 2)] : most;
+  return { amount: Math.ceil(bad.reduce((a, n) => a + Math.max(0, n - fair), 0) / 100) * 100, days: bad.length };
+}
+function maybeNightRebate() {
+  if (visiting || !state.started || state.nightRebated) return;
+  if (!$('crisis').hidden) { setTimeout(maybeNightRebate, 2500); return; } // after any other popup
+  state.nightRebated = 1;
+  const { amount, days } = practice ? { amount: 0 } : nightRebate();
+  if (amount < 1000) { scheduleSave(); return; }
+  state.cash += amount;
+  updateCash(true); saveNow();
+  showCrisis(`<div><div class="eyebrow">A refund from the front office</div><h2 id="crTitle">We owe you ${money(amount)}</h2></div>
+    <p class="help">A bug could keep night skiing at ${esc(state.resortName)} going long after it should have ended, with a few guests stuck circling a trail. The lights and night crew stayed on the whole time, and you were charged for every hour.</p>
+    <p class="help">It’s fixed now. We’ve added back <b>${money(amount)}</b>, the extra night charges on ${days} day${days === 1 ? '' : 's'}. Sorry about that!</p>`,
+  `<button class="btn" id="rebateOk">Thanks!</button>`);
+  $('rebateOk').onclick = () => { $('crisis').hidden = true; };
+}
 function maybeUpdateCard(built = resortBuilt()) {
   markNew();
   if (visiting || practice || !state.started || !$('updCard').hidden) return;
@@ -21784,7 +21819,7 @@ function startGame(camFrom) {
   winterView = false;
   styleSnowVisuals();
   refreshTimebar(true);
-  { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(() => maybeUpdateCard(built), 1800); }
+  { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(maybeNightRebate, 1400); setTimeout(() => maybeUpdateCard(built), 1800); }
   if (state.phase === 'report') showReport();
   if (state.phase === 'season') showSeasonReport();
   const goal = sv && sv.cam
@@ -21979,7 +22014,7 @@ function start(hot) {
     winterView = false;
     styleSnowVisuals();
     refreshTimebar(true);
-    { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(() => maybeUpdateCard(built), 1800); }
+    { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(maybeNightRebate, 1400); setTimeout(() => maybeUpdateCard(built), 1800); }
     if (state.phase === 'report') showReport();
     if (state.phase === 'season') showSeasonReport();
     if (hot.cam) { cam.target.x = hot.cam.x; cam.target.z = hot.cam.z; cam.az = cam.azGoal = hot.cam.az; cam.viewH = hot.cam.viewH; }
