@@ -10,8 +10,9 @@
 //   - after the last day it ranks the resorts by season profit and gives badges to the top three players.
 // The games run in an invisible browser on the match map, which never saves anything itself.
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
 import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY } from './market.mjs';
 import { restDb } from './db.mjs';
@@ -153,6 +154,24 @@ async function finish(db, lobby, rows) {
   log(`${lobby.name}: finished. ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${r.summary.profit}`).join(', ')}`);
 }
 
+// Which branch the server follows is set in the repo (match/server-branch.txt). When it names a different branch
+// from the one this service was installed with, the server writes a small systemd override so every later start
+// pulls that branch instead, reloads systemd and stops; systemd starts it again on the new branch.
+export function branchOverride(want) {
+  const q = (b) => `'git -C /opt/mm fetch -q --depth 1 origin ${b} && git -C /opt/mm reset -q --hard FETCH_HEAD && cd /opt/mm/tests && npm install --silent'`;
+  return `[Service]\nEnvironment=MM_BRANCH=${want}\nExecStartPre=\nExecStartPre=-/bin/sh -c ${q(want)}\n`;
+}
+export function wantedBranch(dir) {
+  const f = join(dir, 'server-branch.txt');
+  const b = existsSync(f) ? readFileSync(f, 'utf8').trim() : '';
+  return /^[A-Za-z0-9._\/-]{1,100}$/.test(b) ? b : null;
+}
+export function switchBranch(want, unitDir = '/etc/systemd/system/mm-match.service.d', reload = true) {
+  mkdirSync(unitDir, { recursive: true });
+  writeFileSync(join(unitDir, 'branch.conf'), branchOverride(want));
+  if (reload) execFileSync('systemctl', ['daemon-reload'], { timeout: 30000 });
+}
+
 // One check of every lobby. `now` can be set by tests.
 export async function tick(db, game, now = Date.now()) {
   const lobbies = await db.select('match_lobbies', { status: ['in', ['open', 'running']] });
@@ -174,6 +193,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Updates: when the branch on GitHub moves on, stop between ticks; the service restarts us and pulls it first.
   const branch = process.env.MM_BRANCH, git = (...a) => execFileSync('git', a, { cwd: dirname(fileURLToPath(import.meta.url)), encoding: 'utf8', timeout: 30000 }).trim();
   const here = branch ? git('rev-parse', 'HEAD') : null;
+  // A different branch named in the repo: switch to it (only when running as the installed service).
+  const want = wantedBranch(dirname(fileURLToPath(import.meta.url)));
+  if (branch && want && want !== branch && process.env.INVOCATION_ID) {
+    try { switchBranch(want); log(`switching to follow ${want}, restarting`); await game.close(); process.exit(0); }
+    catch (e) { log('branch switch failed, staying on', branch, e.message); }
+  }
   for (let n = 0; ; n++) {
     await tick(db, game).catch((e) => log('tick failed:', e.stack || e));
     if (branch && n % 5 === 4) {
