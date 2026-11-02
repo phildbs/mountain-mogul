@@ -1,6 +1,7 @@
-// More decor (2.81): trail map boards show the resort's own map, string lights and holiday trees take a bulb colour
-// the player picks (saved), floodlights aim at the trail beside them and cost night power, and lights by an
-// après venue add a little après pull.
+// More decor (2.81): trail map boards show the resort's own map; string lights are a chain of tapped poles (one
+// card); string lights and holiday trees take a bulb colour the player picks (saved); floodlights face the nearest
+// trail, turn like buildings and cost night power; lights by an après venue add a little après pull. Also: tapping
+// a thin object on screen selects it, and placing things clears only the trees on their footprint.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -8,7 +9,7 @@ export default async function ({ browser, url }) {
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
 
   // Models fit their footprints; all four sit in the Decor tab and can be bulldozed.
-  const models = await g.ev(`(() => ['tmap', 'strlight', 'xtree', 'flood'].map((type) => {
+  const models = await g.ev(`(() => ['tmap', 'xtree', 'flood'].map((type) => {
     const s = BTYPES[type], box = new THREE.Box3().setFromObject(MODELS[type](0, { hue: 1 }).build());
     return [type, box.min.x >= -s.w / 2 - 0.1 && box.max.x <= s.w / 2 + 0.1 && box.min.z >= -s.d / 2 - 0.1 && box.max.z <= s.d / 2 + 0.1,
       BGROUPS.find((t) => t[0] === 'decor')[2].includes(type), DOZE_TYPES.includes(type), isDecor({ type })];
@@ -16,7 +17,7 @@ export default async function ({ browser, url }) {
   const tab = await g.ev(`(() => { showFeature('decor'); return ['tmap', 'strlight', 'xtree', 'flood'].map((v) => !!document.querySelector('#sheet [data-action=pickB][data-v=' + v + ']')); })()`);
   eq(tab, [true, true, true, true], "What's new opens the Decor tab with all four");
   await g.ev(`setTool('explore')`);
-  eq(models, [['tmap', true, true, true, true], ['strlight', true, true, true, true], ['xtree', true, true, true, true], ['flood', true, true, true, true]], 'four new decor pieces fit, in the Decor tab');
+  eq(models, [['tmap', true, true, true, true], ['xtree', true, true, true, true], ['flood', true, true, true, true]], 'new decor pieces fit, in the Decor tab');
 
   const placed = await g.ev(`(() => {
     state.cash = 1e8;
@@ -28,14 +29,44 @@ export default async function ({ browser, url }) {
       if (i && !(i.problems || []).length) { const b = commitBuilding(i, type, x, z, rot); computeNetwork(); return b; }
     } return null; };
     const L = world.buildings.find((b) => b.type === 'lodge'), mid = t.samples[Math.floor(t.samples.length / 2)];
-    const F = place('flood', mid, 6, 9), S = place('strlight', L.door, 1.5, 6, L.rot), X = place('xtree', L.door, 3, 9), M = place('tmap', world.lifts[0].a, 2.5, 8);
-    return { ids: [F, S, X, M].map((b) => b && b.id), flood: !!F.floodAt && distXZ(F, F.floodAt) > 4 && F.floodR >= 6.5,
+    // a floodlight placed by tapping faces the trail beside it; string lights are a chain of tapped poles
+    pickBuilding('flood'); const fp = place('bench', mid, 6, 9); const fx = fp.x, fz = fp.z; removeBuilding(fp);
+    draftTap({ x: fx, z: fz }); recomputeBldDraft(); buildBuildingDraft();
+    const F = world.buildings.find((b) => b.type === 'flood');
+    let S = null, chainMsg = [];
+    for (let r = 2; r < 9 && !S; r += 0.5) for (let a = 0; a < 16 && !S; a++) {
+      const o = { x: L.door.x + Math.cos(a / 16 * 6.283) * r, z: L.door.z + Math.sin(a / 16 * 6.283) * r }, dx = Math.cos(a / 16 * 6.283 + 1.57), dz = Math.sin(a / 16 * 6.283 + 1.57);
+      pickBuilding('strlight'); for (const k of [0, 1, 2]) chainTap({ x: o.x + dx * 2.5 * k, z: o.z + dz * 2.5 * k });
+      if (draft.chain.length === 3 && !draft.info.problems.length) {
+        chainTap({ x: o.x + dx * 15, z: o.z + dz * 15 }); chainMsg.push(draft.chain.length);
+        draftUndo(); chainMsg.push(draft.chain.length); chainTap({ x: o.x + dx * 5, z: o.z + dz * 5 });
+        buildBuildingDraft(); S = world.buildings.find((b) => b.type === 'strlight');
+      }
+    }
+    setTool('explore');
+    const X = place('xtree', L.door, 3, 9), M = place('tmap', world.lifts[0].a, 2.5, 8);
+    window.__chain = { msg: chainMsg, poles: S && S.pts.length, one: world.buildings.filter((b) => b.type === 'strlight').length, upkeep: S && bspec(S).upkeep };
+    const q = nearestTrailPt(F);
+    return { ids: [F, S, X, M].map((b) => b && b.id), flood: !!F.floodAt && distXZ(F, F.floodAt) > 4 && F.floodR >= 6.5 && distXZ(F.floodAt, q) < distXZ(F, q) && canTurn('flood'),
       map: !!TMAP.c && TMAP.sig.includes('|') && M.group.children.some((m) => m.material === TMAP.mat)};
   })()`);
   assert(placed.ids.every(Boolean), `all four placed (${placed.ids})`);
-  assert(placed.flood, 'the floodlight aims well into the trail beside it');
-  assert(placed.map, 'the board carries the shared trail map picture');
+    assert(placed.map, 'the board carries the shared trail map picture');
   const [F, S, X, M] = placed.ids;
+  eq(await g.ev(`__chain`), { msg: [3, 2], poles: 3, one: 1, upkeep: 6 }, 'a too-distant pole is refused, undo removes the last one, and the chain of three is one piece');
+  assert(placed.flood, 'a new floodlight faces the nearest trail, lights well into it, and can be rotated');
+
+  // A tap on the floodlight's tower (not the ground under it) selects it; so does a tap right beside the string.
+  const pick = await g.ev(`(() => { const B = bldById(${F}), s = project(B.x, B.baseY + 3, B.z), S = bldById(${S}), w = toWorld(S, S.pts[1][0], S.pts[1][1]), t = project(w.x, S.baseY + 1.2, w.z);
+    return [(pickBldAt(s.x, s.y) || {}).id === B.id, (pickBldAt(t.x + 6, t.y) || {}).id === S.id, !pickFeature(pickTerrain(s.x, s.y)) || pickFeature(pickTerrain(s.x, s.y)).obj !== B]; })()`);
+  eq(pick, [true, true, true], 'tapping the tower or the string selects them, where the ground under the tap would not');
+
+  // Placing a bench clears only the trees on its footprint, not a wide ring around it.
+  const trees = await g.ev(`(() => { for (let x = -40; x < 40; x += 1) for (let z = -40; z < 40; z += 1) { if (countInBrush({ x, z }, 1.2) < 3) continue;
+      const v = evalBuilding('bench', x, z, 0); if (v.problems.length) continue;
+      return { n: v.treeSet.size, far: [...v.treeSet].filter((k) => Math.hypot(Math.max(Math.abs(trees.x[k] - x) - 0.4, 0), Math.max(Math.abs(trees.z[k] - z) - 0.25, 0)) > 0.16).length, ring: countInBrush({ x, z }, 1.5) }; }
+    return null; })()`);
+  assert(trees && trees.far === 0 && trees.n < trees.ring, `a bench in the forest clears only trees on its spot (${JSON.stringify(trees)})`);
 
   // The map redraws when the resort changes, and not otherwise.
   const redraw = await g.ev(`(() => { const a = TMAP.sig; drawTrailMap(); const same = TMAP.sig === a; state.resortName = 'Test Peaks'; drawTrailMap(); return [same, TMAP.sig !== a && TMAP.sig.startsWith('Test Peaks')]; })()`);

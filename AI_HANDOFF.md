@@ -373,6 +373,13 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   no gameplay effect of dark snow (auto poles sit at hw+0.55 on alternating sides, so trails wider than ~Wide show a dark middle).
 - **Small effect:** `lightsNearVenues()` (string lights and holiday trees within 14 units of an après venue door, cached per game hour)
   adds 0.01 each to `apresChance`, capped at 0.04. Trail map boards have no effect yet (idea: fewer lost/mismatched trail picks).
+- **Phil's preview feedback (Nov 2), addressed:** string lights are now a chain of tapped poles (`chainTap`, `evalChain`, `B.pts` local
+  offsets from the first pole, `CHAIN_SPAN` 4 units, `CHAIN_MAX` 16; one building, one card; cost per pole + per unit of string;
+  plans carry `pts`). Floodlights turn like buildings (lamps face +z; `aimFlood` lights 6 units ahead; `floodAimRot` faces the
+  nearest trail until the player turns it, `draft.aimSet`). Selecting: `pickBldAt` raycasts building models (skipping ones behind
+  the hill), then thin decor within 16/26 px on screen, before `pickFeature`'s ground box. Tree clearing: `footprintTrees` clears
+  trees whose trunk is on the rotated footprint or within 0.35 (0.15 for decor), instead of a 1-unit grid of 0.95 brushes
+  reaching ~1.5 units past the box.
 - Headless renders need `patchNightMaterials()` before a night screenshot (it otherwise runs every 90 frames). Scenario 140.
 
 ### 2026-11-01 · Claude · Ski racks (shipped in 2.75 and 2.76.1)
