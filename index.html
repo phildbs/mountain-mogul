@@ -735,6 +735,7 @@ body.visiting .badge { cursor: default; }
 .mc-form input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 14px var(--ui); color: var(--ink); background: #fff; }
 .mc-form .btn { width: auto; padding: 8px 14px; }
 .mc-err { margin: 0; color: var(--steep); font-size: 13px; }
+body.matchview .tb-speed, body.matchview #tbGo, body.matchview .tb-wait { display: none; }
 body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=parking], body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
@@ -1518,6 +1519,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
       <button class="btn secondary" id="visitLeague" hidden>Standings</button>
       <button class="btn secondary" id="visitChat" hidden>Chat</button>
+      <button class="btn secondary" id="visitWatch" hidden>Watch today</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
 
@@ -10553,7 +10555,7 @@ function simStep(dt) {
 }
 
 function openDay() {
-  if (matchPlay) { toast('In a match the server plays every day, for every resort at once. What you build opens the next morning.', true); return; }
+  if (matchPlay && !(matchView && matchView.replay)) { toast('In a match the server plays every day, for every resort at once. Tap Watch today to see yours live.', true); return; }
   if (state.phase !== 'closed' || refClaimBusy) return;
   if (state.bankrupt && !visiting) return showGameOver();
   if (state.summer) return newSeason();
@@ -17899,6 +17901,7 @@ function whyToday(r) {
   return `<p class="rp-why"><b>Why today</b> ${esc(first + leakLine + passLine)}</p>`;
 }
 function showReport(r = state.lastReport, past = false) {
+  if (matchView && matchView.replay && !past) { stopReplay(true); return; } // a watched match day ends with the server's numbers
   if (simulating || !r) return;
   rpPast = past;
   const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, lease: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, lodging: 0, condo: 0, ...r.rev };
@@ -20087,7 +20090,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
-  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; mcStop(); }
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; document.body.classList.remove('matchview'); mcStop(); }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -20744,7 +20747,7 @@ async function openMatch(lid) {
   if (!state.started) startGame(null);
   afterLoad();
   drawRivals();
-  matchBar();
+  matchBar(); watchButton(); document.body.classList.add('matchview');
   matchView.timer = setInterval(matchTick, 20000);
 }
 // Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
@@ -20790,8 +20793,9 @@ function matchBar() {
   const l = matchView.lobby, t = matchTable(), place = t.findIndex((r) => r.slot === matchView.slot) + 1;
   const when = l.status === 'finished' ? `finished after ${l.days} days` : l.day ? `day ${l.day} of ${l.days} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
   const who = matchView.me ? `${mpPlace(place)} of ${t.length}` : `watching <b>${esc((visiting && visiting.name) || '')}</b>`;
+  const live = matchView.replay ? ` · <b>watching day ${matchView.replay.day} live</b>` : '';
   const pend = matchPlay && matchView.pending ? ` · <b>${matchView.pending} ${matchView.pending === 1 ? 'change opens' : 'changes open'}</b> tomorrow` : '';
-  $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${who} · ${when}${pend}`;
+  $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${who} · ${when}${live}${pend}`;
   if (selected && selected.kind === 'match') renderSheet();
 }
 function matchSheet() {
@@ -20808,7 +20812,10 @@ async function matchTick() {
   if (!matchView || !(matchPlay || (visiting && visiting.match))) { if (matchView) clearInterval(matchView.timer); return; }
   matchSendPrices();
   matchBar();
+  if (matchView.replay) { if (state.phase !== 'open' || !canWatch()) stopReplay(true); else replaySync(); }
+  watchButton();
   if (matchView.lobby.status !== 'running' || Date.now() < matchNext(matchView.lobby) + 15000) return;
+  if (matchView.replay) stopReplay(true);
   const { data } = await CLOUD.sb.from('match_lobbies').select('*').eq('id', matchView.lobby.id).maybeSingle().then((r) => r, () => ({}));
   if (!data || !matchView || data.day === matchView.lobby.day) return;
   const { data: rs } = await CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', data.id).then((r) => r, () => ({}));
@@ -20952,6 +20959,57 @@ $('sheet').addEventListener('click', async (e) => {
   if (what === 'report') { const { error } = await CLOUD.sb.from('match_reports').insert({ message_id: id }); MC.menu = null; toast(error ? 'Already reported. Thanks!' : 'Thanks for telling us. We’ll take a look.'); mcShow(); }
 });
 $('visitChat').onclick = () => { if (mcOpen()) select(null); else { select({ kind: 'mchat', obj: null }); mcShow(); if ($('mcList')) $('mcList').scrollTop = $('mcList').scrollHeight; } };
+/* ---------- Multiplayer: watching today live ----------
+   The match server plays each day in a moment at the start of its slot; your game then plays the same day
+   again, for you to watch, in step with the clock: the lifts open as the slot begins and close five minutes
+   before the next one (the last five minutes are night). It uses the share of the town's skiers the server
+   gave your resort, so it looks like the real day; the server's numbers stay the official ones. */
+const SKI_PART = 25 / 30; // of each day's slot: skiing, then night
+const replayWindow = (l) => { const t0 = Date.parse(l.starts_at) + l.day * l.day_minutes * 60000, len = l.day_minutes * 60000 * SKI_PART; return { t0, len, e: Date.now() - t0 }; };
+const replayClock = (l) => { const w = replayWindow(l); return DAY_OPEN + clamp(w.e / w.len, 0, 1) * (DAY_HARD_END - DAY_OPEN); };
+const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && matchView.lobby.day >= 1 && replayWindow(matchView.lobby).e < replayWindow(matchView.lobby).len);
+function watchButton() {
+  const b = $('visitWatch'); if (!b) return;
+  b.hidden = !matchView || (!matchView.replay && !canWatch());
+  b.textContent = matchView && matchView.replay ? 'Stop watching' : 'Watch today';
+}
+async function startReplay() {
+  if (!matchView || matchView.replay || !canWatch()) return;
+  const l = matchView.lobby, slot = matchView.slot;
+  const { data } = await CLOUD.sb.from('match_days').select('day,results').eq('lobby_id', l.id).eq('day', l.day).maybeSingle().then((r) => r, () => ({}));
+  const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
+  const n = k >= 0 ? res.share[k] || 0 : 0;
+  if (!n) { toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
+  select(null); if (state.tool !== 'explore') setTool('explore');
+  matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null };
+  const own = demandForDay, ownPass = passBuyers;
+  demandForDay = () => n; passBuyers = () => 0;
+  try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; }
+  if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
+  toast(`Day ${l.day}, live: catching up to ${clockText(replayClock(l))}…`);
+  replaySync();
+  watchButton(); matchBar();
+}
+const clockText = (t) => { const h = Math.floor(t / 60), m = Math.floor(t % 60); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+// Keep the day in step with the clock: catch up when behind, then run at the speed that ends it on time.
+function replaySync() {
+  if (!matchView || !matchView.replay || state.phase !== 'open') return;
+  const l = matchView.lobby, target = replayClock(l), w = replayWindow(l);
+  let n = 0; while (state.phase === 'open' && state.time < target - 1 && n++ < 200000) simStep(1.5);
+  const left = Math.max(1, (w.len - w.e) / 1000), gameLeft = Math.max(0, DAY_HARD_END - state.time) * 60;
+  state.speed = state.phase === 'open' ? clamp(gameLeft / left / GS_PER_REAL, 0.05, 4) : 0;
+}
+function stopReplay(done) {
+  if (!matchView || !matchView.replay) return;
+  const off = matchView.replay.official, day = matchView.replay.day;
+  matchView.replay = null;
+  $('report').hidden = true;
+  const mine = matchView.resorts.find((r) => r.slot === matchView.slot);
+  if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
+  watchButton(); matchBar();
+  if (done && off) toast(`Day ${day} is over. Official: ${off.guests.toLocaleString('en-US')} guests, ${signedMoney(off.profit)} for the day.`);
+}
+$('visitWatch').onclick = () => (matchView && matchView.replay ? stopReplay(false) : startReplay());
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();

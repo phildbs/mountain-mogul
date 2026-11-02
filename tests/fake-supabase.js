@@ -104,7 +104,7 @@
           return { data: rows, error: null };
         }
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table ' + table } };
-        const key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts' }[table];
+        const key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts', match_days: 'days' }[table];
         let rows = (m[key] || []).filter((r) => table !== 'match_lobbies' || r.status !== 'closed');
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
         for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));

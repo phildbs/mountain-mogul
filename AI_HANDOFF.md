@@ -399,6 +399,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   takeover keeps the computer's season profit, or starts at $0), `late_days` (cut-off; default a quarter of the
   match), `late_bonus` $15,000 a missed day up to `late_bonus_cap` $1M, paid as cash (not profit) by the server at the
   next overnight. match_join_late takes a computer slot first, else an empty one. Server-test covers both kinds.
+- Client (Nov 2): title card + window (lobby list, join, late join), match screen (your saved resort; rivals drawn
+  turned onto their slices in `rivalGroup`, never in `world`), building in your own running match (`matchPlay`:
+  visiting is null, saves blocked, commits become `match_orders`, prices synced, MATCH_ACTIONS allow-list), chat
+  panel (`MC`, realtime channel plus 20 s poll), Watch today (`startReplay`: plays day N locally with the server's
+  share from match_days, paced so 8:00 to 17:15 fills the first 25 of each 30 min; ends with the official numbers).
+  Scenarios 146 to 150. Not yet: skiers on rivals' slices, the Plans/remove/land/ops orders, stats.html tools.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
