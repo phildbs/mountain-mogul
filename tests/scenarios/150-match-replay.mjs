@@ -5,6 +5,7 @@ import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const m = await openGame(browser, url, { query: '?matchMap=1', mountain: 'fresh' });
   await m.ev(SETUPS.juniperStarter); await m.ev(SETUPS.midwinter);
+  await m.ev(`(() => { openDay(); state.speed = 0; let n = 0; while (state.phase === 'open' && n++ < 200000) simStep(1.5); nextDay(); })()`);
   const save = await m.page.evaluate(() => window.__dbg('saveData')(false));
   await m.page.close();
   const g = await openGame(browser, url);
@@ -18,30 +19,31 @@ export default async function ({ browser, url }) {
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=R1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=R1]');
   await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView)'), null, { timeout: 20000 });
-  eq([await g.page.isVisible('#visitWatch'), await g.page.innerText('#visitWatch')], [true, 'Watch today'], 'during the ski slot you can watch today');
   eq(await g.ev(`getComputedStyle(document.querySelector('.tb-speed')).display`), 'none', 'no speed buttons in a match: the clock sets the pace');
-
-  await g.click('#visitWatch');
+  // The day plays by itself.
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   const w = await g.ev(`({ time: state.time, want: replayClock(matchView.lobby), speed: state.speed, bar: document.getElementById('visitText').innerText, btn: document.getElementById('visitWatch').innerText, expected: today.expected })`);
-  assert(Math.abs(w.time - w.want) < 5 && Math.abs(w.want - (480 + 555 * 5 / 25)) < 3, `the day is at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
-  assert(w.speed > 0.25 && w.speed < 0.5, `and runs in step with the clock (${w.speed.toFixed(2)})`);
+  assert(Math.abs(w.time - w.want) < 5 && Math.abs(w.want - (480 + 555 * 5 / 25)) < 3, `today plays by itself, at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
+  assert(w.speed > 0.25 && w.speed < 0.5, `in step with the clock (${w.speed.toFixed(2)})`);
   eq(w.expected, 150, 'with the share of skiers the server gave this resort');
-  assert(/watching day 2 live/.test(w.bar) && w.btn === 'Stop watching', 'the bar says so');
+  assert(/watching day 2 live/.test(w.bar) && w.btn === 'Pause the day', 'the bar says so');
   await g.wait(3000);
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
 
-  // Stop watching: back to building, nothing changed.
-  await g.click('#visitWatch'); await g.wait(500);
-  eq(await g.ev(`[state.phase, !!matchView.replay, world.lifts.length]`), ['closed', false, 1], 'Stop watching goes back to building');
-
-  // Watch again, then let the slot run out: it ends with the server's numbers.
-  await g.click('#visitWatch');
+  // A build tool pauses it; Explore picks it up again.
+  await g.ev(`setTool('lift')`); await g.wait(300);
+  eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused, state.tool]`), ['closed', false, true, 'lift'], 'picking a build tool pauses the day so you can build');
+  await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  // Reports opens the past days.
+  await g.click('#visitReports'); await g.wait(300);
+  assert(await g.page.$('#sheet [data-action=pastReport]'), 'Reports lists the past days');
+
+  // When the slot's ski part ends, the day ends with the server's own report.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 86 * 60000).toISOString(); matchTick()`); await g.wait(800);
-  const end = await g.ev(`({ phase: state.phase, replay: !!matchView.replay, toast: document.getElementById('toast').textContent, report: document.getElementById('report').hidden })`);
-  eq([end.phase, end.replay, end.report], ['closed', false, true], 'at night the watched day ends, with no local day report');
-  assert(/Day 2 is over\. Official: 148 guests, \$4,099/.test(end.toast), `and the official numbers (${end.toast})`);
+  const end = await g.ev(`({ phase: state.phase, replay: !!matchView.replay, report: !document.getElementById('report').hidden, day: state.lastReport && state.lastReport.day, guests: state.lastReport && state.lastReport.guests })`);
+  eq([end.phase, end.replay, end.report], ['closed', false, true], 'at night the watched day ends with the day report');
+  eq(end.guests, save.clock.lastReport.guests, 'and it is the server’s report, not the one played on screen');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

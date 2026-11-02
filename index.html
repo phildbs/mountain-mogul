@@ -1519,6 +1519,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
       <button class="btn secondary" id="visitLeague" hidden>Standings</button>
       <button class="btn secondary" id="visitChat" hidden>Chat</button>
+      <button class="btn secondary" id="visitReports" hidden>Reports</button>
       <button class="btn secondary" id="visitWatch" hidden>Watch today</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
@@ -3587,6 +3588,8 @@ function toast(msg, bad, act) {
 }
 
 function setTool(tool) {
+  if (matchView && matchView.replay && tool !== 'explore') { stopReplay(false); matchView.paused = true; toast('The live day is paused while you build. Pick Explore to go back to it.'); }
+  else if (matchView && matchView.paused && tool === 'explore') { matchView.paused = false; setTimeout(startReplay, 0); }
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
@@ -7639,7 +7642,7 @@ sheet.addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
   const a = b.dataset.action;
-  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort'].includes(a)) return; // visits are read only
+  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read)
   if (matchPlay && !MATCH_ACTIONS.includes(a) && a) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails and buildings, and set prices.', true); return; }
   if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
@@ -20090,7 +20093,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
-  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; document.body.classList.remove('matchview'); mcStop(); }
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; $('visitReports').hidden = true; document.body.classList.remove('matchview'); mcStop(); }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -20748,6 +20751,8 @@ async function openMatch(lid) {
   afterLoad();
   drawRivals();
   matchBar(); watchButton(); document.body.classList.add('matchview');
+  $('visitReports').hidden = false;
+  startReplay();
   matchView.timer = setInterval(matchTick, 20000);
 }
 // Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
@@ -20813,6 +20818,7 @@ async function matchTick() {
   matchSendPrices();
   matchBar();
   if (matchView.replay) { if (state.phase !== 'open' || !canWatch()) stopReplay(true); else replaySync(); }
+  else if (!matchView.paused && state.tool === 'explore') startReplay();
   watchButton();
   if (matchView.lobby.status !== 'running' || Date.now() < matchNext(matchView.lobby) + 15000) return;
   if (matchView.replay) stopReplay(true);
@@ -20971,22 +20977,27 @@ const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && m
 function watchButton() {
   const b = $('visitWatch'); if (!b) return;
   b.hidden = !matchView || (!matchView.replay && !canWatch());
-  b.textContent = matchView && matchView.replay ? 'Stop watching' : 'Watch today';
+  b.textContent = matchView && matchView.replay ? 'Pause the day' : 'Back to the live day';
 }
-async function startReplay() {
-  if (!matchView || matchView.replay || !canWatch()) return;
+async function startReplay(manual) {
+  if (!matchView || matchView.replay || matchView.starting || !canWatch()) return;
   const l = matchView.lobby, slot = matchView.slot;
+  if (!manual && matchView.nothing === l.day) return; // nobody came today: don't keep trying
+  matchView.starting = true;
   const { data } = await CLOUD.sb.from('match_days').select('day,results').eq('lobby_id', l.id).eq('day', l.day).maybeSingle().then((r) => r, () => ({}));
+  if (!matchView) return;
+  matchView.starting = false;
   const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
   const n = k >= 0 ? res.share[k] || 0 : 0;
-  if (!n) { toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
+  if (!n) { matchView.nothing = l.day; if (manual) toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
+  if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
   select(null); if (state.tool !== 'explore') setTool('explore');
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n; passBuyers = () => 0;
   try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
-  toast(`Day ${l.day}, live: catching up to ${clockText(replayClock(l))}…`);
+  toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
 }
@@ -21007,9 +21018,13 @@ function stopReplay(done) {
   const mine = matchView.resorts.find((r) => r.slot === matchView.slot);
   if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   watchButton(); matchBar();
-  if (done && off) toast(`Day ${day} is over. Official: ${off.guests.toLocaleString('en-US')} guests, ${signedMoney(off.profit)} for the day.`);
+  if (!done) return;
+  const r = state.lastReport;
+  if (r && r.day != null) showReport(r, true); // the server's own report of the day: the official one
+  else if (off) toast(`Day ${day} is over. Official: ${off.guests.toLocaleString('en-US')} guests, ${signedMoney(off.profit)} for the day.`);
 }
-$('visitWatch').onclick = () => (matchView && matchView.replay ? stopReplay(false) : startReplay());
+$('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
+$('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();

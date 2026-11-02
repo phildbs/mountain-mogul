@@ -402,8 +402,8 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Client (Nov 2): title card + window (lobby list, join, late join), match screen (your saved resort; rivals drawn
   turned onto their slices in `rivalGroup`, never in `world`), building in your own running match (`matchPlay`:
   visiting is null, saves blocked, commits become `match_orders`, prices synced, MATCH_ACTIONS allow-list), chat
-  panel (`MC`, realtime channel plus 20 s poll), Watch today (`startReplay`: plays day N locally with the server's
-  share from match_days, paced so 8:00 to 17:15 fills the first 25 of each 30 min; ends with the official numbers).
+  panel (`MC`, realtime channel plus 20 s poll), the live day (`startReplay`, automatic; a build tool pauses it, Explore resumes; plays day N locally with the server's
+  share from match_days, paced so 8:00 to 17:15 fills the first 25 of each 30 min; ends with the server's own day report; Reports opens Money history).
   Scenarios 146 to 150. Not yet: skiers on rivals' slices, the Plans/remove/land/ops orders, stats.html tools.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
