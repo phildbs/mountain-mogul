@@ -2234,40 +2234,46 @@ MOUNTAINS.ridgeback = (() => {
 // from every side, are marked and listed first; the older ones face a valley.
 for (const id of ['juniper', 'maple', 'raven', 'twin', 'lonepine', 'ridgeback']) MOUNTAINS[id].photo = `img/${id}.jpg`;
 // Multiplayer match maps, kept out of MOUNTAINS so they never show in the mountain list or the leaderboards.
-// The match range: every player's property is one face of a long range, and the faces either side are mirror
-// images of it, so the slopes meet seamlessly at each property line and every player starts on the same ground.
-// A spur ridge runs down each property line, so each face is its own bowl, and the summits meet at saddles.
+// Crown Peak: one big mountain cut into three equal slices like a pie, with a broad, flat summit so every slice
+// has room up top for lift stations and a lodge. A small cairn in the middle of the summit belongs to nobody.
+// The mountain is the same all the way round (and each slice mirrors about its middle), so all three players
+// get the same ground, and each player's game turns the mountain so their own base is at the bottom.
+// `area` is the player's land: a wedge from the summit to the foot, in the same u, v as everything else.
+const CROWN = { c: [0.5, 0.72], top: 0.1, foot: 0.62, cairn: 0.025, n: 3 };
+const crownDir = (a, r) => [CROWN.c[0] + r * Math.sin(a), CROWN.c[1] - r * Math.cos(a)]; // a = angle from straight down
 const MATCH_MAPS = {};
 MATCH_MAPS.match = {
   id: 'match',
-  name: 'Rival Range',
-  match: true,
+  name: 'Crown Peak',
+  match: true, slices: CROWN.n,
   level: 'Intermediate', dot: 'var(--blue)',
-  blurb: 'A long range of matching peaks above one valley town. Each resort has a face of its own between two spur ridges, with rivals on the faces either side.',
+  blurb: 'One big mountain shared by three resorts, each with a slice from its own base up to a broad, flat summit.',
   cash: 2500000,
   weather: { storm: 1, wind: 1, warm: 1 },
   skiers: [0.33, 0.35, 0.22, 0.1],
   draw: 1, costs: 1,
   seed: 5531,
   baseFt: 3400,
-  treeline: 33, // bare rock and snow on the summits and the top of each spur
-  road: catmull([[0.6, -0.34], [0.55, -0.16], [0.51, -0.04], [0.49, 0.055]], 10), // up the valley from town to the base
-  creek: catmull([[1.03, 0.36], [1.04, 0.16], [1.07, -0.04], [1.12, -0.3]], 10), // down the far side of the east ridge
+  treeline: 26, // the summit and the top of each ridge stand bare
+  area: (() => { const w = Math.PI / CROWN.n, t = (1 - CROWN.c[0]) / Math.sin(w); // from the cairn out along both edges to the property line
+    return [crownDir(-w, CROWN.cairn), crownDir(w, CROWN.cairn), crownDir(w, t), [1, 0], [0, 0], crownDir(-w, t)]; })(),
+  road: catmull([[0.56, -0.34], [0.53, -0.16], [0.5, -0.04], [0.49, 0.055]], 10), // up the valley from town to this slice's base
+  creek: catmull([[-0.04, 0.32], [-0.08, 0.14], [-0.16, -0.06], [-0.36, -0.3]], 10), // down the valley beside the west ridge
   height(u, v) {
-    const s = this.seed, k = Math.floor(u), p = u - k, x = k & 1 ? 1 - p : p; // x: across this face, mirrored next door
-    let h = 2 + 0.9 * fbm(x * 3, v * 3, s + 1, 3);
-    // The face: highest in the middle, lower toward the property lines where it meets the next face.
-    const rise = Math.pow(sstep(0.06, 1.0, v), 1.25), lat = 0.55 + 0.45 * Math.exp(-(((x - 0.5) / 0.42) ** 2));
-    h += 33 * rise * lat;
-    h += 9 * Math.exp(-((x - 0.5) ** 2 + (v - 0.92) ** 2) / 0.0256); // the summit
-    // A spur ridge down each property line: higher than the bowl beside it on the way up, a saddle at the top.
-    const edge = Math.min(x, 1 - x);
-    h += 8 * Math.exp(-((edge / 0.08) ** 2)) * sstep(0.12, 0.5, v) * (1 - 0.5 * sstep(0.85, 1.05, v));
-    // Gentle folds and ledges that make natural trail lines, none on the valley floor.
-    const relief = sstep(0.12, 0.45, v);
-    h += relief * (1.5 * fbm(x * 6, v * 2.4, s + 5, 4) + 1.1 * ridged(x * 8, v * 2.8, s + 9, 3) - 0.6);
-    // Higher peaks behind the range.
-    if (v > 0.9) h += 16 * Math.pow(sstep(0.92, 1.4, v), 1.2) * (0.6 + 0.6 * ridged(x * 3.5, v * 3, s + 11, 4));
+    const s = this.seed, dx = u - CROWN.c[0], dy = v - CROWN.c[1], r = Math.hypot(dx, dy), sec = 2 * Math.PI / CROWN.n;
+    const a = ((Math.atan2(dx, -dy) + sec / 2) % sec + sec) % sec - sec / 2, b = Math.abs(a); // angle from this slice's middle
+    const px = r * Math.sin(b), py = r * Math.cos(b); // the same spot on every slice, mirrored about its middle
+    let h = 2 + 0.6 * fbm(px * 3, py * 3, s + 1, 3);
+    // The flat summit, the slopes falling evenly all round, and a flat valley floor for each base.
+    h += 30 * (1 - sstep(CROWN.top, CROWN.foot, r)) + 0.6 * (1 - sstep(0, CROWN.top, r));
+    // A ridge down each edge between slices, higher than the slope beside it, fading out before the summit and the base.
+    const edge = r * Math.sin(Math.max(0, sec / 2 - b));
+    h += 6 * Math.exp(-((edge / 0.05) ** 2)) * sstep(CROWN.top + 0.02, CROWN.top + 0.12, r) * (1 - sstep(0.45, CROWN.foot, r));
+    // Folds and ledges for trail lines on the slopes only: the summit and the valley floor stay smooth.
+    const relief = sstep(CROWN.top, CROWN.top + 0.1, r) * (1 - sstep(0.55, 0.68, r));
+    h += relief * (1.6 * fbm(px * 6, py * 6, s + 5, 4) + 1.1 * ridged(px * 8, py * 8, s + 9, 3) - 0.6);
+    // Wooded hills far out round the valley.
+    h += 8 * sstep(0.85, 1.25, r) * (0.6 + 0.6 * fbm(px * 4, py * 4, s + 13, 3));
     return h;
   },
 };
@@ -2412,15 +2418,36 @@ for (let n = 0; n < 5; n++) {
 }
 for (const [id, name, i0, j0] of [['NW', 'Northwest corner', PLAY0 - PD, PLAY0 - PD], ['NE', 'Northeast corner', PLAY1, PLAY0 - PD], ['SW', 'Southwest corner', PLAY0 - PD, PLAY1], ['SE', 'Southeast corner', PLAY1, PLAY1]])
   PARCELS.push({ id, name, corner: true, i0, i1: i0 + PD, j0, j1: j0 + PD });
-if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
+if (MOUNTAIN.match) PARCELS.length = 0; // the land round your slice is your rivals'
+else if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
 let landRects = []; // parcels that are yours (bought or leased, permits through)
 const LAND = { i0: PLAY0, i1: PLAY1, j0: PLAY0, j1: PLAY1 };
 const inRect = (p, gx, gz) => gx >= p.i0 && gx <= p.i1 && gz >= p.j0 && gz <= p.j1;
-const inGridLand = (gx, gz) => (gx >= PLAY0 && gx <= PLAY1 && gz >= PLAY0 && gz <= PLAY1) || landRects.some((p) => inRect(p, gx, gz));
+// A match map's land is a wedge (MOUNTAIN.area), not the usual square; in grid coordinates here.
+const AREA = MOUNTAIN.area ? MOUNTAIN.area.map(([u, v]) => [PLAY0 + u * PN, PLAY1 - v * PN]) : null;
+function inArea(gx, gz) {
+  let inside = false;
+  for (let k = 0, m = AREA.length - 1; k < AREA.length; m = k++) {
+    const [xa, za] = AREA[k], [xb, zb] = AREA[m];
+    if ((za > gz) !== (zb > gz) && gx < xa + (gz - za) / (zb - za) * (xb - xa)) inside = !inside;
+  }
+  return inside;
+}
+function areaDist(gx, gz) {
+  if (inArea(gx, gz)) return 0;
+  let d = Infinity;
+  for (let k = 0, m = AREA.length - 1; k < AREA.length; m = k++) {
+    const [xa, za] = AREA[k], [xb, zb] = AREA[m], ex = xb - xa, ez = zb - za, t = clamp(((gx - xa) * ex + (gz - za) * ez) / (ex * ex + ez * ez), 0, 1);
+    d = Math.min(d, Math.hypot(gx - xa - t * ex, gz - za - t * ez));
+  }
+  return d;
+}
+const inPlay = (gx, gz) => (AREA ? inArea(gx, gz) : gx >= PLAY0 && gx <= PLAY1 && gz >= PLAY0 && gz <= PLAY1);
+const inGridLand = (gx, gz) => inPlay(gx, gz) || landRects.some((p) => inRect(p, gx, gz));
 function inProperty(x, z) { return inGridLand(x + HALF, z + HALF); }
 // How far a grid point is from land you hold.
 function landDist(gx, gz) {
-  let d = Math.hypot(Math.max(PLAY0 - gx, gx - PLAY1, 0), Math.max(PLAY0 - gz, gz - PLAY1, 0));
+  let d = AREA ? areaDist(gx, gz) : Math.hypot(Math.max(PLAY0 - gx, gx - PLAY1, 0), Math.max(PLAY0 - gz, gz - PLAY1, 0));
   for (const p of landRects) d = Math.min(d, Math.hypot(Math.max(p.i0 - gx, gx - p.i1, 0), Math.max(p.j0 - gz, gz - p.j1, 0)));
   return d;
 }
@@ -2465,7 +2492,7 @@ function generate(M) {
     for (let ci = 0; ci < WN; ci++) {
       const c = cj * WN + ci;
       cellStart[c] = X.length;
-      const play = ci >= PLAY0 && ci < PLAY1 && cj >= PLAY0 && cj < PLAY1;
+      const play = AREA ? inArea(ci + 0.5, cj + 0.5) : ci >= PLAY0 && ci < PLAY1 && cj >= PLAY0 && cj < PLAY1;
       const tries = play ? 2 : 1;
       for (let t = 0; t < tries; t++) {
         const gx = ci + rng(), gz = cj + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
@@ -2502,6 +2529,7 @@ function generate(M) {
 
   let summit = -1e9, base = 1e9;
   for (let j = PLAY0; j <= PLAY1; j++) for (let i = PLAY0; i <= PLAY1; i++) {
+    if (AREA && !inArea(i, j)) continue;
     const h = HT[j * NV + i]; if (h > summit) summit = h; if (h < base) base = h;
   }
   M.summitH = summit; M.baseH = base;
@@ -2795,7 +2823,7 @@ function buildTrees() {
 let boundaryLine = null;
 function buildBoundary() {
   if (boundaryLine) { scene.remove(boundaryLine); boundaryLine.geometry.dispose(); boundaryLine.material.dispose(); }
-  const T = PD, n = WN / T, own = (ti, tj) => ti >= 0 && tj >= 0 && ti < n && tj < n && inGridLand(ti * T + T / 2, tj * T + T / 2);
+  const T = PD, n = WN / T, own = (ti, tj) => ti >= 0 && tj >= 0 && ti < n && tj < n && (AREA ? landRects.some((p) => inRect(p, ti * T + T / 2, tj * T + T / 2)) : inGridLand(ti * T + T / 2, tj * T + T / 2));
   const pts = [], at = (gx, gz) => new THREE.Vector3(gx - HALF, sampleGrid(HT, gx, gz) * VEX + 0.35, gz - HALF);
   const edge = (x0, z0, x1, z1) => { for (let t = 0; t < T; t += 0.5) { pts.push(at(x0 + (x1 - x0) * t / T, z0 + (z1 - z0) * t / T), at(x0 + (x1 - x0) * (t + 0.5) / T, z0 + (z1 - z0) * (t + 0.5) / T)); } };
   for (let tj = 0; tj < n; tj++) for (let ti = 0; ti < n; ti++) {
@@ -2805,6 +2833,10 @@ function buildBoundary() {
     if (!own(ti + 1, tj)) edge(x + T, z, x + T, z + T);
     if (!own(ti, tj + 1)) edge(x, z + T, x + T, z + T);
     if (!own(ti - 1, tj)) edge(x, z, x, z + T);
+  }
+  if (AREA) for (let k = 0, m = AREA.length - 1; k < AREA.length; m = k++) { // the wedge's own edges
+    const [xa, za] = AREA[m], [xb, zb] = AREA[k], L = Math.hypot(xb - xa, zb - za);
+    for (let t = 0; t < L; t += 1) pts.push(at(xa + (xb - xa) * t / L, za + (zb - za) * t / L), at(xa + (xb - xa) * Math.min(L, t + 0.5) / L, za + (zb - za) * Math.min(L, t + 0.5) / L));
   }
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
   boundaryLine = new THREE.LineSegments(geo, new THREE.LineDashedMaterial({ color: 0xdf562c, dashSize: 1.4, gapSize: 1.0, transparent: true, opacity: 0.75, fog: false }));
@@ -22138,7 +22170,7 @@ function start(hot) {
     state.resortName = 'Match preview'; state.welcomed = true;
     $('resortName').textContent = state.resortName;
     styleSnowVisuals(); refreshTimebar(true); select(null);
-    toast('Multiplayer map preview: your land is inside the orange line, with rivals on the faces either side. Nothing here is saved.');
+    toast('Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
   }
   if (REFERRAL_PREVIEW) {
     $('title').hidden = true; $('hud').hidden = false; state.started = true;
