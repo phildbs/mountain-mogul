@@ -694,6 +694,30 @@ body.visiting .badge { cursor: default; }
 .guidecard i { font-style: normal; font-size: 26px; color: var(--accent); font-weight: 600; }
 .tcards { display: grid; gap: 8px; width: min(400px, 100%); margin-top: 8px; }
 .tcards .guidecard { width: 100%; margin: 0; }
+.mpcard .gc-ico { background: var(--ink); }
+#mpBody { display: grid; gap: 14px; min-width: 0; }
+.mp-sec h4 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.mp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mp-card { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; min-width: 0; }
+.mp-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-top b { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-sub, .mp-when { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.mp-when b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.mp-acts { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.mp-acts .btn { width: auto; padding: 8px 14px; }
+.mp-table { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.mp-table li { display: flex; gap: 8px; }
+.mp-table li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-table li em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.mp-table li.me { font-weight: 700; }
+.mp-table li.me em { color: var(--ink); }
+.mp-join { display: grid; gap: 8px; margin-top: 6px; }
+.mp-join input { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; min-width: 0; }
+.mp-join .mp-err { color: var(--steep); font-size: 13px; }
+.mp-sign { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px; background: var(--accent-soft); }
+.mp-sign .help { flex: 1; }
+.mp-sign .btn { width: auto; flex: none; padding: 8px 14px; }
+.pill.done { background: rgba(20, 36, 58, 0.07); color: var(--ink-2); }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
 /* Buy me a coffee: slimmer than the cards above it, in the coffee site's yellow. */
@@ -1668,6 +1692,11 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="shelf" id="titleSlots" hidden></div>
     <div id="titleComm" hidden></div>
     <div class="tcards">
+    <button class="panel guidecard mpcard" id="mpCard" type="button">
+      <span class="gc-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20 9 7l3.5 5.5L15 9l7 11z"/><path d="M7.2 10.4 9 12l1.6-1.3"/><circle cx="17.5" cy="4.5" r="1.6"/></svg></span>
+      <span class="gc-txt"><small>Multiplayer · Beta</small><b>Race rival resorts</b><em class="gc-short">One mountain, live matches</em><span>Share one mountain with other players in a match that runs for days. The most profit wins.</span></span>
+      <i aria-hidden="true">›</i>
+    </button>
     <button class="panel guidecard tutcard" id="tutBtn" type="button">
       <span class="gc-ico" aria-hidden="true">🎓</span>
       <span class="gc-txt"><small>Tutorial</small><b>Learn the basics</b><em class="gc-short">3-minute guided start</em><span>A 3-minute guided start: build a lift, a trail and a lodge, then run your first day.</span></span>
@@ -1705,6 +1734,13 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button id="versionTag" type="button"></button>
       <a id="statsLink" href="stats.html" hidden>Stats</a>
       <a id="titlePrivacy" href="privacy.html" target="_blank" rel="noopener" title="Privacy policy (opens a new tab)">Privacy policy</a>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="mpModal" hidden>
+    <div class="panel modal mp" role="dialog" aria-modal="true" aria-labelledby="mpTitle">
+      <div class="cm-head"><div><div class="eyebrow">Multiplayer · Beta</div><h2 id="mpTitle">Multiplayer</h2></div><button class="x" id="mpClose" aria-label="Close">✕</button></div>
+      <div id="mpBody"></div>
     </div>
   </div>
 
@@ -20510,6 +20546,135 @@ $('titleAcct').addEventListener('click', (e) => {
 });
 $('cmClose').onclick = () => { $('community').hidden = true; };
 $('community').addEventListener('click', (e) => { if (e.target.id === 'community') $('community').hidden = true; });
+
+/* ---------- Multiplayer: the lobby list ----------
+   Official lobbies set up by the owner. A signed-in player joins one and gets a random slice of the match map,
+   in up to three matches at once; guests can look around but sign in to join. The match server
+   (match/server.mjs) plays the matches; this window only reads what it saved, and joins or leaves. */
+const MP = { lobbies: null, players: [], resorts: [], err: '', joinFor: null, joinErr: '', busy: false, timer: 0 };
+const MP_MAPS = { match: 'Crown Peak' };
+const mpIn = (ms) => {
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 1) return 'under a minute';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} h${m % 60 ? ` ${m % 60} min` : ''}` : `${Math.round(h / 24)} days`;
+};
+const mpAt = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+const mpLength = (l) => { const d = l.days * l.day_minutes / 1440; return d >= 1 ? `${+d.toFixed(1)} days` : mpIn(l.days * l.day_minutes * 60000); };
+const mpPlace = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
+const mpErr = (e) => { const m = String((e && e.message) || 'Something went wrong. Try again in a moment.'); return m[0].toUpperCase() + m.slice(1) + (/[.!?]$/.test(m) ? '' : '.'); };
+async function loadMp() {
+  if (!CLOUD.sb || CLOUD.status === 'offline') { MP.err = 'Multiplayer needs the internet. Check your connection and try again.'; renderMp(); return; }
+  try {
+    const { data: lob, error } = await CLOUD.sb.from('match_lobbies').select('id,name,map,slots,starts_at,days,day_minutes,status,day,prize')
+      .in('status', ['open', 'running', 'finished']).order('starts_at', { ascending: false }).limit(40);
+    if (error) throw error;
+    const ids = (lob || []).map((l) => l.id);
+    const [p, r] = ids.length ? await Promise.all([CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name').in('lobby_id', ids),
+      CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary').in('lobby_id', ids)]) : [{ data: [] }, { data: [] }];
+    if (p.error || r.error) throw p.error || r.error;
+    MP.lobbies = lob || []; MP.players = p.data || []; MP.resorts = r.data || []; MP.err = '';
+  } catch (e) { MP.err = 'Couldn’t load the lobbies. Try again in a moment.'; }
+  renderMp();
+}
+function renderMp() {
+  if ($('mpModal').hidden) return;
+  const me = CLOUD.uid, guest = CLOUD.guest || !me, now = Date.now(), L = MP.lobbies;
+  let h = guest ? '<div class="mp-sign"><p class="help"><b>Sign in to play.</b> Multiplayer is for signed-in players, so every resort in a match has a real owner. You can still look around.</p><button class="btn secondary" type="button" data-mp="signin">Sign in</button></div>' : '';
+  if (MP.err) h += `<p class="help">${esc(MP.err)}</p>`;
+  if (!L) { $('mpBody').innerHTML = h + (MP.err ? '' : '<p class="help">Loading the lobbies…</p>'); return; }
+  const inL = (l) => MP.players.filter((p) => p.lobby_id === l.id), mine = (l) => (guest ? null : inL(l).find((p) => p.user_id === me));
+  const table = (l) => MP.resorts.filter((r) => r.lobby_id === l.id).sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
+  const pill = (l) => (l.status === 'open' ? '<span class="pill on">Open</span>' : l.status === 'running' ? '<span class="pill slow">Live</span>' : '<span class="pill done">Finished</span>');
+  const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${pill(l)}</div><div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>`;
+  const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
+  const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
+  const when = (l) => {
+    if (l.status === 'open') return `Starts in <b>${mpIn(Date.parse(l.starts_at) - now)}</b> (${esc(mpAt(l.starts_at))}) · ${inL(l).length} of ${l.slots} joined`;
+    if (l.status === 'running') return l.day ? `Day <b>${l.day}</b> of ${l.days} · next day in <b>${mpIn(next(l) - now)}</b>` : `Opening day in <b>${mpIn(next(l) - now)}</b>: time to build`;
+    return `Finished after ${l.days} days`;
+  };
+  // Yours: waiting to start, being played, and finished.
+  const yours = L.filter(mine).sort((a, b) => ['running', 'open', 'finished'].indexOf(a.status) - ['running', 'open', 'finished'].indexOf(b.status));
+  if (!guest) {
+    h += '<section class="mp-sec"><h4>Your matches</h4>';
+    h += yours.length ? `<ul class="mp-list">${yours.map((l) => {
+      const p = mine(l), t = table(l), place = t.findIndex((r) => r.slot === p.slot) + 1;
+      let body = `<div class="mp-when">You’re <b>${esc(p.resort_name)}</b>${place && l.status !== 'open' ? ` · ${l.status === 'finished' ? 'you came' : 'now'} <b>${mpPlace(place)}</b> of ${t.length}` : ''}</div><div class="mp-when">${when(l)}</div>`;
+      if (l.status !== 'open' && t.length) body += league(l, p.slot);
+      if (l.status === 'running') body += '<p class="help">The match screen, where you build and watch your day, is coming soon.</p>';
+      if (l.status === 'open') body += `<div class="mp-acts"><button class="link" type="button" data-mp="leave" data-id="${l.id}">Leave this lobby</button></div>`;
+      return `<li class="mp-card">${head(l)}${body}</li>`;
+    }).join('')}</ul>` : '<p class="help">You’re not in a match yet. Join an open lobby below.</p>';
+    h += '</section>';
+  }
+  // Open lobbies you could join.
+  const open = L.filter((l) => l.status === 'open' && !mine(l)).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const active = L.filter((l) => mine(l) && l.status !== 'finished').length;
+  h += '<section class="mp-sec"><h4>Open lobbies</h4>';
+  h += open.length ? `<ul class="mp-list">${open.map((l) => {
+    const full = inL(l).length >= l.slots;
+    let act = full ? '<span class="help">Full</span>' : guest ? '<button class="btn secondary" type="button" data-mp="signin">Sign in to join</button>'
+      : active >= 3 ? '<span class="help">You’re already in three matches.</span>' : `<button class="btn secondary" type="button" data-mp="pick" data-id="${l.id}">Join</button>`;
+    if (MP.joinFor === l.id && !full && !guest) {
+      act = `<form class="mp-join" data-id="${l.id}"><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
+        + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">You’ll get a random slice of the mountain. You can leave until the match starts.</span>`
+        + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
+    }
+    return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${l.prize ? `<div class="mp-sub">Prize: the “${esc(l.prize)}” badge</div>` : ''}<div class="mp-acts">${act}</div></li>`;
+  }).join('')}</ul>` : '<p class="help">No open lobbies right now. New matches are announced here, so check back soon.</p>';
+  h += '</section>';
+  // Matches being played now that you're not in.
+  const live = L.filter((l) => l.status === 'running' && !mine(l));
+  if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${league(l, -1)}</li>`).join('')}</ul></section>`;
+  h += '<p class="help">Each match is one mountain shared by several resorts. A new game day starts every half hour, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
+  const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName';
+  $('mpBody').innerHTML = h;
+  if ($('mpName') && typed != null) $('mpName').value = typed;
+  if ($('mpName') && focused) $('mpName').focus();
+}
+function openMp() {
+  MP.joinFor = null; MP.joinErr = '';
+  $('mpModal').hidden = false;
+  renderMp(); loadMp();
+  clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor) loadMp(); else renderMp(); }, 30000);
+}
+function closeMp() { $('mpModal').hidden = true; clearInterval(MP.timer); }
+$('mpCard').onclick = openMp;
+$('mpClose').onclick = closeMp;
+$('mpModal').addEventListener('click', async (e) => {
+  if (e.target.id === 'mpModal') return closeMp();
+  const b = e.target.closest('[data-mp]');
+  if (!b) return;
+  const what = b.dataset.mp;
+  if (what === 'signin') { closeMp(); $('titleAcct').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (what === 'pick') {
+    MP.joinFor = b.dataset.id; MP.joinErr = '';
+    MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
+    renderMp(); if ($('mpName')) $('mpName').focus();
+  } else if (what === 'cancel') { MP.joinFor = null; renderMp(); }
+  else if (what === 'leave') {
+    const { error } = await CLOUD.sb.rpc('match_leave', { lid: b.dataset.id });
+    if (error) toast(mpErr(error), true); else toast('You’ve left the lobby.');
+    loadMp();
+  }
+});
+$('mpModal').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target.closest('.mp-join'); if (!f || MP.busy) return;
+  const name = $('mpName').value.replace(/\s+/g, ' ').trim();
+  MP.joinName = name;
+  if (!name) { MP.joinErr = 'Give your resort a name first.'; renderMp(); return; }
+  MP.busy = true; MP.joinErr = ''; renderMp();
+  const { error } = await CLOUD.sb.rpc('match_join', { lid: f.dataset.id, rname: name });
+  MP.busy = false;
+  if (error) { MP.joinErr = mpErr(error); renderMp(); return; }
+  const l = (MP.lobbies || []).find((x) => x.id === f.dataset.id);
+  MP.joinFor = null;
+  toast(`You’re in${l ? ` ${l.name}` : ''}!${l ? ` It starts ${mpAt(l.starts_at)}.` : ''}`);
+  loadMp();
+});
 $('cmMe').addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = $('cmCreator').value.replace(/\s+/g, ' ').trim().slice(0, 24);

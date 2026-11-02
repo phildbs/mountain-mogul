@@ -10,7 +10,7 @@
   const uid = () => (sess() || {}).user?.id;
   window.__fakeSwitch = (id, email) => { const s = { user: mkUser(id, false, email) }; setSess(s); listeners.forEach((f) => f('SIGNED_IN', s)); };
   function query(table) {
-    const q = { filters: [], op: 'select', cols: '*' };
+    const q = { filters: [], ins: [], op: 'select', cols: '*' };
     const run = () => {
       const d = db(), me = uid();
       // feedback: anyone signed in (guests too) can send; nobody can read it back
@@ -67,6 +67,17 @@
         if (q.op === 'delete') { d.votes = v.filter((r) => !rows.includes(r) && !rows.some((x) => x.idea === r.idea && x.user_id === r.user_id)); put(d); return { data: null, error: null }; }
         return { data: rows.map((r) => ({ idea: r.idea, vote: r.vote })), error: null };
       }
+      // multiplayer: lobbies, players and resorts are readable by anyone (closed lobbies aside); written only
+      // by the match server and match_join / match_leave, as in supabase/multiplayer.sql
+      if (table.startsWith('match_')) {
+        if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table ' + table } };
+        const m = d.match || {}, key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts' }[table];
+        let rows = (m[key] || []).filter((r) => table !== 'match_lobbies' || r.status !== 'closed');
+        for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
+        if (table === 'match_resorts') rows = rows.map(({ save, ...r }) => r); // the window never needs whole saves
+        return { data: rows, error: null };
+      }
       if (table === 'featured') {
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table featured' } };
         let rows = d.featured || [];
@@ -92,7 +103,7 @@
       return { data: q.single ? data[0] || null : data, error: null };
     };
     const b = {
-      select(c) { q.cols = c; return b; }, eq(c, v) { q.filters.push([c, v]); return b; }, order() { return b; }, limit() { return b; },
+      select(c) { q.cols = c; return b; }, eq(c, v) { q.filters.push([c, v]); return b; }, in(c, v) { q.ins.push([c, v]); return b; }, order() { return b; }, limit() { return b; },
       maybeSingle() { q.single = true; return b; }, upsert(o) { q.op = 'upsert'; q.obj = o; return b; }, delete() { q.op = 'delete'; return b; },
       insert(o) { q.op = 'insert'; q.obj = o; return b; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },
@@ -172,6 +183,19 @@
       if (fn === 'roadmap_tally') {
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
         return { data: out, error: null };
+      }
+      if (fn === 'match_join' || fn === 'match_leave') {
+        const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);
+        if (fn === 'match_leave') { m.players = P.filter((p) => !(p.lobby_id === args.lid && p.user_id === me && L && L.status === 'open')); put(d); return { data: null, error: null }; }
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
+        if (/\bshit\b/i.test(args.rname || '')) return { data: null, error: { message: 'please pick a friendlier resort name' } };
+        if (!L || L.status !== 'open' || Date.parse(L.starts_at) <= Date.now()) return { data: null, error: { message: 'this lobby is not open' } };
+        if (P.some((p) => p.lobby_id === L.id && p.user_id === me)) return { data: null, error: { message: 'already in this lobby' } };
+        if (P.filter((p) => p.user_id === me && ['open', 'running'].includes((m.lobbies.find((l) => l.id === p.lobby_id) || {}).status)).length >= 3) return { data: null, error: { message: 'you are already in three matches' } };
+        const free = [...Array(L.slots).keys()].filter((s) => !P.some((p) => p.lobby_id === L.id && p.slot === s));
+        if (!free.length) return { data: null, error: { message: 'this lobby is full' } };
+        P.push({ lobby_id: L.id, slot: free[0], user_id: me, resort_name: String(args.rname).slice(0, 40) }); put(d);
+        return { data: free[0], error: null };
       }
       if (fn !== 'set_profile') return { data: null, error: { message: 'no function ' + fn } };
       if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
