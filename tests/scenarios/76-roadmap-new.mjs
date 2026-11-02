@@ -7,7 +7,7 @@ export default async function ({ browser, url }) {
   // a first visit: today's roadmap becomes the starting point, no badge
   eq((await check())[0], true, 'a first visit shows no badge');
   const seen = await g.ev(`JSON.parse(localStorage.getItem('mm.roadmapSeen'))`);
-  assert(Object.keys(seen).length > 15 && seen['lift-upgrades'] === 'done' && seen['ski-in-ski-out'] === 'ongoing' && seen.condos === 'plan', `remembers each idea's status: ${Object.keys(seen).length}`);
+  assert(Object.keys(seen).length > 15 && seen['lift-upgrades'] === 'done' && seen['ski-in-ski-out'] === 'ongoing' && seen.condos === 'ongoing', `remembers each idea's status: ${Object.keys(seen).length}`);
   // the roadmap moves on: one idea is new, one changes status
   await g.ev(`(() => { const s = JSON.parse(localStorage.getItem('mm.roadmapSeen')); delete s.multiplayer; s.hotels = 'idea'; localStorage.setItem('mm.roadmapSeen', JSON.stringify(s)); })()`);
   eq(await check(), [false, '2 new', true], 'the card and the menu item show 2 new');

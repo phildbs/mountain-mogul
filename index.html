@@ -3169,7 +3169,7 @@ function saveData(withSim) {
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -4304,7 +4304,7 @@ function addTrail(t) {
     const a = Math.max(0, i - 4), b = Math.min(t.samples.length - 1, i + 4);
     return b > a ? Math.max(0, (t.samples[a].y - t.samples[b].y) / ((b - a) * 0.5)) : 0;
   });
-  t.branches = []; t.stops = []; t.count = 0; t.crowd = 0;
+  t.branches = []; t.stops = []; t.homes = []; t.count = 0; t.crowd = 0;
   if (t.groomed == null) t.groomed = true;
   if (t.machine == null) t.machine = 0;
   if (state.wx || state.summer) updateTrailSnow(t, todayWx());
@@ -5824,6 +5824,7 @@ function computeNetwork() {
   for (const A of world.areas.filter(isHub)) { A.reachable = hubR.has(A); A.returns = hubRet.has(A); }
   for (const t of world.trails) { t.reachable = trailR.has(t); t.drains = drains.has(t); t.returns = ret.has(t); }
   for (const L of [...world.lifts, ...midParts()]) { L.reachable = liftR.has(L); L.returns = liftRet.has(L); }
+  condoHomes();
   rebuildPads();
   const sidx = surfaceIndex();
   for (const t of world.trails) refreshTrailMesh(t, sidx);
@@ -7483,6 +7484,7 @@ sheet.addEventListener('click', (e) => {
   else if (a === 'rotB') setDraftDegrees(draft.rot * 90 + Number(b.dataset.d) * 90);
   else if (a === 'upgrade' && obj) upgradeTier(obj);
   else if (a === 'patrolStaff') setPatrolStaff(obj, Number(b.dataset.d));
+  else if (a === 'condoSell' && obj && obj.type === 'condo') { obj.keep = !obj.keep; renderSheet(); scheduleSave(); }
   else if (a === 'firepitBase' && obj && obj.type === 'firepit') { obj.bare = !obj.bare; restyleBuilding(obj); renderSheet(); scheduleSave(); }
   else if (a === 'offsiteBuy') buyOffsite();
   else if (a === 'levelB' && obj) {
@@ -8290,7 +8292,7 @@ function serializeWorld() {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off })) : undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined })),
+    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
@@ -8366,7 +8368,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -9050,7 +9052,7 @@ function newToday() {
     refunds: 0, refunded: 0, pmDone: false,
     day: state.day, guests: 0, turnedAway: 0, peak: 0,
     meals: { onTime: 0, delayed: 0, missed: 0 },
-    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, apres: 0, night: 0, lodging: 0 },
+    rev: { tickets: 0, food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, apres: 0, night: 0, lodging: 0, condo: 0 },
     apres: { guests: 0, rev: 0, cogs: 0, byB: {}, peak: 0 },
     night: { guests: 0, stayed: 0, lifts: 0, runs: {} }, passGuests: 0, exp: { lifts: 0, grooming: 0, staff: 0, upkeep: 0, cogs: 0 },
     injuries: 0, helped: 0, unhelped: 0, rescues: [], patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
@@ -9293,7 +9295,7 @@ function goQueue(g, L, mode) {
 }
 function goCar(g) {
   if (staysForShow(g)) { const p = watchSpot(); if (!g.leaving) g.leaving = true; return setMove(g, p, g.onSkis ? 'glide' : 'walk', { k: 'watch' }); }
-  if (!g.leaving) { g.leaving = true; thought(g, g.hotel ? 'Back to the hotel for the night.' : 'Time to head home.'); }
+  if (!g.leaving) { g.leaving = true; thought(g, g.owner ? 'Back to the condo for the night.' : g.hotel ? `Back to the ${(bldById(g.hotel) || {}).type === 'condo' ? 'condo' : 'hotel'} for the night.` : 'Time to head home.'); }
   if (g.hotel) { const H = bldById(g.hotel); if (H) return toHotel(g, H); }
   const car = cars.find((c) => c.id === g.car) || offCars.find((c) => c.id === g.car);
   if (g.bus || (car && car.offsite)) {
@@ -9498,10 +9500,11 @@ function topDecision(g, L, skipVisit, skipHub = false) {
   if (!g.leaving && seekMeal(g, { k: 'top', L, outside: skipHub }, { k: 'top', lid: L.id })) return true;
   const memo = new Map();
   let best = null, bv = -Infinity;
+  const hb = homeBound(g);
   for (const D of L.departing) {
     if (skipHub && hubAt(D.samples[0]) === L.hubTop) continue;
     if (!runnable(D)) continue;
-    const v = noisy(vTrail(D, 0, g, 0, memo));
+    const v = noisy(vTrail(D, 0, g, 0, memo)) + (hb && hb.homeTrails.has(D.id) ? 1e6 : 0); // the way home
     if (v > bv) { bv = v; best = D; }
   }
   // Or glide over to a lift that loads near this one's top.
@@ -9767,7 +9770,7 @@ function makeGuest(car, x, z) {
     severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
-    xUntil: undefined, xZone: undefined, hotel: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined
+    xUntil: undefined, xZone: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined
   };
   // Shoppers browse for souvenirs; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -9978,6 +9981,7 @@ function arrive(g) {
     if (g.nap) return hotelNap(g);
     g.gone = true; gById.delete(g.id);
     recordMealOutcome(g); today.satSum += g.sat; today.satN++;
+    if (g.owner) { today.ownerSat = (today.ownerSat || 0) + g.sat; today.ownerN = (today.ownerN || 0) + 1; }
   } else if (t.k === 'bus') {
     g.st = 'busq';
   } else if (t.k === 'watch') {
@@ -10013,6 +10017,7 @@ function updateSki(g, dt) {
     * (surf === 'icy' ? 2 : surf === 'thin' ? 1.6 : 1) * (todayWx().type === 'ice' ? 1.6 : 1)
     * (T.glade ? T.gladeRisk * (surf === 'powder' ? 1.25 : 1) : 1); // trees: tighter is riskier; deep powder hides tree wells
   if (Math.random() < risk * dt) return injure(g, T);
+  if (g.hotel && T.homes && T.homes.length && skiHome(g, T, was)) return;
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 <= g.s) {
     const st = T.stops[g.ns++], n = needs(g);
     if (!n.length) continue;
@@ -10032,6 +10037,12 @@ function updateSki(g, dt) {
     if (!runnable(b.trail)) continue;
     const memo = new Map();
     // Both choices include the skiing ahead; the current run still has value after the fork.
+    const hb = homeBound(g);
+    if (hb) { // heading home: stay on the trails that pass the door
+      const ahead = T.id === hb.home.tid && hb.home.at > b.at;
+      if (!ahead && hb.homeTrails.has(b.trail.id)) { g.seen[T.id] = (g.seen[T.id] || 0) + 1; return startSki(g, b.trail, 0); }
+      if (ahead || hb.homeTrails.has(T.id)) continue;
+    }
     const foodBranch = wantsMeal(g) ? mealRoute(g, { k: 'trail', T: b.trail, s: 0 }) : null;
     const foodStay = wantsMeal(g) ? mealRoute(g, { k: 'trail', T, s: (b.at + 1) * 0.5 }) : null;
     const turn = foodBranch || foodStay ? (foodBranch?.cost ?? Infinity) < (foodStay?.cost ?? Infinity)
@@ -10342,7 +10353,8 @@ function openDay() {
   }
   for (const B of world.buildings) initBldSim(B);
   const hotelN = bookHotels(n, short); // hotel guests come on top, up to the most the mountain can hold
-  schedule = makeSchedule(Math.ceil(Math.min(n, MAX_G * AGENT - hotelN) / AGENT));
+  const ownerN = condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners
+  schedule = makeSchedule(Math.ceil(Math.max(0, Math.min(n, MAX_G * AGENT - hotelN - ownerN)) / AGENT));
   schedule.push(...today.hotelOut); today.hotelOut = null;
   if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
   schedule.sort((a, b) => b.t - a.t);
@@ -10393,12 +10405,13 @@ function endDay() {
     const cost = upk(B) + patrolWages(B, ops) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, services: { ...B.today.services }, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost), rooms: B.today.rooms };
   }
-  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) + (r0.lodging || 0) - (today.refunds || 0);
+  const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) + (r0.lodging || 0) + (r0.condo || 0) - (today.refunds || 0);
   today.exp.investor = state.investor ? Math.max(0, Math.round(rev * state.investor.share)) : 0;
   state.cash -= today.exp.investor;
   const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + (today.exp.lease || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) changeReputation((sat - 66) / 900, 'Guest satisfaction', repDay.changes);
+  const ownerMood = condoEvening(repDay);
   // One coverage penalty per day; claims and glades do not multiply the same rescue failure.
   const rescueRep = rescueReputation(rescueClaims, today.injuries);
   rescueRep.before = state.reputation;
@@ -10441,6 +10454,7 @@ function endDay() {
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0, naps: today.naps || 0 } : null,
+    condo: ownerMood || today.condoEmpty || today.condoSold ? { sold: today.condoSold || 0, sales: today.condoSales || 0, owners: today.ownerGuests || 0, renters: today.renters || 0, rented: today.condoRented || 0, empty: today.condoEmpty || 0, dues: today.condoDues || 0, skiHome: today.skiHome || 0, mood: ownerMood } : null,
     busGuests: today.busGuests, lunchPeak: today.lunchPeak, smNights: today.smNights, apres: apresReport(lv), night: nightReport(), showGuests: today.showGuests || 0, race: evToday && evToday.type === 'race' ? raceResults() : null, pond: evToday && evToday.type === 'pond' ? pondResults() : null,
     offsite: today.offCars ? { cars: today.offCars, peak: today.offPeak, full: today.offFull || 0, wait: today.parkWaitN ? today.parkWait / today.parkWaitN : 0 } : (today.offFull ? { cars: 0, peak: 0, full: today.offFull, wait: 0 } : null),
     profit: Math.round(rev - exp), sat: Math.round(sat), rep: state.reputation, repDay: { ...repDay, end: state.reputation },
@@ -11215,6 +11229,7 @@ function bldLitNow(B) {
   if (B.type === 'firepit') return true;
   if (B.type === 'lamp') return state.phase !== 'open' || state.time >= EVENING[0] - 10; // on at dusk
   if (B.type === 'tlight') return nightLightsOn() || (torchTonight() && state.time >= TORCH.parade[0] - 10 && state.time < TORCH.end);
+  if (B.type === 'condo') return (B.sold || 0) + ((B.today && B.today.rooms) || 0) > 0; // lit when someone's home
   if (state.phase !== 'open') return true;
   if (B.type === 'hotel') return bldMode(B) !== 'closed'; // rooms are lit all evening
   return bldOpenNow(B) || (B.type === 'school' && state.time < closeTime()) || (B.type === 'kids' && state.time < closeTime());
@@ -11654,12 +11669,22 @@ const BTYPES = {
       { label: 'Large', rooms: 120, w: 9.0, d: 5.2, upkeep: 7000, cost: 1500000 },
     ],
   },
+  // Homes to sell: `value` is what one home sells for before ski-in/ski-out and the owners' mood; `dues` a day each once sold.
+  condo: {
+    name: 'Condo', where: 'low', cost: 220000, sign: 'CONDOS', accent: 0x9a5b32,
+    desc: 'Homes you build and sell. Buyers pay up front, then pay dues every day and come to ski on weekends and holidays. Until a home sells, it’s rented by the night. At the base, or slopeside right beside a trail in the lower third of the mountain.',
+    tiers: [
+      { label: 'Chalet', title: 'Ski chalet', units: 1, w: 2.8, d: 2.8, upkeep: 200, value: 300000, dues: 260 },
+      { label: 'Duplex', title: 'Duplex', units: 2, w: 4.2, d: 3.0, upkeep: 350, cost: 140000, value: 240000, dues: 210 },
+      { label: 'Townhomes', title: 'Row of townhomes', units: 5, w: 7.8, d: 3.2, upkeep: 850, cost: 440000, value: 210000, dues: 190 },
+    ],
+  },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tlight', 'lamp', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel', 'condo'];
 // The build menu's sections.
 // The build menu's tabs: [key, label, building types].
 const BGROUPS = [['food', 'Food', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['shops', 'Shops', ['rental', 'tuning', 'store', 'gift']],
-  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Hotels', ['hotel']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'firepit', 'lamp', 'tlight']]];
+  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Lodging', ['hotel', 'condo']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'firepit', 'lamp', 'tlight']]];
 // The tab you were on last, remembered on this device.
 let bTabNow = null;
 function bTab() { if (bTabNow == null) { try { bTabNow = localStorage.getItem('mm.bTab') || 'food'; } catch (e) { bTabNow = 'food'; } } return bTabNow; }
@@ -11695,12 +11720,15 @@ const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes 
   tlight: '<path d="M7 21V4"/><path d="M4 21h6"/><rect x="8.5" y="3" width="6" height="4.5" rx="1"/><path d="M16.5 2.5l2-1M17 5.2h2.5M16.5 8l2 1"/>',
   parking: '<rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M10 16.5v-9h3a3 3 0 0 1 0 6h-3"/>',
   hotel: '<path d="M4 21V4.5h11V21"/><path d="M15 9h5v12"/><path d="M2.5 21h19"/><path d="M7 8h2M11 8h1.5M7 11.5h2M11 11.5h1.5M7 15h2M11 15h1.5M17.5 12.5v.01M17.5 16v.01"/>',
+  condo: '<path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 9.5V20.5h13V9.5"/><path d="M10 20.5v-5h4v5"/><path d="M8.5 12.5h.01M15.5 12.5h.01"/><path d="M16 6.5V3.5h2.5v5"/>',
+  condo1: '<path d="M1.5 12L7 6.5l5 5 5-5 5.5 5.5"/><path d="M3.5 10.5v10h17v-10"/><path d="M12 11.5v9"/><path d="M6 20.5v-4h2.5v4M15.5 20.5v-4H18v4"/>',
+  condo2: '<path d="M1.5 11l3.5-4 3.5 4 3.5-4 3.5 4 3.5-4 3.5 4"/><path d="M2.5 10v10.5h19V10"/><path d="M8.5 11v9.5M15.5 11v9.5"/><path d="M4.5 20.5v-3h2v3M11 20.5v-3h2v3M17.5 20.5v-3h2v3"/>',
   car: '<path d="M3 13l2-5.3A2 2 0 0 1 6.9 6.5h10.2a2 2 0 0 1 1.9 1.2L21 13v4H3z"/><path d="M3 13h18"/><circle cx="7" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/>',
 };
-const bIcon = (k, tier) => (k === 'lodge' && tier ? bIcon('lodge' + tier) : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BICON[k] || BICON.lodge}</svg>`);
+const bIcon = (k, tier) => ((k === 'lodge' || k === 'condo') && tier ? bIcon(k + tier) : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BICON[k] || BICON.lodge}</svg>`);
 const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a warm-up', lodge: 'Lunch, warm-up and restrooms', restaurant: 'Sit-down lunch', fine: 'Pricey meals, big spenders', bar: 'Drinks and après-ski',
   rental: 'Rents skis to guests', tuning: 'Rentals plus ski tuning', store: 'Sells gear and clothing', gift: 'Souvenirs and small treats', school: 'Lessons for beginners', kids: 'Day camp for young kids',
-  patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over',
+  patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over', condo: 'Homes to sell, or rent by the night',
   tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 40 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
@@ -11800,6 +11828,7 @@ const patrolDailyCost = (B, P = patrolPlan()) => PATROL_HUT_DAY + patrolWages(B,
 const bspec = (b, P) => b.type === 'patrol' ? { ...BTYPES.patrol, crew: patrolTeamSize(b, P), upkeep: PATROL_HUT_DAY + PATROLLER_DAY * patrolTeamSize(b, P) }
   : (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier || 0] : BTYPES[b.type]);
 // What a building costs at a size: lodges come small, medium or large, each its own choice in the build menu.
+const tierName = (t, s) => s.title || `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}`;
 const sizeCost = (type, tier = 0) => BTYPES[type].cost + (BTYPES[type].tiers || []).slice(1, tier + 1).reduce((a, t) => a + (t.cost || 0), 0);
 const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0, room: 180 };
 const PRICE_INFO = {
@@ -12375,7 +12404,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, rack: modelRack, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel };
+const MODELS = { tlight: modelTrailLight, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, rack: modelRack, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel, condo: modelCondo };
 /* ---------- Modern mountain alternatives; opt-in registry, no live style selection yet. ---------- */
 // Same Kit/box pipeline and shared wood, stone and glow as classic buildings. No new textures.
 const MODERN_METAL = accentMat(0x252b30);
@@ -12688,7 +12717,7 @@ function modelTransitModern() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS_MODERN = { tuning: modelTuningModern, gift: modelGiftModern, kids: modelKidsModern, patrol: modelPatrolModern, clinic: modelClinicModern, restroom: modelRestroomModern, hrest: modelHrestModern, shuttle: modelShuttleModern, transit: modelTransitModern, lodge: modelLodgeModern, cafe: modelCafeModern, restaurant: modelRestaurantModern, fine: modelFineModern, bar: modelBarModern, rental: modelRentalModern, store: modelStoreModern, school: modelSchoolModern, hotel: modelHotelModern };
+const MODELS_MODERN = { tuning: modelTuningModern, gift: modelGiftModern, kids: modelKidsModern, patrol: modelPatrolModern, clinic: modelClinicModern, restroom: modelRestroomModern, hrest: modelHrestModern, shuttle: modelShuttleModern, transit: modelTransitModern, lodge: modelLodgeModern, cafe: modelCafeModern, restaurant: modelRestaurantModern, fine: modelFineModern, bar: modelBarModern, rental: modelRentalModern, store: modelStoreModern, school: modelSchoolModern, hotel: modelHotelModern, condo: modelCondoModern };
 
 // Console-only, transient comparison. Left: classic; right: modern. Never enters world.buildings/saves.
 // Open ?dev, then previewStyles(); previewStyles({ types: ['lodge'], tier: 2 }) for one pair.
@@ -13026,7 +13055,7 @@ function modelTransitScandinavian() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS_SCANDINAVIAN = { lodge: modelLodgeScandinavian, cafe: modelCafeScandinavian, restaurant: modelRestaurantScandinavian, fine: modelFineScandinavian, bar: modelBarScandinavian, rental: modelRentalScandinavian, store: modelStoreScandinavian, school: modelSchoolScandinavian, tuning: modelTuningScandinavian, gift: modelGiftScandinavian, kids: modelKidsScandinavian, patrol: modelPatrolScandinavian, clinic: modelClinicScandinavian, restroom: modelRestroomScandinavian, hrest: modelHrestScandinavian, shuttle: modelShuttleScandinavian, transit: modelTransitScandinavian, hotel: modelHotelScandinavian };
+const MODELS_SCANDINAVIAN = { lodge: modelLodgeScandinavian, cafe: modelCafeScandinavian, restaurant: modelRestaurantScandinavian, fine: modelFineScandinavian, bar: modelBarScandinavian, rental: modelRentalScandinavian, store: modelStoreScandinavian, school: modelSchoolScandinavian, tuning: modelTuningScandinavian, gift: modelGiftScandinavian, kids: modelKidsScandinavian, patrol: modelPatrolScandinavian, clinic: modelClinicScandinavian, restroom: modelRestroomScandinavian, hrest: modelHrestScandinavian, shuttle: modelShuttleScandinavian, transit: modelTransitScandinavian, hotel: modelHotelScandinavian, condo: modelCondoScandinavian };
 // Console-only, transient comparison. Left: classic; right: Scandinavian. Never enters world.buildings/saves.
 // Open ?dev, then previewScandinavian(); previewScandinavian({ types: ['lodge'], tier: 2 }) for one pair.
 function previewScandinavian({ types = Object.keys(MODELS_SCANDINAVIAN), tier = null, x = -28, z = 10, spacing = 7, focus = true } = {}) {
@@ -13248,6 +13277,109 @@ function modelHotelScandinavian(tier) {
   }
   return k;
 }
+/* ---------- Condos: a chalet, a duplex and a row of townhomes in each theme ----------
+   One home per front door, each with its own gable or roof line, so a row reads as separate homes. No seats and
+   no sign: people live here. Front (+z) faces the trail or the base; each size has one footprint in every theme. */
+function classicHome(k, { x = 0, z = 0, w, d, h = 0.75, rise = 1.0, chimney = 0 }) {
+  hall(k, { x, z, w, d, h, rise, over: 0.12, gableFront: true, chimney, windows: false });
+  stoneBase(k, x, z, w, d, 0.28);
+  const front = z + d / 2, back = z - d / 2;
+  for (const s of [-1, 1]) for (const [wz, f] of [[front, 1], [back, -1]]) {
+    k.add(bx(0.26, 0.3, 0.04), BM.dark, x + s * w * 0.28, 0.45, wz + f * 0.01);
+    k.add(bx(0.19, 0.22, 0.05), BM.glow, x + s * w * 0.28, 0.45, wz + f * 0.016);
+  }
+  k.add(gablePrism(w * 0.6, rise * 0.6, 0.05).rotateY(Math.PI / 2), BM.glow, x, h + 0.04, front + 0.02); // the big glazed gable
+  k.add(bx(w - 0.1, 0.05, 0.3), BM.plank, x, h, front + 0.15); // a balcony under it
+  k.add(bx(w - 0.1, 0.035, 0.035), BM.wood, x, h + 0.2, front + 0.29);
+  for (let px = -w / 2 + 0.1; px <= w / 2 - 0.09; px += 0.25) k.add(bx(0.03, 0.18, 0.03), BM.wood, x + px, h + 0.11, front + 0.29);
+  door(k, x, front + 0.01, 0.42, 0.28);
+}
+function modernHome(k, { x = 0, z = 0, w, d, floors = 2, flip = 1 }) {
+  modernVolume(k, { x, z, w, d, h: 0.55, over: 0.05 });
+  for (let f = 1; f < floors; f++) { // upper floors step forward over the door, with a glass balcony
+    const fz = z + 0.15 * f;
+    modernVolume(k, { x: x + flip * 0.05 * f, z: fz, y: 0.6 * f, w, d: d - 0.15 * f, h: 0.5, over: 0.07 });
+    k.add(bx(w - 0.12, 0.04, 0.2), MODERN_METAL, x, 0.6 * f + 0.02, fz + (d - 0.15 * f) / 2 + 0.1);
+    k.add(bx(w - 0.12, 0.17, 0.02), MODERN_RAIL, x, 0.6 * f + 0.12, fz + (d - 0.15 * f) / 2 + 0.19);
+  }
+  door(k, x - flip * w * 0.22, z + d / 2 + 0.02, 0.42, 0.28, BM.dark);
+}
+function scandiHome(k, { x = 0, z = 0, w, d, h = 1.0, color = 0xa74438 }) {
+  scandiHall(k, { x, z, w, d, h, color });
+  const front = z + d / 2;
+  for (const s of [-1, 1]) { // windows on the back, too
+    k.add(bx(0.22, 0.3, 0.03), SCANDI_TRIM, x + s * w * 0.25, 0.5, z - d / 2 - 0.012);
+    k.add(bx(0.16, 0.24, 0.03), BM.glow, x + s * w * 0.25, 0.5, z - d / 2 - 0.028);
+  }
+  k.add(bx(0.62, 0.08, 0.34), SCANDI_TRIM, x, 0.04, front + 0.17); // the front step
+  door(k, x, front + 0.01, 0.44, 0.28, BM.dark);
+}
+function woodpile(k, x, z, ry = 0) {
+  k.push(x, 0, z, ry);
+  for (let r = 0; r < 3; r++) for (let i = 0; i < 4 - r; i++) k.add(bx(0.09, 0.09, 0.42), BM.wood, (i - (3 - r) / 2) * 0.1, 0.05 + r * 0.085, 0);
+  k.pop();
+}
+const SCANDI_HOMES = [0xa74438, 0xd4a842, 0x577b8e, 0xe8e2d4, 0x6f8f5a];
+function modelCondo(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    classicHome(k, { z: -0.3, w: 2.0, d: 1.9, h: 0.75, rise: 1.15, chimney: 1 });
+    deck(k, 0, 1.0, 2.0, 0.6);
+    hotTub(k, -0.5, 1.02);
+    skiRack(k, 1.2, 0.95, 3, Math.PI / 2);
+    woodpile(k, -1.22, -0.6);
+  } else if (tier === 1) {
+    classicHome(k, { x: -1.0, z: -0.35, w: 1.9, d: 2.0, h: 0.85, rise: 1.05, chimney: -1 });
+    classicHome(k, { x: 1.0, z: -0.25, w: 1.9, d: 1.95, h: 0.75, rise: 1.05, chimney: 1 });
+    deck(k, 0, 1.15, 4.0, 0.6);
+    skiRack(k, -1.0, 1.32, 4); skiRack(k, 1.0, 1.32, 4);
+  } else {
+    for (let i = 0; i < 5; i++) classicHome(k, { x: (i - 2) * 1.5, z: i % 2 ? -0.25 : -0.38, w: 1.45, d: 2.2 - (i % 2 ? 0.1 : 0), h: i % 2 ? 0.95 : 0.8, rise: 0.85, chimney: i % 2 ? 1 : 0 });
+    k.add(bx(7.6, 0.06, 0.55), BM.stone, 0, 0.03, 1.22); // the front walk
+    for (let i = 0; i < 4; i++) skiRack(k, (i - 1.5) * 1.5, 1.35, 3);
+  }
+  return k;
+}
+function modelCondoModern(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    modernHome(k, { z: -0.45, w: 2.2, d: 1.7, floors: 2 });
+    k.add(bx(2.4, 0.08, 0.7), BM.plank, 0, 0.04, 0.9);
+    k.add(bx(2.4, 0.17, 0.02), MODERN_RAIL, 0, 0.17, 1.24);
+    hotTub(k, 0.6, 0.95, MODERN_METAL);
+    skiRack(k, -0.75, 1.0, 4);
+  } else if (tier === 1) {
+    modernHome(k, { x: -1.0, z: -0.45, w: 1.9, d: 1.8, floors: 3, flip: -1 });
+    modernHome(k, { x: 1.0, z: -0.35, w: 1.9, d: 1.7, floors: 2, flip: 1 });
+    k.add(bx(4.1, 0.08, 0.6), BM.plank, 0, 0.04, 1.08);
+    skiRack(k, -0.4, 1.2, 4); skiRack(k, 1.6, 1.2, 4);
+  } else {
+    for (let i = 0; i < 5; i++) modernHome(k, { x: (i - 2) * 1.5, z: i % 2 ? -0.5 : -0.6, w: 1.45, d: 1.85, floors: i % 2 ? 2 : 3, flip: i % 2 ? 1 : -1 });
+    k.add(bx(7.6, 0.06, 0.5), MODERN_METAL, 0, 0.03, 1.25);
+    for (let i = 0; i < 4; i++) skiRack(k, (i - 1.5) * 1.5, 1.38, 3);
+  }
+  return k;
+}
+function modelCondoScandinavian(tier) {
+  const k = new Kit();
+  if (tier === 0) {
+    scandiHome(k, { z: -0.3, w: 2.0, d: 1.9, h: 1.0, color: 0xa74438 });
+    chimneyTop(k, 0.55, 2.0, -0.7);
+    scandiDeck(k, 0, 1.03, 2.0, 0.55);
+    hotTub(k, 0.55, 1.03, SCANDI_TRIM);
+    skiRack(k, -1.2, 0.9, 3, Math.PI / 2);
+    woodpile(k, 1.2, -0.6);
+  } else if (tier === 1) {
+    scandiHome(k, { x: -1.0, z: -0.35, w: 1.9, d: 2.0, h: 1.1, color: 0xd4a842 });
+    scandiHome(k, { x: 1.0, z: -0.25, w: 1.9, d: 1.9, h: 0.95, color: 0x577b8e });
+    skiRack(k, -0.35, 1.2, 4); skiRack(k, 1.65, 1.2, 4);
+  } else {
+    for (let i = 0; i < 5; i++) scandiHome(k, { x: (i - 2) * 1.5, z: i % 2 ? -0.3 : -0.4, w: 1.45, d: 2.1 - (i % 2 ? 0.1 : 0), h: i % 2 ? 1.1 : 0.95, color: SCANDI_HOMES[i] });
+    k.add(bx(7.6, 0.06, 0.5), SCANDI_TRIM, 0, 0.03, 1.28);
+    for (let i = 0; i < 4; i++) skiRack(k, (i - 1.5) * 1.5, 1.38, 3);
+  }
+  return k;
+}
 /* ---------- Building themes ----------
    Some buildings come in more than one look. The theme is chosen in the build menu and kept with each
    building; a type without that theme's model falls back to the classic one. Look only: size, seats,
@@ -13317,6 +13449,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
   if ([[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x0, bb.z1], [bb.x1, bb.z1]].some(([cx, cz]) => !inProperty(cx, cz))) problems.push('It has to be on your property.');
   if (t.where === 'base' && !isBase({ x, z }) && !(hubAt({ x, z }) || {}).basePoint) problems.push(`The ${t.name.toLowerCase()} belongs in the base area, where guests arrive, or in a guest area that touches it.`);
+  if (t.where === 'low') { const s = BTYPES[type].tiers[tier], why = condoSpotProblem(toWorld({ x, z, rot }, 0, s.d / 2 + 0.35)); if (why) problems.push(why); }
   const fs = footprintStats(bb);
   if (fs.hmax - fs.hmin > 3.2) problems.push('The ground is too steep to level here. Look for a gentler spot.');
   if (fs.creek) problems.push('Too close to the creek.');
@@ -13376,6 +13509,7 @@ const OTHER_NAMES = {
   hrest: ['Heated Restrooms', 'Warm Stalls', 'The Cozy Stalls'],
   transit: ['Transit Center', 'Bus Terminal'],
   hotel: ['Summit House Hotel', 'The Alpenglow', 'Powder Inn', 'Snowberry Lodge Hotel', 'The Timberline', 'Firstlight Hotel', 'Ridgeview Inn', 'The Lift Line Hotel'],
+  condo: ['Trailside Condos', 'Slopeside Homes', 'Snowbird Townhomes', 'Fir Hollow Chalets', 'The Ski-In Cabins', 'Powder Ridge Homes', 'Aspen Row', 'Hearthstone Condos', 'Ptarmigan Place', 'Snowcrest Village'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
 const PLAIN_NAMES = ['tlight', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'rack', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
@@ -14694,7 +14828,7 @@ function hotelPull(B) {
   if (w.snow >= 6 && w.type !== 'rain') day += 0.12; // last-minute bookings for the powder
   if (eventToday()) day += 0.08;
   const rate = clamp(Math.exp(-(state.prices.room - PRICE_DEFAULTS.room) / PRICE_DEFAULTS.room * 1.6), 0.1, 1.4);
-  const ski = skiInOut(B), eat = world.buildings.some((o) => HOTEL_EATS.includes(o.type) && bldMode(o) !== 'closed' && distXZ(o.door, B.door) < HOTEL_NEAR);
+  const ski = B.type === 'condo' ? condoSki(B) : skiInOut(B), eat = world.buildings.some((o) => HOTEL_EATS.includes(o.type) && bldMode(o) !== 'closed' && distXZ(o.door, B.door) < HOTEL_NEAR);
   return { day, rate, ski, eat, rep: clamp(state.reputation, 0.3, 1.3) };
 }
 const hotelShare = (B, p = hotelPull(B)) => clamp(p.day * p.rate * (p.ski ? 1.25 : 1) * (p.eat ? 1.08 : 1) * p.rep, 0, 1);
@@ -14702,16 +14836,19 @@ const hotelShare = (B, p = hotelPull(B)) => clamp(p.day * p.rate * (p.ski ? 1.25
 // big hotel: hotel guests stay under 60% of the day's skiers. Returns how many guests.
 function bookHotels(n, short) {
   today.hotelOut = [];
-  const H = world.buildings.filter((B) => B.type === 'hotel' && bldMode(B) !== 'closed');
+  // Hotel rooms, and condo homes with no owner (each sleeps four and rents for more).
+  const H = world.buildings.filter((B) => (B.type === 'hotel' || (B.type === 'condo' && condoUnsold(B))) && bldMode(B) !== 'closed');
   if (!H.length) return 0;
-  const want = H.map((B) => bspec(B).rooms * hotelShare(B)), total = want.reduce((a, b) => a + b, 0) * ROOM_GUESTS;
+  const units = (B) => B.type === 'condo' ? condoUnsold(B) : bspec(B).rooms, per = (B) => B.type === 'condo' ? CONDO_GUESTS : ROOM_GUESTS;
+  const want = H.map((B) => units(B) * hotelShare(B)), total = want.reduce((a, w, i) => a + w * per(H[i]), 0);
   const k = total > n * HOTEL_MARKET ? n * HOTEL_MARKET / total : 1, open = short ? SHORT_OPEN : DAY_OPEN;
   let out = 0;
   H.forEach((B, i) => {
-    const s = bspec(B), rooms = Math.min(s.rooms, Math.round(want[i] * k * (0.92 + Math.random() * 0.16))), rev = rooms * state.prices.room;
-    B.today.rooms = rooms; B.today.revenue += rev; state.cash += rev; today.rev.lodging += rev;
-    today.rooms = (today.rooms || 0) + rooms; today.roomsAll = (today.roomsAll || 0) + s.rooms;
-    let left = Math.min(rooms * ROOM_GUESTS, MAX_G * AGENT - out);
+    const condo = B.type === 'condo', all = units(B), rooms = Math.min(all, Math.round(want[i] * k * (0.92 + Math.random() * 0.16))), rev = rooms * state.prices.room * (condo ? CONDO_RENT : 1);
+    B.today.rooms = rooms; B.today.revenue += rev; state.cash += rev;
+    if (condo) { today.rev.condo = (today.rev.condo || 0) + rev; today.condoRented = (today.condoRented || 0) + rooms; today.condoEmpty = (today.condoEmpty || 0) + all; }
+    else { today.rev.lodging += rev; today.rooms = (today.rooms || 0) + rooms; today.roomsAll = (today.roomsAll || 0) + all; }
+    let left = Math.min(rooms * per(B), MAX_G * AGENT - out);
     B.today.visits = left; out += left;
     while (left > 0) { // out of the door from just before the lifts open: first chair
       const size = Math.min(left, 1 + Math.floor(Math.random() * 4)); left -= size;
@@ -14728,10 +14865,12 @@ function hotelOut(e) {
     g.hotel = B.id; g.car = null;
     if (!g.apres) g.apres = Math.random() < 0.25; // staying the night: more of them stay on for après
     guests.push(g); gById.set(g.id, g);
-    payTicket(g); today.guests += AGENT; today.hotelGuests = (today.hotelGuests || 0) + AGENT;
-    thought(g, pick(HOTEL_THOUGHTS));
+    today.guests += AGENT;
+    if (e.owner) { g.owner = true; g.pass = true; g.paid = 0; g.needsRental = false; today.ownerGuests = (today.ownerGuests || 0) + AGENT; } // their own skis and passes
+    else { payTicket(g); if (B.type === 'condo') today.renters = (today.renters || 0) + AGENT; else today.hotelGuests = (today.hotelGuests || 0) + AGENT; }
+    thought(g, pick(e.owner ? OWNER_THOUGHTS : HOTEL_THOUGHTS));
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
-    arrivalFlow(g);
+    if (B.type === 'condo' && B.slope) skiOut(g, B); else arrivalFlow(g);
   }
   updateCash(false);
 }
@@ -14746,7 +14885,7 @@ function napOk(g) {
 function goNap(g, why) { g.leaving = true; g.nap = true; thought(g, why); }
 function hotelNap(g) {
   const H = bldById(g.hotel);
-  g.nap = false; g.napped = true; g.leaving = false;
+  g.nap = false; g.napped = true; g.leaving = false; g.homeTries = 0;
   if (H) { g.x = H.door.x; g.z = H.door.z; H.today.services.nap = (H.today.services.nap || 0) + AGENT; }
   g.st = 'room'; g.onSkis = false; g.until = state.time + NAP_MIN[0] + Math.random() * (NAP_MIN[1] - NAP_MIN[0]);
   today.naps = (today.naps || 0) + AGENT;
@@ -14754,15 +14893,179 @@ function hotelNap(g) {
 function hotelWake(g) {
   g.fat = Math.max(0, g.fat - g.stam * 0.6); g.warmed = true; g.bl = 0; g.sat = Math.min(100, g.sat + 5);
   g.st = 'walk'; g.then = null;
-  if (!g.leaving) thought(g, 'Rested up in the room. Back out for more!');
+  const C = bldById(g.hotel);
+  if (!g.leaving) thought(g, C && C.type === 'condo' ? 'Rested up at the condo. Back out for more!' : 'Rested up in the room. Back out for more!');
+  if (C && C.type === 'condo' && C.slope && !g.leaving) return skiOut(g, C);
   baseDecision(g);
 }
 // Heading in for the night: down through a guest area, across to the other base if need be, then to the door.
 function toHotel(g, H) {
+  if (H.type === 'condo' && H.slope) return toCondo(g, H);
   const s = H.door, A = hubAt(g);
   if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
   if (lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' });
   setMove(g, { x: s.x + (Math.random() - 0.5) * 1.2, z: s.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'hotel' });
+}
+/* ---------- Condos ----------
+   Homes you build and sell. A sold home pays its price once, then dues every open day, and its owners come to ski
+   on weekends and holidays with their own passes. Homes waiting for a buyer (or kept to rent) are rented by the night
+   like hotel rooms. Slopeside condos sit beside a trail in the lower third of the mountain: owners ski out of the
+   door in the morning and ski back to it at the end of the day. Owners judge the resort slowly: their mood moves a
+   little each day they visit, so a few bad days barely matter, but a bad month costs dues, prices and reputation. */
+const CONDO_LOW = 1 / 3, CONDO_REACH = 5, CONDO_SKI = 1.4, CONDO_SELL = 0.07, CONDO_RENT = 2.5, CONDO_GUESTS = 4, CONDO_MOOD0 = 70;
+const OWNER_THOUGHTS = ['Out of our own front door and onto the snow!', 'Best part of owning here: no parking, no lines at the car.', 'Another weekend at the condo. Love this place.', 'Skis on at the door. This is why we bought here.'];
+const owners = () => state.owners || (state.owners = { mood: CONDO_MOOD0 });
+const condoSlope = (p) => !isBase(p) && !(hubAt(p) || {}).basePoint;
+// Where a condo can go: the base (or a guest area touching it), or low on the mountain with a trail by the front door.
+function condoSpotProblem(door) {
+  if (!condoSlope(door)) return '';
+  if (heightFrac(door) > CONDO_LOW) return 'Condos go in the base area, or slopeside in the lower third of the mountain. This spot is too high up.';
+  if (!realTrails().some((t) => t.samples.some((s) => distXZ(s, door) < trailHW(t) + CONDO_REACH))) return 'A slopeside condo needs a trail right by its front door, so owners can ski in and ski out.';
+  return '';
+}
+// Each condo's trail: the closest one passing its door, every trail and lift that leads skiers down to it.
+function condoHomes() {
+  for (const C of world.buildings) {
+    if (C.type !== 'condo') continue;
+    C.slope = condoSlope(C.door); C.home = null; C.homeTrails = new Set(); C.homeLifts = new Set();
+    let best = null, bd = Infinity;
+    for (const t of realTrails()) { const lim = trailHW(t) + CONDO_REACH; t.samples.forEach((s, i) => { const d = distXZ(s, C.door); if (d < lim && d < bd) { bd = d; best = { T: t, at: i }; } }); }
+    if (!best) continue;
+    C.home = { tid: best.T.id, at: best.at }; (best.T.homes || (best.T.homes = [])).push({ at: best.at, B: C });
+    const todo = [best.T]; C.homeTrails.add(best.T.id);
+    while (todo.length) {
+      const X = todo.pop();
+      for (const t of world.trails) {
+        if (C.homeTrails.has(t.id)) continue;
+        const joins = t.to && t.to.kind === 'trail' && t.to.obj === X && (X !== best.T || t.joinIdx < best.at);
+        if (joins || (t.branches || []).some((b) => b.trail === X)) { C.homeTrails.add(t.id); todo.push(t); }
+      }
+    }
+    for (const L of world.lifts) if (!L.hubTop && (L.departing || []).some((t) => C.homeTrails.has(t.id))) C.homeLifts.add(L.id);
+  }
+}
+const condoSki = (C) => !!C.home || skiInOut(C);
+const condoEat = (C) => world.buildings.some((o) => HOTEL_EATS.includes(o.type) && bldMode(o) !== 'closed' && distXZ(o.door, C.door) < HOTEL_NEAR);
+// What owners think of the resort, as a 0–1 factor, and what that does to prices.
+const moodK = () => clamp(owners().mood / 100, 0, 1);
+const condoMoodPrice = () => 0.7 + 0.5 * moodK();
+// How many homes buyers want: about one for every 20 skiers on an average recent day. Past that, homes sell slowly and for less.
+function condoMarket() {
+  const h = (state.history || []).slice(-14), avg = h.length ? h.reduce((a, r) => a + (r.guests || 0), 0) / h.length : 200;
+  const homes = Math.max(4, Math.round(avg / 20)), sold = world.buildings.reduce((a, B) => a + (B.type === 'condo' ? B.sold || 0 : 0), 0);
+  return { homes, sold, k: Math.min(1, sold / homes) };
+}
+// What one home here sells for today: its size, ski-in/ski-out, food close by, the resort's name and the owners' mood.
+function condoValue(C, s = bspec(C), ski = condoSki(C), eat = condoEat(C)) {
+  return Math.round(s.value * (ski ? CONDO_SKI : 1) * (eat ? 1.05 : 1) * clamp(state.reputation, 0.6, 1.3) * condoMoodPrice() * (1 - 0.3 * condoMarket().k) / 1000) * 1000;
+}
+const condoUnsold = (C) => Math.max(0, bspec(C).units - (C.sold || 0));
+const moodWord = (m) => m >= 80 ? 'Delighted' : m >= 65 ? 'Happy' : m >= 50 ? 'Content' : m >= 35 ? 'Unhappy' : 'Angry';
+// Each morning: homes sell, owners pay dues and some come to ski. Returns how many owners are coming.
+function condoMorning(room, short) {
+  const C0 = world.buildings.filter((B) => B.type === 'condo');
+  if (!C0.length) return 0;
+  const m = moodK(), d = dateOf(state.day), dow = d.getUTCDay(), w = todayWx(), open = short ? SHORT_OPEN : DAY_OPEN;
+  let visit = dow === 6 ? 0.7 : dow === 0 ? 0.5 : dow === 5 ? 0.3 : 0.1;
+  if (holidayOf(d)) visit = 0.85;
+  if (w.snow >= 6 && w.type !== 'rain') visit += 0.2; // owners drive up for a powder day
+  visit *= 0.55 + 0.6 * m;
+  let out = 0;
+  const mk = condoMarket();
+  for (const C of C0) {
+    const s = bspec(C);
+    // Sales: each listed home has a chance of a buyer, better with happy owners and a good name.
+    if (!C.keep) for (let u = condoUnsold(C); u > 0; u--) {
+      if (Math.random() >= CONDO_SELL * (0.3 + m) * clamp(state.reputation, 0.5, 1.3) * (condoSki(C) ? 1.2 : 1) * Math.max(0.03, 1 - mk.k)) continue;
+      mk.sold++; mk.k = Math.min(1, mk.sold / mk.homes);
+      const price = condoValue(C, s);
+      C.sold = (C.sold || 0) + 1; C.sales = (C.sales || 0) + price; state.cash += price;
+      today.condoSold = (today.condoSold || 0) + 1; today.condoSales = (today.condoSales || 0) + price;
+    }
+    // Dues: unhappy owners hold some back.
+    const dues = Math.round((C.sold || 0) * s.dues * Math.min(1, 0.4 + 1.2 * m));
+    if (dues) { state.cash += dues; today.rev.condo = (today.rev.condo || 0) + dues; C.today.revenue += dues; today.condoDues = (today.condoDues || 0) + dues; }
+    // Owners out of the door, from first chair.
+    for (let u = 0; u < (C.sold || 0); u++) {
+      if (Math.random() >= visit) continue;
+      let left = Math.min(2 + Math.floor(Math.random() * 3), room - out);
+      if (left <= 0) break;
+      out += left; C.today.visits += left; C.today.owners = (C.today.owners || 0) + left;
+      while (left > 0) { const size = Math.min(left, 1 + Math.floor(Math.random() * 3)); left -= size; today.hotelOut.push({ t: open - 15 + Math.random() * 90, size, hotel: C.id, owner: true }); }
+    }
+  }
+  if (today.condoSold) toast(`Sold ${today.condoSold === 1 ? 'a condo home' : `${today.condoSold} condo homes`} for ${money(today.condoSales)}.`);
+  updateCash(false);
+  return out;
+}
+// End of the day: owners' mood drifts toward how their day went. One bad day moves it only a few points.
+function condoEvening(repDay) {
+  if (!world.buildings.some((B) => B.type === 'condo' && B.sold)) return null;
+  const o = owners(), was = o.mood;
+  if (today.ownerN) o.mood = clamp(o.mood + (today.ownerSat / today.ownerN - o.mood) * 0.06, 0, 100);
+  if (o.mood < 40) changeReputation(-(40 - o.mood) / 40 * 0.004, 'Unhappy condo owners', repDay.changes);
+  else if (o.mood >= 80) changeReputation(0.001, 'Condo owners recommend you', repDay.changes);
+  if (was >= 50 && o.mood < 50 && !visiting) toast('Your condo owners are getting unhappy. They’ll start holding back dues, and homes will sell for less. Shorter lines and good snow win them back.', true);
+  return { was: Math.round(was), mood: Math.round(o.mood), day: today.ownerN ? Math.round(today.ownerSat / today.ownerN) : null };
+}
+// Heading home to a slopeside condo: on the way down, ride a lift whose trails pass the door; with no way, walk.
+function homeBound(g) {
+  if (!g.hotel || !(g.leaving || g.nap)) return null;
+  const C = bldById(g.hotel);
+  return C && C.type === 'condo' && C.slope && C.home ? C : null;
+}
+function toCondo(g, C) {
+  const T = C.home && trailById(C.home.tid);
+  g.homeTries = (g.homeTries || 0) + 1;
+  if (T && runnable(T) && g.homeTries <= 3 && state.time < closeTime() - 5) {
+    let best = null, bd = 40;
+    for (const L of world.lifts) { if (!C.homeLifts.has(L.id) || !canLoad(L)) continue; const d = distXZ(L.a, g); if (d < bd) { bd = d; best = L; } }
+    if (best) { if (g.homeTries === 1) thought(g, `Last run home: up ${best.name} and down ${T.name} to the door.`); return goQueue(g, best, g.onSkis ? 'glide' : 'walk'); }
+  }
+  today.walkHome = (today.walkHome || 0) + AGENT;
+  if (g.homeTries > 1 || !T) { g.sat = Math.max(0, g.sat - 4); thought(g, 'No way to ski home, so we walked up to the condo.'); }
+  setMove(g, { x: C.door.x + (Math.random() - 0.5) * 1.2, z: C.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'hotel' });
+}
+// Out of a slopeside condo in the morning: skis on at the door and onto its trail.
+function skiOut(g, C) {
+  g.needsRental = false; g.wantsLesson = false; g.family = false; g.wantsTune = false;
+  const T = C.home && trailById(C.home.tid);
+  if (!T || !runnable(T)) { g.sat = Math.max(0, g.sat - 5); thought(g, 'No trail open by the condo, so we walked down to the lifts.'); return arrivalFlow(g); }
+  g.onSkis = true;
+  setMove(g, T.samples[C.home.at], 'glide', { k: 'ski', tid: T.id, s: C.home.at * 0.5 });
+}
+// Skiing past their own door: in for the night, or for a rest when tired.
+function skiHome(g, T, was) {
+  for (const h of T.homes) {
+    if (h.B.id !== g.hotel || h.at * 0.5 > g.s || h.at * 0.5 <= was) continue;
+    const tired = !g.leaving && !g.nap && g.fat > g.stam * 0.6 && napOk(g);
+    if (!g.leaving && !g.nap && !tired) return false;
+    if (tired) goNap(g, 'Skiing right past the condo. Time for a rest.');
+    const p = guestPos(g); g.x = p.x; g.z = p.z; g.T = null; g.seen[T.id] = (g.seen[T.id] || 0) + 1;
+    today.skiHome = (today.skiHome || 0) + AGENT;
+    setMove(g, { x: h.B.door.x + (Math.random() - 0.5) * 1.2, z: h.B.door.z + (Math.random() - 0.5) * 0.4 }, 'glide', { k: 'hotel' });
+    return true;
+  }
+  return false;
+}
+// While placing one: is it ski-in, ski-out here, and what would a home sell for.
+function condoPreview() {
+  const s = BTYPES.condo.tiers[draft.btier || 0], door = toWorld({ x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot }, 0, s.d / 2 + 0.35), slope = condoSlope(door);
+  const ski = slope || realTrails().some((t) => t.samples.some((p) => distXZ(p, door) < trailHW(t) + CONDO_REACH)) || skiInOut({ door });
+  return `<p class="help">${slope ? 'Slopeside, ski-in, ski-out: owners ski from the door. ' : ski ? 'Ski-in, ski-out: a trail or base lift is by the door. ' : 'Put the door by a trail or base lift (ski-in, ski-out) and homes sell for 40% more. '}Each home would sell for about <b>${money(condoValue({ door }, s, ski))}</b> here.</p>`;
+}
+// The condo card: homes sold, what one sells for here, the owners and the rentals.
+function condoNote(B, open, y) {
+  const s = bspec(B), sold = B.sold || 0, left = s.units - sold, ski = condoSki(B), o = owners(), T = B.home && trailById(B.home.tid);
+  const rooms = open ? B.today.rooms : y && y.rooms;
+  return `<div class="field-label">Homes</div>
+    <p class="help"><b>${sold}</b> of ${s.units} sold${B.sales ? ` for ${money(B.sales)} in all` : ''}. ${left ? `Each home sells for about <b>${money(condoValue(B, s, ski))}</b> right now${ski ? ' (ski-in, ski-out adds 40%)' : '. A trail or base lift beside the door (ski-in, ski-out) adds 40%'}.` : 'Every home has an owner.'}</p>
+    ${left && !visiting ? `<div class="toggle-row"><div><b>Sell homes</b><span>${B.keep ? 'Kept to rent out by the night. Turn on to list them for sale.' : 'Listed for sale. Buyers come along every few weeks; until then, empty homes are rented by the night.'}</span></div>
+      <button class="switch" role="switch" aria-checked="${!B.keep}" aria-label="Sell homes" data-action="condoSell"><i></i></button></div>` : ''}
+    ${left ? (() => { const mk = condoMarket(); return `<p class="help">Your resort draws enough skiers for about <b>${mk.homes}</b> homes; ${mk.sold} ${mk.sold === 1 ? 'is' : 'are'} sold. ${mk.k >= 1 ? 'Buyers are scarce now, and homes sell for less: more skiers bring more buyers.' : mk.k > 0.6 ? 'Buyers are getting scarcer.' : ''}</p>`; })() : ''}
+    ${left ? `<p class="help">${rooms != null ? `${open ? 'Tonight' : 'Last night'}: <b>${rooms}</b> of ${left} empty ${left === 1 ? 'home' : 'homes'} rented. ` : ''}An empty home rents for ${money(state.prices.room * CONDO_RENT)} a night (${CONDO_RENT}× the hotel room price) and sleeps ${CONDO_GUESTS}.</p>` : ''}
+    ${sold ? `<p class="help">Owners pay ${money(s.dues)} a day each in dues and ski here on weekends and holidays with their own passes. Owners are <b>${moodWord(o.mood).toLowerCase()}</b> (${Math.round(o.mood)} of 100)${o.mood < 50 ? ': they’re holding back dues, and new homes sell for less' : ''}. Their mood moves slowly with how their days on the mountain go.</p>` : ''}
+    <p class="help">${B.slope ? (T ? `Slopeside: owners ski out of the door onto <b>${esc(T.name)}</b> and ski home at the end of the day.` : '<b>No trail by the door any more</b>: owners have to walk to the lifts, and they don’t like it.') : 'At the base: owners walk out to the lifts.'}${sold ? ' Owners live here, so it can’t be moved or removed.' : ''}</p>`;
 }
 // The hotel card: last night, and what fills rooms.
 function hotelNote(B, open, y) {
@@ -14850,6 +15153,7 @@ function capOf(type, s) {
     case 'patrol': return `${s.crew} patrollers`;
     case 'restroom': return `${s.stalls} stalls`;
     case 'hotel': return `${s.rooms} rooms · up to ${s.rooms * ROOM_GUESTS} guests a night`;
+    case 'condo': return `${s.units} ${s.units === 1 ? 'home' : 'homes'} to sell · each sleeps ${CONDO_GUESTS} · about ${money(s.value)} a home`;
     case 'clinic': return `${s.beds} treatment beds`;
     case 'kids': return `${s.campers} children a day`;
     case 'hrest': return `${s.stalls} heated stalls`;
@@ -14926,8 +15230,8 @@ function bldDraftSheet() {
     const card = (k, tier) => {
       const t = BTYPES[k], sz = t.tiers ? t.tiers[tier] : null;
       const have = t.plop ? 0 : world.buildings.filter((B) => B.type === k && (!sz || (B.tier || 0) === tier)).length;
-      const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : '';
-      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? `${sz.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
+      const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : t.where === 'low' ? 'base or low slopes' : '';
+      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
     };
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
     const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
@@ -14940,9 +15244,9 @@ function bldDraftSheet() {
       <p class="help">${tab[0] === 'decor' ? 'Trees plant with each tap. Benches, picnic tables and ski racks let you adjust their position and angle before confirming.' : tab[0] === 'transport' ? 'Stations snap to the access road so buses can pull in.' : 'Most buildings go anywhere flat enough; some belong in the base area.'}</p>`;
   }
   if (draft.moving) return moveDraftSheet();
-  const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}` : t.name;
+  const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? tierName(t, s) : t.name;
   const help = draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
-    : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
+    : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door right by a trail, in the lower third of the mountain.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
   let body = '';
   if (info) {
     body = `${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
@@ -14960,6 +15264,7 @@ function bldDraftSheet() {
     ${rotationControls()}
     <div class="b-preview-result">
     ${body}
+    ${draft.btype === 'condo' && info && !info.problems.length ? condoPreview() : ''}
     ${plan ? PLAN_NOTE : ''}
     ${draft.btype === 'tree' && !plan ? '' : `<button class="btn wide" data-action="build" ${info && !info.problems.length && !short ? '' : 'disabled'}>${!info ? 'Place it on the map' : short ? `Need ${money(info.cost - state.cash)} more` : `${plan ? 'Plan it' : ['bench', 'picnic'].includes(draft.btype) ? 'Confirm placement' : 'Build'} · ${money(info.cost)}`}</button>${blueprintBtn(info, info && !info.problems.length)}`}
     </div><button class="link" data-action="pickB" data-v="">Choose a different building</button>`;
@@ -14967,7 +15272,7 @@ function bldDraftSheet() {
 // Moving a building: pick a new spot like placing a new one; it keeps its name, size and history.
 function moveDraftSheet() {
   const B = draft.moving, t = BTYPES[B.type], info = draft.info, turn = draft.turnOnly;
-  const help = turn ? 'Adjust the angle, then confirm. Its position stays the same.' : !draft.bpos ? `Click where ${esc(B.name)} should go.${BY_ROAD.includes(B.type) ? ' It snaps to the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : ''}` : 'Click somewhere else to try another spot, or rotate it.';
+  const help = turn ? 'Adjust the angle, then confirm. Its position stays the same.' : !draft.bpos ? `Click where ${esc(B.name)} should go.${BY_ROAD.includes(B.type) ? ' It snaps to the access road.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door by a trail, low on the mountain.' : ''}` : 'Click somewhere else to try another spot, or rotate it.';
   const short = info && info.cost > state.cash;
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span><h3>${turn ? 'Rotate' : 'Move'} ${esc(B.name)}</h3><button class="x" data-action="exitTool" aria-label="Cancel the move" title="Cancel (Esc)">✕</button></div>
     <p class="help">${turn ? 'Turning is free; only any extra tree clearing and ground leveling cost money.' : `It keeps its name, size and history. Moving costs ${money(moveFee(B))}, plus clearing trees and leveling the new site.`}</p>
@@ -15100,6 +15405,7 @@ function bldLive(B) {
     case 'school': return `<b>${B.used.lesson * AGENT}</b> in lessons · <b>${B.q.lesson.length * AGENT}</b> waiting`;
     case 'clinic': return `<b>${B.today.visits}</b> patients today · <b>${today ? today.patched : 0}</b> back on the snow`;
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
+    case 'condo': return `<b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.owner && !g.gone ? AGENT : 0), 0)}</b> owners and <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.owner && !g.gone ? AGENT : 0), 0)}</b> renters out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting at home`;
     case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting in their rooms`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
@@ -15108,7 +15414,7 @@ function bldLive(B) {
   }
 }
 // Prices in sections, each with what guests consider normal.
-const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine', 'drinks']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', ['scenic']], ['Night skiing', ['night']], ['Hotels', ['room']]];
+const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine', 'drinks']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', ['scenic']], ['Night skiing', ['night']], ['Hotels and condos', ['room']]];
 const groupedPrices = () => `<p class="help">Guests compare each price with what’s normal, shown beside it. Charge more and some will pass.</p>`
   + PRICE_GROUPS.map(([label, keys]) => `<h4 class="price-group">${label}</h4>${keys.map(priceStepper).join('')}`).join('');
 function priceStepper(key) {
@@ -15133,7 +15439,7 @@ function bldServiceBreakdown(B, data, open) {
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
   const mode = B.type === 'patrol' ? bldModeIn(patrolPlan() || blankPlan(), B) : bldMode(B);
-  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : B.type === 'hotel' ? 'Hotel guests today' : 'Served today';
+  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : B.type === 'hotel' ? 'Hotel guests today' : B.type === 'condo' ? 'Owners and renters today' : 'Served today';
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
   const staffing = B.type === 'patrol' ? `<div class="field-label">This hut’s manual staffing</div>
@@ -15143,7 +15449,7 @@ function bldSheet(B) {
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">${t.tiers ? s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
+    <p class="help">${t.tiers ? s.title || s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
     ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
     ${RACK_TYPES.includes(B.type) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
     <dl class="kv">
@@ -15156,6 +15462,7 @@ function bldSheet(B) {
     </dl>
     ${bldServiceBreakdown(B, open ? B.today : y, open)}
     ${B.type === 'hotel' ? hotelNote(B, open, y) : ''}
+    ${B.type === 'condo' ? condoNote(B, open, y) : ''}
     ${assetPlans('bld', B)}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
@@ -15163,8 +15470,8 @@ function bldSheet(B) {
     ${staffing}
     ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
-    ${state.phase !== 'closed' || visiting ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
-    ${state.phase !== 'closed' ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
+    ${state.phase !== 'closed' || visiting || B.sold ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
+    ${state.phase !== 'closed' || B.sold ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
 }
 
 /* ---------- Drawing people at buildings, patrollers and buses ---------- */
@@ -17076,9 +17383,9 @@ function whyToday(r) {
 function showReport(r = state.lastReport, past = false) {
   if (simulating || !r) return;
   rpPast = past;
-  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, lease: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, lodging: 0, ...r.rev };
+  const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, lease: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, lodging: 0, condo: 0, ...r.rev };
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.lease + ex.investor + ex.apres + ex.night;
-  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night + rv.lodging - rv.refunds;
+  const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night + rv.lodging + rv.condo - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
   const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
   // Notes are ranked so problems and money matters come first; routine ones fold away under More.
@@ -17114,6 +17421,13 @@ function showReport(r = state.lastReport, past = false) {
   if (r.bases && r.bases.stranded) note(4, `${r.bases.stranded} guests ended up at the wrong base with no way back to their car and waited a long time for a ride.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
   if (r.hotel && r.hotel.all) note(2, `Your hotels were ${Math.round(r.hotel.rooms / r.hotel.all * 100)}% full: ${r.hotel.rooms} of ${r.hotel.all} rooms. ${r.hotel.guests} hotel guests skied today without needing a parking space${r.hotel.naps ? `, and ${r.hotel.naps} went back to their rooms for a rest, then out again` : ''}.`);
+  if (r.condo) {
+    const c = r.condo, m = c.mood;
+    if (c.sold) note(3, `You sold ${c.sold === 1 ? 'a condo home' : `${c.sold} condo homes`} for ${money(c.sales)}. The sale money is in your cash, not in today’s profit.`);
+    if (c.owners || c.renters) note(1, `${c.owners ? `${c.owners} condo owners` : ''}${c.owners && c.renters ? ' and ' : ''}${c.renters ? `${c.renters} renters (${c.rented} of ${c.empty} empty homes)` : ''} skied from their own front doors today${c.skiHome ? `; ${c.skiHome} skied right back to them` : ''}.`);
+    if (m && m.mood < 50) note(m.mood < 35 ? 4 : 3, `Condo owners are ${moodWord(m.mood).toLowerCase()} (${m.mood} of 100${m.mood < m.was ? `, down from ${m.was}` : ''}). They’re holding back dues and new homes sell for less. Their mood recovers slowly with good days on the mountain.`);
+    else if (m && m.day != null && m.day < 45) note(2, `Condo owners had a rough day, and their mood slipped to ${m.mood} of 100. A few bad days won’t matter much, but a run of them will.`);
+  }
   if (r.offsite && r.offsite.cars) note(r.offsite.wait > SHUTTLE_PATIENCE ? 3 : 1, `${r.offsite.cars} cars parked off-site and rode the parking shuttle${r.offsite.wait ? `, waiting ${Math.round(r.offsite.wait)} minutes on average` : ''}.${r.offsite.wait > SHUTTLE_PATIENCE ? ' Run shuttles more often, or add a station, to cut the wait.' : ''}`);
   if (r.offsite && r.offsite.full) note(3, `Off-site parking filled up too: ${r.offsite.full} guests were turned away. Upgrade it under Parking.`);
   if (r.complaints.shuttle && !(r.offsite && r.offsite.wait > SHUTTLE_PATIENCE)) note(2, `${r.complaints.shuttle} guests waited a long time for a parking shuttle.`);
@@ -17166,7 +17480,7 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
-      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Hotel rooms', rv.lodging)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
+      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Hotel rooms', rv.lodging)}${line('Condo dues and rentals', rv.condo)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
@@ -17665,7 +17979,7 @@ function bldsList() {
     const liveTxt = live ? bldLive(B).split('<br>')[0] : '';
     return `<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
-      <div class="l2"><span>${t.tiers ? s.label + ' ' + t.name.replace('Ski ', '').toLowerCase() : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : 'served'}${['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'].includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
+      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'}${['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'].includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
       <div class="l3"><span>${B.type === 'patrol' ? 'Hut and patrol pay' : 'Upkeep'} ${money(s.upkeep)}/day</span>${next ? `<span class="pill on">Upgrade available</span>` : ''}</div>
     </li>`;
   }).join('');
@@ -17983,7 +18297,7 @@ function opsReportHtml(r) {
   }
   for (const B of o.blds) {
     if (many[B.type]) continue;
-    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} ${B.type === 'hotel' ? 'hotel guests' : 'served'} · ${signedMoney(B.profit)}`;
+    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} ${B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'} · ${signedMoney(B.profit)}`;
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
   rows.push(`<span>Parking <em>${o.lots.open} of ${o.lots.total} open</em></span><span>peak ${o.lots.peak} of ${o.lots.open * SPACES_PER_SECTION}</span>`);
@@ -19854,6 +20168,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.80', date: 'Nov 2, 2026', title: 'Condos and slopeside homes', items: ['Thanks for voting! Condos are here, one of the most requested ideas on the roadmap. Find them under Buildings › Lodging: a ski chalet, a duplex or a row of five townhomes, in all three themes.', 'Build them at the base, or slopeside right beside a trail in the lower third of the mountain. Owners ski out of their front door in the morning, ride up at the end of the day and ski back home to it.', 'Homes sell to buyers over a few weeks for cash up front, more with ski-in, ski-out. Owners then pay dues every day and come to ski on weekends and holidays.', 'Until a home sells, it’s rented by the night. Turn off Sell homes on a condo’s card to keep it as a rental.', 'Owners care how the resort is run. A few bad days barely matter, but a bad month makes them hold back dues, lowers the price of new homes and costs you reputation.', 'The more skiers your resort draws, the more buyers there are.'] },
   { v: '2.79', date: 'Nov 2, 2026', title: 'A fresh Community card', items: ['The Community card on the title screen has a new look: your place on your mountain’s board in big numbers, the top three, and your own resort underneath when you’re further down.', 'The game now starts faster and uses less data: the full leaderboard only downloads when you open it.'] },
   { v: '2.78.2', date: 'Nov 2, 2026', title: 'Less waiting on the server', small: true, items: ['The game now downloads much less from our server: the leaderboards no longer reload after every online save, and checking for new likes on your resort only asks about your resort, not every resort.', 'Leaderboards still refresh when you open them. Nothing changes in how you play.'] },
   { v: '2.78.1', date: 'Nov 2, 2026', title: 'Lighter online saves', small: true, items: ['Your resort now saves online every couple of minutes instead of every 30 seconds, and quick days are grouped into one upload. This keeps our server fast as more of you play.', 'Your game still saves on your device after every day, and online straight away when you leave or go back to the title screen, so nothing is lost.'] },

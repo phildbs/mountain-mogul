@@ -17,12 +17,12 @@ export default async function ({ browser, url }) {
     }
     return rows;
   })()`);
-  eq(checks.length, 22, 'all requested model variants');
+  eq(checks.length, 25, 'all requested model variants');
   eq(checks.filter((c) => c.type === 'patrol').map((c) => c.tier), [0], 'one patrol building honors the theme contracts');
   assert(checks.every((c) => c.seats && (c.type === 'shuttle' ? !c.glow : c.glow)), 'exact seat contracts and shared glow');
   const before = await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`);
   const all = await g.ev('previewStyles()');
-  eq(all.length, 44, 'all classic/modern pairs');
+  eq(all.length, 50, 'all classic/modern pairs');
   eq(await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`), before, 'preview does not place or charge buildings');
   for (const { type, tier } of checks) {
     await g.ev(`previewStyles({ types: ['${type}'], tier: ${tier} })`);

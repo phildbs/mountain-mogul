@@ -153,6 +153,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-eed89df2-xzu1jk` | Claude | Condos 2.80 (chalet/duplex/townhomes, base or slopeside, sell or rent, owner mood). Preview sent; waiting for Phil. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -432,6 +433,38 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   Scenario 46 now checks both crowds and the waders, and fails on main.
 - **Not changed, worth knowing:** event figures are drawn after every guest inside `MAX_G` (5,000). A resort with over 5,000 guests
   out at once would lose the crowd and skimmers first. Big test resorts never got near it (Juniper's lot), so it's unmeasured.
+
+### 2026-11-02 · Claude · Condos (2.80, in preview)
+- **Phil's decisions:** sell *and* rent; owner mood has real consequences but builds slowly; slopeside from the start, but only low on
+  the mountain; all nine models at once. Three sizes: Ski chalet (1 home), Duplex (2), Row of townhomes (5).
+- **Type:** `BTYPES.condo` (`where: 'low'`, tiers with `units`, `value` per home, `dues` a day per sold home, `title` for the menu name via
+  `tierName`). $220k/$360k/$800k. Models `modelCondo`, `modelCondoModern`, `modelCondoScandinavian` (helpers `classicHome`, `modernHome`,
+  `scandiHome`, `woodpile`); test 139 checks footprints. Build tab `stay` is now "Lodging" (hotel + condo).
+- **Placement:** `condoSpotProblem(door)`: base / base guest area, or `heightFrac(door) <= CONDO_LOW` (1/3) with a trail within
+  `trailHW + CONDO_REACH` (5) of the door. Levelling a very low pad can drop the door into the base band, so a "slopeside" pick can
+  come out as a base condo (owners then walk, like hotels); harmless.
+- **Network:** `condoHomes()` (end of `computeNetwork`): `C.slope`, `C.home = {tid, at}` (nearest trail sample, also pushed to
+  `T.homes`), `C.homeTrails` (trails that reach that sample: joins above it, branches onto it) and `C.homeLifts` (lifts without a hubTop
+  whose departing trails are in the set).
+- **Guests:** owners and renters are hotel-style guests (`g.hotel = condo id`); owners also `g.owner` (pass, own gear, no ticket). Slopeside:
+  `skiOut` glides onto the home trail in the morning (falls back to `arrivalFlow`); going home `toHotel` → `toCondo` queues for the nearest
+  home lift, then `homeBound(g)` makes `topDecision` and branch choices in `updateSki` follow `homeTrails`, and `skiHome` (called in
+  `updateSki` before stops) sends them to the door at `T.homes`. Tired guests passing their door go in for a rest (`goNap`). `hotelWake`
+  skis slopeside guests back out. Walk fallback after 3 tries or close. Busy Saturday probe: 48 owners, 51 ski-ins (incl. rests), 3 walks.
+- **Money:** `condoMorning(room, short)` in `openDay` after `bookHotels`: sales (`CONDO_SELL` 7%/day per listed home × mood × reputation ×
+  ski-in × market), dues (`today.rev.condo`, held back below mood 50), owner visits (weekend/holiday/powder × mood) pushed to
+  `today.hotelOut` with `owner: true`. `bookHotels` also rents unsold homes (`CONDO_RENT` 2.5× room price, `CONDO_GUESTS` 4, inside the
+  `HOTEL_MARKET` cap). Sales go to cash only, **not** into the day's revenue/profit (leaderboards unchanged); dues and rentals are
+  `rev.condo`, report line "Condo dues and rentals". `condoMarket()`: about one home per 20 average recent guests; past that, sales slow
+  to 3% and prices drop up to 30% (stops slopeside townhomes being an endless money printer: each nets ~$700k otherwise).
+- **Mood:** `state.owners = { mood }` (default 70, saved in `clock`). `condoEvening` in `endDay`: mood += (owners' average sat − mood) × 0.06,
+  only on days owners went home. Below 40: reputation −up to 0.004/day; ≥80: +0.001. Price × (0.7 + 0.5 × mood/100). Toast on falling
+  under 50. Measured in test 139: 3 bad days 70 → ~60s; a bad month → under 40.
+- **Saves:** buildings carry `sold`, `sales`, `keep` (not for sale); all optional. A sold condo can't be moved or removed (card hides it).
+  **Rollback warning:** versions before 2.80 don't know `condo` buildings; tell Phil before rolling back past 2.80.
+- Tests: new 139-condos; 82-building-styles counts 22/44 → 25/50; 76-roadmap-new expects Condos `ongoing`.
+- Ideas not done: condos on bought land parcels as a "village" bonus, owners eating dinner/après at home, a resale market when owners
+  sell up, mid-mountain condos (need a lift down at night).
 
 ### 2026-10-31 · Claude · Hotels (shipped in 2.69)
 - **Phil's decisions:** rooms fill night by night (no guests kept overnight), three fixed sizes, base only, all nine models now,
