@@ -20986,9 +20986,19 @@ function mcShow() {
   $('visitChat').textContent = unread ? `Chat · ${unread}` : 'Chat';
   if (!mcOpen()) return;
   const list = $('mcList'), atEnd = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30, focused = document.activeElement && document.activeElement.id === 'mcText';
-  renderSheet();
+  if (focused) mcPatch(); else renderSheet();
   if ($('mcText')) { $('mcText').value = MC.draft; if (focused) $('mcText').focus(); }
   if ($('mcList') && atEnd) $('mcList').scrollTop = $('mcList').scrollHeight;
+}
+// While you type, only the messages (and any error) are redrawn: redrawing the whole card would take the cursor out
+// of the box, so a message sent with Enter, or one arriving, would only show once you clicked away.
+function mcPatch() {
+  const tmp = document.createElement('div'); tmp.innerHTML = matchChatSheet();
+  const list = tmp.querySelector('#mcList');
+  if (!list || !$('mcList') || !$('mcForm')) return renderSheet();
+  $('mcList').replaceWith(list);
+  for (const e of sheet.querySelectorAll('.mc-err')) e.remove();
+  const err = tmp.querySelector('.mc-err'); if (err) $('mcForm').after(err);
 }
 const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 function matchChatSheet() {
@@ -21069,7 +21079,9 @@ async function startReplay(manual) {
   const n = k >= 0 ? res.share[k] || 0 : 0;
   if (!n) { matchView.nothing = l.day; if (manual) toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
   if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
-  select(null); if (state.tool !== 'explore') setTool('explore');
+  // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
+  if (!mcOpen()) select(null);
+  if (state.tool !== 'explore') setTool('explore');
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n; passBuyers = () => 0;
@@ -21301,6 +21313,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.83.6', date: 'Nov 2, 2026', title: 'Match chat typing fix', small: true, items: ['Fixed: in King of the Mountain, the match chat could close by itself while you typed when the live day started, so your next letters worked as game shortcuts. The chat now stays open, and a message sent with Enter shows straight away.'] },
   { v: '2.83.5', date: 'Nov 2, 2026', title: 'Parking any time in matches', small: true, items: ['King of the Mountain: you can add parking whenever you’re on, not just at night. The live day pauses while you do, and the new section opens the next morning like everything else.'] },
   { v: '2.83.4', date: 'Nov 2, 2026', title: 'Match cash fix', small: true, items: ['Fixed: in King of the Mountain, coming back into a match could show your cash below zero, adding up changes that cost more than you had. The server only ever built what you could pay for; now your screen shows the same, with a message about any change it will skip.'] },
   { v: '2.83.3', date: 'Nov 2, 2026', title: 'Clearing trees in matches', small: true, items: ['King of the Mountain: the landscape tool is back in matches. Clear trees with the brush or bulldoze them one at a time; they go overnight, like everything else. Painting areas, levelling and replanting are coming next.'] },

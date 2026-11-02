@@ -46,6 +46,11 @@ export default async function ({ browser, url }) {
   await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const x of d.match.messages) x.created_at = new Date(Date.now() - 60000).toISOString(); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
   t = await say('you are shit');
   assert(/Please keep it friendly/.test(t), 'rude messages are refused');
+  // Sent with Enter, a message shows straight away with the cursor still in the box, and letters there aren't shortcuts.
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const x of d.match.messages) x.created_at = new Date(Date.now() - 60000).toISOString(); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.page.click('#mcText'); await g.page.keyboard.type('see you 3 wasd'); await g.page.keyboard.press('Enter'); await g.wait(600);
+  assert(/see you 3 wasd/.test(await g.page.innerText('#mcList')), 'a message sent with Enter shows straight away');
+  eq(await g.ev(`[document.activeElement.id, document.getElementById('mcText').value, state.tool, selected && selected.kind]`), ['mcText', '', 'explore', 'mchat'], 'and you can keep typing');
 
   // React, take it back, mute, report.
   await g.page.click('[data-mc=menu][data-id="2"]'); await g.page.click('[data-mc=react][data-id="2"][data-e="🔥"]'); await g.wait(400);
