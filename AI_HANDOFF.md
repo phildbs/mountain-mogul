@@ -393,6 +393,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   joined single letters, words of 5+ letters also inside others). Finished matches keep chat, closed to new posts.
   Six reaction emoji, reports, private mutes, admin_chat_reports / hide / ban. match_join now filters resort names.
   Server posts news (start, builds, ticket changes, powder days, final standings). 31 checks in tests/sql/match-chat.sql.
+- Name (Phil, Nov 2): multiplayer is called **King of the Mountain** (title card and window).
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
