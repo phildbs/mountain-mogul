@@ -59,6 +59,9 @@ export const pageOrders = (orders) => `(() => {
           if (i.an.problems.length) throw new Error(i.an.problems[0]); pay(i); commitTrail(i, pts, p.width || 'medium');
         } else if (p.what === 'building') {
           const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building'); pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0);
+        } else if (p.what === 'lot') {
+          const n = state.lotSections; if (state.cash < LOT_EXPAND_COST) throw new Error('not enough cash');
+          growLot(p.row ?? null, p.lot || 0); if (state.lotSections === n) throw new Error('the parking lot can’t grow there');
         } else throw new Error('unknown build');
         computeNetwork();
       } else throw new Error('not supported yet');

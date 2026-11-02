@@ -31,13 +31,15 @@ try {
     order('build', { what: 'trail', width: 'wide', pts: [{ x: 15, z: -8 }, { x: 22, z: 15 }, { x: 24, z: 40 }, { x: 22, z: 58 }] }),
     order('build', { what: 'building', type: 'lodge', x: 4, z: 60, rot: 0 }),
     order('build', { what: 'lift', type: 'double', a: { x: 0, z: 0 }, b: { x: 0, z: 1 } }),
+    order('build', { what: 'lot', row: null, lot: 0 }),
     order('remove', { what: 'lift', id: 1 })]);
   await tick(db, game, T0 + H + 60000);
   const O = db.tables.match_orders;
   ok(L().day === 1, 'day 1 plays one day length after the start');
   ok(O.every((o) => o.applied_day === 1), 'every order is handled overnight');
   ok(O.slice(0, 4).every((o) => !o.error), `prices, a lift, a trail and a lodge are built (${O.slice(0, 4).map((o) => o.error).join(' | ')})`);
-  ok(O[4].error && O[5].error === 'not supported yet', `bad orders come back with a reason (${O[4].error}; ${O[5].error})`);
+  ok(!O[5].error && R(1).save.clock.lotSections === 2, `a parking lot section is built (${O[5].error})`);
+  ok(O[4].error && O[6].error === 'not supported yet', `bad orders come back with a reason (${O[4].error}; ${O[6].error})`);
   ok(R(1).summary.lifts === 1 && R(1).summary.trails === 1 && R(1).summary.ticket === 55 && R(1).summary.pass === 349, 'the player\'s resort has what they ordered');
   ok(R(1).summary.guests > 0 && R(0).summary.guests > 0, `everyone had guests on day 1 (${[0, 1, 2].map((s) => R(s).summary.guests)})`);
   const d1 = db.tables.match_days.find((d) => d.day === 1);

@@ -136,7 +136,7 @@
       return { data: q.single ? data[0] || null : data, error: null };
     };
     const b = {
-      select(c) { q.cols = c; return b; }, eq(c, v) { q.filters.push([c, v]); return b; }, in(c, v) { q.ins.push([c, v]); return b; }, order() { return b; }, limit() { return b; },
+      select(c) { q.cols = c; return b; }, eq(c, v) { q.filters.push([c, v]); return b; }, in(c, v) { q.ins.push([c, v]); return b; }, is(c, v) { q.filters.push([c, v]); return b; }, order() { return b; }, limit() { return b; },
       maybeSingle() { q.single = true; return b; }, upsert(o) { q.op = 'upsert'; q.obj = o; return b; }, delete() { q.op = 'delete'; return b; },
       insert(o) { q.op = 'insert'; q.obj = o; return b; },
       then(res, rej) { return Promise.resolve(run()).then(res, rej); },

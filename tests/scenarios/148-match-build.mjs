@@ -59,9 +59,25 @@ export default async function ({ browser, url }) {
   eq(keysAfter, keysBefore, 'nothing is saved on the device');
   eq(g.errors, [], 'no page errors');
 
-  // Back to the title, and a spectator stays read only.
+  // Parking: a new lot section is an order too.
+  const lot0 = await g.ev('state.lotSections');
+  await g.ev(`state.cash = 5e6; growLot(null, 0)`); await g.wait(400);
+  eq(await g.ev('state.lotSections'), lot0 + 1, 'the lot grows on your screen');
+  o = await orders();
+  eq(o.filter((x) => x.what === 'lot').length, 1, 'and goes to the server');
+  const sentBefore = o.length;
+
+  // Back to the title and in again: what's still waiting for tonight is back on your screen, and not sent twice.
   await g.click('#visitHome'); await g.reloaded();
   eq(await g.ev('!!matchPlay'), false, 'leaving ends the match');
+  await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=M1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=M1]');
+  await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!(matchPlay && matchView) && world.lifts.length === 2'), null, { timeout: 20000 });
+  const back = await g.ev(`({ lifts: world.lifts.length, lots: state.lotSections, ticket: state.ticket, bar: document.getElementById('visitText').innerText })`);
+  eq([back.lifts, back.lots, back.ticket], [2, lot0 + 1, 49], 'your queued lift, parking and price are still there');
+  assert(/2 changes open/.test(back.bar), `the bar still counts them (${back.bar})`);
+  await g.wait(800);
+  eq((await orders()).length, sentBefore, 'nothing was sent twice');
+  await g.click('#visitHome'); await g.reloaded();
   await g.ev(`__fakeSwitch('user-C', 'c@example.com')`); await g.wait(1200);
   await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=M1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=M1]');
   await g.reloaded();

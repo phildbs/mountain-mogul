@@ -745,7 +745,7 @@ body.visiting .badge { cursor: default; }
 .mc-form .btn { width: auto; padding: 8px 14px; }
 .mc-err { margin: 0; color: var(--steep); font-size: 13px; }
 body.matchview .tb-speed, body.matchview #tbGo, body.matchview .tb-wait { display: none; }
-body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=parking], body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
+body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
 /* Buy me a coffee: slimmer than the cards above it, in the coffee site's yellow. */
@@ -6225,7 +6225,7 @@ function evalTrail(pts, width, allowPlans, grade, ws) {
   return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth, approach, bridges, bridgeCost, lotWarn: reserveHitsTrail(samples, hw) };
 }
 function commitTrail(info, pts, width) {
-  if (matchPlay) matchOrder('build', { what: 'trail', width, pts: pts.map((p) => ({ x: p.x, z: p.z })) });
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'trail', width, pts: pts.map((p) => ({ x: p.x, z: p.z })) });
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
@@ -6439,7 +6439,7 @@ function evalLift(a0, b0, type, allowPlans, self) {
   return { a, b, lay, problems, treeSet, build, cost, stats, fromBase: isBase(a) || !!hubAt(a)?.basePoint, lotWarn: reserveHitsLift(a, b) };
 }
 function commitLift(info, type) {
-  if (matchPlay) matchOrder('build', { what: 'lift', type, a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z } });
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'lift', type, a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z } });
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const made = {
@@ -6658,7 +6658,7 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0, tu
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot, style) {
-  if (matchPlay) matchOrder('build', { what: 'building', type, x, z, rot });
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'building', type, x, z, rot });
   clearTreeSet(info.treeSet);
   const tier = info.tier || 0;
   state.cash -= info.cost;
@@ -7652,7 +7652,7 @@ sheet.addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read)
-  if (matchPlay && !MATCH_ACTIONS.includes(a) && a) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails and buildings, and set prices.', true); return; }
+  if (matchPlay && !MATCH_ACTIONS.includes(a) && a) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails, buildings and parking, and set prices.', true); return; }
   if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
@@ -8653,6 +8653,7 @@ function growLot(row, lot = 0) {
   if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
   state.lotLayout.push(lot ? [n.row, n.col, lot] : [n.row, n.col]);
   state.cash -= LOT_EXPAND_COST; state.lotSections++;
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'lot', row, lot });
   gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
   buildLot(); updateCash(true);
   toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
@@ -20781,6 +20782,7 @@ async function openMatch(lid) {
   drawRivals();
   matchBar(); watchButton(); document.body.classList.add('matchview');
   $('visitReports').hidden = false;
+  await matchApplyPending();
   startReplay();
   matchView.timer = setInterval(matchTick, 20000);
 }
@@ -20864,6 +20866,7 @@ async function matchTick() {
   if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   if (matchPlay) {
     matchView.pending = 0; matchView.sent = matchPrices();
+    await matchApplyPending();
     if (data.status !== 'running') { matchPlay = null; document.body.classList.remove('matchplay'); visiting = { id: `match:${data.id}`, match: data.id, name: $('resortName').textContent, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
     // Anything the server couldn't build, and why.
     const { data: bad } = await CLOUD.sb.from('match_orders').select('kind,payload,error').eq('lobby_id', data.id).eq('applied_day', data.day).then((r) => r, () => ({}));
@@ -20873,9 +20876,37 @@ async function matchTick() {
   drawRivals(); matchBar();
   toast(`Day ${data.day} is done. Tap Standings for the table.`);
 }
+// Your changes still waiting for the next overnight: the server's copy of your resort doesn't have them yet, so
+// they're put back on your screen whenever it's loaded (coming back to the match, after watching a day, after a
+// new day), without being sent again.
+async function matchApplyPending() {
+  if (!matchPlay || !matchView || !CLOUD.sb) return;
+  const { data } = await CLOUD.sb.from('match_orders').select('id,kind,payload').eq('lobby_id', matchPlay.lobby).eq('slot', matchPlay.slot).is('applied_day', null).order('id', { ascending: true }).then((r) => r, () => ({}));
+  const list = data || [];
+  if (!matchView) return;
+  matchView.quiet = true;
+  try {
+    for (const o of list) {
+      try {
+        const p = o.payload || {};
+        if (o.kind === 'price') {
+          if (p.ticket != null) state.ticket = p.ticket;
+          if (p.ticketPeak !== undefined) state.ticketPeak = p.ticketPeak;
+          if (p.pass != null) state.passPrice = p.pass;
+          if (p.prices) Object.assign(state.prices, p.prices);
+        } else if (p.what === 'lift') { const i = evalLift(p.a, p.b, p.type); if (!i.problems.length) commitLift(i, p.type); }
+        else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length) commitTrail(i, pts, p.width || 'medium'); }
+        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
+        else if (p.what === 'lot') growLot(p.row ?? null, p.lot || 0);
+      } catch (e) { /* one that no longer fits is skipped here; the server says why overnight */ }
+    }
+  } finally { matchView.quiet = false; }
+  if (list.length) { computeNetwork(); clearUndo(); renderSheet(); }
+  matchView.pending = list.filter((o) => o.kind === 'build').length; matchView.sent = matchPrices(); matchBar();
+}
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
-  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport'];
+  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot'];
 const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
 function matchOrder(kind, payload) {
   if (!matchPlay || !CLOUD.sb) return;
@@ -21052,6 +21083,7 @@ function stopReplay(done) {
   const mine = matchView.resorts.find((r) => r.slot === matchView.slot);
   if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   watchButton(); matchBar();
+  matchApplyPending();
   if (!done) return;
   const r = state.lastReport;
   if (r && r.day != null) showReport(r, true); // the server's own report of the day: the official one
@@ -21256,6 +21288,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.83.2', date: 'Nov 2, 2026', title: 'Parking in matches', small: true, items: ['King of the Mountain: you can now grow your parking lot in a match. It’s built overnight, like everything else.', 'Fixed: going back into a match showed your resort without the things you’d built since the last day, so it looked as if they were lost. They were always kept; now they show straight away.'] },
   { v: '2.83.1', date: 'Nov 2, 2026', title: 'Rival skiers', items: ['King of the Mountain: while your day plays, you can see skiers riding your rivals’ lifts and skiing their trails, as many as came to each resort that day.'] },
   { v: '2.83', date: 'Nov 2, 2026', title: 'King of the Mountain (beta)', items: [
     'Our first multiplayer mode, now in beta: King of the Mountain. Tap its card on the title screen.',
