@@ -362,6 +362,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   stand-alone demand + 0.4 × the rest, shared by demand^1.5), injected by swapping `demandForDay` around `openDay`.
   No `index.html` changes. 4 players × 21 days at $45/65/85/105: $65 won (+$77K), $45 was capped at ~250 guests a
   day by the starter's size (+$65K), $105 lost $107K. Whole match day for 4 small resorts: 0.3–1.2 s.
+- Runner now plays Crown Peak (`?matchMap=1`, 3 players) from opening day. Season pass buyers are split like day
+  skiers (`passBuyers` swapped around `openDay` too), and a resort that turned skiers away is offered only what it
+  held next day (spill goes to rivals), probing +15% a day after. 21 days at $45/65/85, all $399 passes: $65 won
+  (+$54K), $45 +$17K (340 turned away), $85 -$1K. With passes $299/399/499 the $299 pass sold $102K vs $33K at $499.
+  Starter resorts roughly break even on ordinary days, so short tests are decided by pass money; a full-season
+  match spreads it out.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
