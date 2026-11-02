@@ -718,6 +718,23 @@ body.visiting .badge { cursor: default; }
 .mp-sign .help { flex: 1; }
 .mp-sign .btn { width: auto; flex: none; padding: 8px 14px; }
 .pill.done { background: rgba(20, 36, 58, 0.07); color: var(--ink-2); }
+.mc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.mc-msg { padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); min-width: 0; }
+.mc-msg.mine { background: var(--accent-soft); border-color: transparent; }
+.mc-msg.news { background: rgba(20, 36, 58, 0.05); border-style: dashed; }
+.mc-msg p { margin: 2px 0 0; font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.mc-head { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; min-width: 0; }
+.mc-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-head span { color: var(--ink-2); font-size: 11.5px; flex: none; }
+.mc-more { margin-left: auto; border: 0; background: none; padding: 0 4px; font: 700 14px var(--ui); color: var(--ink-2); cursor: pointer; line-height: 1; }
+.mc-reacts, .mc-pick { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
+.mc-reacts button, .mc-pick button:not(.link) { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 2px 8px; font: 600 12px var(--ui); cursor: pointer; }
+.mc-reacts button.on { border-color: var(--ink); }
+.mc-pick .link { font-size: 12px; margin-left: 4px; }
+.mc-form { display: flex; gap: 8px; }
+.mc-form input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 14px var(--ui); color: var(--ink); background: #fff; }
+.mc-form .btn { width: auto; padding: 8px 14px; }
+.mc-err { margin: 0; color: var(--steep); font-size: 13px; }
 body.matchplay #tClear, body.matchplay #tUndo, body.matchplay .tb-wait, body.matchplay #tbGo, body.matchplay .manage [data-m=parking], body.matchplay .manage [data-m=plans], body.matchplay .tips-btn { display: none; }
 .fbcard, .tutcard, .wncard { border: 0; cursor: pointer; text-align: left; font: inherit; }
 .wncard .gc-ico { background: var(--blue); }
@@ -1500,6 +1517,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <span id="visitText"></span>
       <button class="btn secondary" id="visitLike" hidden>♡ Like</button>
       <button class="btn secondary" id="visitLeague" hidden>Standings</button>
+      <button class="btn secondary" id="visitChat" hidden>Chat</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
 
@@ -7000,7 +7018,7 @@ function select(feat) {
   if (feat && feat.kind === 'resort') feat = { kind: 'manage', obj: RESORT_TAB_PANEL[resortTab] || 'prices' };
   if (feat && feat.kind === 'weather') feat = { kind: 'manage', obj: 'snow' };
   if (feat && feat.kind === 'manage' && visiting && !VISIT_MANAGE.includes(feat.obj)) feat = { kind: 'manage', obj: 'money' };
-  if (visiting && feat && feat.kind !== 'manage' && feat.kind !== 'match') return; // visits are read only: the lists, snow and finances (and a match's standings)
+  if (visiting && feat && feat.kind !== 'manage' && feat.kind !== 'match' && feat.kind !== 'mchat') return; // visits are read only: the lists, snow and finances (and a match's standings)
   if (feat && feat.kind === 'manage') lastManage = feat.obj;
   listBack = null;
   const prev = selected;
@@ -7047,7 +7065,7 @@ function renderSheet() {
   else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'midstn') html = midToolSheet();
-  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet })[selected.kind](selected.obj);
+  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
   syncBizFly();
@@ -7620,7 +7638,7 @@ sheet.addEventListener('click', (e) => {
   if (!b || b.disabled) return;
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort'].includes(a)) return; // visits are read only
-  if (matchPlay && !MATCH_ACTIONS.includes(a)) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails and buildings, and set prices.', true); return; }
+  if (matchPlay && !MATCH_ACTIONS.includes(a) && a) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails and buildings, and set prices.', true); return; }
   if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
@@ -20069,7 +20087,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
-  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; }
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; mcStop(); }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -20720,8 +20738,9 @@ async function openMatch(lid) {
   state.resortName = name; clearUndo();
   matchView.sent = matchPrices();
   $('resortName').textContent = name;
-  $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false;
+  $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false; $('visitChat').hidden = false;
   $('visitHome').textContent = 'Back to title';
+  mcStart(lid);
   if (!state.started) startGame(null);
   afterLoad();
   drawRivals();
@@ -20832,6 +20851,107 @@ function leaveMatch() {
   if (matchView) clearInterval(matchView.timer);
   setTimeout(() => reloadInto('title'), 400); // a moment for the last change to reach the server
 }
+/* ---------- Multiplayer: the match chat ----------
+   One board per match (supabase/match-chat.sql): players write as their resort, signed-in spectators as their
+   public profile name. The match server's news is in the same feed. New messages arrive live (Supabase's live
+   updates), with a check every 20 seconds as a backup; mutes are private and hide that person's messages. */
+const MC_EMOJI = ['👍', '😂', '🔥', '😮', '❄️', '🏆'];
+const MC = { lid: null, msgs: [], reacts: [], mutes: new Set(), seen: 0, draft: '', err: '', busy: false, chan: null, menu: null };
+async function mcLoad() {
+  if (!MC.lid || !CLOUD.sb) return;
+  const { data, error } = await CLOUD.sb.from('match_messages').select('*').eq('lobby_id', MC.lid).order('id', { ascending: false }).limit(80).then((r) => r, (e) => ({ error: e }));
+  if (error) return; // the chat isn't set up in this database yet: nothing to show
+  MC.msgs = (data || []).sort((a, b) => a.id - b.id);
+  const ids = MC.msgs.map((m) => m.id);
+  const [r, mu] = await Promise.all([ids.length ? CLOUD.sb.from('match_reactions').select('message_id,user_id,emoji').in('message_id', ids).then((x) => x, () => ({})) : { data: [] },
+    !CLOUD.guest && CLOUD.uid ? CLOUD.sb.from('match_mutes').select('muted').then((x) => x, () => ({})) : { data: [] }]);
+  MC.reacts = r.data || []; MC.mutes = new Set((mu.data || []).map((x) => x.muted));
+  mcShow();
+}
+function mcStart(lid) {
+  mcStop();
+  MC.lid = lid; MC.msgs = []; MC.seen = 0; MC.err = ''; MC.menu = null;
+  mcLoad().then(() => { MC.seen = MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0; mcShow(); });
+  // Live: a new message for this match arrives within a second or two.
+  if (CLOUD.sb && CLOUD.sb.channel) {
+    try {
+      MC.chan = CLOUD.sb.channel(`match-chat-${lid}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'match_messages', filter: `lobby_id=eq.${lid}` }, (p) => {
+        const m = p && p.new; if (!m || m.hidden || MC.msgs.some((x) => x.id === m.id)) return;
+        MC.msgs.push(m); mcShow();
+      }).subscribe();
+    } catch (e) { MC.chan = null; }
+  }
+  clearInterval(MC.timer); MC.timer = setInterval(mcLoad, 20000);
+}
+function mcStop() {
+  clearInterval(MC.timer);
+  if (MC.chan && CLOUD.sb && CLOUD.sb.removeChannel) CLOUD.sb.removeChannel(MC.chan);
+  MC.chan = null; MC.lid = null;
+}
+const mcOpen = () => !!(selected && selected.kind === 'mchat');
+function mcShow() {
+  const last = MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0;
+  if (mcOpen()) MC.seen = last;
+  const unread = MC.msgs.filter((m) => m.id > MC.seen && m.user_id !== CLOUD.uid && !MC.mutes.has(m.user_id)).length;
+  $('visitChat').textContent = unread ? `Chat · ${unread}` : 'Chat';
+  if (!mcOpen()) return;
+  const list = $('mcList'), atEnd = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30, focused = document.activeElement && document.activeElement.id === 'mcText';
+  renderSheet();
+  if ($('mcText')) { $('mcText').value = MC.draft; if (focused) $('mcText').focus(); }
+  if ($('mcList') && atEnd) $('mcList').scrollTop = $('mcList').scrollHeight;
+}
+const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+function matchChatSheet() {
+  const l = matchView ? matchView.lobby : null, guest = CLOUD.guest || !CLOUD.uid, canSay = !guest && l && ['open', 'running'].includes(l.status);
+  let hidden = 0;
+  const rows = MC.msgs.map((m) => {
+    if (m.user_id && MC.mutes.has(m.user_id)) { hidden++; return ''; }
+    const rs = MC.reacts.filter((r) => r.message_id === m.id), counts = MC_EMOJI.map((e) => [e, rs.filter((r) => r.emoji === e).length, rs.some((r) => r.emoji === e && r.user_id === CLOUD.uid)]).filter(([, n]) => n);
+    const mine = m.user_id && m.user_id === CLOUD.uid, menu = MC.menu === m.id;
+    const tools = m.kind === 'news' || guest || !canSay ? '' : `<button class="mc-more" type="button" data-mc="menu" data-id="${m.id}" aria-label="More">···</button>`;
+    const pick = menu ? `<div class="mc-pick">${MC_EMOJI.map((e) => `<button type="button" data-mc="react" data-id="${m.id}" data-e="${e}">${e}</button>`).join('')}${mine ? '' : `<button class="link" type="button" data-mc="mute" data-u="${m.user_id}">Mute ${esc(m.name)}</button><button class="link" type="button" data-mc="report" data-id="${m.id}">Report</button>`}</div>` : '';
+    return `<li class="mc-msg${m.kind === 'news' ? ' news' : ''}${mine ? ' mine' : ''}"><div class="mc-head"><b>${esc(m.name)}</b><span>${m.day ? `day ${m.day} · ` : ''}${mcTime(m.created_at)}</span>${tools}</div><p>${esc(m.body)}</p>`
+      + `${counts.length ? `<div class="mc-reacts">${counts.map(([e, n, me]) => `<button type="button" class="${me ? 'on' : ''}" data-mc="react" data-id="${m.id}" data-e="${e}"${canSay ? '' : ' disabled'}>${e} ${n}</button>`).join('')}</div>` : ''}${pick}</li>`;
+  }).join('');
+  const box = canSay ? `<form class="mc-form" id="mcForm"><input id="mcText" maxlength="200" autocomplete="off" placeholder="Say something to the other resorts" aria-label="Message"><button class="btn" type="submit"${MC.busy ? ' disabled' : ''}>Send</button></form>${MC.err ? `<p class="mc-err">${esc(MC.err)}</p>` : ''}`
+    : `<p class="help">${guest ? 'Sign in on the title screen to chat.' : 'This match is over, so its chat is closed. It stays here as a record.'}</p>`;
+  return `<div class="sheet-title"><h3>Match chat</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">${l ? esc(l.name) : 'This match'}: players, spectators and match news. Keep it friendly: messages go through a word filter, and anyone can be reported.</p>
+    <ul class="mc-list" id="mcList">${rows || '<li class="help">No messages yet. Say hello to your rivals!</li>'}</ul>
+    ${hidden ? `<p class="help">${hidden} ${hidden === 1 ? 'message' : 'messages'} from people you muted ${hidden === 1 ? 'is' : 'are'} hidden. <button class="link" type="button" data-mc="unmute">Show them</button></p>` : ''}${box}`;
+}
+const mcErr = (e) => { const m = String((e && e.message) || 'Something went wrong. Try again in a moment.'); return m[0].toUpperCase() + m.slice(1) + (/[.!?]$/.test(m) ? '' : '.'); };
+$('sheet').addEventListener('input', (e) => { if (e.target.id === 'mcText') MC.draft = e.target.value; });
+$('sheet').addEventListener('submit', async (e) => {
+  if (e.target.id !== 'mcForm') return;
+  e.preventDefault();
+  const msg = MC.draft.replace(/\s+/g, ' ').trim();
+  if (!msg || MC.busy || !MC.lid) return;
+  MC.busy = true; MC.err = ''; mcShow();
+  const { error } = await CLOUD.sb.rpc('match_say', { lid: MC.lid, msg });
+  MC.busy = false;
+  if (error) MC.err = mcErr(error); else { MC.draft = ''; await mcLoad(); }
+  mcShow();
+  if ($('mcText')) $('mcText').focus();
+});
+$('sheet').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-mc]');
+  if (!b || b.disabled || !CLOUD.sb) return;
+  const id = +b.dataset.id, what = b.dataset.mc;
+  if (what === 'menu') { MC.menu = MC.menu === id ? null : id; mcShow(); return; }
+  if (what === 'react') {
+    const mine = MC.reacts.find((r) => r.message_id === id && r.emoji === b.dataset.e && r.user_id === CLOUD.uid);
+    const q = mine ? CLOUD.sb.from('match_reactions').delete().eq('message_id', id).eq('emoji', b.dataset.e).eq('user_id', CLOUD.uid)
+      : CLOUD.sb.from('match_reactions').insert({ message_id: id, emoji: b.dataset.e });
+    const { error } = await q;
+    if (error) toast('Reactions are only for running matches.', true);
+    MC.menu = null; await mcLoad(); return;
+  }
+  if (what === 'mute') { await CLOUD.sb.from('match_mutes').insert({ muted: b.dataset.u }); MC.menu = null; toast('Muted. Only you can see that.'); await mcLoad(); return; }
+  if (what === 'unmute') { for (const u of MC.mutes) await CLOUD.sb.from('match_mutes').delete().eq('muted', u); await mcLoad(); return; }
+  if (what === 'report') { const { error } = await CLOUD.sb.from('match_reports').insert({ message_id: id }); MC.menu = null; toast(error ? 'Already reported. Thanks!' : 'Thanks for telling us. We’ll take a look.'); mcShow(); }
+});
+$('visitChat').onclick = () => { if (mcOpen()) select(null); else { select({ kind: 'mchat', obj: null }); mcShow(); if ($('mcList')) $('mcList').scrollTop = $('mcList').scrollHeight; } };
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();

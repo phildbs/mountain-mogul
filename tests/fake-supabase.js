@@ -71,6 +71,27 @@
       // by the match server and match_join / match_leave, as in supabase/multiplayer.sql
       if (table.startsWith('match_')) {
         const m = d.match || (d.match = {});
+        // chat: messages are written only through match_say; reactions, reports and mutes are your own rows
+        if (['match_messages', 'match_reactions', 'match_reports', 'match_mutes'].includes(table)) {
+          const key = { match_messages: 'messages', match_reactions: 'reactions', match_reports: 'reports', match_mutes: 'mutes' }[table], list = m[key] || (m[key] = []);
+          const pick = (rows) => { for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v); for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c])); return rows; };
+          if (q.op === 'select') {
+            let rows = table === 'match_mutes' ? list.filter((r) => r.user_id === me) : table === 'match_reports' ? [] : list.filter((r) => !r.hidden);
+            return { data: pick(rows), error: null };
+          }
+          if (!me || (d.users[me] || {}).anon || table === 'match_messages') return { data: null, error: { code: '42501', message: 'row-level security' } };
+          if (q.op === 'insert') {
+            const row = { ...q.obj, user_id: me };
+            if (table === 'match_reactions') {
+              const msg = (m.messages || []).find((x) => x.id === row.message_id), L = msg && (m.lobbies || []).find((l) => l.id === msg.lobby_id);
+              if (!L || !['open', 'running'].includes(L.status) || !['👍', '😂', '🔥', '😮', '❄️', '🏆'].includes(row.emoji)) return { data: null, error: { code: '42501', message: 'row-level security' } };
+              if (list.some((r) => r.message_id === row.message_id && r.user_id === me && r.emoji === row.emoji)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+            }
+            if (table === 'match_reports' && list.some((r) => r.message_id === row.message_id && r.user_id === me)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+            list.push(row); put(d); return { data: null, error: null };
+          }
+          if (q.op === 'delete') { const gone = new Set(pick(list.filter((r) => r.user_id === me))); m[key] = list.filter((r) => !gone.has(r)); put(d); return { data: null, error: null }; }
+        }
         if (table === 'match_orders') { // your own slice of a running match only; you read back only your own
           const o = m.orders || (m.orders = []);
           if (q.op === 'insert') {
@@ -195,6 +216,18 @@
       if (fn === 'roadmap_tally') {
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
         return { data: out, error: null };
+      }
+      if (fn === 'match_say') {
+        const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), list = m.messages || (m.messages = []);
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to chat' } };
+        if (!L || !['open', 'running'].includes(L.status)) return { data: null, error: { message: 'this chat is closed' } };
+        const b = String(args.msg || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        if (!b) return { data: null, error: { message: 'write something first' } };
+        if (list.some((x) => x.user_id === me && Date.now() - Date.parse(x.created_at) < 10000)) return { data: null, error: { message: 'slow down a little' } };
+        if (/\bshit\b/i.test(b)) return { data: null, error: { message: 'please keep it friendly' } };
+        const p = (m.players || []).find((x) => x.lobby_id === L.id && x.user_id === me), prof = (d.profiles || {})[me];
+        const row = { id: (list.reduce((a, x) => Math.max(a, x.id), 0) || 0) + 1, lobby_id: L.id, user_id: me, slot: p ? p.slot : null, name: p ? p.resort_name : prof && prof.public ? prof.name : 'Spectator', body: b, kind: 'chat', day: L.day, hidden: false, created_at: new Date().toISOString() };
+        list.push(row); put(d); return { data: row.id, error: null };
       }
       if (fn === 'match_join_late') { // take over a computer resort, or an empty slice, before the cut-off
         const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);
