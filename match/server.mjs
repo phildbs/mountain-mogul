@@ -55,7 +55,7 @@ async function startLobby(db, game, lobby) {
   }
   await db.upsert('match_resorts', rows);
   await db.update('match_lobbies', { id: lobby.id }, { status: 'running', day: 0 });
-  log(`${lobby.name}: started with ${players.length} players and ${extra.length} computer resorts`);
+  log(`${lobby.name}: started with ${all.filter((p) => p.user_id).length} players and ${all.filter((p) => !p.user_id).length} computer resorts`);
 }
 
 async function playDay(db, game, lobby) {
