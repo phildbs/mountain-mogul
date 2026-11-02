@@ -170,6 +170,22 @@ details > summary { cursor: pointer; }
 }
 .gate { text-align: center; padding: 40px 20px; }
 .gate a { font-weight: 600; }
+.kform { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 14px; margin-top: 8px; }
+.kform label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.kform input:not([type=checkbox]), .kform select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 14px var(--ui); color: var(--ink); background: #fff; text-transform: none; letter-spacing: 0; min-width: 0; }
+.kform .kcheck { display: block; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); font-weight: 600; }
+.kform .kcheck small { display: block; font-weight: 400; color: var(--ink-2); font-size: 12.5px; margin-left: 22px; }
+.kform button, .klobby button { border: 1px solid var(--line); background: #fff; color: var(--ink); font: 600 13.5px var(--ui); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+.kform button[type=submit] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.klist { display: grid; gap: 8px; margin-top: 8px; }
+.klobby { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; min-width: 0; overflow-wrap: anywhere; }
+.klobby.khidden { opacity: 0.6; }
+.khead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.kstat { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; background: var(--line-soft); }
+.kstat.open { background: rgba(44, 154, 85, 0.14); color: #1f7a42; } .kstat.running { background: rgba(217, 154, 20, 0.16); color: #8a5d00; }
+.kchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kchip[aria-pressed="true"] { background: var(--ink) !important; color: #fff !important; border-color: var(--ink) !important; }
+.klobby .kclose { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -185,6 +201,7 @@ details > summary { cursor: pointer; }
     <button role="tab" data-tab="feedback">Feedback<span class="badge" id="fbBadge" hidden></span></button>
     <button role="tab" data-tab="resorts">Resorts</button>
     <button role="tab" data-tab="health">Health<span class="badge warn" id="errBadge" hidden></span></button>
+    <button role="tab" data-tab="kotm">King of the Mountain<span class="badge warn" id="kBadge" hidden></span></button>
   </nav>
   <div id="out"></div>
   <p class="note" style="text-align:center;margin:18px 0 8px">Mountain Mogul · a <a href="https://mossquake.com">MossQuake</a> game</p>
@@ -223,6 +240,7 @@ details > summary { cursor: pointer; }
     loadRetention();
     loadSources();
     loadBoardOpens();
+    sb.rpc('admin_chat_reports').then(({ data }) => { const n = (data || []).filter((r) => !r.hidden).length; $('kBadge').hidden = !n; $('kBadge').textContent = n; }, () => {});
   }
 
   async function loadRetention() {
@@ -385,6 +403,7 @@ details > summary { cursor: pointer; }
         </section>
         <section class="card" id="players">${playersHtml(players)}</section>
       </div>
+      <div class="panel" data-panel="kotm" id="kotm"></div>
       <div class="panel" data-panel="health">
         <section class="card" id="errs">${errorsHtml(errs)}</section>
         <section class="card" id="reacts">${reactionsHtml(reacts)}</section>
@@ -397,8 +416,90 @@ details > summary { cursor: pointer; }
     showTab(tab);
   }
 
+
+  // King of the Mountain: make lobbies, change their settings, close them, and look after the match chat.
+  // Everything goes through the owner-only admin_* functions in supabase/multiplayer.sql, match-chat.sql and
+  // match-late.sql. Crown Peak has three slices, so a lobby has 2 or 3 resorts.
+  const K_LENGTHS = [[168, 'One season · 168 days (3½ days)'], [336, 'Two seasons · 336 days (7 days)'], [12, 'Short test · 12 days (6 hours)']];
+  let kot = null, kotBusy = false;
+  const nextHalfHour = () => { const t = new Date(Date.now() + 60 * 60000); t.setSeconds(0, 0); t.setMinutes(t.getMinutes() < 30 ? 30 : 60); return t; };
+  const localInput = (t) => { const p = (n) => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}`; };
+  async function loadKotm() {
+    const el = $('kotm'); if (!el) return;
+    if (!kot) el.innerHTML = '<section class="card"><h2>King of the Mountain</h2><p class="note">Loading…</p></section>';
+    const [lb, pl, rp] = await Promise.all([sb.from('match_lobbies').select('*').order('starts_at', { ascending: false }).limit(40),
+      sb.from('match_players').select('lobby_id,slot,user_id,resort_name,joined_day'), sb.rpc('admin_chat_reports')]);
+    if (lb.error) { el.innerHTML = `<section class="card"><h2>King of the Mountain</h2><p class="note">${/match_lobbies/.test(lb.error.message) ? 'Not set up yet. Run <b>supabase/multiplayer.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(lb.error.message)}</span>`}</p></section>`; return; }
+    kot = { lobbies: lb.data || [], players: pl.data || [], reports: rp.error ? null : rp.data || [], reportErr: rp.error ? rp.error.message : '' };
+    renderKotm();
+  }
+  function renderKotm() {
+    const el = $('kotm'); if (!el || !kot) return;
+    const start = localInput(nextHalfHour());
+    const create = `<section class="card"><h2>New lobby</h2><p class="note">Players see it under King of the Mountain on the title screen and can join until it starts. It starts on the hour or half hour (later times are rounded up), with a new game day every 30 minutes.</p>
+      <form class="kform" id="kNew">
+        <label>Name<input name="name" maxlength="60" required placeholder="Winter Cup"></label>
+        <label>Starts<input name="starts" type="datetime-local" value="${start}" required></label>
+        <label>Resorts<select name="slots"><option value="3">3 (every slice of Crown Peak)</option><option value="2">2 (one slice stays empty)</option></select></label>
+        <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(l)}</option>`).join('')}</select></label>
+        <label>Prize badge<input name="prize" maxlength="60" placeholder="Winter Cup champion (the default)"></label>
+        <label>Late joining until day<input name="late" type="number" min="0" max="400" placeholder="a quarter of the match"></label>
+        <label class="kcheck"><input type="checkbox" name="computers" checked> Computer resorts run the empty slices <small>Off: empty slices stay untouched until someone joins</small></label>
+        <label class="kcheck"><input type="checkbox" name="keep" checked> A late joiner keeps the computer’s profit <small>Off: their profit starts at $0 the day they join</small></label>
+        <div><button type="submit"${kotBusy ? ' disabled' : ''}>${kotBusy ? 'Making it…' : 'Make the lobby'}</button> <span class="note" id="kMsg"></span></div>
+      </form></section>`;
+    const who = (l) => kot.players.filter((p) => p.lobby_id === l.id).sort((a, b) => a.slot - b.slot);
+    const when = (l) => (l.status === 'open' ? `starts ${new Date(l.starts_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : l.status === 'running' ? `day ${l.day} of ${l.days}` : `finished after ${l.days} days`);
+    const onoff = (l, key, label) => `<button class="kchip" data-kset="${key}" data-id="${l.id}" aria-pressed="${l[key] !== false}">${label}: ${l[key] !== false ? 'on' : 'off'}</button>`;
+    const lobbies = `<section class="card"><h2>Lobbies</h2><p class="note">Newest first. Closed lobbies leave this list and the game.</p>${kot.lobbies.length ? `<div class="klist">${kot.lobbies.map((l) => {
+      const ps = who(l);
+      return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b><span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.slots} resorts · ${l.days} days</span></div>
+        <div class="note">${ps.length ? ps.map((p) => `${esc(p.resort_name)}${p.user_id ? '' : ' (computer)'}${p.joined_day ? ` · joined day ${p.joined_day}` : ''}`).join(' · ') : 'Nobody has joined yet.'}</div>
+        ${'computers' in l ? `<div class="kchips">${onoff(l, 'computers', 'Computer resorts')}${onoff(l, 'keep_profit', 'Keep computer’s profit')}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
+        ${l.status === 'finished' ? '' : `<div><button class="kclose" data-kclose="${l.id}">Close this lobby</button></div>`}</div>`;
+    }).join('')}</div>` : '<p class="note">No lobbies yet. Make one above.</p>'}</section>`;
+    const reps = kot.reports;
+    const chat = `<section class="card"><h2>Chat reports</h2>${reps == null ? `<p class="note">${/admin_chat_reports/.test(kot.reportErr) ? 'Not set up yet. Run <b>supabase/match-chat.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(kot.reportErr)}</span>`}</p>`
+      : reps.length ? `<p class="note">Messages players reported, newest first. Hiding one removes it for everyone; a chat ban stops that account posting for 7 days (they can still play).</p><div class="klist">${reps.map((r) => `<div class="klobby${r.hidden ? ' khidden' : ''}">
+          <div class="khead"><b>${esc(r.name)}</b><span class="note">${esc(r.lobby)} · reported ${r.reports} ${r.reports === 1 ? 'time' : 'times'}${r.hidden ? ' · hidden' : ''}</span></div>
+          <div>${esc(r.body)}</div>${r.reasons && r.reasons.length ? `<div class="note">${r.reasons.map(esc).join(' · ')}</div>` : ''}
+          <div><button data-khide="${r.message}" data-v="${!r.hidden}">${r.hidden ? 'Show it again' : 'Hide it'}</button>${r.author ? ` <button data-kban="${esc(r.author)}">Ban from chat for 7 days</button>` : ''}</div></div>`).join('')}</div>`
+      : '<p class="note">No reports. ✓</p>'}</section>`;
+    el.innerHTML = create + lobbies + chat;
+  }
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'kNew') return;
+    e.preventDefault();
+    const f = new FormData(e.target), msg = (t) => { if ($('kMsg')) $('kMsg').innerHTML = t; };
+    const name = String(f.get('name') || '').trim(), starts = new Date(String(f.get('starts')));
+    if (name.length < 3) return msg('<span class="err">Give it a name of at least 3 letters.</span>');
+    if (!(starts > new Date())) return msg('<span class="err">Pick a start time in the future.</span>');
+    kotBusy = true; renderKotm();
+    const { data: id, error } = await sb.rpc('admin_match_lobby', { pname: name, pstarts: starts.toISOString(), pslots: +f.get('slots'), pdays: +f.get('days'), pprize: String(f.get('prize') || '').trim() || null });
+    let err = error;
+    if (!err) {
+      const late = String(f.get('late') || '').trim();
+      const s = await sb.rpc('admin_match_settings', { lid: id, pcomputers: f.get('computers') === 'on', pkeep: f.get('keep') === 'on', plate_days: late === '' ? null : +late });
+      if (s.error && !/admin_match_settings/.test(s.error.message)) err = s.error;
+    }
+    kotBusy = false;
+    await loadKotm();
+    msg(err ? `<span class="err">${esc(err.message)}</span>` : `Made “${esc(name)}”.`);
+  });
+  document.addEventListener('click', async (e) => {
+    const set = e.target.closest('[data-kset]'), close = e.target.closest('[data-kclose]'), hide = e.target.closest('[data-khide]'), ban = e.target.closest('[data-kban]');
+    if (!set && !close && !hide && !ban) return;
+    let r;
+    if (set) { const l = kot.lobbies.find((x) => x.id === set.dataset.id); r = await sb.rpc('admin_match_settings', { lid: l.id, [set.dataset.kset === 'computers' ? 'pcomputers' : 'pkeep']: l[set.dataset.kset] === false }); }
+    if (close) { if (!confirm('Close this lobby? It leaves the game for everyone, and a running match stops.')) return; r = await sb.rpc('admin_match_close', { lid: close.dataset.kclose }); }
+    if (hide) r = await sb.rpc('admin_chat_hide', { mid: +hide.dataset.khide, hide: hide.dataset.v === 'true' });
+    if (ban) { if (!confirm('Stop this account posting in match chat for 7 days?')) return; r = await sb.rpc('admin_chat_ban', { uid: ban.dataset.kban, days: 7, why: 'reported in match chat' }); }
+    if (r && r.error) alert(r.error.message);
+    loadKotm();
+  });
+
   // Tabs: the page shows one area at a time and remembers the last one (or the one in the address, like #feedback).
-  const TABS = ['overview', 'feedback', 'resorts', 'health'];
+  const TABS = ['overview', 'feedback', 'resorts', 'health', 'kotm'];
   let tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : (() => { try { return localStorage.getItem('mm.stats.tab'); } catch (e) { return null; } })();
   if (!TABS.includes(tab)) tab = 'overview';
   function showTab(t) {
@@ -408,6 +509,7 @@ details > summary { cursor: pointer; }
     document.querySelectorAll('#tabs [data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
     document.querySelectorAll('.panel').forEach((p) => { p.hidden = p.dataset.panel !== t; });
     if (t === 'feedback') { renderFeedback(); markFeedbackSeen(); }
+    if (t === 'kotm') loadKotm();
   }
 
   // Feedback and feature ideas, each with who sent it and the resort they were most likely playing.

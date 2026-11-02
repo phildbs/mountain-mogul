@@ -217,6 +217,25 @@
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
         return { data: out, error: null };
       }
+      // the owner's tools (stats.html): only the owner's email, as in the SQL
+      const owner = ((sess() || {}).user || {}).email === 'phildbs@gmail.com';
+      if (/^admin_/.test(fn) && !owner) return { data: null, error: { code: '42501', message: 'not allowed' } };
+      if (fn === 'admin_stats') return { data: { generated: new Date().toISOString(), per_day: [], visitors: 3, started: 2, built_lift: 1, opened: 1, goals3: 0, season2: 0, mountains: 1, mountains_built: 1, by_mountain: [], by_mountain_built: [], top: [], top_built: [], new_24h: 1, new_7d: 2, played_24h: 1, played_7d: 1, signed_in: 1, invited_joined: 0, feedback: [], feedback_count: 0 }, error: null };
+      if (['admin_errors', 'admin_reactions', 'admin_players', 'admin_feedback', 'admin_retention', 'admin_funnel', 'admin_sources', 'admin_board_opens'].includes(fn)) return { data: null, error: { message: 'no function ' + fn } };
+      if (fn.startsWith('admin_match') || fn.startsWith('admin_chat')) {
+        const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []);
+        if (fn === 'admin_match_lobby') {
+          const t = new Date(args.pstarts); const r = new Date(Math.ceil(t.getTime() / 1800000) * 1800000);
+          const row = { id: 'L' + (L.length + 1), name: args.pname, map: 'match', slots: args.pslots, starts_at: r.toISOString(), days: args.pdays, day_minutes: 30, status: 'open', day: 0, prize: args.pprize || args.pname + ' champion', computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 };
+          L.push(row); put(d); return { data: row.id, error: null };
+        }
+        if (fn === 'admin_match_settings') { const l = L.find((x) => x.id === args.lid); if (l) { if (args.pcomputers != null) l.computers = args.pcomputers; if (args.pkeep != null) l.keep_profit = args.pkeep; if (args.plate_days != null) l.late_days = args.plate_days; } put(d); return { data: null, error: null }; }
+        if (fn === 'admin_match_close') { const l = L.find((x) => x.id === args.lid); if (l) l.status = 'closed'; put(d); return { data: null, error: null }; }
+        const msgs = m.messages || [], reps = m.reports || [];
+        if (fn === 'admin_chat_reports') return { data: msgs.filter((x) => reps.some((r) => r.message_id === x.id)).map((x) => ({ message: x.id, lobby: (L.find((l) => l.id === x.lobby_id) || {}).name, name: x.name, author: x.user_id, body: x.body, hidden: !!x.hidden, reports: reps.filter((r) => r.message_id === x.id).length, reasons: [] })), error: null };
+        if (fn === 'admin_chat_hide') { const x = msgs.find((y) => y.id === args.mid); if (x) x.hidden = args.hide !== false; put(d); return { data: null, error: null }; }
+        if (fn === 'admin_chat_ban') { (m.bans || (m.bans = [])).push({ user_id: args.uid, days: args.days }); put(d); return { data: null, error: null }; }
+      }
       if (fn === 'match_say') {
         const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), list = m.messages || (m.messages = []);
         if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to chat' } };

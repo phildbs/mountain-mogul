@@ -1,0 +1,57 @@
+// The owner's King of the Mountain tools on stats.html: make a lobby (start rounded to the half hour, with the
+// computer and kept-profit switches), switch a setting, close a lobby, and hide or ban from the chat reports.
+// Nobody else can use them.
+import { openGame, eq, assert } from '../harness.mjs';
+export default async function ({ browser, url }) {
+  const g = await openGame(browser, url);
+  const at = (min) => new Date(Date.now() + min * 60000).toISOString();
+  const match = { lobbies: [{ id: 'S1', name: 'Old Cup', map: 'match', slots: 3, starts_at: at(-90), days: 168, day_minutes: 30, status: 'running', day: 3, prize: null, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 }],
+    players: [{ lobby_id: 'S1', slot: 0, user_id: 'u-1', resort_name: 'Aspen Bowl', joined_day: 0 }, { lobby_id: 'S1', slot: 1, user_id: null, resort_name: 'Valley View', joined_day: 0 }],
+    messages: [{ id: 7, lobby_id: 'S1', user_id: 'u-1', name: 'Aspen Bowl', body: 'spam spam', kind: 'chat', day: 3, hidden: false, created_at: at(-5) }],
+    reports: [{ message_id: 7, user_id: 'u-2' }] };
+  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
+  // Not the owner: nothing.
+  await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(800);
+  await g.page.goto(url + 'stats.html'); await g.wait(1500);
+  assert(/only for the game’s owner/.test(await g.page.innerText('#out')), 'the page is only for the owner');
+  // The owner.
+  await g.page.evaluate(() => localStorage.setItem('FAKE_SESSION', JSON.stringify({ user: { id: 'owner', is_anonymous: false, email: 'phildbs@gmail.com' } })));
+  await g.page.goto(url + 'stats.html?owner#kotm'); // a new address, so the page loads again
+  await g.page.waitForSelector('#kNew', { timeout: 10000 });
+  eq(await g.page.innerText('#kBadge'), '1', 'the tab counts unhandled chat reports');
+  let t = await g.page.innerText('#kotm');
+  assert(/Old Cup[\s\S]*running[\s\S]*day 3 of 168[\s\S]*Aspen Bowl · Valley View \(computer\)/i.test(t), `lobbies list their players (${t.slice(0, 400)})`);
+  assert(/reported 1 time[\s\S]*spam spam/.test(t), `chat reports are listed (${t.slice(-300)})`);
+
+  // Make a lobby, without computers.
+  await g.page.fill('#kNew [name=name]', 'Winter Cup');
+  const start = new Date(Date.now() + 3 * 3600000); start.setMinutes(10, 0, 0);
+  const p = (n) => String(n).padStart(2, '0');
+  await g.page.fill('#kNew [name=starts]', `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}T${p(start.getHours())}:10`);
+  await g.page.selectOption('#kNew [name=days]', '336');
+  await g.page.uncheck('#kNew [name=computers]');
+  await g.page.click('#kNew button[type=submit]');
+  await g.page.waitForFunction(() => /Made “Winter Cup”/.test(document.getElementById('kotm').innerText), null, { timeout: 10000 });
+  const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Winter Cup'));
+  eq([made.days, made.slots, made.computers, made.keep_profit, new Date(made.starts_at).getMinutes()], [336, 3, false, true, 30], 'the lobby is made with its settings, starting on the half hour');
+
+  // Switch a setting, close the old lobby.
+  await g.page.click('[data-kset=keep_profit][data-id=S1]');
+  await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === 'S1').keep_profit === false, null, { timeout: 5000 });
+  g.page.once('dialog', (d) => d.accept());
+  await g.page.click('[data-kclose=S1]');
+  await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === 'S1').status === 'closed', null, { timeout: 5000 });
+
+  // Hide the reported message, and ban its author from chat.
+  await g.page.click('[data-khide="7"]');
+  await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.messages[0].hidden === true, null, { timeout: 5000 });
+  g.page.once('dialog', (d) => d.accept());
+  await g.page.click('[data-kban="u-1"]');
+  await g.page.waitForFunction(() => (JSON.parse(localStorage.getItem('FAKE_DB')).match.bans || []).length === 1, null, { timeout: 5000 });
+  // A phone: no sideways scrolling.
+  await g.page.setViewportSize({ width: 390, height: 844 }); await g.wait(300);
+  eq(await g.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth <= 1), true, 'fits a phone');
+  if (process.env.SHOTS) await g.page.screenshot({ path: 'stats-kotm.png', fullPage: true });
+  eq(g.errors, [], 'no page errors');
+  await g.page.close();
+}
