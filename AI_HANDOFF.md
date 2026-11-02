@@ -384,6 +384,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   numbers stay official; the replay only has to look right. No live streaming of skier positions.
 - Live test, Nov 2: "Test Cup" lobby 731afdbb-... (Phil + 2 computers, 6 days of 10 min) on the Hetzner box. First
   install hit an empty-reply bug (fixed in db.mjs); the box now self-updates when the branch moves (verified).
+- Match length (Phil, Nov 2): 30-minute days (:00 and :30; the last 5 min of each is night). Beta lobbies: 168 days
+  (3.5 real days, one season). Normal: 7 days = 336 days, two seasons with a summer between; short-season option
+  168. Summer and the second season are untested on the server: test before the first 336-day lobby.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot
   per resort, so a purpose-made match map (each player's page a window onto one range) is the likely route. Signed: Claude
