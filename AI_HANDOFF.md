@@ -150,6 +150,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-72829cfc-ib4j32` | Claude | 2.78.1: fewer online saves. Supabase warned about Disk IO (Nov 2); `pg_stat_statements` showed the `mountains` upsert was ~9.2 GB of WAL over 52k calls (~180 KB each), everything else under 0.2 GB. Routine uploads now wait 2.5 min (`CLOUD_GAP`), and the end of a day waits too if it's inside the gap. Title screen and hiding the page still upload at once. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues

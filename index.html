@@ -10459,8 +10459,9 @@ function endDay() {
   endOfDaySnow();
   updateCash(true);
   showReport();
-  // Every finished day is saved here and online straight away, so it's never lost.
-  if (!simulating && !visiting) { saveNow(); cloudSaveNow(); } else scheduleSave();
+  // Every finished day is saved on this device straight away. Online, it goes up now unless an upload was
+  // made in the last couple of minutes; then it waits, so quick days don't each rewrite the whole resort.
+  if (!simulating && !visiting) { saveNow(); if (Date.now() - CLOUD.lastUp >= CLOUD_GAP) cloudSave(false); else scheduleCloud(); } else scheduleSave();
 }
 function waitDay() {
   if (state.phase !== 'closed' || state.summer) return;
@@ -18624,10 +18625,13 @@ const ownerOf = (m) => (m.me || (m.owner && m.owner === CLOUD.uid) ? 'You' : m.c
 const creatorLink = (m) => (m.creator && !m.guest && m.owner && !m.me && m.owner !== CLOUD.uid
   ? `<button class="who-link" data-action="creator" data-v="${esc(m.owner)}">${esc(m.creator)}</button>` : esc(ownerOf(m)));
 
+// Each upload rewrites the whole resort in the database, so routine uploads wait at least this long
+// after the last one. Leaving the page or going to the title screen still uploads straight away.
+const CLOUD_GAP = 150000;
 function scheduleCloud() {
   if (!CLOUD.ready || visiting || practice) return;
   clearTimeout(CLOUD.upTimer);
-  const wait = Math.max(4000, 30000 - (Date.now() - CLOUD.lastUp));
+  const wait = Math.max(4000, CLOUD_GAP - (Date.now() - CLOUD.lastUp));
   CLOUD.upTimer = setTimeout(() => cloudSave(false), wait);
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
@@ -19796,6 +19800,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.78.1', date: 'Nov 2, 2026', title: 'Lighter online saves', small: true, items: ['Your resort now saves online every couple of minutes instead of every 30 seconds, and quick days are grouped into one upload. This keeps our server fast as more of you play.', 'Your game still saves on your device after every day, and online straight away when you leave or go back to the title screen, so nothing is lost.'] },
   { v: '2.78', date: 'Nov 2, 2026', title: 'How players find us', items: ['The first time you play, the game now notes how you found it: the name of the website that sent you (like Reddit or YouTube), a tag on the link, or a friend’s invitation. Never the full web address, and nothing about what you did there.', 'It helps us see where new players come from, so we know where to share the game. Nothing changes in how you play.'] },
   { v: '2.77.3', date: 'Nov 1, 2026', title: 'Fewer ticket refunds', small: true, items: ['Sorry, everyone: a bug was costing resorts money every day. Some guests bought a ticket, spent the morning renting skis, taking a lesson or having lunch, then went home at their planned time without a single run and got a refund. Guests who haven’t had a run yet now stay on until they’ve skied, so you keep that ticket money.', 'Guests who arrive late in the morning now plan to ski for at least a couple of hours, instead of leaving soon after they park.', 'Thanks to the player who reported it.'] },
   { v: '2.77.2', date: 'Nov 1, 2026', title: 'Music counts', items: ['Your online save now notes whether you have music on, and whether you’ve ever turned it on, so we can see how many players enjoy the soundtrack. Nothing changes in how music plays.'] },

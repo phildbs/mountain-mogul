@@ -14,9 +14,9 @@ export default async function ({ browser, url }) {
   await g.ev(`$('mTitle').onclick()`); await g.wait(800);
   eq((await row()).day, 113, 'going to the title uploads at once');
 
-  // finishing a day uploads it too
+  // finishing a day uploads it too, once a couple of minutes have passed since the last upload
   await g.click('#startBtn'); await g.wait(300);
-  await g.ev(`state.day = 40; openDay()`); await g.ev(SETUPS.finishDay); await g.wait(800);
+  await g.ev(`state.day = 40; openDay(); CLOUD.lastUp = 0`); await g.ev(SETUPS.finishDay); await g.wait(800);
   eq((await row()).day, 40, 'a finished day is saved online at once');
   await g.ev(`state.day = 113; saveNow(); $('mTitle').onclick()`); await g.wait(800);
   // the "PC", whose game page has been open all along: it last played at day 93, while the
