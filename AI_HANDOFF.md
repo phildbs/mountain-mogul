@@ -54,9 +54,16 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.82.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 7bbee7a).
+**Live: 2.82.2.** Phil approved publication on Nov 2 (feature tier: full GitHub run green on 0987f86).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.82.2: a clear road and a driveway. Published Nov 2 (full GitHub run green on 0987f86). From Phil's screenshot: pads beside the road
+  graded across it (levelRect's 2.5 margin), burying it in snow. `roadKeep`/`groundKeep` stop all grading (pads, lots, trails, brush)
+  within ROAD_HW+0.3 of the centre, blending to full at +0.65; `restoreTerrain` resets that band to HT0 for old saves. Road ribbon has
+  5 vertices across, never below `meshHeightAt` (the drawn triangles), and is transparent with renderOrder 2.5 so it draws over trails.
+  Lift stations/towers can't stand on the road. `LOT_DRIVE`: the road's last ~4 units are a tapered plain driveway (Bezier) meeting the
+  main lot square on at its first aisle, plus a lane down its edge; cars use `MAIN_DRIVE`. Side and branch-end lots unchanged. Scenario 143.
+  Lifts or trails already built on the road stay as they are. (Claude, Nov 2)
 - 2.82: dinner under the lights. Published Nov 2. From Phil: casual restaurants join `NIGHT_OPEN`; `apresType` keeps a
   restaurant only when `B.isBase` (base or village), so a mountain one closes at `nightEnd() + 15`. Night skiers' snack need
   becomes a sit-down `dine` at a restaurant after closing (`svcFor`), which counts as their snack; stay-on day guests reset
@@ -167,7 +174,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-2d8f63c6-7x0iv4` | Claude | 2.82.2: road kept clear beside buildings and lots; driveway into the main lot | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
