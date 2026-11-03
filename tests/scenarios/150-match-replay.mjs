@@ -35,7 +35,7 @@ export default async function ({ browser, url }) {
     const drawn = guests.filter((x) => x.px != null).length;
     return { n: G.length, shown: figMeshes.jacket.count - drawn, on: RIVAL_SKI.on, minFar: Math.min(...far), riding: G.filter((x) => x.mode === 'lift').length, skiing: G.filter((x) => x.mode === 'ski').length,
       chairs: RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => R.V.chairs && R.V.chairCount > 1)), trees: (matchView.rivalCut || []).filter((k) => trees.alive[k]).length, cut: (matchView.rivalCut || []).length,
-      looks: rivalGroup.children.filter((o) => o.userData.rival).every((o) => o.material.map === CORD && o.material.opacity === 1) }; })()`);
+      looks: rivalGroup.children.filter((o) => o.userData.rival === true).every((o) => o.material.map === CORD && o.material.opacity === 1) }; })()`);
   eq([rv.on, rv.n], [true, Math.round(100 * 0.25) + Math.round(90 * 0.25)], 'rivals have skiers too, in proportion to their share of the day');
   assert(rv.riding > 0 && rv.skiing > 0, `some riding up, some skiing down (${rv.riding}, ${rv.skiing})`);
   eq([rv.chairs, rv.looks], [true, true], 'rival lifts have chairs, and their trails are drawn like yours');

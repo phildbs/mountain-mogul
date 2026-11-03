@@ -32,6 +32,9 @@ export default async function ({ browser, url }) {
   })()`);
   eq([s.mt, s.lifts, s.trails, s.ticket], ['match', 1, 2, 55], 'your own resort, as saved, on the match map');
   eq(s.drawn, 8, 'both rivals drawn: a lift, two trails and a lodge each');
+  // Their roads and parking lots too, and you can look out to the edge of the map to see them.
+  const lots = await g.ev(`(() => { const L = rivalGroup.children.filter((o) => o.material === LOT_MAT); return { n: L.length, out: L.every((o) => { o.geometry.computeBoundingSphere(); const c = o.geometry.boundingSphere.center; return !inProperty(c.x, c.z) && inWorld(c.x, c.z); }), roads: rivalGroup.children.filter((o) => o.material === ROAD_MAT).length }; })()`);
+  assert(lots.n >= 2 && lots.out && lots.roads === 2, `both rivals' lots and roads drawn on their slices (${JSON.stringify(lots)})`);
   assert(s.far.length >= 4 && s.far.every((d) => d > 40), `rivals' things sit on their own slices, away from yours (${s.far})`);
   assert(/Test Cup/.test(s.bar) && /2nd of 3/.test(s.bar) && /day 13 of 168/.test(s.bar) && /next day in/.test(s.bar), `the bar shows the match (${s.bar})`);
   await g.click('#visitLeague'); await g.wait(300);
