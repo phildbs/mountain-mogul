@@ -154,6 +154,8 @@ export default async function ({ browser, url }) {
   assert(bo, 'a bigger modern lodge can be placed');
   o = await orders();
   eq([o[o.length - 1].payload.what, o[o.length - 1].payload.tier, o[o.length - 1].payload.style], ['building', 1, 'modern'], 'its order carries the size and the theme');
+  // No invite pop-up in a match: it used to come back after every reload.
+  eq(await g.ev(`(() => { refState.available = true; state.referralPromptSeason = null; state.phase = 'closed'; maybeReferralPrompt(); return [document.getElementById('referralBox').hidden, getComputedStyle(document.getElementById('mInvite')).display]; })()`), [true, 'none'], 'no invite pop-up, and no Invite friends in the menu, in a match');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
