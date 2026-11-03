@@ -18,8 +18,11 @@ export default async function ({ browser, url }) {
     await v.click('#startBtn'); await v.wait(1500);
     await v.ev(`(async () => { CLOUD.boardAt = 0; await loadBoard(true); await visitResort('${id}'); })()`); await v.wait(1500);
     eq(await v.ev(`!$('visitLike').hidden`), true, `${who}: the visit bar has a Like button`);
+    const likesNow = (await v.ev(`$('visitLikes').textContent`)), before = { v1: 'No likes yet', v2: '❤ 1 like', guest: '❤ 2 likes' }[who];
+    eq(likesNow, before, `${who}: the visit menu shows the likes so far`);
     await v.click('#visitLike'); await v.wait(500);
     eq(await v.ev(`visiting.liked`), signed, `${who}: ${signed ? 'liked' : 'guests are asked to sign in'}`);
+    if (who === 'v2') eq(await v.ev(`$('visitLikes').textContent`), '❤ 2 likes', 'a like counts straight away');
     if (signed) { await v.click('#visitLike'); await v.wait(300); }
     db = await v.ev(`localStorage.getItem('FAKE_DB')`);
     eq(v.errors, [], `${who}: no page errors`);
@@ -41,6 +44,12 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (let i = 0; i < 12; i++) d.likes.push({ mountain_id: '${id}', user_id: 'x' + i }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); })()`);
   await g.ev(`(async () => { socialAt = 0; await socialBonus(); })()`); await g.wait(300);
   eq(await g.ev(`state.cash`) - cash0, 1200000 + 8 * 100000, 'twelve more likes pay only up to ten a season');
+  // The server sends at most 1,000 rows a list. Likes come only for resorts with a like or a visit, so a liked
+  // resort isn't lost behind hundreds of others.
+  await g.ev(`(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (let i = 0; i < 5; i++) d.rows.unshift({ id: 'quiet' + i, owner: 'q' + i, public: true, summary: { name: 'Quiet ' + i, mt: 'juniper' }, save: null, updated_at: new Date().toISOString() });
+    d.maxRows = 3; localStorage.setItem('FAKE_DB', JSON.stringify(d)); })()`);
+  await g.ev(`(async () => { CLOUD.boardAt = 0; await loadBoard(true); })()`);
+  eq(await g.ev(`CLOUD.mountains.find((m) => m.id === '${id}').likes`), 14, 'the leaderboard has every like, however many resorts there are');
   // the board and standing card show it
   await g.ev(`(async () => { CLOUD.boardAt = 0; await loadBoard(true); openCommunity(); })()`); await g.wait(400);
   assert(/14 likes · 3 visits/.test(await g.ev(`$('cmStanding').innerText`)), 'your standing shows likes and visits');

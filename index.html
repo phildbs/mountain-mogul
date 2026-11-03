@@ -346,6 +346,7 @@ body.matchview .visitbar, body.visiting .visitbar { left: calc(68px + env(safe-a
 body.matchview .visitbar:not(.open), body.visiting .visitbar:not(.open) { display: none; }
 body.matchview .visitbar span, body.visiting .visitbar span { white-space: normal; flex: none; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); padding: 0 6px 8px; margin-bottom: 2px; border-bottom: 1px solid rgba(20, 36, 58, 0.1); }
 body.matchview .visitbar span b, body.visiting .visitbar span b { color: var(--ink); }
+#visitLikes { display: block; font-style: normal; font-weight: 600; color: var(--ink); margin-top: 4px; }
 body.matchview .visitbar .btn, body.visiting .visitbar .btn { flex: none; display: block; width: 100%; text-align: left; border: 0; background: none; box-shadow: none; border-radius: 8px; padding: 9px 8px; font: 600 13.5px var(--ui); color: var(--ink); }
 body.matchview .visitbar .btn:hover, body.visiting .visitbar .btn:hover { background: rgba(20, 36, 58, 0.06); }
 body.matchview .visitbar #visitHome, body.visiting .visitbar #visitHome { margin-top: 2px; border-top: 1px solid rgba(20, 36, 58, 0.1); border-radius: 0 0 8px 8px; color: var(--accent); }
@@ -7375,7 +7376,11 @@ function renderSheet() {
   $('undoFab').hidden = !(state.started && (state.tool === 'trail' || state.tool === 'lift') && draft.pts.length && !draft.movingLift);
   document.body.classList.toggle('sheet-open', !sheet.hidden);
   // Only touch the DOM when something changed, so a click in progress isn't lost.
-  if (html && html !== lastSheetHtml) sheet.innerHTML = html;
+  if (html && html !== lastSheetHtml) { // a redrawn chat list starts at the top: put it back at the newest, or where you were reading
+    const was = mcOpen() && $('mcList') ? $('mcList').scrollTop : null;
+    sheet.innerHTML = html;
+    if (mcOpen()) { if (!MC.stick && was != null && $('mcList')) $('mcList').scrollTop = was; mcEnd(); }
+  }
   lastSheetHtml = html;
   layoutSheet();
 }
@@ -19640,7 +19645,7 @@ function closeMenu() {
   $('badge').setAttribute('aria-expanded', 'false');
 }
 $('badge').onclick = () => {
-  if (visiting) return;
+  if (visiting) { mpMenu(!$('visitBar').classList.contains('open')); return; } // visiting or watching: the eye's menu, with Back to title
   const open = $('menu').hidden;
   $('mGoalsN').textContent = `★ ${starsOf()} of ${goalList().length}`;
   $('mGoalsMenu').hidden = !!state.sandbox;
@@ -20081,9 +20086,17 @@ async function loadBoard(force) {
   const [{ data, error }, picks, social] = await Promise.all([
     CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).order('updated_at', { ascending: false }).limit(500),
     CLOUD.sb.from('featured').select('mountain_id, picked_at').eq('picked', true).then((r) => r, () => ({ data: null })),
-    CLOUD.sb.rpc('social_counts').then((r) => r, () => ({ data: null })),
+    // only resorts with a like or a visit: a list of every public resort ran past the server's 1,000-row cap, so
+    // likes went missing for about a quarter of them
+    CLOUD.sb.rpc('social_counts').or('likes.gt.0,visits.gt.0').then((r) => r, () => ({ data: null })),
   ]);
   if (error) { CLOUD.boardAt = 0; return; }
+  // liked resorts older than the newest 500 still belong on the Most liked board
+  const have = new Set(data.map((r) => r.id)), more = ((social && social.data) || []).filter((r) => r.likes > 0 && !have.has(r.mountain_id)).map((r) => r.mountain_id);
+  if (more.length) {
+    const x = await CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).in('id', more.slice(0, 200)).then((r) => r, () => ({ data: null }));
+    if (x.data) data.push(...x.data);
+  }
   CLOUD.picks = new Map(((picks && picks.data) || []).map((r) => [r.mountain_id, Date.parse(r.picked_at) || 0])); // id → when it was picked
   CLOUD.social = new Map(((social && social.data) || []).map((r) => [r.mountain_id, { likes: r.likes, visits: r.visits }]));
   const soc = (id) => CLOUD.social.get(id) || { likes: 0, visits: 0 };
@@ -20547,10 +20560,12 @@ async function visitResort(id, opts = {}) {
   if (state.speed === 0) state.speed = 1;
   const owner = m ? ownerOf(m) : '';
   $('resortName').textContent = visiting.name;
-  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${pickTag(id)}${owner ? ` by ${m && m.creator && !m.guest ? `<button class="linkb" id="visitCreator">${esc(owner)}</button>` : esc(owner)}` : ''} · read only. Press Watch a day to see it run.`;
+  $('visitText').innerHTML = `Visiting <b>${esc(visiting.name)}</b>${pickTag(id)}${owner ? ` by ${m && m.creator && !m.guest ? `<button class="linkb" id="visitCreator">${esc(owner)}</button>` : esc(owner)}` : ''} · read only. Press Watch a day to see it run.<i id="visitLikes" hidden></i>`;
   if ($('visitCreator')) $('visitCreator').onclick = () => openCreator(m.owner);
-  visiting.liked = false; visiting.owner = m ? m.owner : null;
+  visiting.liked = false; visiting.owner = m ? m.owner : null; visiting.likes = m && m.likes != null ? m.likes : null;
   refreshLikeBtn();
+  // how many likes it has, fresh from the server (one row)
+  if (CLOUD.ready) CLOUD.sb.rpc('social_counts').eq('mountain_id', id).then(({ data }) => { if (visiting && visiting.id === id && data) { visiting.likes = data[0] ? data[0].likes : 0; refreshLikeBtn(); } }, () => {});
   if (CLOUD.ready && (!m || m.owner !== CLOUD.uid)) {
     CLOUD.sb.from('visits').insert({ mountain_id: id }).then(() => {}, () => {}); // once a day per visitor; repeats are refused
     if (!CLOUD.guest) CLOUD.sb.from('likes').select('mountain_id').eq('mountain_id', id).maybeSingle().then(({ data }) => { if (visiting && visiting.id === id) { visiting.liked = !!data; refreshLikeBtn(); } }, () => {});
@@ -20568,6 +20583,8 @@ function refreshLikeBtn() {
   b.hidden = !visiting || !CLOUD.ready || visiting.owner === CLOUD.uid;
   b.textContent = visiting && visiting.liked ? '❤ Liked' : '♡ Like';
   b.classList.toggle('liked', !!(visiting && visiting.liked));
+  const n = visiting && visiting.likes, el = $('visitLikes');
+  if (el) { el.hidden = n == null; el.textContent = n ? `❤ ${n.toLocaleString('en-US')} ${n === 1 ? 'like' : 'likes'}` : 'No likes yet'; }
 }
 $('visitLike').onclick = async () => {
   if (!visiting || visiting.liked) return;
@@ -20575,7 +20592,7 @@ $('visitLike').onclick = async () => {
   const id = visiting.id;
   const { error } = await CLOUD.sb.from('likes').insert({ mountain_id: id });
   if (error && error.code !== '23505') { toast('Couldn’t like it just now.', true); return; }
-  if (visiting && visiting.id === id) { visiting.liked = true; refreshLikeBtn(); }
+  if (visiting && visiting.id === id) { visiting.liked = true; if (!error) visiting.likes = (visiting.likes || 0) + 1; refreshLikeBtn(); }
   toast(`You liked ${visiting ? visiting.name : 'it'} ❤`);
   CLOUD.boardAt = 0; loadBoard(true);
 };
@@ -21738,7 +21755,7 @@ function leaveMatch() {
    public profile name. The match server's news is in the same feed. New messages arrive live (Supabase's live
    updates), with a check every 20 seconds as a backup; mutes are private and hide that person's messages. */
 const MC_EMOJI = ['👍', '😂', '🔥', '😮', '❄️', '🏆'];
-const MC = { lid: null, msgs: [], reacts: [], mutes: new Set(), seen: 0, draft: '', err: '', busy: false, chan: null, menu: null };
+const MC = { lid: null, msgs: [], reacts: [], mutes: new Set(), seen: 0, draft: '', err: '', busy: false, chan: null, menu: null, stick: true };
 async function mcLoad() {
   if (!MC.lid || !CLOUD.sb) return;
   const { data, error } = await CLOUD.sb.from('match_messages').select('*').eq('lobby_id', MC.lid).order('id', { ascending: false }).limit(80).then((r) => r, (e) => ({ error: e }));
@@ -21778,18 +21795,28 @@ function mcShow() {
   $('visitChat').textContent = unread ? `Chat · ${unread} new` : 'Chat';
   $('mpFab').classList.toggle('unread', !!unread); $('mpDot').hidden = !unread; $('mpDot').textContent = unread > 9 ? '9+' : unread;
   if (!mcOpen()) return;
-  const list = $('mcList'), atEnd = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30, focused = document.activeElement && document.activeElement.id === 'mcText';
+  const focused = document.activeElement && document.activeElement.id === 'mcText';
   if (focused) mcPatch(); else renderSheet();
   if ($('mcText')) { $('mcText').value = MC.draft; if (focused) $('mcText').focus(); }
-  if ($('mcList') && atEnd) $('mcList').scrollTop = $('mcList').scrollHeight;
+  mcEnd();
 }
+// The chat stays on its newest message unless you've scrolled up to read. MC.stick is kept by the list's own scroll
+// events, not measured while redrawing: a redrawn list starts at the top, and on phones the keyboard and the Send
+// tap move things about, so a measure taken then sent the chat back to the first message.
+function mcEnd(force) {
+  if (force) MC.stick = true;
+  const go = () => { const l = $('mcList'); if (l && MC.stick) { l.scrollTop = l.scrollHeight; MC.stick = true; } };
+  go(); requestAnimationFrame(go); setTimeout(go, 350); // again once the card and the keyboard have settled
+}
+sheet.addEventListener('scroll', (e) => { const l = e.target; if (l.id === 'mcList' && l.isConnected) MC.stick = l.scrollTop + l.clientHeight >= l.scrollHeight - 40; }, true);
 // While you type, only the messages (and any error) are redrawn: redrawing the whole card would take the cursor out
 // of the box, so a message sent with Enter, or one arriving, would only show once you clicked away.
 function mcPatch() {
-  const tmp = document.createElement('div'); tmp.innerHTML = matchChatSheet();
+  const html = matchChatSheet(), tmp = document.createElement('div'); tmp.innerHTML = html;
   const list = tmp.querySelector('#mcList');
   if (!list || !$('mcList') || !$('mcForm')) return renderSheet();
   $('mcList').replaceWith(list);
+  lastSheetHtml = html; // so the next redraw doesn't rebuild the card, taking the cursor and the place
   for (const e of sheet.querySelectorAll('.mc-err')) e.remove();
   const err = tmp.querySelector('.mc-err'); if (err) $('mcForm').after(err);
 }
@@ -21823,7 +21850,7 @@ $('sheet').addEventListener('submit', async (e) => {
   MC.busy = true; MC.err = ''; mcShow();
   const { error } = await CLOUD.sb.rpc('match_say', { lid: MC.lid, msg });
   MC.busy = false;
-  if (error) MC.err = mcErr(error); else { MC.draft = ''; await mcLoad(); }
+  if (error) MC.err = mcErr(error); else { MC.draft = ''; MC.stick = true; await mcLoad(); }
   mcShow();
   if ($('mcText')) $('mcText').focus();
 });
@@ -21844,7 +21871,7 @@ $('sheet').addEventListener('click', async (e) => {
   if (what === 'unmute') { for (const u of MC.mutes) await CLOUD.sb.from('match_mutes').delete().eq('muted', u); await mcLoad(); return; }
   if (what === 'report') { const { error } = await CLOUD.sb.from('match_reports').insert({ message_id: id }); MC.menu = null; toast(error ? 'Already reported. Thanks!' : 'Thanks for telling us. We’ll take a look.'); mcShow(); }
 });
-$('visitChat').onclick = () => { if (mcOpen()) select(null); else { select({ kind: 'mchat', obj: null }); mcShow(); if ($('mcList')) $('mcList').scrollTop = $('mcList').scrollHeight; } };
+$('visitChat').onclick = () => { if (mcOpen()) select(null); else { MC.stick = true; select({ kind: 'mchat', obj: null }); mcShow(); } };
 /* ---------- Multiplayer: watching today live ----------
    The match server plays each day in a moment at the start of its slot; your game then plays the same day
    again, for you to watch, in step with the clock: the lifts open as the slot begins and close at 4 PM, 18
@@ -22183,6 +22210,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.91', date: 'Nov 3, 2026', title: 'Likes when visiting', items: [
+    'Visiting a resort, the eye menu now shows how many likes it has.',
+    'Visiting or watching, tapping the mountain name at the top left opens the same menu, with Back to title.',
+    'Fixed: the leaderboards missed the likes of about a quarter of resorts, so some showed none. Every like counts now.',
+    'Fixed: the match chat jumped back to its first message when you opened it or sent one. It stays on the newest.'] },
   { v: '2.90.1', date: 'Nov 3, 2026', title: 'Open lobbies on the title screen', kotm: true, items: [
     'When a new King of the Mountain match is looking for players, an orange flag on the title screen says which one and how many spots are left. Tap it to join.'] },
   { v: '2.90', date: 'Nov 3, 2026', title: 'Evenings in matches', kotm: true, items: [

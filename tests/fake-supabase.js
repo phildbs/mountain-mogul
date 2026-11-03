@@ -130,6 +130,7 @@
       }
       let rows = d.rows.filter((r) => r.public || r.owner === me);
       for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+      for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
       if (q.op === 'delete') { const ids = new Set(rows.filter((r) => r.owner === me).map((r) => r.id)); d.rows = d.rows.filter((r) => !ids.has(r.id)); put(d); return { data: null, error: null }; }
       const cols = q.cols.split(',').map((c) => c.trim());
       const inSave = (c) => /^\w+:save->>\w+$/.test(c) && c.split(/:|->>/); // alias:save->>field, like the real one
@@ -158,7 +159,13 @@
     // set_profile: signed-in players only; the name goes on all their resorts (blank while private)
     // Like the real client, rpc results can be filtered with .eq (e.g. social_counts for one resort).
     rpc: (fn, args) => {
-      const filt = (p) => Object.assign(p, { eq: (k, v) => filt(p.then((r) => (Array.isArray(r.data) ? { ...r, data: r.data.filter((x) => x[k] === v) } : r))) });
+      // .or('likes.gt.0,visits.gt.0') keeps rows matching any term. Like the real server, a list comes back at most
+      // maxRows long (1,000 by default), after the filters.
+      const sub = (r, f) => (Array.isArray(r.data) ? { ...r, data: r.data.filter(f) } : r);
+      const any = (s) => (x) => s.split(',').some((t) => { const [c, op, n] = t.split('.'); return op === 'gt' && x[c] > +n; });
+      const cap = (r) => (Array.isArray(r.data) ? { ...r, data: r.data.slice(0, db().maxRows || 1000) } : r);
+      const filt = (p) => ({ eq: (k, v) => filt(p.then((r) => sub(r, (x) => x[k] === v))), or: (s) => filt(p.then((r) => sub(r, any(s)))),
+        then: (res, rej) => p.then(cap).then(res, rej) });
       return filt(rpcCall(fn, args));
     },
   }) };

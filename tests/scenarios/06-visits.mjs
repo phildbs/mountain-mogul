@@ -21,8 +21,11 @@ export default async function ({ browser, url }) {
   await g.click('#mpFab'); await g.wait(100);
   await g.ev(`select({ kind: 'lift', obj: world.lifts[0] })`);
   eq(await g.ev(`!!selected`), false, 'lift panel stays closed');
-  await g.click('#badge');
-  eq(await g.ev(`$('menu').hidden`), true, 'menu stays closed');
+  assert(/No likes yet/.test(await g.ev(`$('visitBar').innerText`)), 'the menu says how many likes it has');
+  await g.click('#badge'); await g.wait(100);
+  eq([await g.ev(`$('menu').hidden`), await g.page.isVisible('#visitHome')], [true, true], 'the mountain button opens the eye menu, with Back to title, not your own menu');
+  await g.click('#badge'); await g.wait(100);
+  eq(await g.page.isVisible('#visitBar'), false, 'and closes it again');
   await g.click('#cashBox'); await g.wait(200);
   eq(await g.ev(`[...document.querySelectorAll('#sheet button:not([data-action=manage]):not([data-sheet])')].map(b => b.textContent.trim()).join()`), '✕', 'finances read only');
   // Card layout is available to visitors; gameplay controls must remain absent.
