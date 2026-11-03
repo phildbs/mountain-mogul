@@ -253,6 +253,10 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .lbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .lbar .tabs { margin: 0; }
 .lbar .sort { margin-left: auto; }
+.lgroup { display: flex; gap: 8px; align-items: center; margin: 8px 2px 0; font-size: 12.5px; color: var(--ink-2); }
+.lgroup b { color: var(--ink); }
+.lgroup span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
+.lgroup .neg, .flabel .neg { color: var(--steep); }
 .llist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .lrow { border: 1px solid var(--line); border-radius: 11px; padding: 8px 10px; display: grid; gap: 5px; background: rgba(255, 255, 255, 0.55); cursor: pointer; }
 .lrow:hover { border-color: rgba(20, 36, 58, 0.3); background: #fff; }
@@ -2754,6 +2758,7 @@ function hazeMaterial(attr, opts) {
 
 let terrainGeo, terrainMesh, treeMesh;
 const overlay = { slope: false };
+let profitMarks = null, profitStamp = ''; // the profit map's discs (see setProfitMap)
 
 function buildTerrain() {
   const pos = new Float32Array(NV * NV * 3);
@@ -3414,7 +3419,7 @@ function saveData(withSim) {
 function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
-  clearUndo(); heatStamp = null;
+  clearUndo(); heatStamp = null; profitStamp = null;
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
   state.cash = START_CASH; state.cleared = 0; state.sandbox = false; // the save's own setting comes back with its clock below
@@ -7944,6 +7949,8 @@ function sheetAct(b) {
   else if (a === 'goTo') goToFeature(b.dataset.k, +b.dataset.id);
   else if (a === 'buildDecor') pickBuilding('lamp');
   else if (a === 'listFilter') { listView[b.dataset.k].filter = b.dataset.v; renderSheet(); }
+  else if (a === 'bldSort') { const o = Object.keys(BLD_SORTS); listView.blds.sort = o[(o.indexOf(listView.blds.sort) + 1) % o.length]; renderSheet(); }
+  else if (a === 'profitMap') { const o = Object.keys(PROFIT_MAP); setProfitMap(o[(o.indexOf(overlay.profit || 'off') + 1) % o.length]); renderSheet(); }
   else if (a === 'listSort') { const o = ['status', 'popular', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'qOpen') { const t = trailById(+b.dataset.id); if (t) setOpen('trail', t, !t.open); }
   else if (a === 'qGlade') { const A = areaById(+b.dataset.id); if (isGlade(A)) { pushUndo(A.closed ? 'opening a glade' : 'closing a glade'); A.closed = !A.closed; A.snowClosed = undefined; computeNetwork(); labelsDirty = true; scheduleSave(); renderSheet(); } }
@@ -8338,7 +8345,9 @@ function updateLabels() {
         else if (B.type === 'patrol') { const out = B.crew.filter((c) => c.st !== 'idle').length; cnt = out ? `<b>${out}</b> on calls` : ''; }
       }
       const shut = open && !bldOpenNow(B);
-      setLabel(B.labelEl, `<i class="bdot" style="background:${hexOf(BTYPES[B.type].accent)}"></i><span>${esc(B.name)}</span>${shut ? `<em>${bldMode(B) === 'lunch' ? 'Lunch only' : 'Closed'}</em>` : cnt ? `<span class="cnt">${cnt}</span>` : ''}`);
+      if (overlay.profit && bldProfit(B) != null) cnt = `<span class="${bldProfit(B) < 0 ? 'neg' : ''}">${signedMoney(bldProfit(B))}</span> last day`;
+      const pm = overlay.profit && profitMarks && profitMarks.children.find((m) => m.userData.B === B);
+      setLabel(B.labelEl, `<i class="bdot" style="background:${pm ? '#' + pm.material.color.getHexString() : hexOf(BTYPES[B.type].accent)}"></i><span>${esc(B.name)}</span>${shut ? `<em>${bldMode(B) === 'lunch' ? 'Lunch only' : 'Closed'}</em>` : cnt ? `<span class="cnt">${cnt}</span>` : ''}`);
       B.labelEl.classList.toggle('sel', !!(selected && selected.obj === B));
       B.labelEl.classList.toggle('off', shut);
       B.labelEl._prio = 2;
@@ -18404,7 +18413,7 @@ if (lotCount() > 1) MANAGE_TITLE.lotgrow = 'Grow your parking'; // more than one
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'reputation', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
-const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all' }, blds: { filter: 'all' } };
+const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all' }, blds: { filter: 'all', sort: 'built' } };
 function openManage(key) {
   if (visiting && !VISIT_MANAGE.includes(key)) return;
   if (state.tool !== 'explore') setTool('explore');
@@ -18674,21 +18683,43 @@ function eventsPanel() {
   if (state.summer) return '<p class="help">Events come back next winter.</p>';
   return `<p class="help">A special weekend draws a bigger crowd. Book one for the coming Saturday; guests who love it lift your reputation.</p>${eventSection().replace('<div class="field-label">Events</div>', '')}`;
 }
+// Buildings that earn nothing of their own (they cost upkeep, and help elsewhere): no profit shown, and left off the profit map.
+const NO_PROFIT = ['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'];
+const bldProfit = (B) => (NO_PROFIT.includes(B.type) || !B.yday ? null : B.yday.profit);
+const BLD_SORTS = { built: 'Built', profit: 'Profit', type: 'By type' };
 function bldsList() {
-  const Bs = realBlds(), live = state.phase === 'open';
+  const v = listView.blds, live = state.phase === 'open';
+  let Bs = realBlds();
+  // Last day's profit, best first; buildings with no takings of their own go last.
+  const pv = (B) => bldProfit(B) ?? -Infinity, byProfit = (a, b) => pv(b) - pv(a) || a.name.localeCompare(b.name);
+  const groups = new Map();
+  if (v.sort === 'profit') Bs = [...Bs].sort(byProfit);
+  else if (v.sort === 'type') {
+    for (const B of Bs) (groups.get(B.type) || groups.set(B.type, []).get(B.type)).push(B);
+    const tot = (list) => (list.some((B) => bldProfit(B) != null) ? list.reduce((a, B) => a + (bldProfit(B) || 0), 0) : -Infinity);
+    Bs = [...groups.values()].map((list) => list.sort(byProfit)).sort((a, b) => tot(b) - tot(a) || BTYPES[a[0].type].name.localeCompare(BTYPES[b[0].type].name)).flat();
+    for (const [t, list] of groups) groups.set(t, { n: list.length, p: tot(list) });
+  }
+  let lastType = null;
   const lamps = world.buildings.filter((B) => ['lamp', 'tlight', 'flood', 'strlight', 'xtree'].includes(B.type)).length, fires = world.buildings.filter((B) => B.type === 'firepit').length;
   const rows = Bs.map((B) => {
     const t = BTYPES[B.type], s = bspec(B), mode = bldPlanMode(B), y = B.yday;
     const pill = mode === 'closed' ? ['Closed', 'off'] : mode === 'lunch' ? ['Lunch only', 'warn'] : ['Open', 'on'];
     const next = null;
     const liveTxt = live ? bldLive(B).split('<br>')[0] : '';
-    return `<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
+    let head = '';
+    if (v.sort === 'type' && B.type !== lastType) {
+      lastType = B.type; const gp = groups.get(B.type);
+      head = `<li class="lgroup"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(t.name)}</b><span>${gp.n}</span>${gp.p > -Infinity && y ? `<span class="${gp.p < 0 ? 'neg' : ''}">${signedMoney(gp.p)} last day</span>` : ''}</li>`;
+    }
+    return `${head}<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
-      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'}${['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'].includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
+      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
       <div class="l3"><span>${B.type === 'patrol' ? 'Hut and patrol pay' : 'Upkeep'} ${money(s.upkeep)}/day</span>${next ? `<span class="pill on">Upgrade available</span>` : ''}</div>
     </li>`;
   }).join('');
   return `<p class="lsum"><b>${Bs.length}</b> ${Bs.length === 1 ? 'building' : 'buildings'} · upkeep and patrol pay <b>${money(Bs.reduce((a, B) => a + bspec(B).upkeep, 0))}</b> a day before plan savings</p>
+    ${Bs.length ? `<div class="lbar"><button class="chip" data-action="profitMap" aria-pressed="${!!overlay.profit}">${PROFIT_MAP[overlay.profit || 'off']}</button><button class="chip sort" data-action="bldSort">Sort: ${BLD_SORTS[v.sort]}</button></div>` : ''}
     <ul class="llist">${rows}${lamps || fires ? `<li class="lrow" data-action="manage" data-v="evenings"><div class="l1"><span class="swatch" style="background:#e0702a"></span><b>Lights and fire pits</b><span class="pill on">›</span></div><div class="l2"><span>${[lamps ? `${lamps} light${lamps === 1 ? '' : 's'}` : '', fires ? `${fires} fire pit${fires === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span></div></li>` : ''}${visiting ? '' : `<li class="lrow" data-action="manage" data-v="parking"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Parking and buses</b><span class="pill on">›</span></div><div class="l2"><span>Main lot, off-site parking, shuttle stations and buses</span></div></li>`}</ul>
     ${Bs.length ? '' : '<p class="help">No buildings yet. A lodge is the place to start: guests need food, warmth and restrooms.</p>'}`;
 }
@@ -19312,6 +19343,62 @@ function setTraffic(mode) {
   else if (mode === 'day') toast(heatSource() ? `${state.phase === 'open' ? 'Traffic today so far' : 'Traffic over the last day'}: white was quiet, red was the busiest on your mountain` : 'Whole-day traffic shows once you’ve run a day');
   heatStamp = null; heatT = 0;
   for (const t of world.trails) styleTrail(t);
+}
+/* ---------- Profit map: each building's last day, as a coloured disc on the ground ----------
+   Red lost money, yellow about broke even, green earned the most. "By type" compares each building with others
+   of its kind (the best café is green even if lodges earn far more). Buildings with no takings of their own get no disc. */
+const PROFIT_MAP = { off: 'Profit map', all: 'Profit map: all buildings', type: 'Profit map: by type' };
+
+function setProfitMap(mode) {
+  overlay.profit = mode === 'off' ? false : mode;
+  profitStamp = null; refreshProfitMap(); labelsDirty = true;
+  if (!overlay.profit) return;
+  const any = realBlds().some((B) => bldProfit(B) != null);
+  toast(!any ? 'The profit map shows once your buildings have had a day open.' : overlay.profit === 'all'
+    ? 'Last day’s profit: red lost money, yellow about broke even, green earned the most. Tap again to compare each building with its own type.'
+    : 'Each building against others of its type: green is the best of its kind, red the worst. Tap again to turn it off.');
+}
+// The colour for -1 (worst) through 0 (break even) to 1 (best).
+function profitCol(f, c) {
+  const red = profitCol.r || (profitCol.r = new THREE.Color('#b8402f')), mid = profitCol.m || (profitCol.m = new THREE.Color('#f1cf4b')), grn = profitCol.g || (profitCol.g = new THREE.Color('#2c9a55'));
+  return f < 0 ? c.copy(mid).lerp(red, clamp(-f, 0, 1)) : c.copy(mid).lerp(grn, clamp(f, 0, 1));
+}
+// Each building's place on the scale, -1 to 1, or null for no disc.
+function profitScale(mode) {
+  const out = new Map(), Bs = realBlds().filter((B) => bldProfit(B) != null);
+  if (mode === 'all') {
+    // Gains against the best earner, losses against the worst, so any loss reads red; square root so small ones still show.
+    const hi = Math.max(1, ...Bs.map(bldProfit)), lo = Math.max(1, ...Bs.map((B) => -bldProfit(B)));
+    for (const B of Bs) { const p = bldProfit(B); out.set(B, p >= 0 ? Math.sqrt(p / hi) : -Math.sqrt(-p / lo)); }
+  } else {
+    const byType = new Map();
+    for (const B of Bs) (byType.get(B.type) || byType.set(B.type, []).get(B.type)).push(B);
+    for (const list of byType.values()) {
+      const ps = list.map(bldProfit), lo = Math.min(...ps), hi = Math.max(...ps);
+      for (const B of list) out.set(B, hi > lo ? (bldProfit(B) - lo) / (hi - lo) * 2 - 1 : Math.sign(bldProfit(B)));
+    }
+  }
+  return out;
+}
+function refreshProfitMap() {
+  const stamp = overlay.profit ? `${overlay.profit}:${state.day}:${state.phase}:${world.buildings.length}` : '';
+  if (stamp === profitStamp) return;
+  profitStamp = stamp;
+  if (profitMarks) { scene.remove(profitMarks); profitMarks.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); profitMarks = null; }
+  if (!overlay.profit) return;
+  profitMarks = new THREE.Group();
+  const c = new THREE.Color();
+  for (const [B, f] of profitScale(overlay.profit)) {
+    // A glow on the ground round the building, draped over the slope so it shows on every side.
+    const s = bspec(B), r = Math.hypot(s.w, s.d) / 2 + 1.4, geo = new THREE.CircleGeometry(r, 32, 0, Math.PI * 2);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) { const x = B.x + pos.getX(i), z = B.z + pos.getZ(i); pos.setY(i, Math.max(heightAt(x, z), Math.hypot(pos.getX(i), pos.getZ(i)) < r - 1.2 ? B.baseY : -Infinity) + 0.08); }
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: profitCol(f, c).clone(), transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
+    m.position.set(B.x, 0, B.z); m.renderOrder = 3; m.userData.B = B;
+    profitMarks.add(m);
+  }
+  scene.add(profitMarks);
 }
 document.querySelectorAll('.size').forEach((b) => {
   b.onclick = () => {
@@ -21705,6 +21792,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.88', date: 'Nov 3, 2026', title: 'Which buildings pay their way', items: [
+    'The Buildings list can sort by the last day’s profit, or group buildings by type with each group’s total, best first.',
+    'Profit map, in the Buildings list: the ground round each building turns red if it lost money, yellow if it about broke even and green for the best earners, and labels show the figure. Tap again to compare each building only with others of its type.'] },
   { v: '2.87.1', date: 'Nov 3, 2026', title: 'Base shuttles that keep up', small: true, items: [
     'Fixed: with more than one shuttle station at a base, the base shuttle went back and forth between the same two stops, and guests at the others could wait all day. Some went hungry because they were stuck at a stop over lunch. Now an empty bus goes to whoever has waited longest.',
     'More base shuttles run when the lines at the stops grow, up to six at once, and guests are less keen to cross to the other base when the stops are busy.'] },
@@ -23211,6 +23301,7 @@ function frame(now) {
       else if (overlay.traffic === 'day' && (heatT += 0.5) >= 3 && prepHeat()) { heatT = 0; for (const t of world.trails) styleTrail(t); }
     }
   }
+  if (overlay.profit) refreshProfitMap();
   if (state.started) { refreshTimebar(false); maybeReferralPrompt(); }
   // Food sales, lift power and the rest move cash all day long; keep the figure in the corner current.
   if (state.started && Math.round(state.cash) !== shownCash) updateCash(false);
