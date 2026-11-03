@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-03)
 
-**Live: 2.84.1** (the Trail tool's area tabs open in matches; quick-fix tier, scenarios 148 and 153 passed). 2.84 (running your resort in matches) went out before it, after a green full GitHub run.
+**Live: 2.84.2** (match bar is one crown button with a menu; What's new keeps King of the Mountain-only changes, tagged `kotm: true`, in their own closed section and never headlines them). Published Nov 3 (full GitHub run green on 5ab056c). Tag every future match-only CHANGES entry with `kotm: true` right after its title (the reload banner's regex reads it there).
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
 - 2.84: King of the Mountain: settings, removing, money and land as match orders (see the multiplayer note). Published Nov 3 (full GitHub run green on cab227e). Players with the old page open get "not supported yet" for the new kinds until they reload. Next candidates: moving lifts/trails, trail edits, lift upgrades, mid-stations, terrain parks. (Claude, Nov 3)
