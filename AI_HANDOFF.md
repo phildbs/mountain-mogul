@@ -54,9 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-03)
 
-**Live: 2.83.8** (match cash shown right), published Nov 3 ~01:15 UTC. **In preview: 2.84** (running the resort in matches), branch `ccr-54d78266-eg1xc5`.
+**Live: 2.84** (running your resort in matches). Phil said Publish on Nov 3 after the full GitHub run was green.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.84: King of the Mountain: settings, removing, money and land as match orders (see the multiplayer note). Published Nov 3 (full GitHub run green on cab227e). Players with the old page open get "not supported yet" for the new kinds until they reload. Next candidates: moving lifts/trails, trail edits, lift upgrades, mid-stations, terrain parks. (Claude, Nov 3)
+- 2.83.8: match cash stays real during the live day. Published Nov 3. (Claude, Nov 3)
 - 2.83.7: a full localStorage no longer traps players on one mountain. Published Nov 3 (full GitHub run green). From James Rothman's report: 4 big resorts (Elk Pines ~0.9 MB online, more locally with the day in progress) filled the ~5 MB quota, so Play on a mountain needing an online pull couldn't write the slot list and the reload came back. `storeSet` now frees room by dropping local copies of other mountains saved online at least as recently (never the one opened or the one left); if nothing can go, the switch is refused with a message. Scenario 152. (Claude, Nov 3)
 - 2.82.3: title screen scrolls on iPad. Published Nov 2 (Phil checked it on iPad; quick-fix tier: 144, 01, 13, 74 passed). From player reports. `#title` was `pointer-events: none` (children
   `auto`) so taps fell through to the 3D view; iPad Safari won't touch-scroll a box like that, and gaps between cards hit the canvas.
@@ -181,7 +183,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
-| `ccr-54d78266-eg1xc5` | Claude | **2.84: running your resort in matches** (Phil's pick, Nov 3): settings, removing, money and land as match orders. See the multiplayer note. Server changes in `match/market.mjs` go live with the publish (the box follows `main`). | Nov 3, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
