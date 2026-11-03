@@ -2486,6 +2486,10 @@ const CREEKD = new Float32Array(NV * NV); // distance to creek centre, cells
 const HAZEV = new Float32Array(NV * NV);  // haze mix per vertex
 const TSH = new Float32Array(NV * NV);    // forest shade per vertex
 const cellTrees = new Uint8Array(WN * WN);
+// Crown Peak only: the ground carries on FAR_E past the map's edge all round (see buildFar), so your rivals'
+// bases, lots and land, which reach past it, have ground under them. FAR holds its heights, like HT.
+const FAR_E = MOUNTAIN.match ? 56 : 0, FN = WN + 2 * FAR_E, FNV = FN + 1;
+let FAR = null, FARRD = null, FARCD = null;
 
 const vu = i => (i - PLAY0) / PN;
 const vv = j => (PLAY1 - j) / PN;
@@ -2496,9 +2500,17 @@ function sampleGrid(arr, gx, gz) {
   const a = arr[j * NV + i], b = arr[j * NV + i + 1], c = arr[(j + 1) * NV + i], d = arr[(j + 1) * NV + i + 1];
   return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
 }
-function heightAt(x, z) { return sampleGrid(HT, x + HALF, z + HALF) * VEX; }
+function heightAt(x, z) { const gx = x + HALF, gz = z + HALF; return (FAR && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz) : sampleGrid(HT, gx, gz)) * VEX; }
+// Past the map's edge (Crown Peak): the ring of ground round it, in the same grid coordinates.
+function farAt(gx, gz) {
+  gx = clamp(gx + FAR_E, 0, FN - 0.0001); gz = clamp(gz + FAR_E, 0, FN - 0.0001);
+  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
+  const a = FAR[j * FNV + i], b = FAR[j * FNV + i + 1], c = FAR[(j + 1) * FNV + i], d = FAR[(j + 1) * FNV + i + 1];
+  return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+}
 // The height of the drawn ground: its triangles, which can sit above heightAt's smooth blend on a sharp bank.
 function meshHeightAt(x, z) {
+  if (FAR && (x + HALF < 0 || z + HALF < 0 || x + HALF > WN || z + HALF > WN)) return farAt(x + HALF, z + HALF) * VEX;
   const gx = clamp(x + HALF, 0, WN - 0.0001), gz = clamp(z + HALF, 0, WN - 0.0001), i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
   const a = HT[j * NV + i], b = HT[j * NV + i + 1], c = HT[(j + 1) * NV + i], d = HT[(j + 1) * NV + i + 1];
   const h = (i + j) & 1 ? (fx + fz <= 1 ? a + (b - a) * fx + (c - a) * fz : d + (c - d) * (1 - fx) + (b - d) * (1 - fz))
@@ -2575,23 +2587,26 @@ function hazeAt(gx, gz) {
     }
   }
   let k = gz < PLAY0 ? sstep(12, 62, d) * 0.5 : sstep(3, 48, d) * 0.78;
-  const e = Math.min(gx, WN - gx, gz, WN - gz);
-  // the map's edge fades away; thinner on Crown Peak, where your rivals' bases and lots sit near it
-  return Math.max(k, MOUNTAIN.match ? sstep(7, 1, e) : sstep(18, 1, e));
+  const e = Math.min(gx, WN - gx, gz, WN - gz) + FAR_E; // the edge of the ground fades away (past the ring, on Crown Peak)
+  return Math.max(k, sstep(18, 1, e));
 }
 
 const trees = {};
+// The ground at (u, v): the mountain's shape, the road bed and the creek. Also how far the road and creek are.
+function groundAt(M, u, v) {
+  let h = M.height(u, v);
+  let [dr, ru, rv] = distPoly(u, v, M.road);
+  if (M.branch) { const q = distPoly(u, v, M.branch); if (q[0] < dr) [dr, ru, rv] = q; } // a second road from town
+  const drc = dr * PN;
+  if (drc < 4.5) h = lerp(h, M.height(ru, rv) - 0.15, 1 - sstep(1.5, 4.5, drc));
+  const dcc = distPoly(u, v, M.creek)[0] * PN;
+  if (dcc < 2) h -= 0.8 * (1 - sstep(0.3, 1.9, dcc));
+  return [h, drc, dcc];
+}
 function generate(M) {
   for (let j = 0; j < NV; j++) {
     for (let i = 0; i < NV; i++) {
-      const idx = j * NV + i, u = vu(i), v = vv(j);
-      let h = M.height(u, v);
-      let [dr, ru, rv] = distPoly(u, v, M.road);
-      if (M.branch) { const q = distPoly(u, v, M.branch); if (q[0] < dr) [dr, ru, rv] = q; } // a second road from town
-      const drc = dr * PN;
-      if (drc < 4.5) h = lerp(h, M.height(ru, rv) - 0.15, 1 - sstep(1.5, 4.5, drc));
-      const dcc = distPoly(u, v, M.creek)[0] * PN;
-      if (dcc < 2) h -= 0.8 * (1 - sstep(0.3, 1.9, dcc));
+      const idx = j * NV + i, [h, drc, dcc] = groundAt(M, vu(i), vv(j));
       HT[idx] = h; ROADD[idx] = drc; CREEKD[idx] = dcc;
       HAZEV[idx] = hazeAt(i, j);
     }
@@ -2654,6 +2669,43 @@ function generate(M) {
     const h = HT[j * NV + i]; if (h > summit) summit = h; if (h < base) base = h;
   }
   M.summitH = summit; M.baseH = base;
+  if (FAR_E) generateFar(M);
+}
+// The ring of ground past the map (Crown Peak): the map's own heights where they overlap, so the two meet exactly.
+const farTrees = { n: 0 };
+function generateFar(M) {
+  FAR = new Float32Array(FNV * FNV); FARRD = new Float32Array(FNV * FNV); FARCD = new Float32Array(FNV * FNV);
+  for (let fj = 0; fj < FNV; fj++) for (let fi = 0; fi < FNV; fi++) {
+    const gx = fi - FAR_E, gz = fj - FAR_E, k = fj * FNV + fi;
+    if (gx >= 0 && gz >= 0 && gx <= WN && gz <= WN) { const idx = gz * NV + gx; FAR[k] = HT[idx]; FARRD[k] = ROADD[idx]; FARCD[k] = CREEKD[idx]; continue; }
+    [FAR[k], FARRD[k], FARCD[k]] = groundAt(M, vu(gx), vv(gz));
+  }
+  // A thinner forest than the map's own (one try a cell, fewer on phones): it's scenery, and trees cost the most to draw.
+  const rng = mulberry32(M.seed * 7 + 11), thin = { full: 0.75, phone: 0.4, low: 0.25 }[GFX];
+  const X = [], Z = [], Y = [], S = [], SY = [], R = [], T = [], CELL = [];
+  const cellStart = new Int32Array(FN * FN), cellCount = new Uint8Array(FN * FN);
+  for (let cj = 0; cj < FN; cj++) for (let ci = 0; ci < FN; ci++) {
+    const c = cj * FN + ci;
+    cellStart[c] = X.length;
+    const gx0 = ci - FAR_E, gz0 = cj - FAR_E;
+    if (gx0 >= 0 && gz0 >= 0 && gx0 < WN && gz0 < WN) continue; // the map has its own trees
+    const gx = gx0 + rng(), gz = gz0 + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
+    const u = vu(gx), v = vv(gz), h = farAt(gx, gz), k = cj * FNV + ci;
+    const g = Math.hypot(FAR[k + 1] - FAR[k], FAR[k + FNV] - FAR[k]);
+    let p = 0.04 + 0.96 * sstep(-0.22, 0.28, fbm(u * 4.5, v * 4.5, M.seed + 21, 4));
+    const tl = M.treeline + 3 * fbm(u * 8, v * 8, M.seed + 23, 3);
+    p *= 1 - sstep(tl - 3, tl + 1.5, h);
+    p *= 1 - sstep(0.55, 0.85, g);
+    if (FARRD[k] < 2.6 || FARCD[k] < 2.2) p = 0;
+    p *= (0.3 + 0.7 * sstep(2, 10, FARCD[k])) * 0.8 * thin;
+    if (r1 < p * 0.86) {
+      X.push(gx - HALF); Z.push(gz - HALF); Y.push(h * VEX - 0.06);
+      S.push((0.72 + 0.56 * r2) * (1 - 0.42 * sstep(tl - 8, tl, h))); SY.push(0.88 + 0.28 * r5);
+      R.push(r3 * Math.PI * 2); T.push(r4); CELL.push(c); cellCount[c]++;
+    }
+  }
+  Object.assign(farTrees, { n: X.length, x: Float32Array.from(X), z: Float32Array.from(Z), y: Float32Array.from(Y), s: Float32Array.from(S), sy: Float32Array.from(SY),
+    rot: Float32Array.from(R), tint: Float32Array.from(T), cell: Int32Array.from(CELL), cellStart, cellCount, cut: new Uint8Array(X.length) });
 }
 
 /* =====================================================================
@@ -2851,6 +2903,117 @@ function recolorTerrain(i0, j0, i1, j1) {
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
   }
   terrainGeo.attributes.color.needsUpdate = true;
+  if (farGeo && i0 <= 0 && j0 <= 0 && i1 >= WN && j1 >= WN) recolorFar(); // the whole map, so the season changed: the ring too
+}
+
+/* ---------- Crown Peak: the ground past the map's edge ----------
+   A ring of ground round the map, FAR_E wide, with a thinner forest: your rivals' slices reach past the map's
+   edge, so this is what their furthest lot rows, land and lifts stand on. For looking at only: nothing is
+   built, clicked or saved there, and the game's own grids (HT, trees, snow) stop at the map's edge as before. */
+let farGeo = null, farMesh = null, farTreeMesh = null, farTreeHaze = null, FARHZ = null;
+const farInner = (gx, gz) => gx > 0 && gz > 0 && gx < WN && gz < WN; // a spot the map's own ground covers
+function buildFar() {
+  const pos = new Float32Array(FNV * FNV * 3), nor = new Float32Array(FNV * FNV * 3), idx = [];
+  FARHZ = new Float32Array(FNV * FNV);
+  for (let fj = 0; fj < FNV; fj++) for (let fi = 0; fi < FNV; fi++) {
+    const k = fj * FNV + fi, gx = fi - FAR_E, gz = fj - FAR_E;
+    pos[k * 3] = gx - HALF; pos[k * 3 + 1] = FAR[k] * VEX; pos[k * 3 + 2] = gz - HALF;
+    // normals from the heights either side, so the ring and the map shade alike where they meet
+    const hx = (FAR[fj * FNV + Math.min(FN, fi + 1)] - FAR[fj * FNV + Math.max(0, fi - 1)]) * VEX / 2, hz = (FAR[Math.min(FN, fj + 1) * FNV + fi] - FAR[Math.max(0, fj - 1) * FNV + fi]) * VEX / 2, L = Math.hypot(hx, 1, hz);
+    nor[k * 3] = -hx / L; nor[k * 3 + 1] = 1 / L; nor[k * 3 + 2] = -hz / L;
+    FARHZ[k] = hazeAt(gx, gz);
+  }
+  for (let fj = 0; fj < FN; fj++) for (let fi = 0; fi < FN; fi++) {
+    const gx = fi - FAR_E, gz = fj - FAR_E;
+    if (gx >= 0 && gz >= 0 && gx < WN && gz < WN) continue; // the map's own ground is here
+    const a = fj * FNV + fi, b = a + 1, c = a + FNV, d = c + 1;
+    if ((gx + gz) & 1) idx.push(a, c, b, b, c, d); else idx.push(a, c, d, a, d, b);
+  }
+  farGeo = new THREE.BufferGeometry();
+  farGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  farGeo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  farGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(FNV * FNV * 3), 3));
+  farGeo.setAttribute('haze', new THREE.BufferAttribute(FARHZ, 1));
+  farGeo.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+  farSeam();
+  farMesh = new THREE.Mesh(farGeo, hazeMaterial('haze', { vertexColors: true }));
+  farMesh.receiveShadow = true;
+  scene.add(farMesh);
+  recolorFar();
+  const geo = buildTreeGeometry();
+  farTreeHaze = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, farTrees.n)), 1);
+  geo.setAttribute('ihaze', farTreeHaze);
+  farTreeMesh = new THREE.InstancedMesh(geo, treeMaterial(), Math.max(1, farTrees.n));
+  farTreeMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  farTreeMesh.castShadow = true; farTreeMesh.frustumCulled = false;
+  scene.add(farTreeMesh);
+  packFarTrees();
+}
+// The map's edge takes the ring's normals, so there's no seam in the light where they meet. Again whenever the
+// map's normals are worked out afresh.
+function farSeam() {
+  if (!farGeo) return;
+  const tn = terrainGeo.attributes.normal.array, nor = farGeo.attributes.normal.array;
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) {
+    if (i && j && i < WN && j < WN) continue;
+    const k = (j + FAR_E) * FNV + i + FAR_E, t = j * NV + i;
+    tn[t * 3] = nor[k * 3]; tn[t * 3 + 1] = nor[k * 3 + 1]; tn[t * 3 + 2] = nor[k * 3 + 2];
+  }
+  terrainGeo.attributes.normal.needsUpdate = true;
+}
+// The ring's living trees (not cut for a rival's trail, lift or lot), packed at the front like the map's own.
+function packFarTrees() {
+  if (!farTreeMesh) return;
+  const T = farTrees;
+  let n = 0;
+  for (let k = 0; k < T.n; k++) {
+    if (T.cut[k]) continue;
+    dummy.position.set(T.x[k], T.y[k], T.z[k]); dummy.rotation.set(0, T.rot[k], 0); dummy.scale.set(T.s[k], T.s[k] * T.sy[k], T.s[k]); dummy.updateMatrix();
+    farTreeMesh.setMatrixAt(n, dummy.matrix);
+    const t = T.tint[k];
+    farTreeMesh.setColorAt(n, _tc.setRGB(0.84 + 0.3 * t, 0.86 + 0.24 * t, 0.84 + 0.22 * (1 - t)));
+    farTreeHaze.array[n] = hazeAt(T.x[k] + HALF, T.z[k] + HALF);
+    n++;
+  }
+  farTreeMesh.count = n;
+  farTreeMesh.instanceMatrix.needsUpdate = true; farTreeMesh.instanceColor.needsUpdate = true; farTreeHaze.needsUpdate = true;
+}
+// Ring trees within r of (x, z), world coordinates.
+function farTreesIn(x, z, r, fn) {
+  const T = farTrees, gx = x + HALF + FAR_E, gz = z + HALF + FAR_E, r2 = r * r;
+  for (let j = Math.max(0, Math.floor(gz - r)); j <= Math.min(FN - 1, Math.floor(gz + r)); j++) for (let i = Math.max(0, Math.floor(gx - r)); i <= Math.min(FN - 1, Math.floor(gx + r)); i++) {
+    const c = j * FN + i, s0 = T.cellStart[c];
+    for (let k = s0; k < s0 + T.cellCount[c]; k++) if ((T.x[k] - x) ** 2 + (T.z[k] - z) ** 2 < r2) fn(k);
+  }
+}
+// The ring's colours: as the map's (recolorTerrain), with the snow and bare ground of the map's nearest edge.
+function recolorFar() {
+  if (!farGeo) return;
+  const col = farGeo.attributes.color.array, c = [0, 0, 0], T = farTrees;
+  const mix = (t, k) => { c[0] += (t[0] - c[0]) * k; c[1] += (t[1] - c[1]) * k; c[2] += (t[2] - c[2]) * k; };
+  for (let fj = 0; fj < FNV; fj++) for (let fi = 0; fi < FNV; fi++) {
+    const gx = fi - FAR_E, gz = fj - FAR_E;
+    if (farInner(gx, gz)) continue;
+    const k = fj * FNV + fi, h = FAR[k], g = Math.hypot(FAR[fj * FNV + Math.min(FN, fi + 1)] - FAR[fj * FNV + Math.max(0, fi - 1)], FAR[Math.min(FN, fj + 1) * FNV + fi] - FAR[Math.max(0, fj - 1) * FNV + fi]) / 2;
+    const edge = clamp(gz, 0, WN) * NV + clamp(gx, 0, WN); // the map's nearest edge point, for its snow
+    let cnt = 0;
+    for (let dj = -1; dj <= 0; dj++) for (let di = -1; di <= 0; di++) { const ci = fi + di, cj = fj + dj; if (ci >= 0 && cj >= 0 && ci < FN && cj < FN) cnt += T.cellCount[cj * FN + ci] * 2; }
+    const tsh = Math.min(1, cnt / 5);
+    const sn = vnoise(gx * 0.33, gz * 0.33, 99) * 0.018 + vnoise(gx * 1.7, gz * 1.7, 98) * 0.01;
+    c[0] = COL.snow[0] + sn; c[1] = COL.snow[1] + sn; c[2] = COL.snow[2] + sn;
+    mix(COL.alpine, sstep(MOUNTAIN.treeline - 2, MOUNTAIN.treeline + 6, h) * 0.6);
+    mix(COL.floor, tsh * 0.85);
+    const cov = snowCover(edge);
+    if (cov < 1) { groundColor(gx, gz, edge, _gc); mix(_gc, 1 - cov); }
+    const rk = sstep(0.78, 1.15, g + 0.12 * vnoise(gx * 0.4, gz * 0.4, 51));
+    if (rk > 0) { const st = 0.5 + 0.5 * vnoise(gx * 0.25, h * 1.6, 7); mix([lerp(COL.rockD[0], COL.rock[0], st), lerp(COL.rockD[1], COL.rock[1], st), lerp(COL.rockD[2], COL.rock[2], st)], rk * 0.92); }
+    const cd = FARCD[k], rd = FARRD[k];
+    if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
+    if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
+    if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
+    col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
+  }
+  farGeo.attributes.color.needsUpdate = true;
 }
 
 function buildTreeGeometry() {
@@ -3007,6 +3170,7 @@ function applyLand() {
 function rehaze() {
   for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) HAZEV[j * NV + i] = hazeAt(i, j);
   if (terrainGeo) terrainGeo.attributes.haze.needsUpdate = true;
+  if (farGeo) { for (let k = 0; k < FNV * FNV; k++) FARHZ[k] = hazeAt(k % FNV - FAR_E, Math.floor(k / FNV) - FAR_E); farGeo.attributes.haze.needsUpdate = true; packFarTrees(); }
   for (let k = 0; k < trees.n; k++) trees.haze[k] = hazeAt(trees.x[k] + HALF, trees.z[k] + HALF);
   if (treeMesh) packTrees();
   plantDirty = true;
@@ -3178,7 +3342,7 @@ function updateCamera() {
 const FOCUS_LIMIT = PN / 2 + 14;
 function focusScore() {
   updateCamera();
-  const p = pickTerrain(W / 2, H / 2);
+  const p = pickTerrain(W / 2, H / 2, true);
   return p ? Math.max(Math.abs(p.x), Math.abs(p.z)) : Infinity;
 }
 function moveTarget(dx, dz) {
@@ -3189,7 +3353,7 @@ function moveTarget(dx, dz) {
     const sc = focusScore();
     // Accept moves that stay in bounds, or that head back toward the mountain.
     // on Crown Peak, out to the edge of the map, so you can look over your rivals' bases, lots and land too
-    return sc <= (MOUNTAIN.match ? HALF - 3 : FOCUS_LIMIT + (landRects.length ? PD : 0)) || sc < before;
+    return sc <= (MOUNTAIN.match ? HALF + FAR_E - 14 : FOCUS_LIMIT + (landRects.length ? PD : 0)) || sc < before;
   };
   if (tryAt(ox + dx, oz + dz) || tryAt(ox + dx, oz) || tryAt(ox, oz + dz)) return;
   cam.target.x = ox; cam.target.z = oz;
@@ -3208,13 +3372,14 @@ function planePoint(px, py, y) {
   const t = (y - r.origin.y) / r.direction.y;
   return r.origin.clone().addScaledVector(r.direction, t);
 }
-function pickTerrain(px, py) {
-  const r = screenRay(px, py), o = r.origin, d = r.direction;
+// `far`: the ground past the map's edge counts too (Crown Peak's ring). Only the camera asks: nothing is built there.
+function pickTerrain(px, py, far = false) {
+  const r = screenRay(px, py), o = r.origin, d = r.direction, lim = HALF + (far ? FAR_E : 0);
   let t = Math.max(0, (260 - o.y) / d.y), prev = t;
   for (let k = 0; k < 3000; k++) {
     const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
     if (y < -20) return null;
-    if (inWorld(x, z) && y <= heightAt(x, z)) {
+    if (Math.abs(x) < lim && Math.abs(z) < lim && y <= heightAt(x, z)) {
       let a = prev, b = t;
       for (let n = 0; n < 12; n++) {
         const m = (a + b) / 2, yy = o.y + d.y * m;
@@ -9000,6 +9165,23 @@ function roadPath() {
   out.push(raw[last], LOT_DRIVE.pts[0]); // the driveway takes over from here (lotDrivePath)
   return (roadPathCache = out.filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1));
 }
+// Crown Peak: the road on from where it leaves the map, across the ring of ground past the edge (buildFar) toward
+// town. Only drawn: cars and buses still come and go at the map's edge (roadPath), as before.
+function roadOutPath() {
+  if (!FAR_E) return [];
+  const raw = MOUNTAIN.road.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })), out = [];
+  const lim = HALF + FAR_E - 1, onMap = (p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1;
+  for (let k = 0; k < raw.length - 1; k++) {
+    const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+    for (let i = 0; i < n; i++) {
+      const p = { x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) };
+      if (Math.abs(p.x) >= lim || Math.abs(p.z) >= lim) continue;
+      out.push(p);
+      if (onMap(p)) return out.length > 1 ? [...out, roadPath()[1] || p] : []; // on a little way, under the map's own road, so they join
+    }
+  }
+  return [];
+}
 // Where the road crosses the creek it goes over on a bridge: the deck runs level from bank to bank
 // (any part of the road's width over the creek counts), and cars and buses drive on it.
 let roadBridges = null, roadBridgeGroup = null;
@@ -9133,7 +9315,7 @@ function branchPath() {
   out.push(e, { x: e.x + (e.x - f.x) / d * 1.1, z: e.z + (e.z - f.z) / d * 1.1 }); // run on to meet the lot
   return (branchPathCache = out);
 }
-let branchMesh = null, driveMesh = null;
+let branchMesh = null, driveMesh = null, roadOutMesh = null;
 const DRIVE_HW = 0.75; // the driveway narrows to this by the lot
 const lotDrivePath = () => [ROAD_WORLD[LOT_DRIVE.k], ...LOT_DRIVE.pts];
 function buildRoad() {
@@ -9141,6 +9323,8 @@ function buildRoad() {
   if (branchMesh) { scene.remove(branchMesh); branchMesh.geometry.dispose(); branchMesh = null; }
   if (driveMesh) { scene.remove(driveMesh); driveMesh.geometry.dispose(); }
   roadMesh = roadRibbon(roadPath(), 0.05);
+  if (roadOutMesh) { scene.remove(roadOutMesh); roadOutMesh.geometry.dispose(); roadOutMesh = null; }
+  if (FAR_E && roadOutPath().length > 1) roadOutMesh = roadRibbon(roadOutPath(), 0.045); // a touch under the map's road, where they overlap
   // the driveway into the main lot: plain asphalt, narrowing from the road's width to the lot's lane
   driveMesh = roadRibbon(lotDrivePath(), 0.06, DRIVEWAY_MAT, (t) => lerp(ROAD_HW, DRIVE_HW, sstep(0, 0.7, t)));
   // a touch lower than the access road, so the access road is the one on top where they fork
@@ -17554,7 +17738,7 @@ function applyTerrainChange(i0, j0, i1, j1) {
   const pos = terrainGeo.attributes.position.array;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * NV + i; pos[k * 3 + 1] = HT[k] * VEX; }
   terrainGeo.attributes.position.needsUpdate = true;
-  terrainGeo.computeVertexNormals();
+  terrainGeo.computeVertexNormals(); farSeam();
   recomputeGrades(i0 - 1, j0 - 1, i1 + 1, j1 + 1);
   for (let cj = Math.max(0, j0 - 1); cj < Math.min(WN, j1 + 1); cj++) for (let ci = Math.max(0, i0 - 1); ci < Math.min(WN, i1 + 1); ci++) {
     const c = cj * WN + ci, s0 = trees.cellStart[c], e = s0 + trees.cellCount[c];
@@ -21066,9 +21250,10 @@ async function openMatch(lid) {
 function drawRivals() {
   for (const o of [...rivalGroup.children]) { rivalGroup.remove(o); if (o.userData.rival) { o.geometry.dispose(); if (o.userData.rival !== 'shared') o.material.dispose(); } }
   const land = [];
-  if (!matchView) return rivalLandSet(land);
-  const cut = new Set(), cutAt = (x, z, r) => { // like treesInBrush, but out on the rivals' slices (outside your land)
+  if (!matchView) { if (FAR) { farTrees.cut.fill(0); packFarTrees(); } return rivalLandSet(land); }
+  const cut = new Set(), farCut = new Set(), cutAt = (x, z, r) => { // like treesInBrush, but out on the rivals' slices (outside your land)
     if (inProperty(x, z)) return;
+    if (FAR && (Math.abs(x) > HALF - r - 1 || Math.abs(z) > HALF - r - 1)) farTreesIn(x, z, r, (k) => farCut.add(k)); // and in the ring past the map
     const gx = x + HALF, gz = z + HALF, r2 = r * r;
     for (let j = Math.max(0, Math.floor(gz - r)); j <= Math.min(WN - 1, Math.floor(gz + r)); j++) for (let i = Math.max(0, Math.floor(gx - r)); i <= Math.min(WN - 1, Math.floor(gx + r)); i++) {
       const c = j * WN + i, s0 = trees.cellStart[c], e = s0 + trees.cellCount[c];
@@ -21114,6 +21299,7 @@ function drawRivals() {
   }
   rivalLandSet(land);
   matchView.rivalCut = [...cut]; rivalTreesCut();
+  if (FAR) { farTrees.cut.fill(0); for (const k of farCut) farTrees.cut[k] = 1; packFarTrees(); }
   if (typeof renderer !== 'undefined' && renderer) renderer.shadowMap.needsUpdate = true;
   try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; }
 }
@@ -21152,8 +21338,8 @@ function rivalLot(clock, turn, cutAt) {
     const m = new THREE.Mesh(geo, mat);
     m.receiveShadow = true; m.renderOrder = 1; m.userData.rival = 'shared'; rivalGroup.add(m);
   };
-  const onMap = (p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1;
-  const road = roadPath().map(turn), cutRoad = [];
+  const onMap = (p) => Math.abs(p.x) < HALF + FAR_E - 1 && Math.abs(p.z) < HALF + FAR_E - 1; // the map, and on Crown Peak the ring round it
+  const road = [...roadOutPath().slice(0, -1), ...roadPath()].map(turn), cutRoad = [];
   let k0 = road.findIndex(onMap); // the road comes in from off the map: draw it from where it meets the map
   if (k0 >= 0) { const R = road.slice(k0).filter(onMap); strip(R, ROAD_HW, ROAD_MAT, 0.05); cutRoad.push(...R); }
   const drive = lotDrivePath().map(turn).filter(onMap);
@@ -21878,7 +22064,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.89', date: 'Nov 3, 2026', title: 'See your rivals’ whole resorts', kotm: true, items: [
     'King of the Mountain: you can now move the view out to the edge of the map, to look over your rivals’ bases.',
-    'Your rivals’ roads and parking lots now show on their slices, and land they’ve bought is no longer faded. Parts of the furthest lot rows and land run past the edge of the map, so those don’t show yet.'] },
+    'Your rivals’ roads and parking lots now show on their slices, and land they’ve bought is no longer faded.',
+    'Crown Peak’s ground now carries on past the old edge of the map, with forest and hills, so your rivals’ furthest lot rows, land and lifts have ground under them, and the road runs on toward town.'] },
   { v: '2.88.1', date: 'Nov 3, 2026', title: 'A tidier visit', small: true, items: [
     'Visiting a resort, the bar across the top is now a small eye button at the top left. Tap it for whose resort it is, Like, and Back to title.',
     'Fixed: on some screens the cards on the right of the title screen ran off the edge.'] },
@@ -23431,6 +23618,7 @@ function start(hot) {
   buildRoad();
   buildTown();
   buildTrees();
+  if (FAR_E) buildFar();
   buildBoundary();
   buildSnow();
   buildPuffs();
