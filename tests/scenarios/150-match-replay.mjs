@@ -14,7 +14,7 @@ export default async function ({ browser, url }) {
   const match = { lobbies: [{ id: 'R1', name: 'Replay Cup', map: 'match', slots: 3, starts_at: ago(65), days: 168, day_minutes: 30, status: 'running', day: 2, prize: null }],
     players: [0, 1, 2].map((s) => ({ lobby_id: 'R1', slot: s, user_id: [null, 'user-B', null][s], resort_name: names[s] })),
     resorts: [0, 1, 2].map((s) => ({ lobby_id: 'R1', slot: s, day: 2, save, summary: { name: names[s], profit: 100 * s, guests: 300 } })), orders: [],
-    days: [{ lobby_id: 'R1', day: 2, results: { wx: 'sunny', share: [100, 150, 90], resorts: [{ slot: 0, guests: 99, profit: 1000 }, { slot: 1, guests: 148, profit: 4099 }, { slot: 2, guests: 88, profit: -200 }] } }] };
+    days: [{ lobby_id: 'R1', day: 2, results: { wx: 'sunny', share: [100, 150, 90], resorts: [{ slot: 0, guests: 99, profit: 1000 }, { slot: 1, guests: 148, profit: 4099, cash0: save.cash - 5000, debt0: 0 }, { slot: 2, guests: 88, profit: -200 }] } }] };
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   await g.click('#mpCard'); await g.page.waitForSelector('[data-mp=open][data-id=R1]', { timeout: 10000 }); await g.page.click('[data-mp=open][data-id=R1]');
@@ -30,7 +30,14 @@ export default async function ({ browser, url }) {
   await g.wait(3000);
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
   await g.wait(2000);
-  assert(Math.abs(await g.ev('state.cash') - save.cash) < 1, 'the cash shown stays your real cash while the day plays (it was already counted by the server)');
+  assert(Math.abs(await g.ev('state.cash') - save.cash) < 1, 'your real cash stays put while the day plays (it was already counted by the server)');
+  // The figure in the corner moves from this morning's cash ($5,000 less) to tonight's as the day goes by.
+  const corner = () => g.ev(`(() => { const p = (state.time - DAY_OPEN) / (matchView.replay.end - DAY_OPEN); return { p, shown: cashNow(), want: state.cash - 5000 * (1 - p), text: $('cash').textContent === money(cashNow()) }; })()`);
+  const c1 = await corner();
+  assert(c1.p > 0.1 && c1.p < 0.9 && Math.abs(c1.shown - c1.want) < 1 && c1.text, `the corner shows the money partway through the day (${JSON.stringify(c1)})`);
+  await g.ev(`(() => { const keep = state.cash; for (let k = 0; k < 60 && state.phase === 'open'; k++) simStep(1.5); state.cash = keep; })()`); await g.wait(200); // as the live day does: its takings were counted by the server
+  const c2 = await corner();
+  assert(c2.shown > c1.shown && Math.abs(c2.shown - c2.want) < 1 && c2.text && Math.abs(await g.ev('state.cash') - save.cash) < 1, `and climbs toward tonight's figure (${Math.round(c1.shown)} → ${Math.round(c2.shown)})`);
   const rv = await g.ev(`(() => { cam.viewH = 60; cam.viewGoal = null; rivalSkiersTick(0.05); drawPeople(); const own = world.lifts[0].a, G = RIVAL_SKI.ghosts, far = G.map((x) => Math.hypot(x.x - own.x, x.z - own.z));
     const drawn = guests.filter((x) => x.px != null).length;
     return { n: G.length, shown: figMeshes.jacket.count - drawn, on: RIVAL_SKI.on, minFar: Math.min(...far), riding: G.filter((x) => x.mode === 'lift').length, skiing: G.filter((x) => x.mode === 'ski').length,

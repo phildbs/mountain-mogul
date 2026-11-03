@@ -46,6 +46,9 @@ try {
   ok(R(1).summary.guests > 0 && R(0).summary.guests > 0, `everyone had guests on day 1 (${[0, 1, 2].map((s) => R(s).summary.guests)})`);
   const d1 = db.tables.match_days.find((d) => d.day === 1);
   ok(d1 && d1.results.resorts.length === 3, 'day 1 is recorded');
+  // The morning's cash and loan, so the game can show the money moving while the day is watched.
+  ok(d1.results.resorts.every((r, k) => Number.isFinite(r.cash0) && Number.isFinite(r.debt0) && Math.abs(Math.round(R(r.slot).save.cash) - Math.round(r.cash0) - (R(r.slot).save.clock.debt || 0) + r.debt0 - r.profit) <= 1),
+    `each result has the morning's cash and loan, and they add up to the day's profit (${d1.results.resorts.map((r) => [r.cash0, r.profit, Math.round(R(r.slot).save.cash)].join('/'))})`);
   const wx = [0, 1, 2].map((s) => JSON.stringify(R(s).save.clock.wx));
   ok(wx[0] === wx[1] && wx[1] === wx[2], 'all three resorts share one forecast');
 

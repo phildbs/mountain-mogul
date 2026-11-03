@@ -3825,7 +3825,18 @@ let shownCash = null; // the dollar figure on screen, so the frame loop can keep
 const SANDBOX_CASH = 1e12;
 let sandboxNext = false; // the next new mountain starts as a sandbox
 try { sandboxNext = sessionStorage.getItem('mm.sandboxNext') === '1'; } catch (e) { /* storage blocked */ }
-const cashText = () => (state.sandbox ? 'Unlimited' : money(state.cash));
+// Watching a match day, the resort is already at the server's end-of-day figures (the server plays the day first).
+// So the money shown moves from the morning's figures to those as the day goes by, instead of sitting still
+// all day; the real figures (what building is checked against) don't change.
+function matchLag() {
+  let R = null; try { R = matchView && matchView.replay; } catch (e) { return null; } // not set up yet while the page loads
+  if (!R || !R.gap || state.phase !== 'open') return null;
+  const p = clamp((state.time - DAY_OPEN) / Math.max(1, (R.end || DAY_HARD_END) - DAY_OPEN), 0, 1);
+  return { cash: R.gap.cash * (1 - p), debt: R.gap.debt * (1 - p) };
+}
+const cashNow = () => { const g = matchLag(); return g ? state.cash - g.cash : state.cash; };
+const debtNow = () => { const g = matchLag(); return Math.max(0, g ? state.debt - g.debt : state.debt || 0); };
+const cashText = () => (state.sandbox ? 'Unlimited' : money(cashNow()));
 function startSandbox() {
   state.sandbox = true; state.cash = SANDBOX_CASH; state.goals = null;
   updateCash(false); if (BADGE_SUB) syncBadgeSub(); scheduleSave();
@@ -3833,10 +3844,11 @@ function startSandbox() {
 function setSandboxNext(on) { sandboxNext = on; try { on ? sessionStorage.setItem('mm.sandboxNext', '1') : sessionStorage.removeItem('mm.sandboxNext'); } catch (e) { /* storage blocked */ } }
 function updateCash(flash) {
   if (state.sandbox && state.cash < SANDBOX_CASH / 2) state.cash = SANDBOX_CASH;
-  shownCash = Math.round(state.cash);
+  shownCash = Math.round(cashNow());
+  const debt = Math.round(debtNow());
   $('cash').textContent = cashText();
-  $('cashDebt').textContent = state.debt ? `Loan ${money(state.debt)}` : '';
-  $('cashDebt').hidden = !state.debt;
+  $('cashDebt').textContent = debt ? `Loan ${money(debt)}` : '';
+  $('cashDebt').hidden = !debt;
   if (flash) {
     const box = $('cashBox');
     box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
@@ -21926,6 +21938,10 @@ async function startReplay(manual) {
   try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
   matchView.replay.end = dayHardEnd(); // today's plan: how long the evening runs
+  // The morning's cash and loan, from the server's result for today (older results: the cash less the day's profit).
+  const off = matchView.replay.official;
+  if (off) matchView.replay.gap = { cash: off.cash0 != null ? state.cash - off.cash0 : off.profit || 0, debt: off.debt0 != null ? (state.debt || 0) - off.debt0 : 0 };
+  updateCash(false);
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
   toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
@@ -22214,6 +22230,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.91.1', date: 'Nov 3, 2026', title: 'Match money moves through the day', kotm: true, small: true, items: [
+    'King of the Mountain: while the live day plays, your cash now moves from the morning’s figure to the day’s result, instead of staying put until the next day.'] },
   { v: '2.91', date: 'Nov 3, 2026', title: 'Likes when visiting', items: [
     'Visiting a resort, the eye menu now shows how many likes it has.',
     'Visiting or watching, tapping the mountain name at the top left opens the same menu, with Back to title.',
@@ -23774,7 +23792,7 @@ function frame(now) {
   if (overlay.profit) refreshProfitMap();
   if (state.started) { refreshTimebar(false); maybeReferralPrompt(); }
   // Food sales, lift power and the rest move cash all day long; keep the figure in the corner current.
-  if (state.started && Math.round(state.cash) !== shownCash) updateCash(false);
+  if (state.started && Math.round(cashNow()) !== shownCash) updateCash(false);
   fitT += dt;
   if (fitT > 0.4 && state.started) { fitT = 0; fitTopBar(); }
   if (!NO_RENDER) {
