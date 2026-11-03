@@ -6895,16 +6895,22 @@ function midToolSheet() {
 }
 function buildMid() {
   const d = midDraft; if (!d || state.phase !== 'closed' || visiting) return;
-  const L = d.L, info = midInfo(L, d.s);
-  if (info.problems.length || info.cost > state.cash) return;
-  pushUndo(`adding a mid-station to ${L.name}`);
-  clearTreeSet(info.treeSet);
-  state.cash -= info.cost;
-  L.mid = { s: d.s }; L.cost = (L.cost || 0) + info.build;
-  rebuildLift(L);
-  computeNetwork(); syncLabels(); updateCash(true);
+  const L = d.L, info = addMid(L, d.s, true);
+  if (!info) return;
   toast(`Built a mid-station on ${L.name} · −${money(info.cost)}. Build trails from it, or end trails at it.`);
   closeMidTool(); scheduleSave();
+}
+// Also what a match order does overnight, without the tool.
+function addMid(L, s, undo) {
+  const info = midInfo(L, s);
+  if (L.mid || !canMid(L.type) || info.problems.length || info.cost > state.cash) return null;
+  if (undo) pushUndo(`adding a mid-station to ${L.name}`);
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  L.mid = { s }; L.cost = (L.cost || 0) + info.build;
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+  return info;
 }
 function removeMid(L) {
   if (!L.mid || state.phase !== 'closed' || visiting) return;
@@ -6920,7 +6926,7 @@ function removeMid(L) {
 // On the lift's panel: what the mid-station did today, or a way to add one.
 function liftMidSection(L) {
   if (!canMid(L.type)) return '';
-  const closed = state.phase === 'closed' && !visiting;
+  const closed = overnightOk() && !visiting; // in a match, pressing pauses the live day
   if (!L.midUp) {
     if (!closed) return '';
     return distXZ(L.a, L.b) < MID_GAP * 2 ? '' : `<button class="btn secondary" data-action="midOpen">Add a mid-station · from ${money(midCost(L.type))}</button>`;
@@ -7892,7 +7898,7 @@ function liftUpgradeSection(L) {
   if (visiting) return '';
   const ups = liftUpgrades(L);
   if (!ups.length) return '';
-  if (state.phase !== 'closed') return '<p class="help">Lifts are upgraded overnight, while the resort is closed.</p>';
+  if (!overnightOk()) return '<p class="help">Lifts are upgraded overnight, while the resort is closed.</p>';
   const ok = ups.filter((u) => !u.problems.length), from = ok.length ? Math.min(...ok.map((u) => u.cost)) : 0;
   if (liftUpFor !== L.id) return ok.length ? `<button class="btn" data-action="liftUpOpen">Upgrade lift · from ${money(from)}</button>` : '';
   const s = L.stats, row = (u) => {
@@ -8001,7 +8007,7 @@ function sheetAct(b) {
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
   else if (a === 'bTab') { setBTab(b.dataset.v); renderSheet(); }
   else if (a === 'bTheme') { setBTheme(b.dataset.v); if (draft.bpos) recomputeBldDraft(); renderSheet(); hover.dirty = true; }
-  else if (a === 'bldTheme' && obj && state.phase === 'closed') { const st = styleOf(obj.type, b.dataset.v); if (st !== obj.style) { pushUndo(`restyling ${obj.name}`); obj.style = st; restyleBuilding(obj); scheduleSave(); } renderSheet(); }
+  else if (a === 'bldTheme' && obj && shut()) { const st = styleOf(obj.type, b.dataset.v); if (st !== obj.style) { pushUndo(`restyling ${obj.name}`); obj.style = st; restyleBuilding(obj); scheduleSave(); } renderSheet(); }
   else if (a === 'pickB') { if (b.dataset.v) setBTab((BGROUPS.find((g) => g[2].includes(b.dataset.v)) || [])[0]); draft.btype = b.dataset.v || null; draft.btier = +(b.dataset.tier || 0); draft.chain = []; draft.aimSet = false; clearGhost(); draft.moving = null; draft.turnOnly = false; draft.bpos = null; draft.info = null; clearGhost(); renderSheet(); }
   else if (a === 'moveBld' && obj) startMove(obj);
   else if (a === 'turnBld' && obj) startMove(obj, true);
@@ -16406,7 +16412,7 @@ function bldSheet(B) {
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${staffing}
-    ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
+    ${themed(B.type) && !visiting ? (shut() ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
     ${state.phase !== 'closed' || visiting || B.sold ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${(state.phase !== 'closed' && !matchPlay) || B.sold ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
@@ -18887,7 +18893,7 @@ function parkingPanel() {
   const off = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Off-site parking</b><span class="pill ${!spec ? 'off' : hasStation() ? 'on' : 'warn'}">${!spec ? 'Not set up' : hasStation() ? spec.label : 'Needs a station'}</span></div>
       <div class="l2">${spec ? `<span>${live ? `<b>${offUsed}</b> of ` : ''}${spec.spaces} spaces${live ? ' in use' : ''}</span><span>Lease ${money(Math.round(spec.lease * MOUNTAIN.costs))} a day</span>` : '<span>When the main lot is full, cars park off the mountain and parking shuttles bring guests to your shuttle stations.</span>'}${state.lastReport && state.lastReport.offsite ? `<span>${state.lastReport.offsite.cars} cars last day${state.lastReport.offsite.wait ? ` · ${Math.round(state.lastReport.offsite.wait)} min average shuttle wait` : ''}</span>` : ''}</div>
-      ${visiting ? '' : `<div class="l3">${!hasStation() ? '<span class="note">Build a shuttle station (Build › Buildings › Getting here) for the parking shuttles to stop at.</span>' : ''}${nx ? `<button class="chip" data-action="offsiteBuy" ${state.phase === 'closed' && state.cash >= nx.cost ? '' : 'disabled'}>${state.phase !== 'closed' ? (spec ? 'Upgrade overnight' : 'Set up overnight') : `${spec ? 'Upgrade to' : 'Set up'} ${nx.label.toLowerCase()} · ${nx.spaces} spaces · ${money(nx.cost)}`}</button>` : ''}${spec ? `<button class="chip" data-action="offsiteClose" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? 'Close it' : 'Close overnight'}</button>` : ''}</div>`}
+      ${visiting ? '' : `<div class="l3">${!hasStation() ? '<span class="note">Build a shuttle station (Build › Buildings › Getting here) for the parking shuttles to stop at.</span>' : ''}${nx ? `<button class="chip" data-action="offsiteBuy" ${overnightOk() && state.cash >= nx.cost ? '' : 'disabled'}>${!overnightOk() ? (spec ? 'Upgrade overnight' : 'Set up overnight') : `${spec ? 'Upgrade to' : 'Set up'} ${nx.label.toLowerCase()} · ${nx.spaces} spaces · ${money(nx.cost)}`}</button>` : ''}${spec ? `<button class="chip" data-action="offsiteClose" ${overnightOk() ? '' : 'disabled'}>${overnightOk() ? 'Close it' : 'Close overnight'}</button>` : ''}</div>`}
     </li>`;
   const sts = world.buildings.filter(isStation);
   const stRows = sts.map((B) => `<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
@@ -21564,23 +21570,24 @@ async function matchApplyPending() {
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
-  'remove', 'removeNo', 'landSel', 'landList'];
+  'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
 const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
-  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'hubFence'];
+  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'hubFence', 'bldTheme'];
 const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes',
-  'landBuy', 'landLease', 'landCancel', 'landEnd'];
+  'landBuy', 'landLease', 'landCancel', 'landEnd', 'liftUp', 'midBuild', 'midRemove', 'offsiteBuy', 'offsiteClose'];
 // Painting areas: the draft goes with the action, so the server paints the same ground.
 const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs (not terrain parks yet)
-const MATCH_PAUSE = ['shrinkLot']; // cars may be parked on it
+// The lot (cars may be parked on it), off-site parking, and lifts guests are riding: the live day pauses for these.
+const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'liftUp', 'midOpen', 'midRemove'];
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
   if (!a) return false;
   if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a) || MATCH_LAND.includes(a)) || (a === 'trailMode' && b.dataset.v === 'tpark')) {
-    toast('That isn’t part of King of the Mountain yet. Moving things, trail edits, lift upgrades and blueprints are still to come.', true); return true;
+    toast('That isn’t part of King of the Mountain yet. Moving things, trail edits, terrain parks and blueprints are still to come.', true); return true;
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
@@ -21627,7 +21634,7 @@ async function matchPause(b) {
   const back = stopReplay(false);
   matchView.paused = true; // after the reload: going back to Explore while paused would start the day again
   await back;
-  if (ref) { const o = matchFind(ref); select(o ? { kind, obj: o } : null); } else if (keep) select(keep);
+  if (ref) { const o = matchFind(ref); select(o ? { kind, obj: o } : null); if (o && ds.action === 'liftUp') { liftUpFor = o.id; renderSheet(); } } else if (keep) select(keep);
   toast('The live day is paused while you change this. Pick Explore to go back to it.');
   const same = [...sheet.querySelectorAll('[data-action]')].find((x) => !x.disabled && Object.keys(ds).every((k) => x.dataset[k] === ds[k]));
   if (same) same.click();
@@ -21649,7 +21656,7 @@ function matchKnobs() {
   for (const L of world.lifts) k['L' + L.id] = J([!!(L.open || L.planOff), L.color ?? null]);
   for (const t of world.trails) if (!t.virtual) k['T' + t.id] = J([!!t.open, t.groomed !== false, sm(t), t.sign ?? null, !!t.snowClosed]);
   for (const A of world.areas) k['A' + A.id] = J([!!A.closed, !!A.signs, sm(A), !!A.snowClosed, !!A.fenced]);
-  for (const B of world.buildings) k['B' + B.id] = J([B.patrollers ?? null, !!B.keep, B.hue ?? null, !!B.bare]);
+  for (const B of world.buildings) k['B' + B.id] = J([B.patrollers ?? null, !!B.keep, B.hue ?? null, !!B.bare, B.style || null]);
   k.ops = J(state.ops || null); k.baseSm = J(state.baseSm ? [state.baseSm.mode, state.baseSm.target] : null);
   return k;
 }
@@ -21680,6 +21687,7 @@ function matchSetKnobs(set) {
       if (B.type === 'condo') B.keep = !!v[1];
       if (BULB_TYPES.includes(B.type) && (B.hue ?? null) !== v[2]) { B.hue = v[2] || undefined; restyleBuilding(B); }
       if (B.type === 'firepit' && !!B.bare !== !!v[3]) { B.bare = !!v[3]; restyleBuilding(B); }
+      if (v[4] !== undefined && themed(B.type) && (B.style || null) !== v[4]) { B.style = styleOf(B.type, v[4] || 'classic'); restyleBuilding(B); } // older pages send no style
     }
   }
   computeNetwork(); labelsDirty = true;
@@ -21688,11 +21696,12 @@ function matchBefore(b) {
   const a = b.dataset.action, kind = selected && selected.kind, obj = selected && selected.obj;
   if (a === 'areaBuild' || a === 'hubLevel') return areaDraft ? { a, ds: { ...b.dataset }, sig: matchSig(), area: { mode: state.landMode, cells: [...areaDraft.cells], editId: areaDraft.editId ?? null, thin: state.gladeThin || null } } : null;
   if (!a || !(isKnob(a) || MATCH_ACTS.includes(a))) return null;
+  if (a === 'midBuild') return midDraft ? { a, ds: { ...b.dataset }, sel: matchRef('lift', midDraft.L), on: 'lift', mid: midDraft.s, sig: matchSig() } : null;
   return { a, ds: { ...b.dataset }, sel: obj && matchListOf(kind) ? matchRef(kind, obj) : null, on: kind || null, sig: matchSig(), knobs: matchKnobs() };
 }
 function matchAfter(s) {
   if (s.area) { if (matchSig() !== s.sig) matchOrder('land', { ds: s.ds, area: s.area }); return; }
-  if (MATCH_ACTS.includes(s.a)) { if (matchSig() !== s.sig) matchOrder(s.a === 'removeYes' ? 'remove' : 'other', { ds: s.ds, sel: s.sel, on: s.on }); return; }
+  if (MATCH_ACTS.includes(s.a)) { if (matchSig() !== s.sig) matchOrder(s.a === 'removeYes' ? 'remove' : 'other', { ds: s.ds, sel: s.sel, on: s.on, ...(s.mid != null ? { mid: s.mid } : {}) }); return; }
   const now = matchKnobs(), set = {};
   for (const k in now) if (now[k] !== s.knobs[k]) set[k] = JSON.parse(now[k]);
   if (Object.keys(set).length) matchOrder('ops', { set });
@@ -21711,6 +21720,7 @@ function matchDo(kind, p) {
   } else {
     const obj = p.sel ? matchFind(p.sel) : null;
     if (p.sel && !obj) return 'it isn’t there any more';
+    if (p.mid != null) { if (p.sel.kind !== 'lift' || !addMid(obj, clamp(+p.mid, 0.02, 0.98))) return 'the mid-station couldn’t be built there'; computeNetwork(); return ''; }
     const was = selected;
     selected = obj ? { kind: p.sel.kind, obj } : p.on ? { kind: p.on, obj: was && was.kind === p.on ? was.obj : null } : null;
     try { sheetAct({ dataset: { ...p.ds }, disabled: false }); } finally { selected = was && (!was.obj || !matchListOf(was.kind) || matchListOf(was.kind).includes(was.obj)) ? was : null; }
@@ -22230,6 +22240,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.92', date: 'Nov 3, 2026', title: 'Lift upgrades and mid-stations in matches', kotm: true, items: [
+    'King of the Mountain: upgrade lifts and add or remove mid-stations in a match. They’re built overnight, like everything else.',
+    'Off-site parking can be set up, upgraded or closed in a match too.',
+    'Pick a theme for new buildings, and change an existing building’s theme for free, in a match.',
+    'The building list’s profit sort and the profit map now work in matches.'] },
   { v: '2.91.1', date: 'Nov 3, 2026', title: 'Match money moves through the day', kotm: true, small: true, items: [
     'King of the Mountain: while the live day plays, your cash now moves from the morning’s figure to the day’s result, instead of staying put until the next day.'] },
   { v: '2.91', date: 'Nov 3, 2026', title: 'Likes when visiting', items: [
