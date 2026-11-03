@@ -31,13 +31,13 @@ export default async function ({ browser, url }) {
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
   await g.wait(2000);
   assert(Math.abs(await g.ev('state.cash') - save.cash) < 1, 'your real cash stays put while the day plays (it was already counted by the server)');
-  // The figure in the corner moves from this morning's cash ($5,000 less) to tonight's as the day goes by.
-  const corner = () => g.ev(`(() => { const p = (state.time - DAY_OPEN) / (matchView.replay.end - DAY_OPEN); return { p, shown: cashNow(), want: state.cash - 5000 * (1 - p), text: $('cash').textContent === money(cashNow()) }; })()`);
+  // The figure in the corner starts at this morning's cash ($5,000 less) and moves with the day's own takings.
+  const corner = () => g.ev(`(() => { const R = matchView.replay; return { sim: R.sim, shown: cashNow(), want: state.cash - 5000 + R.sim, text: $('cash').textContent === money(cashNow()) }; })()`);
   const c1 = await corner();
-  assert(c1.p > 0.1 && c1.p < 0.9 && Math.abs(c1.shown - c1.want) < 1 && c1.text, `the corner shows the money partway through the day (${JSON.stringify(c1)})`);
-  await g.ev(`(() => { const keep = state.cash; for (let k = 0; k < 60 && state.phase === 'open'; k++) simStep(1.5); state.cash = keep; })()`); await g.wait(200); // as the live day does: its takings were counted by the server
+  assert(c1.sim > 0 && Math.abs(c1.shown - c1.want) < 1 && c1.text, `the corner shows the morning's money plus what the day has taken so far (${JSON.stringify(c1)})`);
+  await g.ev(`replayKeep(() => { for (let k = 0; k < 60 && state.phase === 'open'; k++) simStep(1.5); })`); await g.wait(200); // as the live day does: its takings were counted by the server
   const c2 = await corner();
-  assert(c2.shown > c1.shown && Math.abs(c2.shown - c2.want) < 1 && c2.text && Math.abs(await g.ev('state.cash') - save.cash) < 1, `and climbs toward tonight's figure (${Math.round(c1.shown)} → ${Math.round(c2.shown)})`);
+  assert(c2.sim !== c1.sim && Math.abs(c2.shown - c2.want) < 1 && c2.text && Math.abs(await g.ev('state.cash') - save.cash) < 1, `and moves with the sales as the day plays, real cash unchanged (${Math.round(c1.shown)} → ${Math.round(c2.shown)})`);
   const rv = await g.ev(`(() => { cam.viewH = 60; cam.viewGoal = null; rivalSkiersTick(0.05); drawPeople(); const own = world.lifts[0].a, G = RIVAL_SKI.ghosts, far = G.map((x) => Math.hypot(x.x - own.x, x.z - own.z));
     const drawn = guests.filter((x) => x.px != null).length;
     return { n: G.length, shown: figMeshes.jacket.count - drawn, on: RIVAL_SKI.on, minFar: Math.min(...far), riding: G.filter((x) => x.mode === 'lift').length, skiing: G.filter((x) => x.mode === 'ski').length,

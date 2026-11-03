@@ -3829,13 +3829,18 @@ const SANDBOX_CASH = 1e12;
 let sandboxNext = false; // the next new mountain starts as a sandbox
 try { sandboxNext = sessionStorage.getItem('mm.sandboxNext') === '1'; } catch (e) { /* storage blocked */ }
 // Watching a match day, the resort is already at the server's end-of-day figures (the server plays the day first).
-// So the money shown moves from the morning's figures to those as the day goes by, instead of sitting still
-// all day; the real figures (what building is checked against) don't change.
+// So the money shown starts at this morning's figures and moves with what the day you watch takes in and spends
+// (tickets as guests arrive, meals at lunch, lift power), as in a day of your own; the day's wages and upkeep come
+// off as it ends, when the server's own figures take over. The real figures (what building is checked against) don't change.
 function matchLag() {
   let R = null; try { R = matchView && matchView.replay; } catch (e) { return null; } // not set up yet while the page loads
   if (!R || !R.gap || state.phase !== 'open') return null;
-  const p = clamp((state.time - DAY_OPEN) / Math.max(1, (R.end || DAY_HARD_END) - DAY_OPEN), 0, 1);
-  return { cash: R.gap.cash * (1 - p), debt: R.gap.debt * (1 - p) };
+  return { cash: R.gap.cash - (R.sim || 0), debt: R.gap.debt };
+}
+// Runs part of the watched day, keeping its takings out of your real cash (the server counted them) but in the figure shown.
+function replayKeep(run) {
+  const R = matchView.replay, keep = state.cash;
+  try { run(); } finally { if (matchView && matchView.replay === R) { R.sim += state.cash - keep; state.cash = keep; } } // unless the day ended and the server's figures came in
 }
 const cashNow = () => { const g = matchLag(); return g ? state.cash - g.cash : state.cash; };
 const debtNow = () => { const g = matchLag(); return Math.max(0, g ? state.debt - g.debt : state.debt || 0); };
@@ -22087,14 +22092,15 @@ async function startReplay(manual) {
   // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
   if (!mcOpen()) select(null);
   if (state.tool !== 'explore') setTool('explore');
-  matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash };
+  matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash, sim: 0 };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n; passBuyers = () => 0;
-  try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
+  try { replayKeep(openDay); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
   matchView.replay.end = dayHardEnd(); // today's plan: how long the evening runs
   // The morning's cash and loan, from the server's result for today (older results: the cash less the day's profit).
   const off = matchView.replay.official;
+  if (off) matchView.replay.sim += off.passes || 0; // season passes the server sold this morning
   if (off) matchView.replay.gap = { cash: off.cash0 != null ? state.cash - off.cash0 : off.profit || 0, debt: off.debt0 != null ? (state.debt || 0) - off.debt0 : 0 };
   updateCash(false);
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
@@ -22108,9 +22114,8 @@ const clockText = (t) => { const h = Math.floor(t / 60), m = Math.floor(t % 60);
 function replaySync() {
   if (!matchView || !matchView.replay || state.phase !== 'open') return;
   const l = matchView.lobby, target = replayClock(l), w = replayWindow(l);
-  const keep = state.cash; // its takings were already counted by the server
-  let n = 0; while (state.phase === 'open' && state.time < target - 1 && n++ < 200000) simStep(1.5);
-  state.cash = keep; updateCash(false);
+  let n = 0; replayKeep(() => { while (state.phase === 'open' && state.time < target - 1 && n++ < 200000) simStep(1.5); });
+  updateCash(false);
   // Aim for where the clock will be 20 seconds from now (the next check), so the pace changes as the evening starts.
   const ahead = replayClock(l, w.e + 20000) - state.time;
   state.speed = state.phase === 'open' ? clamp(ahead * 60 / 20 / GS_PER_REAL, 0.05, 4) : 0;
@@ -22385,6 +22390,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money in matches', kotm: true, small: true, items: [
+    'King of the Mountain: while you watch the day, your money now goes up and down with what actually happens: ticket sales as guests arrive, food sales at lunch, lift power through the afternoon. Wages and upkeep come off at the end of the day, as in single player, and the money lands on the server’s official figure.'] },
   { v: '2.94', date: 'Nov 3, 2026', title: 'Terrain parks and blueprints in matches', kotm: true, items: [
     'King of the Mountain: build, move and remove terrain park features in a match.',
     'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.',
@@ -23936,13 +23943,12 @@ function frame(now) {
   if (practice && state.started && !visiting) tutTick();
   if (state.started && !visiting) syncShowSpeed();
   if (matchView && RIVAL_SKI.on) { try { rivalSkiersTick(dt); } catch (e) { RIVAL_SKI.on = false; } }
-  // The day you watch in a match was already counted by the server, so its takings aren't added again: the cash
-  // shown stays your real cash (the server's) while it plays, less what you spend building.
-  const keep = matchView && matchView.replay ? state.cash : null;
   if (state.started && state.phase === 'open' && state.speed > 0) {
     let gdt = dt * GS_PER_REAL * (showSlow() ? Math.min(1, state.speed) : state.speed);
-    while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }
-    if (keep != null && state.cash !== keep) { state.cash = keep; updateCash(false); }
+    const run = () => { while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; } };
+    // The day you watch in a match was already counted by the server, so its takings aren't added again: your real
+    // cash stays the server's while it plays, less what you spend building (the corner shows the takings, see matchLag).
+    if (matchView && matchView.replay) replayKeep(run); else run();
     autosaveT += dt;
     // A crowded day makes a big save that pauses the game while it's written: save it less often.
     if (autosaveT > (lastSaveLen > 1.5e6 ? 45 : 15)) { autosaveT = 0; saveNow(); }
