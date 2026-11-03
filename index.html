@@ -10510,7 +10510,7 @@ function planFor(day) {
   return o && o.day === day && !(state.event && state.event.days.includes(day)) ? o.plan : kind;
 }
 const hasBld = (type) => world.buildings.some((B) => B.type === type);
-const lunchOnlyOk = (B) => isEatery(B);
+const lunchOnlyOk = (B) => EATS.includes(B.type); // a hotel's rooms stay open all day
 const liftModeIn = (P, L) => P.lifts[L.id] || 'full';
 const bldModeIn = (P, B) => { const m = P.bld[B.id] || 'open'; return m === 'lunch' && !lunchOnlyOk(B) ? 'open' : m; };
 const lotsIn = (P) => clamp(P.lots == null ? state.lotSections : P.lots, 1, state.lotSections);
@@ -12043,11 +12043,11 @@ const BTYPES = {
     desc: 'A big shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests. Builds beside the access road.' },
   hotel: {
     name: 'Hotel', where: 'base', cost: 300000, sign: 'HOTEL', accent: 0x1f6f6b,
-    desc: 'Rooms at the base for guests who stay the night. They need no parking space, are out for the first chair and stay for après. Rooms fill most on weekends and holidays, and faster with a lift or the end of a trail beside the door.',
+    desc: 'Rooms at the base for guests who stay the night. They need no parking space, are out for the first chair and stay for après. Rooms fill most on weekends and holidays, and faster with a lift or the end of a trail beside the door. Medium and large hotels have a restaurant, open to every guest for lunch and après.',
     tiers: [
       { label: 'Small', rooms: 12, w: 4.0, d: 3.0, upkeep: 900 },
-      { label: 'Medium', rooms: 40, w: 6.0, d: 3.8, upkeep: 2600, cost: 600000 },
-      { label: 'Large', rooms: 120, w: 9.0, d: 5.2, upkeep: 7000, cost: 1500000 },
+      { label: 'Medium', rooms: 40, seats: 60, stalls: 4, w: 6.0, d: 3.8, upkeep: 3300, cost: 600000 }, // medium and large have a restaurant
+      { label: 'Large', rooms: 120, seats: 140, stalls: 8, w: 9.0, d: 5.2, upkeep: 8400, cost: 1500000 },
     ],
   },
   // Homes to sell: `value` is what one home sells for before ski-in/ski-out and the owners' mood; `dues` a day each once sold.
@@ -12198,7 +12198,7 @@ function addDriveway(b) {
 }
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar'];
-const isEatery = (B) => EATS.includes(B.type);
+const isEatery = (B) => EATS.includes(B.type) || hotelDines(B);
 const isDecor = (B) => !!BTYPES[B.type].decor;
 const realBlds = () => world.buildings.filter((B) => !isDecor(B));
 // Old saves used tiers 0/1/2 for two-, four- and six-person teams.
@@ -14102,7 +14102,7 @@ function buildingVisual(b, ghost) {
   const fh = Math.max(0.25, (top - fs.hmin) * VEX + 0.25);
   if (!ghost && BY_ROAD.includes(b.type)) { const back = -s.d / 2 - 0.03, front = BAY_FRONT[b.type]; k.add(bx(s.w + 0.06, fh, front - back), BM.stone, 0, -fh / 2 + 0.01, (front + back) / 2); }
   else if (!ghost && !(b.type === 'firepit' && b.bare) && !BTYPES[b.type].noPad) k.add(bx(s.w + 0.06, fh, s.d + 0.06), BM.stone, 0, -fh / 2 + 0.01, 0);
-  if (RACK_TYPES.includes(b.type)) { // its own ski rack, standing on the ground in front, clear of any deck or steps
+  if (ownRack(b)) { // its own ski rack, standing on the ground in front, clear of any deck or steps
     const r0 = rackLayout({ type: b.type, tier: b.tier }), x0 = r0.x - r0.L / 2, x1 = r0.x + r0.L / 2;
     let front = s.d / 2;
     for (const [geo] of k.parts) { geo.computeBoundingBox(); const q = geo.boundingBox; if (q.min.y < 0.3 && q.min.x < x1 && q.max.x > x0) front = Math.max(front, q.max.z); }
@@ -14294,7 +14294,10 @@ const REV_CAT = { fire: 'apres', drinks: 'apres', camp: 'lessons', shop: 'retail
 const OFFERS = { firepit: ['warm', 'rest'], bench: ['rest'], picnic: ['rest'], bar: ['snack', 'drinks', 'rr'], lodge: ['food', 'warm', 'drinks', 'rr'], truck: ['snack'], cafe: ['warm', 'snack', 'rr'], restaurant: ['dine', 'apres', 'rr'], fine: ['finedine', 'apres', 'rr'], rental: ['rent'], tuning: ['rent', 'tune'], store: ['gear', 'shop'], gift: ['shop'], school: ['lesson'], restroom: ['rr'], hrest: ['rr'] };
 const PRICE_KEY = { bar: 'drinks', tuning: 'tune', store: 'gear', gift: 'gift', lodge: 'food', truck: 'snack', cafe: 'snack', restaurant: 'dining', fine: 'fine', rental: 'rental', school: 'lesson', kids: 'camp', hotel: 'room' };
 const SVC_WORD = { rest: 'A rest', camp: 'Kids’ camp', shop: 'A souvenir', gear: 'New gear', tune: 'A ski tune', food: 'Lunch', snack: 'A snack', warm: 'A hot chocolate', dine: 'Dinner', finedine: 'Fine dining', apres: 'A drink', drinks: 'A drink', fire: 'A seat by the fire', rent: 'Renting skis', lesson: 'A lesson' };
-const offers = (B) => OFFERS[B.type] || [];
+// Medium and large hotels have a restaurant inside: sit-down meals, après and restrooms, open to everyone.
+const HOTEL_OFFERS = ['dine', 'apres', 'rr'];
+const hotelDines = (B) => B.type === 'hotel' && !!bspec(B).seats;
+const offers = (B) => B.type === 'hotel' ? (hotelDines(B) ? HOTEL_OFFERS : []) : OFFERS[B.type] || [];
 function poolSlots(B, pool) {
   const s = bspec(B);
   const raw = pool === 'seat' ? s.seats : pool === 'rr' ? (s.stalls || 0) : pool === 'rent' ? s.stations : pool === 'lesson' ? s.classes * 6 * (learningOpen() ? 1.5 : 1) : 0; // a learning area lets the school run bigger classes
@@ -14503,6 +14506,7 @@ function bestVisit(g, here, radius, baseToo, list, needList) {
 // What a guest likes: dining-out types seek out fine dining, the impatient grab a snack from a truck,
 // and on a cold day a café is the place to warm up.
 function tastes(g, B, svc) {
+  if (g.hotel === B.id) return 2; // hotel guests like eating where they're staying
   if (svc === 'dine') return g.fancy ? 3 : -1.5;
   if (svc === 'finedine') return g.fancy ? 7 : g.spend > 1.1 ? -1 : -4; // big spenders splurge now and then
   if (svc === 'snack') return g.qh * 3 - 1 - (g.fancy ? 2 : 0);
@@ -14541,7 +14545,7 @@ const APRES_END = 1140, APRES_STAFF_HR = 95, SECURITY_HR = 160, LATE_FROM = 1320
 // Last call, per plan: the bar and fire pits stay open until then. The lodge stops serving at 8 and the
 // restaurants at 10, like a real base village, so a late last call is all about the bar.
 const LAST_CALLS = [[1140, '7 PM'], [1260, '9 PM'], [1380, '11 PM'], [1500, '1 AM']];
-const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, fine: 1320, cafe: 1140, truck: 1140 };
+const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, hotel: 1320, fine: 1320, cafe: 1140, truck: 1140 };
 const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
 // Cafés and food trucks in the base area serve the après crowd too (hot drinks, a bite for the drive)
 // until 7 PM. Up the mountain they're only open for night skiers.
@@ -14549,8 +14553,8 @@ const BASE_APRES = ['cafe', 'truck'];
 // A café or truck needs a far smaller evening crew than a lodge or bar.
 const APRES_CREW = { cafe: 0.5, truck: 0.3 };
 // A casual restaurant up the mountain feeds night skiers, but après is for the base and village ones.
-const apresType = (B) => (APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase);
-const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
+const apresType = (B) => (APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase) || hotelDines(B);
+const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' || B.type === 'hotel' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
 function nightOk(P) { return P.night && realTrails().some((t) => t.lit) ? P.night : 0; }
@@ -14659,7 +14663,7 @@ function maybeApres(g) {
     for (const B of world.buildings) {
       if (!apresOpen(B) || !withinWalk(g, B)) continue;
       const svc = apresSvc(B);
-      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : B.type === 'cafe' ? (g.family ? 1.5 : -0.5) + (todayWx().hi < 20 ? 1 : 0) : B.type === 'truck' ? g.qh * 2 - 2 - (g.fancy ? 2 : 0) : g.fancy ? 3 : -1)
+      const v = 10 - distXZ(B.door, g) * 0.1 - estWait(B, svc) * g.qh * 0.6 + (B.type === 'bar' ? 3 : B.type === 'firepit' ? 2.4 + (g.family ? 2 : 0) - (g.spend - 1) * 2 : B.type === 'lodge' ? 0 : B.type === 'cafe' ? (g.family ? 1.5 : -0.5) + (todayWx().hi < 20 ? 1 : 0) : B.type === 'truck' ? g.qh * 2 - 2 - (g.fancy ? 2 : 0) : g.fancy ? 3 : -1) + (g.hotel === B.id ? 3 : 0) // staying here: après downstairs
         - (B.type === 'firepit' ? 0 : Math.max(0, svcPrice(svc) / Math.max(1, svcRef(svc)) - 1) * 4) + Math.random() * 2;
       if (v > bv) { bv = v; best = B; }
     }
@@ -14671,7 +14675,7 @@ function maybeApres(g) {
   }
   if (!g.apres) return false;
   g.apresDone = true;
-  const list = world.buildings.filter((B) => (B.type === 'restaurant' || B.type === 'fine') && apresType(B) && bldOpenNow(B));
+  const list = world.buildings.filter((B) => (B.type === 'restaurant' || B.type === 'fine' || hotelDines(B)) && apresType(B) && bldOpenNow(B));
   let best = null, bd = Infinity;
   for (const B of list) { const d = distXZ(B.door, g); if (d < bd && (d < 14 || B.isBase)) { bd = d; best = B; } }
   if (!best) return false;
@@ -14694,9 +14698,10 @@ function startVisit(g, B, svc, resume) {
    and stalls; a placed rack (decor) serves any of those doors within RACK_R. With every rack full, skis go
    in the snow by the door: a small letdown, and now and then someone grabs the wrong pair. */
 const RACK_TYPES = ['lodge', 'cafe', 'restaurant', 'fine', 'bar', 'store', 'restroom', 'hrest']; // gift kiosks are ski-in, ski-out
+const ownRack = (B) => RACK_TYPES.includes(B.type) || hotelDines(B); // a hotel restaurant's rack, by the door
 const RACK_R = 3, RACK_GRACE = 5, RACK_SHARE = 1; // a placed rack's reach (30 m); a new resort's first days go easy
-const rackCap = (B) => { const s = bspec(B); return B.type === 'rack' ? s.racks : RACK_TYPES.includes(B.type) ? Math.round(((s.seats || 0) + (s.stalls || 0)) * RACK_SHARE) : 0; };
-const needsRack = (g, B) => RACK_TYPES.includes(B.type) && g.rack == null && !g.sight && !g.local && !g.needsRental;
+const rackCap = (B) => { const s = bspec(B); return B.type === 'rack' ? s.racks : ownRack(B) ? Math.round(((s.seats || 0) + (s.stalls || 0)) * RACK_SHARE) : 0; };
+const needsRack = (g, B) => ownRack(B) && g.rack == null && !g.sight && !g.local && !g.needsRental;
 const rackGrace = () => state.season <= 1 && ((state.seasonStats && state.seasonStats.days) || 0) < RACK_GRACE;
 // Pairs on each rack, keyed by rack id (a building's own rack has the building's id; skis in the snow by a
 // door are keyed by minus its id). Recounted from the guests every game minute, so nothing can drift.
@@ -15437,7 +15442,7 @@ function hotelPull(B) {
   if (w.snow >= 6 && w.type !== 'rain') day += 0.12; // last-minute bookings for the powder
   if (eventToday()) day += 0.08;
   const rate = clamp(Math.exp(-(state.prices.room - PRICE_DEFAULTS.room) / PRICE_DEFAULTS.room * 1.6), 0.1, 1.4);
-  const ski = B.type === 'condo' ? condoSki(B) : skiInOut(B), eat = hotelSpot(B.door).eats.length > 0;
+  const ski = B.type === 'condo' ? condoSki(B) : skiInOut(B), eat = hotelDines(B) || hotelSpot(B.door, B).eats.length > 0;
   return { day, rate, ski, eat, rep: clamp(state.reputation, 0.3, 1.3) };
 }
 const hotelShare = (B, p = hotelPull(B)) => clamp(p.day * p.rate * (p.ski ? 1.25 : 1) * (p.eat ? 1.08 : 1) * p.rep, 0, 1);
@@ -15554,7 +15559,7 @@ function condoHomes() {
   }
 }
 const condoSki = (C) => !!C.home || skiInOut(C);
-const condoEat = (C) => world.buildings.some((o) => HOTEL_EATS.includes(o.type) && bldMode(o) !== 'closed' && distXZ(o.door, C.door) < HOTEL_NEAR);
+const condoEat = (C) => world.buildings.some((o) => nearEats(o) && distXZ(o.door, C.door) < HOTEL_NEAR);
 // What owners think of the resort, as a 0–1 factor, and what that does to prices.
 const moodK = () => clamp(owners().mood / 100, 0, 1);
 const condoMoodPrice = () => 0.7 + 0.5 * moodK();
@@ -15677,31 +15682,35 @@ function condoNote(B, open, y) {
     <p class="help">${B.slope ? (T ? `Slopeside: owners ski out of the door onto <b>${esc(T.name)}</b> and ski home at the end of the day.` : '<b>No trail by the door any more</b>: owners have to walk to the lifts, and they don’t like it.') : 'At the base: owners walk out to the lifts.'}${sold ? ' Owners live here, so it can’t be moved or removed.' : ''}</p>`;
 }
 // What a hotel's door has around it: ski-in, ski-out, and the places to eat within a short walk (by name).
-function hotelSpot(door) {
-  const eats = world.buildings.filter((o) => HOTEL_EATS.includes(o.type) && bldMode(o) !== 'closed' && distXZ(o.door, door) < HOTEL_NEAR)
+const nearEats = (o) => (HOTEL_EATS.includes(o.type) || hotelDines(o)) && bldMode(o) !== 'closed';
+// `own`: this hotel has its own restaurant (medium and large).
+function hotelSpot(door, self = null, own = !!self && hotelDines(self)) {
+  const eats = world.buildings.filter((o) => o !== self && nearEats(o) && distXZ(o.door, door) < HOTEL_NEAR)
     .sort((a, b) => distXZ(a.door, door) - distXZ(b.door, door));
-  return { ski: skiInOut({ door }), eats };
+  return { ski: skiInOut({ door }), eats, own };
 }
 const CHECK_ICON = (ok) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ok ? '<path d="M5 12.5l4.5 4.5L19 7.5"/>' : '<circle cx="12" cy="12" r="7.5"/>'}</svg>`;
 // Two ticks that fill rooms faster, shown on the hotel card and while placing one.
 function hotelChecks(spot) {
   const names = spot.eats.slice(0, 3).map((o) => `<b>${esc(o.name)}</b>`), more = spot.eats.length - names.length;
-  const eat = names.length ? `Food close by: ${names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] : names[0]}${more ? ` and ${more} more` : ''}.` : '<b>No food close by.</b> A lodge, casual restaurant, fine dining or bar a short walk from the door helps (cafés and food trucks don’t count).';
+  const list = names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] : names[0];
+  const eat = spot.own ? `<b>Its own restaurant</b> feeds guests${names.length ? `, and there’s more close by: ${list}${more ? ` and ${more} more` : ''}` : ''}.` : names.length ? `Food close by: ${names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] : names[0]}${more ? ` and ${more} more` : ''}.` : '<b>No food close by.</b> A lodge, casual restaurant, fine dining or bar a short walk from the door helps (cafés and food trucks don’t count).';
   return `<ul class="checks">
     <li class="${spot.ski ? 'ok' : ''}">${CHECK_ICON(spot.ski)}<span>${spot.ski ? '<b>Ski-in, ski-out:</b> a base lift or the end of a trail is beside the door.' : '<b>Not ski-in, ski-out.</b> A base lift or the end of a trail beside the door fills rooms faster.'}</span></li>
-    <li class="${spot.eats.length ? 'ok' : ''}">${CHECK_ICON(spot.eats.length)}<span>${eat}</span></li>
+    <li class="${spot.own || spot.eats.length ? 'ok' : ''}">${CHECK_ICON(spot.own || spot.eats.length)}<span>${eat}</span></li>
   </ul>`;
 }
 function hotelPreview() {
   const s = BTYPES.hotel.tiers[draft.btier || 0], door = toWorld({ x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot }, 0, s.d / 2 + 0.35);
-  return `<div class="field-label">Here</div>${hotelChecks(hotelSpot(door))}`;
+  return `<div class="field-label">Here</div>${hotelChecks(hotelSpot(door, null, !!s.seats))}`;
 }
 // The hotel card: last night, and what fills rooms.
 function hotelNote(B, open, y) {
   const s = bspec(B), rooms = open ? B.today.rooms : y && y.rooms;
   const last = rooms != null ? `<p class="help">${open ? 'Tonight' : 'Last night'}: <b>${rooms}</b> of ${s.rooms} rooms booked (${Math.round(rooms / s.rooms * 100)}%) at ${money(state.prices.room)} a night.</p>` : '';
   return `<div class="field-label">Bookings</div>${last}
-    ${hotelChecks(hotelSpot(B.door))}
+    ${hotelChecks(hotelSpot(B.door, B))}
+    ${hotelDines(B) ? `<p class="help">Its restaurant (${s.seats} seats) is open to every guest: sit-down lunch at the casual restaurant meal price (${money(state.prices.dining)}), and après after the lifts close. Hotel guests like eating where they stay.</p>` : ''}
     <p class="help">Rooms fill most on weekends, holidays and powder days; weekdays are quiet. A busy, well-liked resort fills more rooms; a small one can’t fill a big hotel.</p>`;
 }
 function busBoard(st) {
@@ -15785,7 +15794,7 @@ function capOf(type, s) {
     case 'school': return `${s.classes} instructors · ${s.classes * 6} students`;
     case 'patrol': return `${s.crew} patrollers`;
     case 'restroom': return `${s.stalls} stalls`;
-    case 'hotel': return `${s.rooms} rooms · up to ${s.rooms * ROOM_GUESTS} guests a night`;
+    case 'hotel': return `${s.rooms} rooms · up to ${s.rooms * ROOM_GUESTS} guests a night${s.seats ? ` · restaurant, ${s.seats} seats` : ''}`;
     case 'condo': return `${s.units} ${s.units === 1 ? 'home' : 'homes'} to sell · each sleeps ${CONDO_GUESTS} · about ${money(s.value)} a home`;
     case 'clinic': return `${s.beds} treatment beds`;
     case 'kids': return `${s.campers} children a day`;
@@ -15889,7 +15898,7 @@ function bldDraftSheet() {
       const t = BTYPES[k], sz = t.tiers ? t.tiers[tier] : null;
       const have = t.plop ? 0 : world.buildings.filter((B) => B.type === k && (!sz || (B.tier || 0) === tier)).length;
       const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : t.where === 'low' ? 'base or low slopes' : '';
-      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
+      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${k === 'hotel' && sz && sz.seats ? 'Rooms and a restaurant' : BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
     };
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
     const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
@@ -16044,7 +16053,7 @@ function buyOffsite() {
   renderSheet(); scheduleSave();
 }
 function rackLive(B) {
-  if (!RACK_TYPES.includes(B.type)) return '';
+  if (!ownRack(B)) return '';
   const snow = (today && today.rackAt && today.rackAt[B.id]) || 0;
   return `<br><b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${rackCap(B)} pairs on its ski rack${snow ? ` · <b>${snow}</b> left in the snow today` : ''}`;
 }
@@ -16069,7 +16078,7 @@ function bldLive(B) {
     case 'clinic': return `<b>${B.today.visits}</b> patients today · <b>${today ? today.patched : 0}</b> back on the snow`;
     case 'kids': return `<b>${B.today.visits}</b> of ${s.campers} kids at camp`;
     case 'condo': return `<b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.owner && !g.gone ? AGENT : 0), 0)}</b> owners and <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.owner && !g.gone ? AGENT : 0), 0)}</b> renters out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting at home`;
-    case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting in their rooms`;
+    case 'hotel': return `<b>${B.today.rooms || 0}</b> of ${s.rooms} rooms booked · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && !g.gone ? AGENT : 0), 0)}</b> guests out on the mountain · <b>${guests.reduce((a, g) => a + (g.hotel === B.id && g.st === 'room' ? AGENT : 0), 0)}</b> resting in their rooms${s.seats ? `<br>Restaurant: <b>${Math.min(s.seats, B.used.seat * AGENT)}</b> of ${s.seats} seats taken · <b>${B.q.seat.length * AGENT}</b> in line` : ''}`;
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
@@ -16093,7 +16102,7 @@ function levelOffer(B) {
   return `<button class="btn secondary" data-action="levelB" ${cost <= state.cash ? '' : 'disabled'}>Level the ground around it · ${money(cost)}</button>`;
 }
 function bldServiceBreakdown(B, data, open) {
-  if (!['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar', 'firepit'].includes(B.type)) return '';
+  if (!['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar', 'firepit'].includes(B.type) && !hotelDines(B)) return '';
   const labels = { food: 'Meals', dine: 'Meals', finedine: 'Meals', snack: 'Snacks', warm: B.type === 'firepit' ? 'Warm-ups' : 'Hot drinks', rr: 'Restroom stops', rest: 'Rest breaks', fire: 'Evening fire visits', drinks: 'Drinks', apres: 'Après visits' };
   const rows = Object.entries((data && data.services) || {}).filter(([k, n]) => labels[k] && Number.isFinite(n) && n > 0).sort((a, b) => b[1] - a[1]);
   if (!rows.length) return '';
@@ -16114,7 +16123,7 @@ function bldSheet(B) {
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${t.tiers ? s.title || s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
     ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
-    ${RACK_TYPES.includes(B.type) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
+    ${ownRack(B) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
     <dl class="kv">
       <div><dt>${visitsLabel}</dt><dd>${visits}</dd></div>
       ${B.type === 'clinic' ? '' : B.type === 'patrol'
@@ -21630,7 +21639,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '2.85', date: 'Nov 3, 2026', title: 'Lunch on the way home and hotel ticks', items: ['Thanks for the feedback! Guests heading home after their lunch time used to walk straight past an open lodge to their car, and the day report said they found nowhere to eat at the base. Now they grab a bite on the way out.', 'Guests who head home before their lunch time no longer count as leaving without eating.', 'Skiers passing a few buildings on a trail now compare them for restrooms, hot drinks and a seat too, not only lunch: a long line at the first door sends them to the same thing a little further on.', 'A hotel’s card ticks off ski-in, ski-out and food close by, and names the lodges, restaurants and bars a short walk from the door. You see the same ticks while placing a hotel.'] },
+  { v: '2.85', date: 'Nov 3, 2026', title: 'Hotel restaurants and lunch on the way home', items: ['Medium and large hotels now have a restaurant inside, open to every guest: sit-down lunch at the casual restaurant price, and après after the lifts close. Hotel guests like eating where they stay, so their rooms always count as having food close by. Small hotels don’t have one. Their upkeep goes up a little to pay the restaurant staff ($3,300 a day for medium, $8,400 for large).', 'Thanks for the feedback! Guests heading home after their lunch time used to walk straight past an open lodge to their car, and the day report said they found nowhere to eat at the base. Now they grab a bite on the way out.', 'Guests who head home before their lunch time no longer count as leaving without eating.', 'Skiers passing a few buildings on a trail now compare them for restrooms, hot drinks and a seat too, not only lunch: a long line at the first door sends them to the same thing a little further on.', 'A hotel’s card ticks off ski-in, ski-out and food close by, and names the lodges, restaurants and bars a short walk from the door. You see the same ticks while placing a hotel.'] },
   { v: '2.84.5', date: 'Nov 3, 2026', title: 'Rival chairs and no invite pop-up', kotm: true, small: true, items: ['Fixed: your rivals’ lifts showed skiers riding up on nothing. Their chairs now show when you zoom in, like yours.', 'Your rivals’ slices are no longer faded like land beyond your boundary, so their trails sit naturally on the mountain instead of showing as grey stripes.', 'Fixed: the pop-up inviting friends to see your resort kept coming back. It no longer shows in matches.'] },
   { v: '2.84.4', date: 'Nov 3, 2026', title: 'Rivals that look the part', kotm: true, items: ['Your rivals’ slices now look like a real resort: their trails are groomed snow with the rating along the edges, the trees on their runs are cleared, their lifts have moving chairs, and their skiers are proper little skiers in their own colours, riding up and weaving down.'] },
   { v: '2.84.3', date: 'Nov 3, 2026', title: 'Match buildings and new days', kotm: true, small: true, items: ['Fixed: a duplex or townhomes you built in a match arrived as a single chalet, and themed buildings arrived in the classic style. They now come in the size and style you picked.', 'Fixed: just as a new day started, things you’d built could vanish from your screen for a moment and your cash could show the wrong amount, so a purchase could look fine and then be refused overnight. Thanks to Snowy for the detailed reports!'] },

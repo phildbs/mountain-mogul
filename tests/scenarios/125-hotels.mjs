@@ -41,11 +41,13 @@ export default async function ({ browser, url }) {
   // The card ticks ski-in, ski-out and names the places to eat a short walk from the door.
   const checks = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'), d = document.createElement('div'); d.innerHTML = bldSheet(B);
     const li = [...d.querySelectorAll('.checks li')]; return { n: li.length, ok: li.map((x) => x.classList.contains('ok')), text: li.map((x) => x.textContent.replace(/\\s+/g, ' ').trim()),
-      eats: hotelSpot(B.door).eats.map((o) => o.name), all: world.buildings.filter((o) => HOTEL_EATS.includes(o.type)).map((o) => [o.name, Math.round(distXZ(o.door, B.door))]) }; })()`);
+      eats: hotelSpot(B.door, B).eats.map((o) => o.name), all: world.buildings.filter((o) => HOTEL_EATS.includes(o.type)).map((o) => [o.name, Math.round(distXZ(o.door, B.door))]) }; })()`);
   eq(checks.n, 2, 'two checks on the hotel card');
   eq(checks.ok[0], true, 'ski-in, ski-out is ticked');
-  eq(checks.ok[1], checks.eats.length > 0, 'food is ticked only with somewhere to eat close by');
-  assert(checks.eats.length ? checks.eats.every((n) => checks.text[1].includes(n)) : /No food close by/.test(checks.text[1]), 'the card names the places to eat: ' + JSON.stringify(checks));
+  eq(checks.ok[1], true, 'a medium hotel always ticks food: it has its own restaurant');
+  assert(/Its own restaurant/.test(checks.text[1]) && checks.eats.every((n) => checks.text[1].includes(n)), 'the card says so, and names other places close by: ' + JSON.stringify(checks));
+  eq(await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'); return [offers(B), offers({ type: 'hotel', tier: 0 }), lunchOnlyOk(B), rackCap(B) > 0]; })()`),
+    [['dine', 'apres', 'rr'], [], false, true], 'medium and large hotels have a restaurant (with a ski rack); small ones don’t, and rooms never go lunch-only');
   const far = await g.ev(`hotelChecks({ ski: false, eats: [] })`);
   assert(/Not ski-in, ski-out/.test(far) && /No food close by/.test(far) && !/class="ok"/.test(far), 'a hotel far from everything shows two empty circles');
 
@@ -84,6 +86,8 @@ export default async function ({ browser, url }) {
   eq(rep.yday.rooms, morning.rooms, 'the hotel remembers last night');
   assert(/Hotel rooms/.test(rep.text), 'room revenue has its own line');
   assert(/hotels were \d+% full/.test(rep.text), 'the report says how full the hotels were');
+  const dine = rep.yday.services || {};
+  assert((dine.dine || 0) + (dine.apres || 0) > 0, `its restaurant served meals or après: ${JSON.stringify(dine)}`);
   assert(rep.hotel.naps >= naps.naps && /went back to their rooms for a rest/.test(rep.text), 'the report counts the rests');
 
   // A closed hotel books nothing; the room price is one of the resort's prices.
