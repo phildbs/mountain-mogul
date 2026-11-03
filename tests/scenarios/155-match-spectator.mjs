@@ -24,6 +24,13 @@ export default async function ({ browser, url }) {
   const a = await g.ev(`(() => { const cz = PLAY1 - CROWN.c[1] * PN - HALF; return { me: matchView.me, slot: matchView.slot, ticket: state.ticket, sw: !document.getElementById('visitSwitch').hidden, over: Math.abs(cam.target.x) < 2 && Math.abs(cam.target.z - cz - 10) < 2 && cam.viewH > 200, bar: document.getElementById('visitText').innerText }; })()`);
   eq([a.me, a.slot, a.ticket, a.sw, a.over], [false, 0, 50, true, true], 'a spectator sees the whole mountain, following the first resort, with a Next resort button');
   assert(/following Summit Ridge, 1st of 3/.test(a.bar), `the bar says whose resort (${a.bar})`);
+  // New chat flashes the match button for spectators too, whichever icon it shows.
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.messages = [...(d.match.messages || []), { id: 7, lobby_id: 'M1', user_id: 'u-x', slot: 0, name: 'Summit Ridge', body: 'Hello watchers', kind: 'chat', day: 13, hidden: false, created_at: new Date().toISOString() }]; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.ev('mcLoad()'); await g.wait(300);
+  const fl = await g.ev(`({ on: document.getElementById('mpFab').classList.contains('unread'), anim: getComputedStyle(document.getElementById('mpFab')).animationName, icon: [...document.querySelectorAll('#mpFab svg')].filter((s) => getComputedStyle(s).display !== 'none').map((s) => s.getAttribute('class')).join() })`);
+  console.log('  spectator icon:', fl.icon);
+  eq([fl.on, fl.anim], [true, 'mpflash'], `a spectator’s match button flashes orange for new chat (${fl.icon})`);
+  await g.click('#visitChat'); await g.wait(300); await g.ev('select(null)');
   // Where Pine Hollow's lodge is on screen, before and after following it.
   const spot = (pre) => g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'lodge'), cx = PLAY0 + CROWN.c[0] * PN - HALF, cz = PLAY1 - CROWN.c[1] * PN - HALF, phi = ${pre} * 2 * Math.PI / 3;
     const x = cx + (B.x - cx) * Math.cos(phi) - (B.z - cz) * Math.sin(phi), z = cz + (B.x - cx) * Math.sin(phi) + (B.z - cz) * Math.cos(phi);

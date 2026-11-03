@@ -95,6 +95,14 @@ export default async function ({ browser, url }) {
   eq(await press('[data-action=parkRemove]'), true, 'a feature can be removed');
   o = await last(); eq([o.payload.park.op, o.payload.park.fid], ['remove', f2], 'and the removal is sent');
   await g.ev(`setTool('explore')`);
+  // Staying closed on some days: a choice under Hours in a match's operations plans, sent like any setting.
+  await g.ev(`(() => { resortTab = 'ops'; opsEdit = 'weekday'; select({ kind: 'manage', obj: 'ops' }); })()`); await g.wait(200);
+  eq(await press('[data-action=opsHours][data-v=closed]'), true, 'Hours has Stay closed in a match');
+  o = await last();
+  eq([o.kind, o.payload.set.ops.plans.weekday.hours], ['ops', 'closed'], 'and it’s sent with the plan');
+  assert(/stays closed on these days/.test(await g.ev(`document.getElementById('sheet').innerText`)), 'the panel says what it means');
+  eq(await g.ev(`(() => { const mp = matchPlay; matchPlay = null; opsEdit = 'weekend'; renderSheet(); const n = !!document.querySelector('#sheet [data-action=opsHours][data-v=closed]'); matchPlay = mp; opsEdit = 'weekday'; renderSheet(); return n; })()`), false, 'single player doesn’t offer it');
+  eq(await g.ev(`(() => { const o = state.ops.override; state.ops.override = { day: state.day, plan: 'weekday' }; const s = planShut(); state.ops.override = o; return s; })()`), true, 'on a weekday the plan keeps the resort shut');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

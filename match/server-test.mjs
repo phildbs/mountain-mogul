@@ -76,7 +76,12 @@ try {
   const big = (s2.world.buildings || []).find((B) => B.type === 'lodge');
   ok(!O2[5].error && big && big.tier === 1 && big.style === 'modern', `a building comes in the size and style ordered (${O2[5].error}, ${big && [big.tier, big.style]})`);
 
+  // Day 3: the player's plans keep the resort closed every kind of day, so it gets no skiers and doesn't open.
+  const shut = { hours: 'closed' };
+  await db.insert('match_orders', [order('ops', { set: { ops: { plans: { weekday: shut, weekend: shut, quiet: shut }, override: null } } })]);
   await tick(db, game, T0 + 3 * H + 60000);
+  const d3 = db.tables.match_days.find((d) => d.day === 3), r3 = d3 && d3.results.resorts.find((r) => r.slot === 1), k3 = d3 && d3.results.resorts.findIndex((r) => r.slot === 1);
+  ok(r3 && r3.guests === 0 && d3.results.share[k3] === 0 && d3.results.share.some((x) => x > 0), `a resort whose plan says stay closed gets no skiers that day; the others do (${d3 && d3.results.share})`);
   ok(L().day === 3 && L().status === 'finished', 'days 2 and 3 play, then the match finishes');
   const b = db.tables.match_badges || [];
   ok(b.length === 1 && b[0].user_id === U1 && b[0].place >= 1, `the player gets a badge for their place (${b.map((x) => x.title)})`);

@@ -339,7 +339,10 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 body.matchview .mpfab .eye, body:not(.matchview) .mpfab .crown { display: none; }
 .mpfab:hover { background: #f3f5f8; }
 .mpfab[aria-expanded="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
-.mpfab.unread { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(223, 86, 44, 0.35); }
+.mpfab.unread { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(223, 86, 44, 0.35); animation: mpflash 1.3s ease-in-out infinite; }
+/* New chat: the crown (or the eye, watching) flashes orange until it's read. */
+@keyframes mpflash { 50% { background: #fff; color: var(--accent); box-shadow: 0 0 0 4px rgba(223, 86, 44, 0.25); } }
+@media (prefers-reduced-motion: reduce) { .mpfab.unread { animation: none; } }
 .mpdot { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; border: 2px solid #fff; background: var(--ink); color: #fff; font: 700 11px/16px var(--ui); text-align: center; }
 body.matchview .visitbar, body.visiting .visitbar { left: calc(68px + env(safe-area-inset-left, 0px)); right: auto; top: calc(84px + env(safe-area-inset-top, 0px)); transform: none; z-index: 6;
   flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 2px; padding: 10px; width: min(280px, calc(100vw - 84px)); }
@@ -10784,6 +10787,9 @@ function defaultPlanFor(day) {
   return opsState().fridayWeekend === true && dateOf(day).getUTCDay() === 5 ? 'weekend' : dayKind(day);
 }
 // Event days always run the weekend plan; other days allow a one-day override.
+// In a match, a plan can keep the resort closed on its days: the server then gives it no skiers and doesn't open it.
+// (Single player never offers it.)
+function planShut() { return opsState().plans[planFor(state.day)].hours === 'closed'; }
 function planFor(day) {
   const o = opsState().override, kind = defaultPlanFor(day);
   return o && o.day === day && !(state.event && state.event.days.includes(day)) ? o.plan : kind;
@@ -19218,7 +19224,8 @@ function opsSection() {
     ${offsiteSpec() && hasStation() ? `<div class="field-label">Parking shuttles</div>${opsSeg('opsShuttles', 0, P.shuttles || 'normal', Object.entries(SHUTTLES).map(([k, v]) => [k, v.label]), 'Parking shuttles')}
       <p class="help">${money(Math.round(SHUTTLES.normal.cost * MOUNTAIN.costs))} a day every 15 minutes, ${money(Math.round(SHUTTLES.frequent.cost * MOUNTAIN.costs))} every 8. Off: no off-site parking that day.</p>` : ''}
     ${hasStation() ? `<div class="field-label">Town buses</div>${opsSeg('opsTownBus', 0, P.townBus || 'on', [['on', 'Running'], ['off', 'Off']], 'Town buses')}` : ''}
-    <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30']], 'Hours')}
+    <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30'], ...(matchPlay || P.hours === 'closed' ? [['closed', 'Stay closed']] : [])], 'Hours')}
+    ${P.hours === 'closed' ? '<p class="help">The resort stays closed on these days. You still pay overnight costs like snowmaking, but not lift crews or staff, and your skiers go to your rivals.</p>' : ''}
     <p class="help">Après-ski and night skiing are under <button class="link" data-action="manage" data-v="evenings">Evenings</button>.</p>
     <div class="field-label">Other employees</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}<p class="help">Lean, Normal and Extra affect lift operators and other resort employees. Patrol headcount and pay are set separately below.</p>
     ${hasBld('patrol') ? patrolOpsHtml(P) : ''}
@@ -19303,7 +19310,7 @@ function opsReportHtml(r) {
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
   rows.push(`<span>Parking <em>${o.lots.open} of ${o.lots.total} open</em></span><span>peak ${o.lots.peak} of ${o.lots.open * SPACES_PER_SECTION}</span>`);
-  const crew = [STAFF_LEVELS[o.staff].label + ' staff', o.hours === 'short' ? 'short hours' : 'full hours'];
+  const crew = [STAFF_LEVELS[o.staff].label + ' staff', o.hours === 'short' ? 'short hours' : o.hours === 'closed' ? 'staying closed' : 'full hours'];
   if (o.patrolCount != null) crew.push(`${o.patrolCount} patrollers per open hut`);
   const saved = o.saved > 0 ? `saved about ${money(o.saved)}` : o.saved < 0 ? `cost ${money(-o.saved)} extra` : 'everything running';
   return `<div class="rp-ops">
@@ -21926,8 +21933,11 @@ async function mcLoad() {
 }
 function mcStart(lid) {
   mcStop();
-  MC.lid = lid; MC.msgs = []; MC.seen = 0; MC.err = ''; MC.menu = null;
-  mcLoad().then(() => { MC.seen = MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0; mcShow(); });
+  // What you'd read last time in this match, so messages that came while you were away count as new. The first
+  // time, everything already there counts as read.
+  let was = null; try { was = JSON.parse(localStorage.getItem('mm.chatSeen') || '{}')[lid] ?? null; } catch (e) { /* storage blocked */ }
+  MC.lid = lid; MC.msgs = []; MC.seen = was ?? Infinity; MC.err = ''; MC.menu = null;
+  mcLoad().then(() => { if (MC.seen === Infinity) mcSeen(MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0); mcShow(); });
   // Live: a new message for this match arrives within a second or two.
   if (CLOUD.sb && CLOUD.sb.channel) {
     try {
@@ -21945,9 +21955,13 @@ function mcStop() {
   MC.chan = null; MC.lid = null;
 }
 const mcOpen = () => !!(selected && selected.kind === 'mchat');
+function mcSeen(id) {
+  MC.seen = id;
+  try { const k = JSON.parse(localStorage.getItem('mm.chatSeen') || '{}'); k[MC.lid] = id; localStorage.setItem('mm.chatSeen', JSON.stringify(k)); } catch (e) { /* storage blocked */ }
+}
 function mcShow() {
   const last = MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0;
-  if (mcOpen()) MC.seen = last;
+  if (mcOpen() && MC.seen !== last) mcSeen(last);
   const unread = MC.msgs.filter((m) => m.id > MC.seen && m.user_id !== CLOUD.uid && !MC.mutes.has(m.user_id)).length;
   $('visitChat').textContent = unread ? `Chat · ${unread} new` : 'Chat';
   $('mpFab').classList.toggle('unread', !!unread); $('mpDot').hidden = !unread; $('mpDot').textContent = unread > 9 ? '9+' : unread;
@@ -22068,7 +22082,7 @@ async function startReplay(manual) {
   const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
   if (res) { RIVAL_SKI.share = Object.fromEntries(res.resorts.map((r, i) => [r.slot, res.share[i] || 0])); try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; } }
   const n = k >= 0 ? res.share[k] || 0 : 0;
-  if (!n) { matchView.nothing = l.day; if (manual) toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
+  if (!n) { matchView.nothing = l.day; if (manual) toast('This resort had no skiers today (it stayed closed, or nobody came), so there’s nothing to watch.', true); return; }
   if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
   // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
   if (!mcOpen()) select(null);
@@ -22373,7 +22387,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.94', date: 'Nov 3, 2026', title: 'Terrain parks and blueprints in matches', kotm: true, items: [
     'King of the Mountain: build, move and remove terrain park features in a match.',
-    'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.'] },
+    'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.',
+    'Stay closed on quiet days: in a match, an operations plan’s Hours can be set to Stay closed. You skip lift crews and staff those days, and your skiers go to your rivals.',
+    'New chat now makes the match button flash orange until you read it, and messages that came while you were away count as new.'] },
   { v: '2.93', date: 'Nov 3, 2026', title: 'Moving things and trail edits in matches', kotm: true, items: [
     'King of the Mountain: move lifts and buildings, edit a trail’s route, and widen or narrow trails in a match. They’re done overnight, like everything else.',
     'Lifts, trails and buildings you build while the day plays now show as blueprints until they’re built that night, with “opens tomorrow morning” on their panel.',

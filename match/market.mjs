@@ -23,8 +23,8 @@ export function splitSkiers(alone, cap = alone.map(() => Infinity)) {
 export const nextCap = (cap, day) => (day.turnedAway > 0 ? day.guests : Math.min(1e6, (cap ?? 1e6) * 1.15));
 
 // Code run inside a game page (through the test harness's __dbg).
-// How many would come to this resort today, and buy its pass, if it were alone in the valley.
-export const PAGE_ALONE = `state.phase === 'closed' ? { day: demandForDay(), passes: passesSoldThisSeason() ? 0 : passBuyers(state.passPrice) } : { day: 0, passes: 0 }`;
+// How many would come to this resort today, and buy its pass, if it were alone in the valley (none if its plan keeps it closed today).
+export const PAGE_ALONE = `state.phase === 'closed' && !(typeof planShut === 'function' && planShut()) ? { day: demandForDay(), passes: passesSoldThisSeason() ? 0 : passBuyers(state.passPrice) } : { day: 0, passes: 0 }`;
 // Play today with this resort's share of the town's skiers and pass buyers, then go to the next morning.
 export const pagePlay = (share, passShare) => `(() => {
   const t0 = performance.now(), before = state.cash - (state.debt || 0), own = demandForDay, ownPass = passBuyers, cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);

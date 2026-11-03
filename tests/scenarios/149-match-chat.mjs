@@ -36,11 +36,19 @@ export default async function ({ browser, url }) {
   await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.messages.push({ id: 5, lobby_id: 'C1', user_id: 'u-rival', slot: 2, name: 'Rival Run', body: 'Powder tomorrow!', kind: 'chat', day: 2, hidden: false, created_at: new Date().toISOString() }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
   await g.ev('mcLoad()'); await g.wait(300);
   eq(await g.ev(`[document.getElementById('visitChat').textContent, document.getElementById('mpFab').classList.contains('unread'), document.getElementById('mpDot').textContent, document.getElementById('mpDot').hidden]`), ['Chat · 1 new', true, '1', false], 'new messages light up the match button with a count, and show in its menu');
+  eq(await g.ev(`getComputedStyle(document.getElementById('mpFab')).animationName`), 'mpflash', 'and the crown flashes orange until it’s read');
   await g.click('#visitChat'); await g.wait(400);
   let t = await g.page.innerText('#sheet');
   assert(/Match chat/i.test(t) && /Chat Cup has started/.test(t) && /Nice lift, neighbour/.test(t) && /Powder tomorrow/.test(t) && !/Hidden one/.test(t), `the chat shows news and messages, not hidden ones (${t.slice(0, 300)})`);
   assert(/😂 1/.test(t), 'with their reactions');
   eq(await g.ev(`[document.getElementById('visitChat').textContent, document.getElementById('mpFab').classList.contains('unread'), document.getElementById('mpDot').hidden]`), ['Chat', false, true], 'opening the chat clears the count and the light');
+  eq(await g.ev(`getComputedStyle(document.getElementById('mpFab')).animationName`), 'none', 'and stops the flashing');
+  // A message that comes while you're away still counts as new when you come back.
+  await g.ev('select(null)');
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.messages.push({ id: 6, lobby_id: 'C1', user_id: 'u-rival', slot: 2, name: 'Rival Run', body: 'Back later', kind: 'chat', day: 2, hidden: false, created_at: new Date().toISOString() }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.ev('mcStart(MC.lid)'); await g.wait(600);
+  eq(await g.ev(`[document.getElementById('mpDot').textContent, document.getElementById('mpFab').classList.contains('unread')]`), ['1', true], 'a message from while you were away flashes when you come back');
+  await g.click('#visitChat'); await g.wait(300);
 
   // Write a message; then too fast, then rude.
   const say = async (text) => { await g.page.fill('#mcText', text); await g.page.click('#mcForm button[type=submit]'); await g.wait(500); return g.page.innerText('#sheet'); };
@@ -66,7 +74,7 @@ export default async function ({ browser, url }) {
   assert(/take a look/.test(await g.page.innerText('#toast')), 'a message can be reported');
   await g.page.click('[data-mc=menu][data-id="5"]'); await g.page.click('[data-mc=mute]'); await g.wait(400);
   t = await g.page.innerText('#sheet');
-  assert(!/Powder tomorrow/.test(t) && /2 messages from people you muted are hidden/.test(t), 'muting hides their messages');
+  assert(!/Powder tomorrow/.test(t) && /3 messages from people you muted are hidden/.test(t), `muting hides their messages (${t.slice(-200)})`);
   const db = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match);
   eq([db.mutes.map((x) => [x.user_id, x.muted]), db.reports.map((x) => x.message_id)], [[['user-B', 'u-rival']], [2]], 'the mute and the report are saved');
   await g.page.click('[data-mc=unmute]'); await g.wait(400);
