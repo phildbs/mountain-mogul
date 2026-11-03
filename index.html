@@ -909,6 +909,9 @@ a.vtag { text-decoration: none; }
 .upd-react button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .upd-foot { display: flex; align-items: center; justify-content: space-between; }
 .wn-list { display: grid; gap: 4px; margin: 0; }
+.wn-tabs { flex-wrap: nowrap; margin: 2px 0 6px; }
+.wn-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 13px; }
+.wn-tabs .wn-new { background: var(--accent, #e0592a); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
 .wn-list summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
 .wn-list summary::-webkit-details-marker { display: none; }
 .wn-list summary::before { content: '›'; flex: none; width: 10px; color: var(--ink-2); transition: transform 0.15s; }
@@ -1818,6 +1821,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   <div class="modal-bg" id="whatsNew" hidden>
     <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="wnTitle">
       <div class="cm-head"><div><div class="eyebrow">Mountain Mogul</div><h2 id="wnTitle">What’s new</h2></div><button class="x" id="wnClose" aria-label="Close">✕</button></div>
+      <div class="tabs wn-tabs" id="wnTabs" role="tablist"></div>
       <div class="wn-list" id="wnList"></div>
     </div>
   </div>
@@ -22423,6 +22427,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.94.3', date: 'Nov 3, 2026', title: 'King of the Mountain tab in What’s new', small: true, items: ['What’s new has its own King of the Mountain tab, grouped by day like the rest, with a count of new match changes since you last looked. In a match it opens on that tab.'] },
   { v: '2.94.2', date: 'Nov 3, 2026', title: 'Condo sales in matches', kotm: true, small: true, items: [
     'King of the Mountain: the live day no longer makes up its own condo sales. Before, it could say a home sold and count it, then the count went back down overnight and the money never came. Now it shows the homes the match server really sold that morning, with their money.'] },
   { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money, a countdown and shared evenings in matches', kotm: true, small: true, items: [
@@ -23135,27 +23140,43 @@ function wnGroupLabel(key) {
 const latestBig = () => CHANGES.find((c) => !c.small && !c.kotm);
 const GENERAL = CHANGES.filter((c) => !c.kotm), KOTM_CHANGES = CHANGES.filter((c) => c.kotm);
 const wnCount = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-function openWhatsNew() {
-  const weeks = [];
-  const newest = wnDayOf(GENERAL[0].date);
-  for (const c of GENERAL) {
+// Two tabs: the game's updates, and King of the Mountain's own (opened first while you're in a match). A tab's badge
+// counts the updates since you last looked.
+let wnTab = 'all';
+function wnGroups(list, kotm) {
+  const weeks = [], newest = wnDayOf(list[0].date);
+  for (const c of list) {
     const k = wnGroupOf(c.date, newest), w = weeks[weeks.length - 1];
     if (w && w.k === k) w.list.push(c); else weeks.push({ k, list: [c] });
   }
-  $('wnList').innerHTML = weeks.map((w, i) => {
-    const bigs = w.list.filter((c) => !c.small), fixes = w.list.filter((c) => c.small);
+  const tidy = (c) => (kotm ? { ...c, items: c.items.map(kotmText) } : c);
+  return weeks.map((w, i) => {
+    const bigs = w.list.filter((c) => !c.small).map(tidy), fixes = w.list.filter((c) => c.small).map(tidy);
     const count = [bigs.length && wnCount(bigs.length, 'update', 'updates'), fixes.length && wnCount(fixes.length, 'fix', 'fixes')].filter(Boolean).join(', ');
     return `<details class="wn-week"${i === 0 ? ' open' : ''}><summary>${wnGroupLabel(w.k)}<span>${count}</span></summary><div>`
       + bigs.map((c, j) => wnItem(c, i === 0 && j === 0, w.k[0] === 'w')).join('')
-      + (fixes.length ? `<details class="wn-up wn-fixes"><summary>${wnCount(fixes.length, 'small fix', 'small fixes')}</summary><div>${fixes.map((c) => wnFix(c, w.k[0] === 'w')).join('')}</div></details>` : '')
+      + (fixes.length ? `<details class="wn-up wn-fixes"${!bigs.length && i === 0 ? ' open' : ''}><summary>${wnCount(fixes.length, 'small fix', 'small fixes')}</summary><div>${fixes.map((c) => wnFix(c, w.k[0] === 'w')).join('')}</div></details>` : '')
       + `</div></details>`;
-  }).join('')
-    + (KOTM_CHANGES.length ? `<details class="wn-week wn-kotm"><summary>King of the Mountain<span>${wnCount(KOTM_CHANGES.length, 'change', 'changes')}</span></summary><div>${KOTM_CHANGES.map((c) => wnFix({ ...c, items: c.items.map(kotmText) }, true)).join('')}</div></details>` : '')
+  }).join('');
+}
+function openWhatsNew(tab) {
+  let seen = null; try { seen = localStorage.getItem('mm.seenVersion'); } catch (e) { /* ignore */ }
+  const fresh = (list) => (seen ? list.filter((c) => newerVer(c.v, seen)).length : 0);
+  if (typeof tab !== 'string') { wnTab = matchView && KOTM_CHANGES.length ? 'kotm' : 'all'; openWhatsNew.fresh = { all: fresh(GENERAL), kotm: fresh(KOTM_CHANGES) }; }
+  else wnTab = tab;
+  const n = openWhatsNew.fresh || {}, badge = (k) => (n[k] ? `<span class="wn-new">${n[k]} new</span>` : '');
+  $('wnTabs').hidden = !KOTM_CHANGES.length;
+  $('wnTabs').innerHTML = `<button data-wn="all" role="tab" aria-pressed="${wnTab === 'all'}">Updates${badge('all')}</button>`
+    + `<button data-wn="kotm" role="tab" aria-pressed="${wnTab === 'kotm'}">King of the Mountain${badge('kotm')}</button>`;
+  $('wnList').innerHTML = (wnTab === 'kotm' && KOTM_CHANGES.length
+    ? `<p class="help">Changes to multiplayer matches on Crown Peak.</p>` + wnGroups(KOTM_CHANGES, true)
+    : wnGroups(GENERAL, false))
     + `<p class="help">Version ${VERSION}</p>`;
   $('whatsNew').hidden = false;
   try { localStorage.setItem('mm.seenVersion', VERSION); } catch (e) { /* ignore */ }
   refreshNewBar();
 }
+$('wnTabs').onclick = (e) => { const b = e.target.closest('[data-wn]'); if (b) openWhatsNew(b.dataset.wn); };
 function refreshNewBar() {
   let seen = null; try { seen = localStorage.getItem('mm.seenVersion'); } catch (e) { /* ignore */ }
   const returning = slots.list.length > 0 || (CLOUD.own || []).length > 0;
