@@ -241,6 +241,7 @@
         }
         if (fn === 'admin_match_settings') { const l = L.find((x) => x.id === args.lid); if (l) { if (args.pcomputers != null) l.computers = args.pcomputers; if (args.pkeep != null) l.keep_profit = args.pkeep; if (args.plate_days != null) l.late_days = args.plate_days; } put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_flag') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.flag = !!args.pflag; put(d); return { data: null, error: null }; }
+        if (fn === 'admin_match_late') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.late = args.plate !== false; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_turn') { const l = L.find((x) => x.id === args.lid && x.status === 'open'); if (!l) return { data: null, error: { message: 'only a lobby that hasn\'t started' } }; l.day_minutes = args.pminutes; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_close') { const l = L.find((x) => x.id === args.lid); if (l) l.status = 'closed'; put(d); return { data: null, error: null }; }
         const msgs = m.messages || [], reps = m.reports || [];
@@ -268,10 +269,15 @@
         if (![10, 15, 30].includes(args.pminutes)) return { data: null, error: { message: 'a turn is 10, 15 or 30 minutes' } };
         if (pw && (pw.length < 4 || pw.length > 30)) return { data: null, error: { message: 'a password is 4 to 30 characters' } };
         if (L.some((l) => l.created_by === me && l.kind === 'custom' && ['open', 'running'].includes(l.status))) return { data: null, error: { message: 'you already have a match of your own on: wait for it to finish, or cancel it before it starts' } };
-        const row = { id: 'C' + (L.length + 1), name: String(args.pname).replace(/\s+/g, ' ').trim(), map: 'match', slots: args.pslots, starts_at: new Date(Math.ceil(Date.parse(args.pstarts) / 60000) * 60000).toISOString(), days: args.pdays, day_minutes: args.pminutes, status: 'open', day: 0, prize: null, flag: false, computers: args.pcomputers !== false, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, kind: 'custom', created_by: me, locked: !!pw };
+        const row = { id: 'C' + (L.length + 1), name: String(args.pname).replace(/\s+/g, ' ').trim(), map: 'match', slots: args.pslots, starts_at: new Date(Math.ceil(Date.parse(args.pstarts) / 60000) * 60000).toISOString(), days: args.pdays, day_minutes: args.pminutes, status: 'open', day: 0, prize: null, flag: false, computers: args.pcomputers !== false, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, kind: 'custom', created_by: me, locked: !!pw, late: true };
         L.push(row); if (pw) (m.keys || (m.keys = {}))[row.id] = pw;
         (m.players || (m.players = [])).push({ lobby_id: row.id, slot: 0, user_id: me, resort_name: String(args.rname || 'My Resort').slice(0, 40) });
         put(d); return { data: row.id, error: null };
+      }
+      if (fn === 'match_options') {
+        const m = d.match || (d.match = {}), l = (m.lobbies || []).find((x) => x.id === args.lid && x.created_by === me && x.status === 'open');
+        if (!l) return { data: null, error: { message: 'only the player who made a match can change it, before it starts' } };
+        if (args.pcomputers != null) l.computers = args.pcomputers; if (args.plate != null) l.late = args.plate; put(d); return { data: null, error: null };
       }
       if (fn === 'match_cancel') {
         const m = d.match || (d.match = {}), l = (m.lobbies || []).find((x) => x.id === args.lid && x.created_by === me && x.status === 'open');
@@ -292,6 +298,7 @@
         const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);
         if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
         if (!L || L.status !== 'running') return { data: null, error: { message: 'this match isn\'t running' } };
+        if (L.late === false) return { data: null, error: { message: 'this match doesn\'t take late joiners' } };
         if (L.day > (L.late_days ?? Math.floor(L.days / 4))) return { data: null, error: { message: 'it\'s too late to join this match' } };
         if (P.some((p) => p.lobby_id === L.id && p.user_id === me)) return { data: null, error: { message: 'already in this match' } };
         const comp = P.find((p) => p.lobby_id === L.id && !p.user_id);

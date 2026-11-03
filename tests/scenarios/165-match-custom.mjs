@@ -11,8 +11,10 @@ export default async function ({ browser, url }) {
   const match = {
     lobbies: [lobby('P1', 'Pals Cup', 'open', 20, custom('u-m', { locked: true, day_minutes: 10, days: 28 })), lobby('O1', 'Winter Cup', 'open', 300),
       lobby('P2', 'Quiet Cup', 'open', 40, custom('u-hid', { day_minutes: 15, days: 7 })),
+      lobby('R1', 'Closed Doors', 'running', -60, custom('u-m2', { day: 2, late: false, computers: false })), lobby('R2', 'Open Doors', 'running', -60, custom('u-m3', { day: 2 })),
       lobby('F1', 'Old Pals', 'finished', -9000, custom('u-x', { day: 7, days: 7 })), lobby('F2', 'Autumn Cup', 'finished', -9000, { day: 168 })],
-    players: [{ lobby_id: 'P1', slot: 0, user_id: 'u-m', resort_name: 'Maker Hill' }, { lobby_id: 'P2', slot: 0, user_id: 'u-hid', resort_name: 'Hidden Hill' },
+    players: [{ lobby_id: 'R1', slot: 0, user_id: 'u-m2', resort_name: 'Shut Hill' }, { lobby_id: 'R2', slot: 0, user_id: 'u-m3', resort_name: 'Open Hill' },
+      { lobby_id: 'P1', slot: 0, user_id: 'u-m', resort_name: 'Maker Hill' }, { lobby_id: 'P2', slot: 0, user_id: 'u-hid', resort_name: 'Hidden Hill' },
       { lobby_id: 'F1', slot: 0, user_id: 'user-B', resort_name: 'Old Peak', place: 2 }, { lobby_id: 'F1', slot: 1, user_id: 'u-x', resort_name: 'X Hill', place: 1 },
       { lobby_id: 'F2', slot: 0, user_id: 'user-B', resort_name: 'Autumn Peak', place: 1 }, { lobby_id: 'F2', slot: 1, user_id: 'u-y', resort_name: 'Y Hill', place: 2 }],
     resorts: [], keys: { P1: 'Snow1234' },
@@ -32,6 +34,14 @@ export default async function ({ browser, url }) {
   assert(/Open lobbies[\s\S]*Winter Cup\s*Official[\s\S]*Pals Cup[\s\S]*Player match by Maker · Password[\s\S]*a new day every 10 min[\s\S]*Quiet Cup/i.test(t), `official first, then player matches (${JSON.stringify(t.slice(0, 900))})`);
   assert(/Quiet Cup[\s\S]{0,40}Player match\n/.test(t) && !/Secret/.test(t), 'a maker with a private profile isn’t named');
   assert(!/Pals Cup[\s\S]{0,120}Prize/.test(t), 'player matches have no prize badge');
+  // Pictures: Crown Peak at the top of the window, and the map on every lobby card.
+  const pics = await g.page.evaluate(() => ({ hero: [...document.querySelectorAll('#mpBody .mp-hero img')].map((i) => i.getAttribute('src')),
+    cards: document.querySelectorAll('#mpBody .mp-card').length, onCards: [...document.querySelectorAll('#mpBody .mp-card > img.mp-pic')].map((i) => i.getAttribute('src')) }));
+  assert(pics.hero.join() === 'img/crown.jpg' && pics.onCards.length === pics.cards && pics.onCards.every((x) => x === 'img/crown.jpg'), `Crown Peak at the top and on each card (${JSON.stringify(pics)})`);
+  await g.page.waitForFunction(() => [...document.querySelectorAll('#mpBody img')].every((i) => i.complete && i.naturalWidth > 0), null, { timeout: 10000 });
+  // Switches: computer players and late joining show on each lobby; with late joining off, there's no Join now.
+  assert(/Closed Doors[\s\S]*Computer players off · No late joining/.test(t) && /Open Doors[\s\S]*Computer players on · Late joining until day 42/.test(t), 'each lobby says whether computers play and late joining is on');
+  assert(!(await g.page.$('[data-mp=pick][data-id=R1]')) && await g.page.$('[data-mp=pick][data-id=R2]'), 'no Join now when late joining is off');
 
   // Joining a locked match needs its password.
   await g.page.click('[data-mp=pick][data-id=P1]');
@@ -48,7 +58,7 @@ export default async function ({ browser, url }) {
   // Making a match of your own.
   await g.page.click('[data-mp=make]');
   assert(await g.page.isVisible('#mpMake'), 'Make a match opens the form');
-  await g.page.click('[data-mk=turn][data-v="10"]'); await g.page.click('[data-mk=days][data-v="7"]'); await g.page.click('[data-mk=start][data-v="30"]'); await g.page.click('[data-mk=slots][data-v="2"]');
+  await g.page.click('[data-mk=turn][data-v="10"]'); await g.page.click('[data-mk=days][data-v="7"]'); await g.page.click('[data-mk=start][data-v="30"]'); await g.page.click('[data-mk=slots][data-v="2"]'); await g.page.click('[data-mk=late][data-v="0"]');
   t = await body();
   assert(/7 days\s*1 h 10 min/.test(t) && /168 days\s*a season · 1.2 days/.test(t), `lengths show how long they take in real time (${JSON.stringify(t.match(/Length[\s\S]{0,200}/i))})`);
   await g.page.fill('#mkName', 'Friday   Fun'); await g.page.fill('#mkResort', 'Phil’s Peak'); await g.page.fill('#mkPw', 'abc');
@@ -58,7 +68,7 @@ export default async function ({ browser, url }) {
   await g.page.fill('#mkPw', 'Pals2026'); await g.page.click('#mpMake button[type=submit]');
   await g.page.waitForFunction(() => !document.getElementById('mpMake') && /Friday Fun/.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 });
   const made = (await db()).lobbies.find((l) => l.name === 'Friday Fun');
-  eq([made.kind, made.created_by, made.day_minutes, made.days, made.slots, made.locked, made.status], ['custom', 'user-B', 10, 7, 2, true, 'open'], 'a 10-minute, 7-day, 2-resort match with a password');
+  eq([made.kind, made.created_by, made.day_minutes, made.days, made.slots, made.locked, made.status, made.computers, made.late], ['custom', 'user-B', 10, 7, 2, true, 'open', false, false], 'a 10-minute, 7-day, 2-resort match with a password, no computers and no late joining');
   const mins = (Date.parse(made.starts_at) - Date.now()) / 60000;
   assert(mins > 28 && mins < 32, `it starts in about 30 minutes (${mins.toFixed(1)})`);
   t = await body();
