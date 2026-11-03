@@ -139,9 +139,8 @@ export default async function ({ browser, url }) {
   eq(await g.ev('[state.phase, !!matchView.replay, state.tool, state.landMode]'), ['open', true, 'clear', 'glade'], 'during the live day the glade tab opens and the day keeps playing');
   await g.ev(`setTool('explore')`);
   // Things not in matches yet still say so.
-  await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);
-  await press('[data-action=moveTrail]');
-  eq((await orders()).length, 10, 'moving a trail isn’t part of matches yet: nothing is sent');
+  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
+  eq((await orders()).length, 10, 'blueprints aren’t part of matches yet: nothing is sent');
   // A building goes with its size and theme (a duplex is a condo's second size; it used to arrive as a chalet).
   const bo = await g.ev(`(() => {
     setTool('bld'); state.cash = Math.max(state.cash, 5e6); const L = world.lifts[0] || { a: { x: 0, z: 60 } };

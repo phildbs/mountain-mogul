@@ -48,11 +48,11 @@ export default async function ({ browser, url }) {
   // What the server can't do, the day, undo, and saving.
   const blocked = await g.ev(`(() => {
     const before = world.lifts.length, phase = state.phase; select({ kind: 'lift', obj: world.lifts[0] }); renderSheet();
-    const rm = document.querySelector('#sheet [data-action=moveLift]'); if (rm) rm.click();
+    const rm = document.createElement('button'); rm.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(rm); rm.click(); rm.remove();
     const t1 = document.getElementById('toast').textContent; openDay(); const t2 = document.getElementById('toast').textContent; undoLast(); saveNow();
     return { removeBtn: !!rm, t1, t2, lifts: world.lifts.length === before, phase: state.phase === phase };
   })()`);
-  assert(blocked.removeBtn && /isn’t part of King of the Mountain yet/.test(blocked.t1), `moving a lift isn't part of matches yet, and says so (${blocked.t1})`);
+  assert(blocked.removeBtn && /isn’t part of King of the Mountain yet/.test(blocked.t1), `blueprints aren't part of matches yet, and say so (${blocked.t1})`);
   assert(/server plays every day/.test(blocked.t2) && blocked.phase, 'the day can’t be opened by hand');
   eq(blocked.lifts, true, 'nothing moved or undone');
   const keysAfter = await g.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('skiTycoon')).sort().join());
@@ -78,8 +78,8 @@ export default async function ({ browser, url }) {
   o = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((x) => x.payload.what === 'trees').map((x) => x.payload.ks.length));
   eq(o, [tr.cleared], 'and the exact trees go to the server');
   const blocked2 = await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'landMode'; b.dataset.v = 'area'; select({ kind: 'manage', obj: 'snow' }); document.getElementById('sheet').appendChild(b); b.click();
-    const s = document.createElement('button'); s.dataset.action = 'shapeTrail'; document.getElementById('sheet').appendChild(s); s.click(); return [state.landMode, state.tool, document.getElementById('toast').textContent]; })()`);
-  assert(blocked2[0] === 'area' && blocked2[1] !== 'shape' && /isn’t part of King of the Mountain yet/.test(blocked2[2]), `painting areas works in matches; reshaping trails isn't there yet, and says so (${blocked2})`);
+    const s = document.createElement('button'); s.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(s); s.click(); return [state.landMode, state.tool, document.getElementById('toast').textContent]; })()`);
+  assert(blocked2[0] === 'area' && blocked2[1] !== 'shape' && /isn’t part of King of the Mountain yet/.test(blocked2[2]), `painting areas works in matches; blueprints aren't there yet, and say so (${blocked2})`);
   o = await orders();
   const sentBefore = o.length;
 

@@ -6608,6 +6608,7 @@ function shapeDraft() {
   pushUndo(`reshaping ${t.name}`);
   const old = shapePlanFor(t);
   if (old) cancelPlan(old);
+  matchMoved('shape', t, { ws: draft.ws.map((v) => Math.round(v * 100) / 100) });
   applyShape(t, draft.ws, info);
   computeNetwork(); syncLabels(); updateCash(true);
   toast(`Reshaped ${t.name} · −${money(info.cost)}`);
@@ -6679,21 +6680,26 @@ function newGroundArea(samples, olds) {
   }
   return fresh * 0.25;
 }
+// Also what a match order does overnight.
+function doTrailMove(t, info, pts0, width, ws) {
+  const pts = (info.reversed ? [...pts0].reverse() : pts0).map(p => ({ x: p.x, z: p.z }));
+  clearTreeSet(info.treeSet); state.cash -= info.cost;
+  if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
+  if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
+  removeTrail(t);
+  t.pts = pts; t.width = width; t.ws = ws ? (info.reversed ? [...ws].reverse() : ws.slice()) : undefined;
+  // Snow on the old route cannot be carried to the new one.
+  t.machine = 0; t.icy = false; t.sinceSnow = 0;
+  addTrail(t); computeNetwork(); syncLabels(); updateCash(true);
+}
 function moveTrailDraft() {
   const t = draft.movingTrail;
   if (!t || state.phase !== 'closed' || visiting || draft.pts.length < 2) return;
   const info = evalTrailMove(t, draft.pts, draft.width, draft.grade, draft.ws);
   if (!info.moved || info.an.problems.length || info.cost > state.cash) return;
   pushUndo(`editing ${t.name}`);
-  const pts = (info.reversed ? [...draft.pts].reverse() : draft.pts).map(p => ({ x: p.x, z: p.z }));
-  clearTreeSet(info.treeSet); state.cash -= info.cost;
-  if (info.earth) gradeAndRefresh(trailEarthwork(info.earth.ground, info.earth.target, info.hw, false));
-  if (info.approach) gradeAndRefresh(bridgeEarthwork(info.approach.ground, info.hw, false));
-  removeTrail(t);
-  t.pts = pts; t.width = draft.width; t.ws = draft.ws ? (info.reversed ? [...draft.ws].reverse() : draft.ws.slice()) : undefined;
-  // Snow on the old route cannot be carried to the new one.
-  t.machine = 0; t.icy = false; t.sinceSnow = 0;
-  addTrail(t); computeNetwork(); syncLabels(); updateCash(true);
+  matchMoved('trail', t, { pts: draft.pts.map((p) => ({ x: p.x, z: p.z })), width: draft.width, grade: !!draft.grade, ws: draft.ws ? draft.ws.slice() : null });
+  doTrailMove(t, info, draft.pts, draft.width, draft.ws);
   draft.movingTrail = null; resetDraft(); setTool('explore'); select({ kind: 'trail', obj: t });
   toast(`Updated ${t.name} · −${money(info.cost)}. Check the trail connections.`);
   scheduleSave();
@@ -6773,19 +6779,24 @@ function endLiftMove() {
   draft.movingLift = null;
   if (L.group) L.group.visible = true;
 }
+// Also what a match order does overnight.
+function doLiftMove(L, info) {
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  L.a = { x: info.a.x, z: info.a.z }; L.b = { x: info.b.x, z: info.b.z };
+  L.cost = (L.cost || 0) + info.extra; // the longer line is part of what it's worth
+  rebuildLift(L);
+  computeNetwork(); syncLabels(); updateCash(true);
+}
 // Back to the lift's panel, unchanged.
 function cancelLiftMove() { const L = draft.movingLift; setTool('explore'); if (L) select({ kind: 'lift', obj: L }); }
 function moveLiftDraft() {
   const info = draft.info, L = draft.movingLift;
   if (!info || !info.moved || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
   pushUndo(`moving ${L.name}`);
-  clearTreeSet(info.treeSet);
-  state.cash -= info.cost;
-  L.a = { x: info.a.x, z: info.a.z }; L.b = { x: info.b.x, z: info.b.z };
-  L.cost = (L.cost || 0) + info.extra; // the longer line is part of what it's worth
+  matchMoved('lift', L, { a: { x: info.a.x, z: info.a.z }, b: { x: info.b.x, z: info.b.z } });
   endLiftMove();
-  rebuildLift(L);
-  computeNetwork(); syncLabels(); updateCash(true);
+  doLiftMove(L, info);
   toast(`Moved ${L.name} · −${money(info.cost)}`);
   resetDraft();
   setTool('explore'); select({ kind: 'lift', obj: L });
@@ -7889,7 +7900,7 @@ function trailSheet(t) {
     <p class="conn">${esc(from)}<br>${esc(to)}</p>
     ${notes.length ? `<ul class="problems soft">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${shapePlanFor(t) ? `<p class="conn">A new width is planned. <button class="link" data-action="planGo" data-id="${shapePlanFor(t).id}">See the blueprint</button></p>` : ''}
-    ${!visiting && !t.virtual ? `<div class="row">${state.phase === 'closed' ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}<button class="btn secondary" data-action="shapeTrail">Widen or narrow</button></div>` : ''}
+    ${!visiting && !t.virtual ? `<div class="row">${overnightOk() ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}<button class="btn secondary" data-action="shapeTrail">Widen or narrow</button></div>` : ''}
     ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
 }
 
@@ -7947,7 +7958,7 @@ function liftSheet(L) {
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${liftMidSection(L)}
     ${liftUpgradeSection(L)}
-    ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
+    ${!overnightOk() || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
     ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
 
@@ -16240,22 +16251,27 @@ function moveBuildingDraft() {
   if (draft.turnOnly && draft.rot === B.rot) return;
   if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
   pushUndo(`moving ${B.name}`);
+  matchMoved('bld', B, { x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, turn: !!draft.turnOnly });
+  doBldMove(B, info, draft.bpos.x, draft.bpos.z, draft.rot);
+  toast(`${draft.turnOnly ? 'Rotated' : 'Moved'} ${B.name}${info.cost ? ` · −${money(info.cost)}` : ''}`);
+  draft.moving = null; draft.turnOnly = false; draft.bpos = null; draft.info = null; clearGhost();
+  setTool('explore'); select({ kind: 'bld', obj: B });
+  scheduleSave();
+}
+// Also what a match order does overnight.
+function doBldMove(B, info, x, z, rot) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   bldGroup.remove(B.group);
   B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== B);
-  Object.assign(B, { x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, padY: info.padY });
+  Object.assign(B, { x, z, rot, padY: info.padY });
   const res = !BTYPES[B.type].noPad && levelRect(info.bb, info.padY, 2.5, false);
   if (res) applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   const y = B.yday;
   addBuilding(B); B.yday = y;
   if (res) refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, B);
   computeNetwork(); syncLabels(); updateCash(true);
-  toast(`${draft.turnOnly ? 'Rotated' : 'Moved'} ${B.name}${info.cost ? ` · −${money(info.cost)}` : ''}`);
-  draft.moving = null; draft.turnOnly = false; draft.bpos = null; draft.info = null; clearGhost();
-  setTool('explore'); select({ kind: 'bld', obj: B });
-  scheduleSave();
 }
 function buildBuildingDraft() {
   if (visiting || draft.kind !== 'bld' || !draft.btype || !draft.bpos) return;
@@ -16414,7 +16430,7 @@ function bldSheet(B) {
     ${staffing}
     ${themed(B.type) && !visiting ? (shut() ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
-    ${state.phase !== 'closed' || visiting || B.sold ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
+    ${!overnightOk() || visiting || B.sold ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
     ${(state.phase !== 'closed' && !matchPlay) || B.sold ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
 }
 
@@ -21570,7 +21586,8 @@ async function matchApplyPending() {
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
-  'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen'];
+  'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
+  'moveLift', 'liftMoveReset', 'moveTrail', 'trailMoveCancel', 'trailMoveReset', 'gradeTrail', 'chainUndo', 'shapeTrail', 'shapeAll', 'shapeReset', 'shapeCancel', 'shapeApply', 'moveBld'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
@@ -21581,13 +21598,13 @@ const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall
 // Painting areas: the draft goes with the action, so the server paints the same ground.
 const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs (not terrain parks yet)
 // The lot (cars may be parked on it), off-site parking, and lifts guests are riding: the live day pauses for these.
-const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'liftUp', 'midOpen', 'midRemove'];
+const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'liftUp', 'midOpen', 'midRemove', 'moveLift', 'moveTrail', 'shapeTrail', 'moveBld', 'turnBld'];
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
   if (!a) return false;
   if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a) || MATCH_LAND.includes(a)) || (a === 'trailMode' && b.dataset.v === 'tpark')) {
-    toast('That isn’t part of King of the Mountain yet. Moving things, trail edits, terrain parks and blueprints are still to come.', true); return true;
+    toast('That isn’t part of King of the Mountain yet. Terrain parks and blueprints are still to come.', true); return true;
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
@@ -21650,6 +21667,39 @@ function matchFind(r) {
   const o = list.find((x) => x.id === r.id);
   return o && off(o) < 1 ? o : list.find((x) => off(x) < 0.3) || null;
 }
+// Moving a lift, trail or building, editing a trail's route or reshaping it: sent with where it goes, and done
+// overnight by the same code (doLiftMove, doTrailMove, doBldMove, applyShape) after the same checks.
+function matchMoved(kind, o, to) {
+  if (!matchPlay || !matchView || matchView.quiet) return;
+  matchOrder('other', { move: { kind, sel: matchRef(kind === 'shape' ? 'trail' : kind, o), ...to } });
+}
+function matchMove(m) {
+  const o = matchFind(m.sel);
+  if (!o) return 'it isn’t there any more';
+  const afford = (i) => i.cost <= state.cash;
+  if (m.kind === 'lift') {
+    const i = evalLiftMove(o, m.a, m.b);
+    if (!i.moved) return ''; if (i.problems.length) return i.problems[0]; if (!afford(i)) return 'not enough cash';
+    doLiftMove(o, i);
+  } else if (m.kind === 'trail') {
+    if (o.virtual || !Array.isArray(m.pts) || m.pts.length < 2) return 'it can’t be edited';
+    const W = TRAIL_WIDTHS[m.width] ? m.width : o.width, ws = Array.isArray(m.ws) ? m.ws.map((v) => clamp(+v || 0, HW_MIN, HW_MAX)) : null;
+    const pts = m.pts.map((q) => ({ x: +q.x, z: +q.z })), i = evalTrailMove(o, pts, W, !!m.grade, ws);
+    if (!i.moved) return ''; if (i.an.problems.length) return i.an.problems[0]; if (!afford(i)) return 'not enough cash';
+    doTrailMove(o, i, pts, W, ws);
+  } else if (m.kind === 'shape') {
+    if (o.virtual || !Array.isArray(m.ws) || m.ws.length !== shapeStations(o)) return 'the trail has changed since';
+    const ws = m.ws.map((v) => clamp(+v || 0, HW_MIN, HW_MAX)), i = evalShape(o, ws);
+    if (!i.changed) return ''; if (i.problems.length) return i.problems[0]; if (!afford(i)) return 'not enough cash';
+    const old = shapePlanFor(o); if (old) cancelPlan(old);
+    applyShape(o, ws, i); computeNetwork(); syncLabels(); updateCash(true);
+  } else if (m.kind === 'bld') {
+    const i = evalBuilding(o.type, +m.x, +m.z, +m.rot || 0, false, null, o, o.tier || 0, !!m.turn);
+    if (!i || i.problems.length) return i ? i.problems[0] : 'it can’t go there'; if (!afford(i)) return 'not enough cash';
+    doBldMove(o, i, +m.x, +m.z, +m.rot || 0);
+  } else return 'not supported yet';
+  return '';
+}
 // Everything a player sets on what's built, as text per thing, so a change shows as a difference.
 function matchKnobs() {
   const k = {}, J = JSON.stringify, sm = (o) => (o.sm ? [o.sm.mode, o.sm.target] : null);
@@ -21710,6 +21760,7 @@ function matchAfter(s) {
 // waits. Returns '' when done, or why it couldn't be.
 function matchDo(kind, p) {
   if (kind === 'ops') { matchSetKnobs(p.set); return ''; }
+  if (p.move) return matchMove(p.move);
   if (!p.doze && !p.brush && !(p.ds && p.ds.action)) return 'not supported yet';
   const before = matchSig();
   if (kind === 'land') matchLand(p);
@@ -22240,6 +22291,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.93', date: 'Nov 3, 2026', title: 'Moving things and trail edits in matches', kotm: true, items: [
+    'King of the Mountain: move lifts and buildings, edit a trail’s route, and widen or narrow trails in a match. They’re done overnight, like everything else.',
+    'Fixed: a building you rotated in a match turned back the next day. Turns are now sent to the match server too.'] },
   { v: '2.92', date: 'Nov 3, 2026', title: 'Lift upgrades and mid-stations in matches', kotm: true, items: [
     'King of the Mountain: upgrade lifts and add or remove mid-stations in a match. They’re built overnight, like everything else.',
     'Off-site parking can be set up, upgraded or closed in a match too.',

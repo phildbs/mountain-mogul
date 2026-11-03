@@ -116,11 +116,11 @@ export default async function ({ browser, url }) {
       eq((await orders()).length, k + 1, 'and is sent once');
     }
   }
-  // Still to come: moving things says so and sends nothing.
+  // Still to come: blueprints say so and send nothing.
   const k2 = (await orders()).length;
   await g.ev(`select({ kind: 'lift', obj: liftById(${L1}) })`); await g.wait(200);
-  await press('[data-action=moveLift]');
-  eq((await orders()).length, k2, 'moving a lift isn’t part of matches yet: nothing is sent');
+  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
+  eq((await orders()).length, k2, 'blueprints aren’t part of matches yet: nothing is sent');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
