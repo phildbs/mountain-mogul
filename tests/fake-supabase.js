@@ -228,10 +228,11 @@
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []);
         if (fn === 'admin_match_lobby') {
           const t = new Date(args.pstarts); const r = new Date(Math.ceil(t.getTime() / 1800000) * 1800000);
-          const row = { id: 'L' + (L.length + 1), name: args.pname, map: 'match', slots: args.pslots, starts_at: r.toISOString(), days: args.pdays, day_minutes: 30, status: 'open', day: 0, prize: args.pprize || args.pname + ' champion', computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 };
+          const row = { id: 'L' + (L.length + 1), name: args.pname, map: 'match', slots: args.pslots, starts_at: r.toISOString(), days: args.pdays, day_minutes: 30, status: 'open', day: 0, prize: args.pprize || args.pname + ' champion', flag: false, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 };
           L.push(row); put(d); return { data: row.id, error: null };
         }
         if (fn === 'admin_match_settings') { const l = L.find((x) => x.id === args.lid); if (l) { if (args.pcomputers != null) l.computers = args.pcomputers; if (args.pkeep != null) l.keep_profit = args.pkeep; if (args.plate_days != null) l.late_days = args.plate_days; } put(d); return { data: null, error: null }; }
+        if (fn === 'admin_match_flag') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.flag = !!args.pflag; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_close') { const l = L.find((x) => x.id === args.lid); if (l) l.status = 'closed'; put(d); return { data: null, error: null }; }
         const msgs = m.messages || [], reps = m.reports || [];
         if (fn === 'admin_chat_reports') return { data: msgs.filter((x) => reps.some((r) => r.message_id === x.id)).map((x) => ({ message: x.id, lobby: (L.find((l) => l.id === x.lobby_id) || {}).name, name: x.name, author: x.user_id, body: x.body, hidden: !!x.hidden, reports: reps.filter((r) => r.message_id === x.id).length, reasons: [] })), error: null };

@@ -22184,7 +22184,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
   { v: '2.90.1', date: 'Nov 3, 2026', title: 'Open lobbies on the title screen', kotm: true, items: [
-    'When a King of the Mountain lobby is open, an orange flag on the title screen says which one and how many spots are left. Tap it to join.'] },
+    'When a new King of the Mountain match is looking for players, an orange flag on the title screen says which one and how many spots are left. Tap it to join.'] },
   { v: '2.90', date: 'Nov 3, 2026', title: 'Evenings in matches', kotm: true, items: [
     'King of the Mountain: the live day now carries on into the evening. Night skiing under your lights and après at your bars play out on screen, just as they do in a normal game.',
     'To fit the evening into the half hour, the lifts now close at 4 PM, about 18 minutes into each day, and the evening plays a little faster after that. Without night skiing or après, the day is over about 21 minutes in.',
@@ -23195,8 +23195,9 @@ const ago = (t) => {
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : m < 2880 ? 'yesterday' : `${Math.round(m / 1440)} days ago`;
 };
 const cashWord = (n) => (n == null ? '' : Math.abs(n) >= 1e6 ? `${n < 0 ? '−' : ''}$${(Math.abs(n) / 1e6).toFixed(Math.abs(n) >= 1e7 ? 0 : 1)}M` : `${n < 0 ? '−' : ''}$${Math.round(Math.abs(n) / 1000)}k`);
-// The orange flag on the title screen: an open King of the Mountain lobby with spots left, for everyone; otherwise
-// a New tag for the multiplayer mode until you've opened it once. Lobbies are checked at most once a minute.
+// The orange flag on the title screen: an open King of the Mountain lobby Phil flagged (stats.html, match-flag.sql) with
+// spots left, for everyone; otherwise a New tag for the multiplayer mode until you've opened it once. Lobbies are checked
+// at most once a minute. Without the flag column, the query fails and nothing is flagged.
 const LOBBY_FLAG = { text: '', at: 0 };
 function lobbyFlag() {
   const f = $('newMtn');
@@ -23210,9 +23211,9 @@ async function loadLobbyFlag() {
   if (!CLOUD.sb || CLOUD.status === 'offline' || Date.now() - LOBBY_FLAG.at < 60000) return;
   LOBBY_FLAG.at = Date.now();
   try {
-    const { data: lob, error } = await CLOUD.sb.from('match_lobbies').select('id,name,slots,starts_at').eq('status', 'open').order('starts_at', { ascending: true }).limit(10);
+    const { data: lob, error } = await CLOUD.sb.from('match_lobbies').select('id,name,slots,starts_at,flag').eq('status', 'open').order('starts_at', { ascending: true }).limit(10);
     if (error) throw error;
-    const soon = (lob || []).filter((l) => Date.parse(l.starts_at) > Date.now()), ids = soon.map((l) => l.id);
+    const soon = (lob || []).filter((l) => l.flag === true && Date.parse(l.starts_at) > Date.now()), ids = soon.map((l) => l.id);
     const { data: ps } = ids.length ? await CLOUD.sb.from('match_players').select('lobby_id').in('lobby_id', ids) : { data: [] };
     const l = soon.find((x) => x.slots > (ps || []).filter((p) => p.lobby_id === x.id).length), n = l ? l.slots - (ps || []).filter((p) => p.lobby_id === l.id).length : 0;
     LOBBY_FLAG.text = l ? `${l.name} · ${n} ${n === 1 ? 'spot' : 'spots'} left` : '';

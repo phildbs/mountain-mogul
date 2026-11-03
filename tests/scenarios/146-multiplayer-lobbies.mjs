@@ -7,8 +7,8 @@ export default async function ({ browser, url }) {
   const at = (min) => new Date(Date.now() + min * 60000).toISOString();
   const lobby = (id, name, status, startMin, extra = {}) => ({ id, name, map: 'match', slots: 3, starts_at: at(startMin), days: 168, day_minutes: 30, status, day: 0, prize: `${name} champion`, ...extra });
   const match = {
-    lobbies: [lobby('L1', 'Winter Cup', 'open', 200), lobby('L2', 'Test Cup', 'running', -400, { day: 13 }), lobby('L3', 'Old Cup', 'finished', -9000, { day: 168 }),
-      lobby('L4', 'Full Cup', 'open', 90), lobby('L5', 'Spring Cup', 'running', -100, { day: 3 }), lobby('L6', 'Gone Cup', 'closed', -50)],
+    lobbies: [lobby('L1', 'Winter Cup', 'open', 200, { flag: true }), lobby('L2', 'Test Cup', 'running', -400, { day: 13 }), lobby('L3', 'Old Cup', 'finished', -9000, { day: 168 }),
+      lobby('L4', 'Full Cup', 'open', 90, { flag: true }), lobby('L5', 'Spring Cup', 'running', -100, { day: 3 }), lobby('L6', 'Gone Cup', 'closed', -50)],
     players: [{ lobby_id: 'L1', slot: 0, user_id: 'u-x', resort_name: 'Other Hill' },
       { lobby_id: 'L2', slot: 0, user_id: null, resort_name: 'Summit Ridge' }, { lobby_id: 'L2', slot: 1, user_id: 'user-B', resort_name: 'Phil’s Peak' }, { lobby_id: 'L2', slot: 2, user_id: null, resort_name: 'Valley View' },
       { lobby_id: 'L3', slot: 2, user_id: 'user-B', resort_name: 'Old Peak' }, { lobby_id: 'L3', slot: 0, user_id: 'u-y', resort_name: 'Winner Hill' },

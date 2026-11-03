@@ -1,5 +1,5 @@
 // The owner's King of the Mountain tools on stats.html: make a lobby (start rounded to the half hour, with the
-// computer and kept-profit switches), switch a setting, close a lobby, and hide or ban from the chat reports.
+// computer, kept-profit and title-screen flag switches), switch a setting and the flag, close a lobby, and hide or ban from the chat reports.
 // Nobody else can use them.
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -33,7 +33,18 @@ export default async function ({ browser, url }) {
   await g.page.click('#kNew button[type=submit]');
   await g.page.waitForFunction(() => /Made “Winter Cup”/.test(document.getElementById('kotm').innerText), null, { timeout: 10000 });
   const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Winter Cup'));
-  eq([made.days, made.slots, made.computers, made.keep_profit, new Date(made.starts_at).getMinutes()], [336, 3, false, true, 30], 'the lobby is made with its settings, starting on the half hour');
+  eq([made.days, made.slots, made.computers, made.keep_profit, made.flag, new Date(made.starts_at).getMinutes()], [336, 3, false, true, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
+  // The title screen flag can be switched off and on again from the lobby list.
+  const flagOf = () => g.page.evaluate((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag, made.id);
+  await g.page.waitForSelector(`[data-kflag=${made.id}]`, { timeout: 5000 });
+  eq(await g.page.innerText(`[data-kflag=${made.id}]`), 'Title screen flag: on', 'its chip says the flag is on');
+  await g.page.click(`[data-kflag=${made.id}]`);
+  await g.page.waitForFunction((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag === false, made.id, { timeout: 5000 });
+  await g.page.waitForFunction((id) => /off/.test(document.querySelector(`[data-kflag=${id}]`).innerText), made.id, { timeout: 5000 });
+  await g.page.click(`[data-kflag=${made.id}]`);
+  await g.page.waitForFunction((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag === true, made.id, { timeout: 5000 });
+  eq(await flagOf(), true, 'off and on again');
+  eq(await g.page.$('[data-kflag=S1]'), null, 'a running match has no flag chip');
 
   // Switch a setting, close the old lobby.
   await g.page.click('[data-kset=keep_profit][data-id=S1]');
