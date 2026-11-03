@@ -97,10 +97,22 @@ export default async function ({ browser, url }) {
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 65 * 60000).toISOString(); matchView.nothing = null`);
   await g.ev('startReplay(true)');
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  // Built during the live day: a blueprint until tonight, with a note on its panel.
+  const bl = await g.ev(`(() => {
+    setTool('bld'); state.cash = Math.max(state.cash, 5e6); const L0 = world.lifts[0];
+    for (let k = 0; k < 80; k++) { const x = Math.round(L0.a.x) - 20 + (k % 10) * 4, z = Math.round(L0.a.z) + 4 + Math.floor(k / 10) * 4, i = evalBuilding('cafe', x, z, 0, false, null, null, 0);
+      if (i && !i.problems.length) { const b = commitBuilding(i, 'cafe', x, z, 0); setTool('explore'); select({ kind: 'bld', obj: b }); renderSheet();
+        const mats = new Set(); b.group.traverse((o) => { if (o.isMesh) mats.add(o.material); });
+        return { id: b.id, blue: [...mats].every((m) => m.transparent && m.color.getHex() === 0x4f8ff0), note: /Blueprint: built tonight/.test(document.getElementById('sheet').innerText) }; } }
+    setTool('explore'); return null; })()`);
+  assert(bl, 'a café is placed during the live day');
+  eq([bl.blue, bl.note, await g.ev('!!matchView.replay')], [true, true, true], 'it shows as a blueprint, says it opens tomorrow, and the day keeps playing');
+  eq(await g.ev(`(() => { select({ kind: 'lift', obj: liftById(${L}) }); renderSheet(); return /Blueprint/.test(document.getElementById('sheet').innerText); })()`), false, 'things already built don’t say so');
   await g.ev(`select({ kind: 'lift', obj: liftById(${L}) })`); await g.wait(200);
   eq(await press('[data-action=moveLift]'), true, 'during the live day Move a station is offered');
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'closed' && !matchView.replay && state.tool === 'lift'"), null, { timeout: 30000 });
   eq(await g.ev(`!!draft.movingLift && draft.movingLift.id === ${L}`), true, 'it pauses the day and opens the move on the same lift');
+  eq(await g.ev(`(() => { const b = bldById(${bl.id}); let real = true; b.group.traverse((o) => { if (o.isMesh && o.material.color && o.material.color.getHex() === 0x4f8ff0 && o.material.transparent) real = false; }); return real; })()`), true, 'once the day is paused, the café shows as it really is again');
   await g.ev(`cancelLiftMove()`);
   // A move that no longer fits overnight comes back with the reason.
   eq(await g.ev(`matchDo('other', { move: { kind: 'bld', sel: { kind: 'bld', id: 9999, x: 0, z: 0 }, x: 0, z: 0, rot: 0 } })`), 'it isn’t there any more', 'a move of something gone says so');

@@ -4788,6 +4788,7 @@ function styleTrail(t) {
   t.mesh.material.opacity = look.op;
   t.mesh.visible = look.op > 0.02;
   if (look.tint > 0) t.mesh.material.color.lerp(BARE_TINT, look.tint * 0.55);
+  if (matchPending('trail', t)) { t.mesh.material.color.set(0x4f8ff0); t.mesh.material.opacity = 0.55; t.mesh.visible = true; } // a match build waiting for tonight looks like a blueprint
   t.mesh.material.emissive.set(sel ? 0x6a2a12 : 0x000000);
   if (t.fxGroup) t.fxGroup.visible = t.mesh.visible;
 }
@@ -7392,6 +7393,7 @@ function renderSheet() {
   else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'midstn') html = midToolSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
+  if (html && state.tool === 'explore' && selected && matchPending(selected.kind, selected.obj)) html = html.replace(/(<div class="sheet-title">[\s\S]*?<\/div>)/, '$1<p class="help"><b>Blueprint:</b> built tonight, opens tomorrow morning.</p>');
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
   syncBizFly();
@@ -14504,6 +14506,7 @@ function restyleBuilding(b) {
   bldGroup.add(b.group);
   renderer.shadowMap.needsUpdate = true;
   litSig = ''; lmSig = ''; // windows and their light follow the new look
+  matchLook('bld', b);
 }
 function upgradeBuilding(b) {
   bldGroup.remove(b.group);
@@ -17820,6 +17823,7 @@ function rebuildLift(L) {
   liftGroup.add(L.group);
   syncMid(L);
   initLiftSim(L);
+  matchLook('lift', L);
 }
 function rebuildBuilding(B) {
   bldGroup.remove(B.group);
@@ -21556,7 +21560,7 @@ async function matchApplyPending() {
   const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
   const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
-  matchView.quiet = true; matchView.soon = []; matchView.going = null; // what's built here opens tomorrow: closed if you watch today
+  matchView.quiet = true; matchView.soon = []; matchView.pend = null; matchView.going = null; // what's built here opens tomorrow: closed if you watch today
   let short = 0;
   // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
   const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
@@ -21633,11 +21637,29 @@ function matchHold() {
   stopReplay(false); matchView.paused = true;
   toast('The live day is paused while you build. Pick Explore to go back to it.');
 }
+// Built during the live day: drawn as a blueprint (like single player's plans) until the server builds it tonight.
+// The day's copy is reloaded once the day is over, so the real look comes back by itself.
+function matchPending(kind, o) { try { return !!(o && matchView && matchView.replay && matchView.pend && matchView.pend.has(kind + ':' + o.id)); } catch (e) { return false; } } // trails are styled while the page loads, before matchView exists
+function matchGhost(kind, o) {
+  if (!matchPending(kind, o)) return;
+  const g = kind === 'lift' ? o.group : kind === 'bld' ? o.group : null;
+  if (!g) return;
+  const mat = BLUEPRINT.clone(); // its own copy: lift colours and lights change materials in place
+  g.traverse((m) => {
+    if (m.isMesh || m.isInstancedMesh) { m.material = mat; m.castShadow = false; m.receiveShadow = false; m.renderOrder = 6; }
+    else if (m.isLine || m.isLineSegments) m.material = BLUEPRINT_LINE;
+  });
+  if (kind === 'bld') { o.winLights = []; litSig = ''; lmSig = ''; } // no lit windows in a blueprint
+}
+// A rebuilt model keeps the blueprint look (this can run while the page loads, before matchView exists).
+function matchLook(kind, o) { try { if (matchView) matchGhost(kind, o); } catch (e) { /* only how it looks */ } }
 function matchSoon(kind, o) {
+  if (matchView && ['lift', 'trail', 'bld'].includes(kind)) { (matchView.pend || (matchView.pend = new Set())).add(kind + ':' + o.id); }
   if (kind === 'lift') { o.open = false; o.planOff = true; if (runOps) runOps.lifts[o.id] = 'off'; labelsDirty = true; }
   else if (kind === 'trail') { o.open = false; styleTrail(o); }
   else if (kind === 'bld' && runOps) runOps.bld[o.id] = 'closed';
   else if (kind === 'area' && !isHub(o)) { o.closed = true; styleArea(o); computeNetwork(); } // a guest area is ground to walk on: it's there at once
+  matchGhost(kind, o);
 }
 function matchBuilt(kind, o, cost) {
   if (!matchView) return;
@@ -22293,6 +22315,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '2.93', date: 'Nov 3, 2026', title: 'Moving things and trail edits in matches', kotm: true, items: [
     'King of the Mountain: move lifts and buildings, edit a trail’s route, and widen or narrow trails in a match. They’re done overnight, like everything else.',
+    'Lifts, trails and buildings you build while the day plays now show as blueprints until they’re built that night, with “opens tomorrow morning” on their panel.',
     'Fixed: a building you rotated in a match turned back the next day. Turns are now sent to the match server too.'] },
   { v: '2.92', date: 'Nov 3, 2026', title: 'Lift upgrades and mid-stations in matches', kotm: true, items: [
     'King of the Mountain: upgrade lifts and add or remove mid-stations in a match. They’re built overnight, like everything else.',
