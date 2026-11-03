@@ -1,5 +1,5 @@
 // The match chat, during the live day, opens on its newest message and stays there after you send one, on a computer and on a phone,
-// whether the message goes with the Send button or with Enter.
+// whether the message goes with the Send button or with Enter. Also: a match resort can't be started over.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const m = await openGame(browser, url, { query: '?matchMap=1', mountain: 'fresh' });
@@ -44,6 +44,11 @@ export default async function ({ browser, url }) {
     await g.ev('select(null)'); await g.wait(300);
     await tap('#mpFab'); await g.wait(150); await tap('#visitChat'); await g.wait(600);
     eq(await newest('A late one'), 'in view', `${who}: opened again, at the newest`);
+    if (!phone) { // a match resort can't be started over from the menu
+      const lifts = await g.ev('world.lifts.length');
+      await g.ev(`$('mReset').onclick()`);
+      eq([await g.ev(`$('menuConfirm').hidden`), await g.ev('world.lifts.length'), /can’t be started over/.test(await g.ev(`$('toast').textContent`))], [true, lifts, true], 'Start this mountain over is refused in a match');
+    }
     eq(g.errors, [], `${who}: no page errors`);
     await g.page.close();
   }
