@@ -3241,11 +3241,11 @@ function writeSlots() { if (NO_SAVE) return true; try { return storeSet(SLOTS_KE
 // The browser keeps about 5 MB per site, and a few big resorts can fill it. When a write doesn't fit, make
 // room by dropping this device's copies of other mountains that are saved online at least as recently
 // (they download again when played), then try once more. Returns whether the write went in.
-let storeKeep = null; // the mountain being switched to: never dropped to make room
+let storeKeep = []; // the mountains being switched between: never dropped to make room (the one left may have changes not online yet)
 function storeSet(key, text) {
   try { localStorage.setItem(key, text); return true; } catch (e) { /* full, or storage blocked */ }
   if (!CLOUD.ready || !CLOUD.own) return false;
-  const drop = slots.list.filter((s) => s.id !== slots.active && s.id !== storeKeep && slotKey(s.id) !== key && (!s.owner || s.owner === CLOUD.uid) && (() => {
+  const drop = slots.list.filter((s) => s.id !== slots.active && !storeKeep.includes(s.id) && slotKey(s.id) !== key && (!s.owner || s.owner === CLOUD.uid) && (() => {
     const m = CLOUD.own.find((x) => x.id === s.id);
     return m && (m.updatedAt || 0) >= (s.savedAt || 0) - 600000;
   })());
@@ -3335,8 +3335,8 @@ function newMountain(mt = MOUNTAIN.id) {
 }
 // Make a mountain the one you're playing. Returns false when the page reloads to get there.
 function useSlot(id, sv, then) {
-  storeKeep = id;
-  try { return useSlotIn(id, sv, then); } finally { storeKeep = null; }
+  storeKeep = [id, slots.active];
+  try { return useSlotIn(id, sv, then); } finally { storeKeep = []; }
 }
 function useSlotIn(id, sv, then) {
   if (onThisMountain() && state.started && !visiting) saveNow();

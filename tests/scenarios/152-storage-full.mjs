@@ -29,7 +29,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`slotRows().some((r) => r.id === 'maple-1' && r.online)`), true, 'Maple still listed, from online');
   assert(!g.errors.length, 'no page errors: ' + g.errors[0]);
   await g.page.close();
-  // 2. Nothing can go (Maple's copy here is newer than online): stay on Juniper and say why.
+  // 2. Nothing can go (Maple's copy here is newer than online, and Juniper's is the one being left): stay and say why.
   g = await setup(browser, url);
   await g.ev(`slotById('maple-1').savedAt = Date.now() + 3600000; writeSlots()`);
   await fill(g);
