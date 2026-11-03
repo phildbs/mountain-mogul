@@ -24,10 +24,15 @@ export default async function ({ browser, url }) {
 
   // A guest: sees what's on, is asked to sign in, and can't join.
   assert(await g.page.isVisible('#mpCard') && /King of the Mountain/i.test(await g.page.innerText('#mpCard')) && /Multiplayer/i.test(await g.page.innerText('#mpCard')), 'the King of the Mountain card, marked Multiplayer, is on the title screen');
-  eq(await g.ev(`[!$('newMtn').hidden, $('newMtn').innerText.replace(/\\s+/g, ' ').trim()]`), [true, 'NEW Multiplayer (beta) ›'], 'with an orange New Multiplayer (beta) tag');
+  // The orange flag names the open lobby with room (the full one starting sooner is skipped), and stays after a look.
+  const flag = () => g.ev(`$('newMtn').hidden ? null : $('newMtn').innerText.replace(/\\s+/g, ' ').trim()`);
+  await g.ev('LOBBY_FLAG.at = 0; loadLobbyFlag()'); // the lobbies above were added after the page loaded
+  await g.page.waitForFunction(() => /Winter Cup/.test(document.getElementById('newMtn').innerText), null, { timeout: 10000 });
+  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'an orange flag names the open lobby and its spots left');
   await g.click('#newMtn'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
-  await g.click('#mpClose'); await g.ev('renderSlots()');
-  eq(await g.ev(`$('newMtn').hidden`), true, 'the tag opens King of the Mountain, then goes');
+  eq(await g.ev(`$('newMtn').hidden`), true, 'the flag opens King of the Mountain (and hides behind it)');
+  await g.click('#mpClose'); await g.ev('renderSlots()'); await g.wait(600);
+  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'and is back after closing it, while the lobby has room');
   await open();
   let t = await body();
   assert(/Sign in to play/.test(t) && !/Your matches/i.test(t), 'a guest is asked to sign in');

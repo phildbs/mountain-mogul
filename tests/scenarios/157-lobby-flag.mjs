@@ -16,6 +16,10 @@ export default async function ({ browser, url }) {
   eq(await flag(), 'JOIN Second Beta Cup · 1 spot left ›', 'it counts down as players join');
   await add(1);
   eq(await flag(), null, 'a full lobby isn’t flagged (and the New tag stays gone once you’ve opened the mode)');
+  await g.page.evaluate(() => localStorage.removeItem('mm.seen.kotm'));
+  eq(await flag(), 'NEW Multiplayer (beta) ›', 'with no lobby to flag, the New tag shows until you’ve opened the mode');
+  await g.click('#newMtn'); await g.wait(300); await g.click('#mpClose'); await g.wait(800);
+  eq(await flag(), null, 'and goes once you have');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
