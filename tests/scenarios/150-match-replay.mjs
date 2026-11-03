@@ -39,6 +39,10 @@ export default async function ({ browser, url }) {
   eq([rv.on, rv.n], [true, Math.round(100 * 0.25) + Math.round(90 * 0.25)], 'rivals have skiers too, in proportion to their share of the day');
   assert(rv.riding > 0 && rv.skiing > 0, `some riding up, some skiing down (${rv.riding}, ${rv.skiing})`);
   eq([rv.chairs, rv.looks], [true, true], 'rival lifts have chairs, and their trails are drawn like yours');
+  // Chairs are made while the view is zoomed out (hidden then): zooming in shows them, like yours.
+  eq(await g.ev(`(() => { cam.viewH = 300; updateChairs(); const a = RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => !R.V.chairs.visible)); cam.viewH = 60; updateChairs(); return [a, RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => R.V.chairs.visible))]; })()`), [true, true], 'rival chairs hide and show with zoom, like yours');
+  // Rivals' slices aren't hazed like land beyond the boundary.
+  eq(await g.ev(`(() => { const R = RIVAL_SKI.slices[0].lifts[0], x = (R.a.x + R.b.x) / 2 + HALF, z = (R.a.z + R.b.z) / 2 + HALF; return hazeAt(x, z) < 0.05; })()`), true, 'rival slices aren’t faded');
   assert(rv.cut > 0 && rv.trees === 0, `the trees on rivals’ trails and lift lines are gone (${rv.cut} cut)`);
   if (process.env.SHOTS) { await g.ev("document.getElementById('updCard').hidden = true; cam.viewH = 150; cam.viewGoal = null; updateCamera()"); await g.wait(2500); await g.page.screenshot({ path: 'rival-skiers.png' }); }
   assert(rv.shown === rv.n && rv.minFar > 25, `drawn with your guests’ figures, on their own slices, away from yours (${JSON.stringify(rv)})`);
