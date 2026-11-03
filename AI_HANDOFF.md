@@ -381,7 +381,13 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   shows. `VIEW_MAX` is 560 in the viewer. Scenario 162-map-viewer.
 - Spotted, left alone: the game badge on Crown Peak says 632 acres (`ownedAcres` uses the whole square, `PN²`);
   a slice is really 364.
-- A new map with a different shape will need `sliceAt`/`viewTurn` to read the map's own centre instead of `CROWN`.
+- Phil's picks for the new map (Nov 3): 4 resorts, a long ridge with bases below, slices equally good rather than
+  identical. Draft `MATCH_MAPS.ridge` (Long Ridge, `draft: true`, viewer only): four strips (`RIDGE.b`), each a bay
+  between spur ridges with its own character (1 gentle, 2 big peak and bowl, 3 rugged, 4 mid bench). A map can now
+  list its slices (`sliceAreas`, generic `SLICES`/`inPoly`), `bases`, extra carved `roads` (in `groundAt`),
+  `viewCentre`/`viewSpan`/`viewAz`, and `farE` (Long Ridge 84, for the ridge ends). Strips are ~265 acres (Crown
+  slices 364). To make it playable, a strip map needs sliding, not turning, in every player's game (`drawRivals`,
+  `hazeAt`, parcels all assume Crown's rotation), and a world wide enough to show the far strips.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 
