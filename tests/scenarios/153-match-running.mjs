@@ -124,6 +124,16 @@ export default async function ({ browser, url }) {
   o = await orders();
   eq([o.length, o[9].kind, o[9].payload.set['T' + t2][0]], [10, 'ops', false], 'and the trail’s settings are sent');
 
+  // The Trail tool's tabs open the painters for learning areas, glades and guest areas; terrain parks aren't in matches yet.
+  const tabs = await g.ev(`(() => { const out = {}; for (const v of ['area', 'glade', 'hub', 'tpark']) { setTool('trail'); renderSheet(); const b = document.querySelector('#sheet [data-action=trailMode][data-v=' + v + ']'); if (b) b.click(); out[v] = !!b && state.tool + ':' + state.landMode; } setTool('explore'); return out; })()`);
+  eq([tabs.area, tabs.glade, tabs.hub], ['clear:area', 'clear:glade', 'clear:hub'], 'the Trail tool’s tabs open the area painters in a match');
+  assert(tabs.tpark !== 'tpark:' && !/^tpark/.test(String(tabs.tpark)), `terrain parks stay closed (${tabs.tpark})`);
+  // During the live day: the Trail tool pauses it, then its tabs work.
+  await g.ev(`setTool('explore')`);
+  await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  await g.ev(`(() => { setTool('trail'); renderSheet(); const b = document.querySelector('#sheet [data-action=trailMode][data-v=glade]'); if (b) b.click(); })()`);
+  eq(await g.ev('[state.phase, !!matchView.replay, state.tool, state.landMode]'), ['closed', false, 'clear', 'glade'], 'during the live day the Trail tool pauses it, and its glade tab opens');
+  await g.ev(`setTool('explore')`);
   // Things not in matches yet still say so.
   await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);
   await press('[data-action=moveTrail]');
