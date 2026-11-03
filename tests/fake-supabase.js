@@ -49,6 +49,7 @@
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table profiles' } };
         let rows = Object.entries(d.profiles || {}).map(([id, p]) => ({ id, ...p })).filter((p) => p.public || p.id === me);
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        for (const [c, v] of q.ins || []) rows = rows.filter((r) => v.includes(r[c]));
         return { data: q.single ? rows[0] || null : rows, error: null };
       }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
@@ -105,7 +106,7 @@
           return { data: rows, error: null };
         }
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table ' + table } };
-        const key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts', match_days: 'days' }[table];
+        const key = { match_lobbies: 'lobbies', match_players: 'players', match_resorts: 'resorts', match_days: 'days', match_badges: 'badges' }[table];
         let rows = (m[key] || []).filter((r) => table !== 'match_lobbies' || r.status !== 'closed');
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
         for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
@@ -240,6 +241,7 @@
         }
         if (fn === 'admin_match_settings') { const l = L.find((x) => x.id === args.lid); if (l) { if (args.pcomputers != null) l.computers = args.pcomputers; if (args.pkeep != null) l.keep_profit = args.pkeep; if (args.plate_days != null) l.late_days = args.plate_days; } put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_flag') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.flag = !!args.pflag; put(d); return { data: null, error: null }; }
+        if (fn === 'admin_match_turn') { const l = L.find((x) => x.id === args.lid && x.status === 'open'); if (!l) return { data: null, error: { message: 'only a lobby that hasn\'t started' } }; l.day_minutes = args.pminutes; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_close') { const l = L.find((x) => x.id === args.lid); if (l) l.status = 'closed'; put(d); return { data: null, error: null }; }
         const msgs = m.messages || [], reps = m.reports || [];
         if (fn === 'admin_chat_reports') return { data: msgs.filter((x) => reps.some((r) => r.message_id === x.id)).map((x) => ({ message: x.id, lobby: (L.find((l) => l.id === x.lobby_id) || {}).name, name: x.name, author: x.user_id, body: x.body, hidden: !!x.hidden, reports: reps.filter((r) => r.message_id === x.id).length, reasons: [] })), error: null };
@@ -257,6 +259,34 @@
         const p = (m.players || []).find((x) => x.lobby_id === L.id && x.user_id === me), prof = (d.profiles || {})[me];
         const row = { id: (list.reduce((a, x) => Math.max(a, x.id), 0) || 0) + 1, lobby_id: L.id, user_id: me, slot: p ? p.slot : null, name: p ? p.resort_name : prof && prof.public ? prof.name : 'Spectator', body: b, kind: 'chat', day: L.day, hidden: false, created_at: new Date().toISOString() };
         list.push(row); put(d); return { data: row.id, error: null };
+      }
+      // Player matches and passwords (supabase/match-custom.sql). Passwords stay in m.keys, which no select reads.
+      if (fn === 'match_create') {
+        const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []), pw = String(args.ppassword || '').trim();
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
+        if (/\bshit\b/i.test(args.pname || '')) return { data: null, error: { message: 'please pick a friendlier match name' } };
+        if (![10, 15, 30].includes(args.pminutes)) return { data: null, error: { message: 'a turn is 10, 15 or 30 minutes' } };
+        if (pw && (pw.length < 4 || pw.length > 30)) return { data: null, error: { message: 'a password is 4 to 30 characters' } };
+        if (L.some((l) => l.created_by === me && l.kind === 'custom' && ['open', 'running'].includes(l.status))) return { data: null, error: { message: 'you already have a match of your own on: wait for it to finish, or cancel it before it starts' } };
+        const row = { id: 'C' + (L.length + 1), name: String(args.pname).replace(/\s+/g, ' ').trim(), map: 'match', slots: args.pslots, starts_at: new Date(Math.ceil(Date.parse(args.pstarts) / 60000) * 60000).toISOString(), days: args.pdays, day_minutes: args.pminutes, status: 'open', day: 0, prize: null, flag: false, computers: args.pcomputers !== false, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, kind: 'custom', created_by: me, locked: !!pw };
+        L.push(row); if (pw) (m.keys || (m.keys = {}))[row.id] = pw;
+        (m.players || (m.players = [])).push({ lobby_id: row.id, slot: 0, user_id: me, resort_name: String(args.rname || 'My Resort').slice(0, 40) });
+        put(d); return { data: row.id, error: null };
+      }
+      if (fn === 'match_cancel') {
+        const m = d.match || (d.match = {}), l = (m.lobbies || []).find((x) => x.id === args.lid && x.created_by === me && x.status === 'open');
+        if (!l) return { data: null, error: { message: 'only the player who made a match can cancel it, before it starts' } };
+        l.status = 'closed'; put(d); return { data: null, error: null };
+      }
+      if (fn === 'match_record') {
+        const m = d.match || {}, mine = (m.players || []).filter((p) => p.user_id === args.uid && ((m.lobbies || []).find((l) => l.id === p.lobby_id) || {}).status === 'finished');
+        const real = (lid) => (m.players || []).filter((p) => p.lobby_id === lid && p.user_id).length;
+        return { data: [{ played: mine.length, won: mine.filter((p) => p.place === 1 && real(p.lobby_id) >= 2).length }], error: null };
+      }
+      if (fn === 'match_join_key' || fn === 'match_join_late_key' || ((fn === 'match_join' || fn === 'match_join_late') && ((d.match || {}).keys || {})[args.lid])) {
+        const want = ((d.match || {}).keys || {})[args.lid];
+        if (want && String(args.pkey || '').trim() !== want) return { data: null, error: { message: 'that password isn\'t right' } };
+        fn = fn.replace('_key', '');
       }
       if (fn === 'match_join_late') { // take over a computer resort, or an empty slice, before the cut-off
         const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || (m.players = []);

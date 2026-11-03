@@ -7,7 +7,8 @@
 //   - a running lobby plays the days that are due: day N at the start time plus N day lengths, so players
 //     have the first day length to build before opening day. Each day it loads every resort, applies the
 //     players' orders overnight, shares the town's skiers, plays the day for all resorts at once and saves.
-//   - after the last day it ranks the resorts by season profit and gives badges to the top three players.
+//   - after the last day it ranks the resorts by season profit, notes each place, and gives badges to the top
+//     three players of an official lobby.
 // The games run in an invisible browser on the match map, which never saves anything itself.
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -140,15 +141,18 @@ async function playDay(db, game, lobby) {
 // The league table decides the badges: most season profit wins. Season profit is what the resort made running each
 // day (tickets, food, passes, less running costs); what a player spends building comes out of cash, not profit,
 // so building a bigger resort is never a loss in the table. Places count every resort, computers included;
-// only players get badges.
+// only players get badges, and only in official lobbies (Phil's); matches players make count as played and won.
 async function finish(db, lobby, rows) {
   const players = await db.select('match_players', { lobby_id: lobby.id });
   const ranked = [...rows].sort((a, b) => b.summary.profit - a.summary.profit), badges = [];
   ranked.forEach((r, i) => {
     const p = players.find((q) => q.slot === r.slot);
-    if (p && p.user_id && i < 3) badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
+    if (p && p.user_id && i < 3 && lobby.kind !== 'custom') badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
   });
   if (badges.length) await db.upsert('match_badges', badges);
+  // Every resort's place, for players' played and won counts (match-custom.sql). Skipped until that's run.
+  try { for (const [i, r] of ranked.entries()) await db.update('match_players', { lobby_id: lobby.id, slot: r.slot }, { place: i + 1 }); }
+  catch (e) { log(`${lobby.name}: places skipped (${e.message.slice(0, 80)})`); }
   await db.update('match_lobbies', { id: lobby.id }, { status: 'finished' });
   await news(db, lobby, lobby.days, [`Final standings: ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${dollars(r.summary.profit)}`).join(', ')}. Congratulations!`]);
   log(`${lobby.name}: finished. ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${r.summary.profit}`).join(', ')}`);
@@ -205,6 +209,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       try { const there = git('ls-remote', 'origin', branch).split(/\s/)[0]; if (there && there !== here) { log(`update found (${there.slice(0, 7)}), restarting`); await game.close(); process.exit(0); } }
       catch (e) { log('update check failed:', e.message); }
     }
-    await new Promise((r) => setTimeout(r, 60000));
+    // Wake just after the next whole minute: days start on whole minutes, and a 10-minute turn can't wait long.
+    await new Promise((r) => setTimeout(r, 60000 - (Date.now() % 60000) + 2000));
   }
 }

@@ -754,6 +754,24 @@ body.visiting .badge { cursor: default; }
 .mp-intro { display: grid; gap: 8px; padding: 14px; border-radius: 12px; background: var(--accent-soft); }
 .mp-intro p { margin: 0; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
 .mp-namef { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+/* Kinds of match: Phil's official tournaments (badges), and matches players make, some with a password. */
+.pill.gold { background: rgba(217, 154, 20, 0.18); color: #7a5410; display: inline-flex; align-items: center; gap: 4px; }
+.mp-ico { width: 13px; height: 13px; flex: none; vertical-align: -2px; }
+.mp-lock { white-space: nowrap; color: var(--ink-2); }
+.mp-lock .mp-ico { margin-right: 3px; }
+.mp-make { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.mp-make .seg { margin-top: 2px; }
+.mp-make .seg.wrap { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
+.mp-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; cursor: pointer; }
+.mp-check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.mp-check small { display: block; color: var(--ink-2); font-size: 12px; }
+.cr-kotm { display: grid; gap: 6px; margin: 4px 0 12px; }
+.cr-kotm h4 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.cr-badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cr-badges li { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; background: rgba(217, 154, 20, 0.16); color: #7a5410; }
+.cr-badges li.p2 { background: rgba(120, 134, 152, 0.18); color: #3f4c5c; }
+.cr-badges li.p3 { background: rgba(176, 108, 60, 0.16); color: #7a4521; }
+.cr-badges .mp-ico { width: 15px; height: 15px; }
 .mc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .mc-msg { padding: 8px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); min-width: 0; }
 .mc-msg.mine { background: var(--accent-soft); border-color: transparent; }
@@ -20979,8 +20997,27 @@ function creatorHtml(id) {
   const likes = list.reduce((a, m) => a + ((CLOUD.social && (CLOUD.social.get(m.id) || {}).likes) || m.likes || 0), 0);
   const note = mine ? (CLOUD.profile && !CLOUD.profile.public ? '<p class="help">Your profile is private, so nobody else can open this page and your resorts show “A player”.</p>' : '<p class="help">This is your page as other players see it. Private resorts aren’t listed.</p>') : '';
   return `${back}<div class="creator"><div class="cr-av">${esc(name.slice(0, 1).toUpperCase())}</div><div><div class="eyebrow">Creator</div><h3>${esc(name)}</h3></div></div>
-    <dl class="cr-stats"><div><dt>Resorts</dt><dd>${list.length}</dd></div><div><dt>Best day</dt><dd>${best.toLocaleString('en-US')}</dd></div><div><dt>Stars</dt><dd>★${stars}</dd></div><div><dt>Likes</dt><dd>❤${likes}</dd></div></dl>
+    ${kotmRecordHtml(id)}<dl class="cr-stats"><div><dt>Resorts</dt><dd>${list.length}</dd></div><div><dt>Best day</dt><dd>${best.toLocaleString('en-US')}</dd></div><div><dt>Stars</dt><dd>★${stars}</dd></div><div><dt>Likes</dt><dd>❤${likes}</dd></div></dl>
     ${note}${list.length ? `<ul class="bcards">${list.sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0)).slice(0, CLOUD.creatorAll ? list.length : SHELF_PEEK).map((m) => browseCard({ ...m, hideWho: true }, null, mine)).join('')}</ul>${!CLOUD.creatorAll && list.length > SHELF_PEEK ? `<button class="morecards" data-action="creatorAll">See all ${list.length} resorts</button>` : ''}` : '<p class="help">No public resorts yet.</p>'}`;
+}
+// King of the Mountain on a player's page: badges from official tournaments (1st, 2nd and 3rd), then how many
+// matches they've finished and won. Loaded when the page opens; nothing shows until they've played one.
+const KOTM_REC = {};
+function kotmRecordHtml(id) {
+  const r = KOTM_REC[id];
+  if (!r || (!r.played && !r.badges.length)) return '';
+  const badges = [...r.badges].sort((a, b) => a.place - b.place || Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+  return `<div class="cr-kotm"><h4>King of the Mountain</h4>${badges.length ? `<ul class="cr-badges">${badges.map((b) => `<li class="p${b.place}" title="${esc(mpPlace(b.place))} place">${MP_ICON.trophy}${esc(b.title)}</li>`).join('')}</ul>` : ''}
+    <p class="help">Matches: <b>${r.played}</b> played · <b>${r.won}</b> won</p></div>`;
+}
+async function loadKotmRecord(id) {
+  if (!CLOUD.sb || !id) return;
+  try {
+    const [rec, b] = await Promise.all([CLOUD.sb.rpc('match_record', { uid: id }), CLOUD.sb.from('match_badges').select('lobby_id,place,title,created_at').eq('user_id', id)]);
+    const row = Array.isArray(rec.data) ? rec.data[0] : rec.data; // without supabase/match-custom.sql: badges only
+    KOTM_REC[id] = { played: (row && row.played) || 0, won: (row && row.won) || 0, badges: b.data || [] };
+    if (CLOUD.viewCreator === id && !$('community').hidden) refreshCommunity();
+  } catch (e) { /* the page shows without it */ }
 }
 let cmPrev = 'board';
 function openCreator(id) {
@@ -20988,6 +21025,7 @@ function openCreator(id) {
   const cur = ['board', 'browse', 'profile'].find((t) => !$(t === 'board' ? 'cmBoardTab' : t === 'browse' ? 'cmBrowseTab' : 'cmProfileTab').hidden);
   if (cur) cmPrev = cur;
   CLOUD.viewCreator = id; CLOUD.creatorAll = false;
+  loadKotmRecord(id);
   cmTab('creator');
   refreshCommunity();
 }
@@ -21179,11 +21217,18 @@ $('cmClose').onclick = () => { $('community').hidden = true; };
 $('community').addEventListener('click', (e) => { if (e.target.id === 'community') $('community').hidden = true; });
 
 /* ---------- Multiplayer: the lobby list ----------
-   Official lobbies set up by the owner. A signed-in player joins one and gets a random slice of the match map,
-   in up to three matches at once; guests can look around but sign in to join. The match server
-   (match/server.mjs) plays the matches; this window only reads what it saved, and joins or leaves. */
-const MP = { lobbies: null, players: [], resorts: [], err: '', joinFor: null, joinErr: '', busy: false, timer: 0 };
+   Official tournaments set up by the owner (the only ones with badges), and matches any signed-in player makes,
+   public or locked with a password (supabase/match-custom.sql). A signed-in player joins one and gets a random
+   slice of the match map, in up to three matches at once; guests can look around but sign in to join. The match
+   server (match/server.mjs) plays the matches; this window only reads what it saved, and joins, leaves or makes. */
+const MP = { lobbies: null, players: [], resorts: [], makers: {}, err: '', joinFor: null, joinErr: '', busy: false, timer: 0, make: false, mk: null, makeErr: '', sureCancel: null };
 const MP_MAPS = { match: 'Crown Peak' };
+const mpSvg = (d) => `<svg class="mp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const MP_ICON = { trophy: mpSvg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8.5 20h7M10 17h4v3h-4z"/>'),
+  lock: mpSvg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>') };
+const mpOfficial = (l) => l.kind !== 'custom'; // lobbies from before player matches are all official
+// What a player can pick when making a match: minutes a turn (one game day), days, and minutes until it starts.
+const MP_TURNS = [10, 15, 30], MP_DAYS = [7, 14, 28, 56, 84, 168], MP_STARTS = [5, 15, 30, 60, 180, 720];
 const mpIn = (ms) => {
   const m = Math.max(0, Math.round(ms / 60000));
   if (m < 1) return 'under a minute';
@@ -21193,6 +21238,22 @@ const mpIn = (ms) => {
 };
 const mpAt = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const mpLength = (l) => { const d = l.days * l.day_minutes / 1440; return d >= 1 ? `${+d.toFixed(1)} days` : mpIn(l.days * l.day_minutes * 60000); };
+const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: 28, start: 15, slots: 3, computers: true, pw: '' }; };
+function makeForm() {
+  const k = MP.mk, seg = (key, list, label) => `<div class="seg${list.length > 4 ? ' wrap' : ''}" role="group" aria-label="${label}">${list.map(([v, t, sm]) => `<button type="button" data-mk="${key}" data-v="${v}" aria-pressed="${k[key] === v}">${t}${sm ? `<small>${sm}</small>` : ''}</button>`).join('')}</div>`;
+  return `<form class="mp-join mp-make" id="mpMake"><b>Make a match</b>
+    <span class="field-label">Match name</span><input id="mkName" maxlength="40" autocomplete="off" value="${esc(k.name)}" aria-label="Match name">
+    <span class="field-label">Your resort’s name</span><input id="mkResort" maxlength="40" autocomplete="off" value="${esc(k.resort)}" aria-label="Your resort’s name">
+    <span class="field-label">A new day every</span>${seg('turn', MP_TURNS.map((m) => [m, `${m} min`]), 'Turn length')}
+    <span class="field-label">Length</span>${seg('days', MP_DAYS.map((d) => [d, `${d} days`, d === 168 ? `a season · ${mpLength({ days: d, day_minutes: k.turn })}` : mpLength({ days: d, day_minutes: k.turn })]), 'Match length')}
+    <span class="field-label">Starts in</span>${seg('start', MP_STARTS.map((m) => [m, mpIn(m * 60000)]), 'Starts in')}
+    <span class="field-label">Resorts</span>${seg('slots', [[2, '2', 'one slice stays empty'], [3, '3', 'the whole mountain']], 'Resorts')}
+    <label class="mp-check"><input type="checkbox" id="mkComputers"${k.computers ? ' checked' : ''}><span>Computer resorts fill empty slices<small>Off: an empty slice stays empty until someone joins.</small></span></label>
+    <span class="field-label">Password (optional)</span><input id="mkPw" maxlength="30" autocomplete="off" value="${esc(k.pw)}" placeholder="Leave empty for a public match" aria-label="Password">
+    <span class="help">With a password, only friends you tell it to can join. Anyone can still watch. Player matches don’t give badges, but they count on your profile as played and won.</span>
+    ${MP.makeErr ? `<span class="mp-err">${esc(MP.makeErr)}</span>` : ''}
+    <div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Making it…' : 'Make the match'}</button><button class="link" type="button" data-mp="mkCancel">Cancel</button></div></form>`;
+}
 const mpPlace = (n) => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
 const mpErr = (e) => { const m = String((e && e.message) || 'Something went wrong. Try again in a moment.'); return m[0].toUpperCase() + m.slice(1) + (/[.!?]$/.test(m) ? '' : '.'); };
 async function loadMp() {
@@ -21206,20 +21267,25 @@ async function loadMp() {
       CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary').in('lobby_id', ids)]) : [{ data: [] }, { data: [] }];
     if (p.error || r.error) throw p.error || r.error;
     MP.lobbies = lob || []; MP.players = p.data || []; MP.resorts = r.data || []; MP.err = '';
+    // Who made each player match: their public player name (a private profile shows as "a player").
+    const makers = [...new Set(MP.lobbies.map((l) => l.created_by).filter((id) => id && !(id in MP.makers)))];
+    if (makers.length) { const { data: pr } = await CLOUD.sb.from('profiles').select('id,name').in('id', makers).then((x) => x, () => ({})); for (const id of makers) MP.makers[id] = ((pr || []).find((x) => x.id === id) || {}).name || ''; }
   } catch (e) { MP.err = 'Couldn’t load the lobbies. Try again in a moment.'; }
   renderMp();
 }
 // The resort name form, for joining an open lobby or (late) a running match.
 function joinForm(l, note, late) {
   return `<form class="mp-join" data-id="${l.id}"${late ? ' data-late="1"' : ''}><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
+    + (l.locked ? '<span class="field-label">Password</span><input id="mpKey" maxlength="30" autocomplete="off" aria-label="Password" placeholder="Ask the player who made it">' : '')
     + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">${esc(note)}</span>`
     + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : late ? 'Join now' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
 }
 // What King of the Mountain is, shown the first time the window opens (and from How it works).
 const MP_INTRO = `<div class="mp-intro"><b>How King of the Mountain works</b>
   <p>Each match is one big mountain, Crown Peak, shared by two or three resorts. Your slice runs from your own base up to the summit, with your rivals on the slices beside you.</p>
-  <p>The match keeps going day and night: a new game day every half hour, for three and a half days (one season). Build lifts, trails and buildings and set your prices any time. New things open the next morning, and you can watch each day live.</p>
-  <p>Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins the match, and its badge.</p>
+  <p>The match keeps going day and night: a new game day every 10, 15 or 30 minutes, depending on the match. Build lifts, trails and buildings and set your prices any time. New things open the next morning, and you can watch each day live.</p>
+  <p>Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins.</p>
+  <p><b>Official</b> tournaments give badges to the top three, shown on their profiles. Any signed-in player can also make a match, open to everyone or locked with a password for friends. Those count on your profile as played and won.</p>
   <p><b>This is a beta.</b> Things will go wrong. Please tell us about any bug, however small, and we’ll fix it as soon as we can.</p>
   <div class="mp-acts"><button class="btn" type="button" data-mp="intro-ok">Got it</button><button class="btn secondary" type="button" data-mp="bug">Report a bug</button></div></div>`;
 const mpIntroSeen = () => { try { return !!localStorage.getItem('mm.kotm.intro'); } catch (e) { return true; } };
@@ -21238,7 +21304,8 @@ function renderMp() {
   const inL = (l) => MP.players.filter((p) => p.lobby_id === l.id), mine = (l) => (guest ? null : inL(l).find((p) => p.user_id === me));
   const table = (l) => MP.resorts.filter((r) => r.lobby_id === l.id).sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
   const pill = (l) => (l.status === 'open' ? '<span class="pill on">Open</span>' : l.status === 'running' ? '<span class="pill slow">Live</span>' : '<span class="pill done">Finished</span>');
-  const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${pill(l)}</div><div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>`;
+  const by = (l) => (mpOfficial(l) ? '' : `<div class="mp-sub">Player match${l.created_by === me ? ', made by you' : MP.makers[l.created_by] ? ` by ${esc(MP.makers[l.created_by])}` : ''}${l.locked ? ` · <span class="mp-lock">${MP_ICON.lock}Password</span>` : ''}</div>`);
+  const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>`;
   const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
   const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
   const when = (l) => {
@@ -21255,13 +21322,21 @@ function renderMp() {
       let body = `<div class="mp-when">You’re <b>${esc(p.resort_name)}</b>${place && l.status !== 'open' ? ` · ${l.status === 'finished' ? 'you came' : 'now'} <b>${mpPlace(place)}</b> of ${t.length}` : ''}</div><div class="mp-when">${when(l)}</div>`;
       if (l.status !== 'open' && t.length) body += league(l, p.slot);
       if (l.status !== 'open' && !needName) body += `<div class="mp-acts"><button class="btn${l.status === 'running' ? ' go' : ' secondary'}" type="button" data-mp="open" data-id="${l.id}">${l.status === 'running' ? 'Go to your resort' : 'Look back'}</button></div>`;
-      if (l.status === 'open') body += `<div class="mp-acts"><button class="link" type="button" data-mp="leave" data-id="${l.id}">Leave this lobby</button></div>`;
+      const maker = l.status === 'open' && !mpOfficial(l) && l.created_by === me;
+      if (maker && MP.sureCancel === l.id) body += `<div class="mp-acts"><span class="help">Cancel it for everyone?</span><button class="btn secondary" type="button" data-mp="cancelYes" data-id="${l.id}">Yes, cancel it</button><button class="link" type="button" data-mp="cancelNo">No</button></div>`;
+      else if (maker) body += `<div class="mp-acts"><button class="link" type="button" data-mp="cancelMatch" data-id="${l.id}">Cancel this match</button></div>`;
+      else if (l.status === 'open') body += `<div class="mp-acts"><button class="link" type="button" data-mp="leave" data-id="${l.id}">Leave this lobby</button></div>`;
       return `<li class="mp-card">${head(l)}${body}</li>`;
-    }).join('')}</ul>` : '<p class="help">You’re not in a match yet. Join an open lobby below.</p>';
+    }).join('')}</ul>` : '<p class="help">You’re not in a match yet. Join an open lobby below, or make your own.</p>';
+    // Make a match: one of your own at a time, within the three-match limit.
+    const own = L.find((l) => !mpOfficial(l) && l.created_by === me && ['open', 'running'].includes(l.status));
+    const busy = L.filter((l) => mine(l) && l.status !== 'finished').length;
+    if (MP.make && !own && busy < 3 && !needName) h += makeForm();
+    else if (!needName) h += `<div class="mp-acts">${own ? `<span class="help">Your own match, ${esc(own.name)}, is on. You can make another once it’s over.</span>` : busy >= 3 ? '' : '<button class="btn secondary" type="button" data-mp="make">Make a match</button>'}</div>`;
     h += '</section>';
   }
   // Open lobbies you could join.
-  const open = L.filter((l) => l.status === 'open' && !mine(l)).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const open = L.filter((l) => l.status === 'open' && !mine(l)).sort((a, b) => mpOfficial(b) - mpOfficial(a) || Date.parse(a.starts_at) - Date.parse(b.starts_at)); // official tournaments first
   const active = L.filter((l) => mine(l) && l.status !== 'finished').length;
   h += '<section class="mp-sec"><h4>Open lobbies</h4>';
   h += open.length ? `<ul class="mp-list">${open.map((l) => {
@@ -21270,7 +21345,7 @@ function renderMp() {
       : active >= 3 ? '<span class="help">You’re already in three matches.</span>' : `<button class="btn secondary" type="button" data-mp="pick" data-id="${l.id}">Join</button>`;
     if (MP.joinFor === l.id && !full && !guest) act = joinForm(l, 'You’ll get a random slice of the mountain. You can leave until the match starts.');
     return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${l.prize ? `<div class="mp-sub">Prize: the “${esc(l.prize)}” badge</div>` : ''}<div class="mp-acts">${act}</div></li>`;
-  }).join('')}</ul>` : '<p class="help">No open lobbies right now. New matches are announced here, so check back soon.</p>';
+  }).join('')}</ul>` : '<p class="help">No open lobbies right now. Make your own match above, or check back soon.</p>';
   h += '</section>';
   // Matches being played now that you're not in. Until the cut-off (the first quarter, unless the lobby says
   // otherwise) you can still join: you take over a computer resort, or an empty slice, with a catch-up investment.
@@ -21285,34 +21360,51 @@ function renderMp() {
     const late = canLate ? `<div class="mp-sub">Still time to join, until day ${lateEnd(l)}${bonus ? `: catch-up investment ${money(bonus)}` : ''}</div>` : '';
     return `<li class="mp-card">${head(l)}<div class="mp-when">${when(l)}</div>${late}${league(l, -1)}<div class="mp-acts">${act}</div></li>`;
   }).join('')}</ul></section>`;
-  h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every half hour, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
-  const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName';
+  h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every 10, 15 or 30 minutes, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
+  const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName', key = $('mpKey') ? $('mpKey').value : null;
   $('mpBody').innerHTML = h;
   if ($('mpName') && typed != null) $('mpName').value = typed;
+  if ($('mpKey') && key != null) $('mpKey').value = key;
   if ($('mpName') && focused) $('mpName').focus();
 }
 function openMp() {
   try { localStorage.setItem('mm.seen.kotm', '1'); } catch (e) { /* fine */ }
   if (!$('newMtn').hidden) $('newMtn').hidden = true;
-  MP.joinFor = null; MP.joinErr = '';
+  MP.joinFor = null; MP.joinErr = ''; MP.make = false; MP.sureCancel = null;
   $('mpModal').hidden = false;
   renderMp(); loadMp();
-  clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor) loadMp(); else renderMp(); }, 30000);
+  clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor && !MP.make) loadMp(); else if (!MP.make) renderMp(); }, 30000);
 }
 function closeMp() { $('mpModal').hidden = true; clearInterval(MP.timer); LOBBY_FLAG.at = 0; loadLobbyFlag(); lobbyFlag(); }
 $('mpCard').onclick = openMp;
 $('mpClose').onclick = closeMp;
+$('mpModal').addEventListener('input', (e) => {
+  const f = { mkName: 'name', mkResort: 'resort', mkPw: 'pw', mkComputers: 'computers' }[e.target.id];
+  if (f && MP.mk) MP.mk[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+});
 $('mpModal').addEventListener('click', async (e) => {
   if (e.target.id === 'mpModal') return closeMp();
+  const k = e.target.closest('[data-mk]'); // a choice in the make-a-match form
+  if (k && MP.mk) { MP.mk[k.dataset.mk] = +k.dataset.v; MP.makeErr = ''; renderMp(); return; }
   const b = e.target.closest('[data-mp]');
   if (!b) return;
   const what = b.dataset.mp;
+  if (what === 'make') { MP.make = true; MP.mk = MP.mk || mpMakeStart(); MP.makeErr = ''; MP.joinFor = null; renderMp(); if ($('mkName')) $('mkName').focus(); return; }
+  if (what === 'mkCancel') { MP.make = false; MP.makeErr = ''; renderMp(); return; }
+  if (what === 'cancelMatch') { MP.sureCancel = b.dataset.id; renderMp(); return; }
+  if (what === 'cancelNo') { MP.sureCancel = null; renderMp(); return; }
+  if (what === 'cancelYes') {
+    const { error } = await CLOUD.sb.rpc('match_cancel', { lid: b.dataset.id });
+    MP.sureCancel = null;
+    if (error) toast(mpErr(error), true); else toast('Your match is cancelled.');
+    loadMp(); return;
+  }
   if (what === 'signin') { closeMp(); $('titleAcct').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   if (what === 'intro-ok') { try { localStorage.setItem('mm.kotm.intro', '1'); } catch (er) { /* fine */ } MP.intro = false; renderMp(); return; }
   if (what === 'intro') { MP.intro = true; renderMp(); $('mpBody').scrollTop = 0; return; }
   if (what === 'bug') { closeMp(); openFeedback('fb'); return; }
   if (what === 'pick') {
-    MP.joinFor = b.dataset.id; MP.joinErr = '';
+    MP.joinFor = b.dataset.id; MP.joinErr = ''; MP.make = false;
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
     renderMp(); if ($('mpName')) $('mpName').focus();
   } else if (what === 'cancel') { MP.joinFor = null; renderMp(); }
@@ -22297,12 +22389,29 @@ $('mpModal').addEventListener('submit', async (e) => {
     if (!err) toast(`Hello, ${n}! Now pick a match.`);
     renderMp(); return;
   }
+  if (e.target.id === 'mpMake') {
+    if (MP.busy) return;
+    const k = MP.mk, tidy = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+    k.name = tidy(k.name); k.resort = tidy(k.resort); k.pw = String(k.pw || '').trim();
+    MP.makeErr = k.name.length < 3 ? 'Give your match a name of at least 3 letters.' : !k.resort ? 'Give your resort a name first.' : k.pw && k.pw.length < 4 ? 'Make the password at least 4 characters, or leave it empty.' : '';
+    if (MP.makeErr) { renderMp(); return; }
+    MP.busy = true; renderMp();
+    const { error } = await CLOUD.sb.rpc('match_create', { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: k.days,
+      pslots: k.slots, pcomputers: k.computers, ppassword: k.pw || null, rname: k.resort });
+    MP.busy = false;
+    if (error) { MP.makeErr = /match_create/.test(error.message || '') ? 'Making matches isn’t switched on yet. Check back soon.' : mpErr(error); renderMp(); return; }
+    MP.make = false; MP.mk = null; MP.makeErr = '';
+    toast(`${k.name} is made! It starts in ${mpIn(k.start * 60000)}.${k.pw ? ' Tell your friends the password.' : ' Anyone can join until then.'}`);
+    loadMp(); return;
+  }
   const f = e.target.closest('.mp-join'); if (!f || MP.busy) return;
-  const name = $('mpName').value.replace(/\s+/g, ' ').trim();
+  const name = $('mpName').value.replace(/\s+/g, ' ').trim(), key = $('mpKey') ? $('mpKey').value.trim() : null;
   MP.joinName = name;
   if (!name) { MP.joinErr = 'Give your resort a name first.'; renderMp(); return; }
+  if (key === '') { MP.joinErr = 'This match needs its password.'; renderMp(); return; }
   MP.busy = true; MP.joinErr = ''; renderMp();
-  const { error } = await CLOUD.sb.rpc(f.dataset.late ? 'match_join_late' : 'match_join', { lid: f.dataset.id, rname: name });
+  const fn = f.dataset.late ? 'match_join_late' : 'match_join';
+  const { error } = await CLOUD.sb.rpc(key ? fn + '_key' : fn, key ? { lid: f.dataset.id, rname: name, pkey: key } : { lid: f.dataset.id, rname: name });
   MP.busy = false;
   if (error) { MP.joinErr = mpErr(error); renderMp(); return; }
   const l = (MP.lobbies || []).find((x) => x.id === f.dataset.id);
@@ -22427,6 +22536,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.95', date: 'Nov 3, 2026', title: 'Make your own match', kotm: true, items: [
+    'King of the Mountain: any signed-in player can now press Make a match. Pick a name, a new day every 10, 15 or 30 minutes, a length from 7 days to a whole season, when it starts, and 2 or 3 resorts.',
+    'Add a password to keep it to friends: they type it when they join. Without one, anyone can join.',
+    'The live day speeds up in shorter turns, so the whole day and evening always fit.',
+    'Matches marked Official are the tournaments, listed first. They give badges to the top three, now shown on players’ profile pages.',
+    'Your profile also shows how many matches you’ve played and won. A win counts when at least two real players took part.'] },
   { v: '2.94.3', date: 'Nov 3, 2026', title: 'King of the Mountain tab in What’s new', small: true, items: ['What’s new has its own King of the Mountain tab, grouped by day like the rest, with a count of new match changes since you last looked. In a match it opens on that tab.'] },
   { v: '2.94.2', date: 'Nov 3, 2026', title: 'Condo sales in matches', kotm: true, small: true, items: [
     'King of the Mountain: the live day no longer makes up its own condo sales. Before, it could say a home sold and count it, then the count went back down overnight and the money never came. Now it shows the homes the match server really sold that morning, with their money.'] },
