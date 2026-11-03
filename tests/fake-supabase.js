@@ -132,8 +132,9 @@
       for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
       if (q.op === 'delete') { const ids = new Set(rows.filter((r) => r.owner === me).map((r) => r.id)); d.rows = d.rows.filter((r) => !ids.has(r.id)); put(d); return { data: null, error: null }; }
       const cols = q.cols.split(',').map((c) => c.trim());
-      for (const c of cols) if (c !== '*' && c !== 'photo:save->>photo' && !['id', 'owner', 'summary', 'public', 'updated_at', 'save'].includes(c)) return { data: null, error: { code: '42703', message: 'column mountains.' + c + ' does not exist' } };
-      const data = rows.map((r) => Object.fromEntries(cols.map((c) => c === 'photo:save->>photo' ? ['photo', r.save?.photo || null] : [c, r[c]])));
+      const inSave = (c) => /^\w+:save->>\w+$/.test(c) && c.split(/:|->>/); // alias:save->>field, like the real one
+      for (const c of cols) if (c !== '*' && !inSave(c) && !['id', 'owner', 'summary', 'public', 'updated_at', 'save', 'photo'].includes(c)) return { data: null, error: { code: '42703', message: 'column mountains.' + c + ' does not exist' } };
+      const data = rows.map((r) => Object.fromEntries(cols.map((c) => { const j = inSave(c); return j ? [j[0], r.save?.[j[2]] ?? null] : [c, r[c] ?? (c === 'photo' ? null : undefined)]; })));
       return { data: q.single ? data[0] || null : data, error: null };
     };
     const b = {

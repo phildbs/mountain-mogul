@@ -19956,6 +19956,9 @@ const creatorLink = (m) => (m.creator && !m.guest && m.owner && !m.me && m.owner
 // Each upload rewrites the whole resort in the database, so routine uploads wait at least this long
 // after the last one. Leaving the page or going to the title screen still uploads straight away.
 const CLOUD_GAP = 150000;
+// The resort photo is most of an upload's size, so it has its own column and goes up only when it changed,
+// at most every half hour (or on Save now). Uploads in between leave the stored photo as it is.
+const PHOTO_GAP = 1800000;
 function scheduleCloud() {
   if (!CLOUD.ready || visiting || practice) return;
   clearTimeout(CLOUD.upTimer);
@@ -19981,21 +19984,23 @@ async function cloudSave(manual, forReferral = false) {
     await syncReferralBalance();
     if (CLOUD.uid !== uploadUid || slots.active !== slot.id || (slot.owner && slot.owner !== CLOUD.uid) || visiting || practice) { CLOUD.uploading = false; return; }
     refreshResortPhoto();
-    const save = saveData(false);
-    save.savedAt = 0;
+    const save = saveData(false), photo = save.photo, sent = CLOUD.photoUp || {};
+    save.savedAt = 0; delete save.photo;
+    const sendPhoto = validResortPhoto(photo) && (sent.id !== slot.id || (photo !== sent.photo && (manual || Date.now() - sent.at >= PHOTO_GAP)));
     const summary = { ...summaryDoc(), music: music.on, musicEver: music.ever }; // music: for the owner's stats page
     const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
     if (json.length > 1500000) throw { code: 'too_big' };
-    if (json !== CLOUD.sentJson) {
-      const { error } = await CLOUD.sb.from('mountains').upsert({ id: slot.id, public: listed(), summary, save, updated_at: new Date().toISOString() });
+    if (json !== CLOUD.sentJson || sendPhoto) {
+      const { error } = await CLOUD.sb.from('mountains').upsert({ id: slot.id, public: listed(), summary, save, updated_at: new Date().toISOString(), ...(sendPhoto ? { photo } : {}) });
       if (error) throw error;
+      if (sendPhoto) CLOUD.photoUp = { id: slot.id, photo, at: Date.now() };
       if (CLOUD.uid !== uploadUid || slots.active !== slot.id) { CLOUD.uploading = false; return; }
       CLOUD.sentJson = json;
       CLOUD.verified = true;
       slot.savedAt = Date.now(); // the online copy is this device's own: not 'newer' than it
       if (!slot.owner) slot.owner = CLOUD.uid;
       writeSlots();
-      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo: save.photo, public: listed(), updatedAt: Date.now() });
+      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo, public: listed(), updatedAt: Date.now() });
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
@@ -20019,11 +20024,13 @@ async function adminMountain(id) {
   const { data, error } = await CLOUD.sb.rpc('admin_mountain', { mid: id });
   return error || !data ? null : data;
 }
+// Saves from before 2.89.1 (or an older open tab) keep the photo inside the save; that copy is the newer one when present.
+const onlinePhoto = (inSave, column) => validResortPhoto(inSave) ? inSave : validResortPhoto(column) ? column : null;
 async function fetchSave(id) {
-  let { data, error } = await CLOUD.sb.from('mountains').select('save').eq('id', id).maybeSingle();
+  let { data, error } = await CLOUD.sb.from('mountains').select('save, photo').eq('id', id).maybeSingle();
   if (!error && !data) data = await adminMountain(id);
   if (error || !data || !data.save) return null;
-  const sv = { ...data.save, sim: null };
+  const sv = { ...data.save, photo: onlinePhoto(data.save.photo, data.photo), sim: null };
   if (sv.clock && sv.clock.phase === 'open') sv.clock = { ...sv.clock, phase: 'closed', time: DAY_OPEN };
   return sv;
 }
@@ -20098,9 +20105,9 @@ async function refreshMine() {
 async function loadMine() {
   CLOUD.own = null;
   if (!CLOUD.uid) return;
-  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at, photo:save->>photo').eq('owner', CLOUD.uid);
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at, photo, savePhoto:save->>photo').eq('owner', CLOUD.uid);
   if (error) throw error;
-  CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, photo: validResortPhoto(r.photo) ? r.photo : null, public: r.public, updatedAt: Date.parse(r.updated_at) }));
+  CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, photo: onlinePhoto(r.savePhoto, r.photo), public: r.public, updatedAt: Date.parse(r.updated_at) }));
 }
 /* ---------- Undo: put back the last change made overnight ----------
    Before each change (clearing or leveling ground, building, removing, upgrading) the resort is
@@ -22110,6 +22117,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.89.1', date: 'Nov 3, 2026', title: 'Quicker online saves', small: true, items: [
+    'Online saves are much smaller now: your resort’s photo only uploads when it has changed, at most every half hour. Saving and loading should feel quicker for everyone.',
+  ] },
   { v: '2.89', date: 'Nov 3, 2026', title: 'See your rivals’ whole resorts', kotm: true, items: [
     'King of the Mountain: you can now move the view out to the edge of the map, to look over your rivals’ bases.',
     'Your rivals’ roads and parking lots now show on their slices, and land they’ve bought is no longer faded.',

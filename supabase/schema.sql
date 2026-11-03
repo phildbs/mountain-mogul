@@ -21,6 +21,12 @@ alter table public.mountains alter column owner set not null;
 alter table public.mountains drop constraint if exists mountains_id_fkey;
 alter table public.mountains alter column id set default gen_random_uuid();
 
+-- 2.89.1: the resort photo (most of a save's size) gets its own column, so routine uploads leave it untouched.
+-- Older saves keep a copy inside save->'photo'; the game reads that first when present.
+alter table public.mountains add column if not exists photo text constraint photo_size check (length(photo) < 200000);
+-- Copy older photos across once, in small batches (run until it updates 0 rows).
+-- update public.mountains set photo = save->>'photo' where id in (select id from public.mountains where photo is null and save ? 'photo' limit 100);
+
 create index if not exists mountains_public_updated on public.mountains (public, updated_at desc);
 create index if not exists mountains_owner on public.mountains (owner);
 

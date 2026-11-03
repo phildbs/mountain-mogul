@@ -21,10 +21,24 @@ export default async function ({ browser, url }) {
     eq(content,[720,360,true,true],'JPEG contains mountain detail instead of a blank canvas or sky');
     eq(await g.ev('saveData(false).photo'),photo,'snapshot is included in local and cloud save data');
     await g.ev(`CLOUD.lastUp=0; cloudSave(false)`);
-    const stored=await g.ev(`JSON.parse(localStorage.getItem('FAKE_DB')).rows.find(r=>r.id===slots.active).save.photo`);
-    eq(stored,photo,'online save includes the captured photo');
+    const row=()=>g.ev(`(r => [r.photo, r.save.photo === undefined])(JSON.parse(localStorage.getItem('FAKE_DB')).rows.find(r=>r.id===slots.active))`);
+    eq(await row(),[photo,true],'the photo goes up in its own column, not inside the save');
     await g.ev('loadMine()');
-    eq(await g.ev(`CLOUD.own.find(r=>r.id===slots.active).photo`),photo,'own cloud list retrieves only the photo JSON field');
+    eq(await g.ev(`CLOUD.own.find(r=>r.id===slots.active).photo`),photo,'own cloud list retrieves the photo');
+    // A new photo waits for the half-hour gap: in-between uploads leave the stored one alone.
+    await g.ev(`activeSlot().photo=activeSlot().photo.slice(0,-8)+'AAAAAAA='; activeSlot().photoAt=Date.now(); state.cash+=1; CLOUD.lastUp=0`);
+    await g.ev('cloudSave(false)');
+    eq(await row(),[photo,true],'a routine upload soon after skips the changed photo');
+    eq(await g.ev(`JSON.parse(localStorage.getItem('FAKE_DB')).rows.find(r=>r.id===slots.active).save.cash===state.cash`),true,'…but still saves the resort');
+    await g.ev(`CLOUD.photoUp.at-=PHOTO_GAP; CLOUD.lastUp=0; state.cash+=1`);
+    await g.ev('cloudSave(false)');
+    eq((await row())[0],await g.ev('activeSlot().photo'),'after the gap the new photo uploads');
+    // Older saves keep the photo inside the save; it still shows and loads.
+    await g.ev(`(() => { const d=JSON.parse(localStorage.getItem('FAKE_DB')), r=d.rows.find(r=>r.id===slots.active); r.save.photo=r.photo; delete r.photo; localStorage.setItem('FAKE_DB',JSON.stringify(d)); })()`);
+    await g.ev('loadMine()');
+    eq(await g.ev(`CLOUD.own.find(r=>r.id===slots.active).photo===activeSlot().photo`),true,'a photo stored the old way still shows');
+    eq(await g.ev(`fetchSave(slots.active).then(s=>s.photo===activeSlot().photo)`),true,'…and loads with the save');
+    await g.ev(`activeSlot().photo=${JSON.stringify(photo)}`);
     // Camera capture must not move the real game or keep an offscreen render target bound.
     const fixed=await g.ev(`(() => { const before=JSON.stringify([cam.target.toArray(),cam.az,cam.viewH,camera.position.toArray(),camera.projectionMatrix.elements,renderer.getSize(new THREE.Vector2()).toArray()]); const b=brushMesh.visible,d=draftGroup.visible;brushMesh.visible=true;draftGroup.visible=true;const image=captureResortPhoto();const after=JSON.stringify([cam.target.toArray(),cam.az,cam.viewH,camera.position.toArray(),camera.projectionMatrix.elements,renderer.getSize(new THREE.Vector2()).toArray()]);const restored=brushMesh.visible&&draftGroup.visible;brushMesh.visible=b;draftGroup.visible=d;return [before===after,renderer.getRenderTarget()===null,restored,validResortPhoto(image)]; })()`);
     eq(fixed,[true,true,true,true],'photo capture restores renderer, camera and tool previews');
