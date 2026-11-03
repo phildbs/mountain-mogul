@@ -10955,9 +10955,11 @@ function simStep(dt) {
   if (nightClearout()) today.nightClearoutMinutes = (today.nightClearoutMinutes || 0) + dt / 60;
   // On a torchlight night the day runs until the fireworks are done.
   const show = (torchTonight() && state.time < TORCH.end) || (apresOn() && state.time < apresEnd()); // the bar is open (and staffed) until last call
-  if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= dayHardEnd())) endDay();
+  if (!show && ((state.time >= closeTime() && !guests.length && !cars.length && !buses.length) || state.time >= dayHardEnd()) && !replayHold()) endDay();
 }
 
+// Watching a match day: your resort's day stays on screen until the match clock's end, so your rivals' evenings play on.
+function replayHold() { try { return !!(matchView && matchView.replay && matchView.replay.end && state.time < matchView.replay.end - 0.5); } catch (e) { return false; } } // matchView isn't set up while the page loads
 function openDay() {
   if (matchPlay && !(matchView && matchView.replay)) { toast('In a match the server plays every day, for every resort at once. Tap Watch today to see yours live.', true); return; }
   if (state.phase !== 'closed' || refClaimBusy) return;
@@ -18003,6 +18005,8 @@ function refreshTimebar(force) {
   const evChip = ev ? `<button class="tb-plan tb-ev" ${visiting ? 'disabled' : ''} title="${esc(EVENTS[ev.type].name)} today">${evLbl}</button>` : '';
   const mc = matchCountdown();
   if (mc) sub = mc.sub;
+  else if (state.phase === 'open' && replayHold() && matchView.replay.shut) sub = `Closed today · watching your rivals${state.time >= DAY_CLOSE ? '’ evening' : ''}`;
+  else if (state.phase === 'open' && replayHold() && state.time >= dayHardEnd() && !onMtn) sub = 'Closed for the night · your rivals’ evening is on';
   sub = `<span class="tb-st">${sub}</span>${mc && mc.btn ? mc.btn : evChip + plan}`;
   const w = todayWx();
   const base = avgBase();
@@ -22079,7 +22083,11 @@ function plannedEnd() {
   const was = runOps;
   try { runOps = resolvePlan(planFor(state.day)); return dayHardEnd(); } catch (e) { return DAY_HARD_END; } finally { runOps = was; }
 }
-const replayEnd = () => (matchView && matchView.replay && matchView.replay.end) || plannedEnd();
+// One clock for the whole match: the evening runs until the last resort on the mountain closes (its night skiing or
+// après), so everyone's evening starts and runs at the same time, and you can watch your rivals' after yours is over.
+const rivalEnd = (e) => Math.max(DAY_HARD_END, e.apres ? e.apres + 10 : 0, e.night ? e.night + 30 : 0);
+const sharedEnd = (own) => Math.max(own, ...RIVAL_SKI.slices.map((sl) => (sl.eve ? rivalEnd(sl.eve) : 0)));
+const replayEnd = () => (matchView && matchView.replay && matchView.replay.end) || sharedEnd(plannedEnd());
 // The time of day for this moment of the slot (`at`, ms after it began): the day at an even pace, then the evening
 // at least as fast, quicker the longer it runs. A day with no evening plans ends at 5:15 PM, about 21 minutes in.
 function replayClock(l, at = replayWindow(l).e, end = replayEnd()) {
@@ -22104,18 +22112,19 @@ async function startReplay(manual) {
   if (!data || !data.results) { if (manual) toast('Today isn’t ready to watch yet. Try again in a moment.', true); return; } // not loaded: try again at the next check
   const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
   if (res) { RIVAL_SKI.share = Object.fromEntries(res.resorts.map((r, i) => [r.slot, res.share[i] || 0])); try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; } }
-  const n = k >= 0 ? res.share[k] || 0 : 0;
-  if (!n) { matchView.nothing = l.day; if (manual) toast('This resort had no skiers today (it stayed closed, or nobody came), so there’s nothing to watch.', true); return; }
+  const n = k >= 0 ? res.share[k] || 0 : 0, shut = !n; // closed today, or nobody came: watch your rivals' day instead
+  if (!res.share.some((x) => x > 0)) { matchView.nothing = l.day; if (manual) toast('Nobody skied on Crown Peak today, so there’s nothing to watch.', true); return; }
   if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
   // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
   if (!mcOpen()) select(null);
   if (state.tool !== 'explore') setTool('explore');
-  matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash, sim: 0 };
+  matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash, sim: 0, shut };
   const own = demandForDay, ownPass = passBuyers;
-  demandForDay = () => n; passBuyers = () => 0;
+  demandForDay = () => n || 1; passBuyers = () => 0;
   try { replayKeep(openDay); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
+  if (shut && state.phase === 'open') { schedule = []; today.closeAt = DAY_OPEN; for (const B of world.buildings) if (runOps && runOps.bld) runOps.bld[B.id] = 'closed'; } // nobody comes and nothing opens
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
-  matchView.replay.end = dayHardEnd(); // today's plan: how long the evening runs
+  matchView.replay.end = sharedEnd(dayHardEnd()); // today's plans, yours and your rivals': how long the evening runs
   // The morning's cash and loan, from the server's result for today (older results: the cash less the day's profit).
   const off = matchView.replay.official;
   if (off) matchView.replay.sim += off.passes || 0; // season passes the server sold this morning
@@ -22123,7 +22132,7 @@ async function startReplay(manual) {
   updateCash(false);
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
-  toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
+  toast(shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.` : `Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
 }
@@ -22408,10 +22417,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money and a countdown in matches', kotm: true, small: true, items: [
+  { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money, a countdown and shared evenings in matches', kotm: true, small: true, items: [
     'King of the Mountain: while you watch the day, your money now goes up and down with what actually happens: ticket sales as guests arrive, food sales at lunch, lift power through the afternoon. Wages and upkeep come off at the end of the day, as in single player, and the money lands on the server’s official figure.',
     'Between match days, the top bar counts down to the next day, second by second. If you paused today, it offers Back to the live day.',
-    'The next day now starts playing sooner after the server has played it, and plays live even if you paused the day before.'] },
+    'The next day now starts playing sooner after the server has played it, and plays live even if you paused the day before.',
+    'One clock for everyone: the evening plays at the same time for every resort and runs until the last one closes, so you can watch your rivals’ night skiing and après even when yours is closed for the night.',
+    'On a day your resort stays closed, you can still watch your rivals’ day live.'] },
   { v: '2.94', date: 'Nov 3, 2026', title: 'Terrain parks and blueprints in matches', kotm: true, items: [
     'King of the Mountain: build, move and remove terrain park features in a match.',
     'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.',
