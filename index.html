@@ -3679,7 +3679,7 @@ function setTool(tool) {
   if (matchView && matchView.replay && tool !== 'explore' && !(matchPlay && MATCH_LIVE_TOOLS.includes(tool))) matchHold();
   else if (matchView && matchView.paused && tool === 'explore') { matchView.paused = false; setTimeout(startReplay, 0); }
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
-  if (state.phase !== 'closed' && tool === 'clear') {
+  if (!shut() && tool === 'clear') {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
@@ -3720,7 +3720,7 @@ function dozeTarget(sx, sy) {
   return best;
 }
 function dozeAt(sx, sy) {
-  if (visiting || state.phase !== 'closed') return;
+  if (visiting || !shut()) return;
   const o = dozeTarget(sx, sy);
   if (!o) { toast('Nothing to bulldoze there. Tap a tree, light, seat, fence section or snow gun.'); return; }
   if (matchPlay && !matchView.quiet && o.kind !== 'tree') matchOrder('remove', { doze: { kind: o.kind, x: o.x, z: o.z, key: o.key, area: o.A && o.A.id, bld: o.B && matchRef('bld', o.B) } });
@@ -5441,7 +5441,7 @@ function clearAreaDraft() {
   drawAreaDraft();
 }
 function editArea(A) {
-  if (!A || isGlade(A) || visiting || state.phase !== 'closed') return;
+  if (!A || isGlade(A) || visiting || !shut()) return;
   clearAreaDraft();
   state.landMode = isHub(A) ? 'hub' : 'area';
   setTool('clear');
@@ -5467,7 +5467,7 @@ function areaDraftInfo() {
 }
 function commitArea() {
   const info = areaDraftInfo();
-  if (!info || info.problems.length || info.cost > state.cash || state.phase !== 'closed') return;
+  if (!info || info.problems.length || info.cost > state.cash || !shut()) return;
   if (visiting) return;
   if (info.hub) return commitHub(info);
   if (info.glade) return commitGlade(info);
@@ -5487,7 +5487,7 @@ function commitArea() {
     return;
   }
   const a = { id: world.nextId++, name: nextAreaName(), kind: 'learn', cells: [...areaDraft.cells], cost: info.cost };
-  addArea(a); styleArea(a);
+  addArea(a); styleArea(a); matchBuilt('area', a);
   clearAreaDraft();
   computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   toast(`Built ${a.name} · −${money(info.cost)}. Add a magic carpet or T-bar with both stations in it.`);
@@ -5597,14 +5597,14 @@ function commitHub(info) {
   const A = info.old || { id: world.nextId++, name: hubName(areaDraft.cells), kind: 'hub', cost: 0 };
   A.center = null; A.cells = [...areaDraft.cells]; A.cost = (A.cost || 0) + info.cost;
   // Guest areas define travel only; terrain, snow and trees keep their existing appearance.
-  if (info.old) { A.set = new Set(A.cells); refreshAreaMesh(A); A.mesh.visible = true; } else addArea(A);
+  if (info.old) { A.set = new Set(A.cells); refreshAreaMesh(A); A.mesh.visible = true; } else { addArea(A); matchBuilt('area', A); }
   clearAreaDraft(); computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   setTool('explore'); select({ kind: 'area', obj: A });
   toast(`${info.old ? 'Updated' : 'Painted'} ${A.name}${info.cost ? ` · −${money(info.cost)}` : ''}`);
 }
 function openHubTool() {
   if (visiting) return;
-  if (state.phase !== 'closed') { toast('Guest areas are painted overnight, while the resort is closed.', true); return; }
+  if (!shut()) { toast('Guest areas are painted overnight, while the resort is closed.', true); return; }
   clearAreaDraft(); state.landMode = 'hub'; setTool('clear'); renderSheet();
 }
 function undoHubStroke() {
@@ -5917,13 +5917,13 @@ function commitGlade(info) {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   const a = { id: world.nextId++, name: nextAreaName(null, 'glade'), kind: 'glade', cells: [...areaDraft.cells], cost: info.cost, thin: info.th, trees0: info.trees0, signs: true };
-  addArea(a);
+  addArea(a); matchBuilt('area', a);
   clearAreaDraft();
   computeNetwork(); syncLabels(); updateCash(true); scheduleSave();
   toast(`Cut ${a.name} · −${money(info.cost)}. It opens once there’s enough natural snow.`);
   renderSheet();
 }
-const openGladeTool = () => { if (visiting) return; if (state.phase !== 'closed') { toast('Glades are cut overnight, while the resort is closed.', true); return; } state.landMode = 'glade'; setTool('clear'); };
+const openGladeTool = () => { if (visiting) return; if (!shut()) { toast('Glades are cut overnight, while the resort is closed.', true); return; } state.landMode = 'glade'; setTool('clear'); };
 
 /* Ski lines: for each lift with both stations in or beside an area, a few lines weave down it,
    two on each side of the lift. They're rebuilt only when areas or lifts change, with fixed ids,
@@ -7460,7 +7460,7 @@ function trailParkSection(t) {
 const TRAIL_MODES = (cur) => `<div class="seg lifts" role="group" aria-label="What to build"><button data-action="trailMode" data-v="trail" aria-pressed="${cur === 'trail'}">Trail<small>from a lift down the mountain</small></button><button data-action="trailMode" data-v="glade" aria-pressed="${cur === 'glade'}">Glade<small>skiing through the trees</small></button><button data-action="trailMode" data-v="area" aria-pressed="${cur === 'area'}">Learning area<small>a gentle slope for first-timers</small></button><button data-action="trailMode" data-v="hub" aria-pressed="${cur === 'hub'}">Guest area<small>base, mid-mountain or summit</small></button><button data-action="trailMode" data-v="tpark" aria-pressed="${cur === 'tpark'}">Terrain park<small>jumps, rails and a halfpipe on a trail</small></button></div>`;
 function openAreaTool() {
   if (visiting) return;
-  if (state.phase !== 'closed') { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
+  if (!shut()) { toast('Learning areas are painted overnight, while the resort is closed.', true); return; }
   state.landMode = 'area';
   setTool('clear');
 }
@@ -7592,6 +7592,7 @@ function liftMoveSheet() {
 
 // In a match, Remove shows while the day plays too: pressing it pauses the day first (matchPause).
 function removeBlock(what, note) {
+  if (selected && matchGoing(selected.kind, selected.obj)) return '<p class="help">Removed tonight, once today is over.</p>';
   return sheetConfirm
     ? `<div class="confirm-box"><p>${note}</p><div class="row"><button class="btn secondary" data-action="removeNo">Keep it</button><button class="btn danger" data-action="removeYes">Remove</button></div></div>`
     : `<button class="link danger-link" data-action="remove">Remove ${what}</button>`;
@@ -7639,7 +7640,7 @@ function areaSheet(A) {
       ${open ? `<div><dt>Skiing now</dt><dd>${skiing}</dd></div><div><dt>Runs today</dt><dd>${runs}</dd></div>` : ''}
       <div><dt>Grooming</dt><dd>${money(A.cells.length * AREA_GROOM_CELL)}/night</dd></div>
     </dl>
-    ${state.phase === 'closed' && !visiting ? `<button class="btn secondary" data-action="editArea">Edit learning area</button>` : ''}
+    ${shut() && !visiting ? `<button class="btn secondary" data-action="editArea">Edit learning area</button>` : ''}
     ${state.phase === 'closed' || matchPlay ? removeBlock('this learning area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function trailSheet(t) {
@@ -7806,14 +7807,14 @@ function sheetAct(b) {
   else if (a === 'offsiteBuy') buyOffsite();
   else if (a === 'levelB' && obj) {
     const pad = (obj.baseY - 0.03) / VEX, est = levelRect(boxOf(obj), pad, 2.5, true);
-    if (state.phase !== 'closed' || est.cost > state.cash) return;
+    if (!shut() || est.cost > state.cash) return;
     pushUndo(`leveling around ${obj.name}`);
     state.cash -= est.cost; obj.spent = (obj.spent || 0) + est.cost; obj.padY = pad;
     gradeAndRefresh(levelRect(boxOf(obj), pad, 2.5, false));
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (['area', 'glade', 'hub'].includes(b.dataset.v)) matchHold(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
+  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
@@ -7826,7 +7827,7 @@ function sheetAct(b) {
   }
   else if (a === 'areaBuild') commitArea();
   else if (a === 'hubUndo') undoHubStroke();
-  else if (a === 'hubLevel' && areaDraft && !visiting && state.phase === 'closed') {
+  else if (a === 'hubLevel' && areaDraft && !visiting && shut()) {
     const est = hubLevel(areaDraft.cells, true);
     if (!est.cost || est.cost > state.cash) return;
     pushUndo('leveling a guest area');
@@ -7838,7 +7839,7 @@ function sheetAct(b) {
   else if (a === 'groom' && obj) { obj.groomed = !obj.groomed; updateTrailSnow(obj, todayWx()); renderSheet(); scheduleSave(); }
   else if (a === 'smInstall' && obj) {
     const cost = snowmakingCost(obj);
-    if (state.phase !== 'closed' || state.cash < cost || (obj.sm && obj.sm.on)) return;
+    if (!shut() || state.cash < cost || (obj.sm && obj.sm.on)) return;
     pushUndo(`snowmaking on ${obj.name}`);
     state.cash -= cost; obj.sm = { on: true, mode: 'auto', target: isHub(obj) ? 18 : Math.max(needOf(obj) + 12, 30) };
     if (isHub(obj)) obj.cost = (obj.cost || 0) + cost;
@@ -7847,14 +7848,14 @@ function sheetAct(b) {
   }
   else if (a === 'lightsInstall' && obj) {
     const cost = lightCost(obj);
-    if (state.phase !== 'closed' || state.cash < cost || obj.lit) return;
+    if (!shut() || state.cash < cost || obj.lit) return;
     pushUndo(`lights on ${obj.name}`);
     state.cash -= cost; obj.lit = true; obj.litCost = cost;
     rebuildLights(); updateCash(true); renderSheet(); scheduleSave();
     toast(`${obj.name} is lit for night skiing · −${money(cost)}${OPS_KINDS.some(([k]) => opsState().plans[k].night) ? '' : '. Turn night skiing on under Evenings.'}`, false, OPS_KINDS.some(([k]) => opsState().plans[k].night) ? null : { label: 'Evenings', fn: () => openManage('evenings') });
   }
   else if (a === 'lightsRemove' && obj) {
-    if (state.phase !== 'closed' || !obj.lit) return;
+    if (!shut() || !obj.lit) return;
     pushUndo(`lights on ${obj.name}`);
     const back = Math.round((obj.litCost || lightCost(obj)) * 0.25);
     state.cash += back; obj.lit = false; delete obj.litCost;
@@ -7863,7 +7864,7 @@ function sheetAct(b) {
   }
   else if (a === 'baseSmInstall') {
     const cost = baseSmCost();
-    if (state.phase !== 'closed' || state.cash < cost || state.baseSm) return;
+    if (!shut() || state.cash < cost || state.baseSm) return;
     pushUndo('base snowmaking');
     state.cash -= cost; state.baseSm = { mode: 'auto', target: 18 };
     updateCash(true); renderSheet(); scheduleSave();
@@ -8083,7 +8084,7 @@ function landInUse(p) {
 let landSel = null, landListOpen = false;
 function landTake(id, how) {
   const p = PARCELS.find((q) => q.id === id);
-  if (!p || landHeld(id) || state.phase !== 'closed' || visiting || !landOpen() || !landReachable(p)) return;
+  if (!p || landHeld(id) || !shut() || visiting || !landOpen() || !landReachable(p)) return;
   const price = landPrice(p);
   if (how === 'buy' && price > state.cash) return;
   pushUndo(`${how === 'buy' ? 'buying' : 'leasing'} ${p.name}`);
@@ -8095,7 +8096,7 @@ function landTake(id, how) {
 // While the permits are pending a deal can be called off, with any money back.
 function landCancel(id) {
   const l = landHeld(id), p = PARCELS.find((q) => q.id === id);
-  if (!l || !l.wait || state.phase !== 'closed' || visiting) return;
+  if (!l || !l.wait || !shut() || visiting) return;
   pushUndo(`the ${p.name} deal`);
   if (l.own === 'buy') state.cash += l.price;
   state.land = state.land.filter((x) => x !== l);
@@ -8104,7 +8105,7 @@ function landCancel(id) {
 }
 function landEndLease(id) {
   const l = landHeld(id), p = PARCELS.find((q) => q.id === id);
-  if (!l || l.own !== 'lease' || l.wait || state.phase !== 'closed' || visiting || landInUse(p)) return;
+  if (!l || l.own !== 'lease' || l.wait || !shut() || visiting || landInUse(p)) return;
   pushUndo(`ending the ${p.name} lease`);
   state.land = state.land.filter((x) => x !== l);
   applyLand(); computeNetwork(); syncLabels(); landMarksDirty = true; renderSheet(); scheduleSave();
@@ -8742,8 +8743,7 @@ function mainLotBlock() {
 }
 // Growing the main lot by a section: row 0 along the road, 1 the row below, null wherever it fits next.
 function growLot(row, lot = 0) {
-  if (matchPlay && matchView && matchView.replay) { const sel = selected; stopReplay(false); matchView.paused = true; select(sel); toast('The live day is paused while you add parking. Pick Explore to go back to it.'); }
-  if (state.phase !== 'closed' || state.cash < LOT_EXPAND_COST) return;
+  if (!shut() || state.cash < LOT_EXPAND_COST) return;
   const block = row == null ? mainLotBlock() : lotGrowBlock(row, lot);
   if (block) { toast(block, true); return; }
   pushUndo(lot ? `the ${lotName(lot).toLowerCase()} expansion` : 'the parking expansion');
@@ -8772,6 +8772,8 @@ function shrinkLot() {
 const lotBuildable = () => state.phase === 'closed' || !!matchPlay;
 // Overnight work (snowmaking, lights, patrol staff, levelling): in a match it can be ordered any time, pausing the live day.
 const overnightOk = () => state.phase === 'closed' || !!matchPlay;
+// Overnight work can be done now: the resort is closed, or it's a match's live day (orders wait for the night).
+const shut = () => state.phase === 'closed' || matchLive();
 function lotGrowPanel() {
   const closed = lotBuildable(), short = state.cash < LOT_EXPAND_COST, many = lotCount() > 1;
   const block = (lot) => {
@@ -16018,7 +16020,7 @@ function resetPatrolCrew(B) {
   B.crew = Array.from({ length: n }, (_, i) => ({ st: 'idle', x: B.door.x + (i - (n - 1) / 2) * 0.35, z: B.door.z, yaw: 0, home: i, target: null }));
 }
 function setPatrolStaff(B, delta) {
-  if (!B || B.type !== 'patrol' || visiting || state.phase !== 'closed' || ![-1, 1].includes(delta)) return;
+  if (!B || B.type !== 'patrol' || visiting || !shut() || ![-1, 1].includes(delta)) return;
   const n = clamp(patrolSize(B) + delta, 1, 6);
   if (n === patrolSize(B)) return;
   pushUndo('patrol staffing');
@@ -18916,7 +18918,7 @@ function opsAction(a, b) {
   const P = o.plans[kind], v = b.dataset.v, id = +b.dataset.id;
   if (a === 'opsOpen') { opsEdit = null; resortTab = 'ops'; select({ kind: 'resort', obj: null }); return true; }
   if (a === 'opsEdit') opsEdit = v;
-  else if (a === 'opsDay') { if (state.phase === 'open') return; o.override = v === defaultPlanFor(day) ? null : { day, plan: v }; opsEdit = v; }
+  else if (a === 'opsDay') { if (state.phase === 'open' && !matchLive()) return; o.override = v === defaultPlanFor(day) ? null : { day, plan: v }; opsEdit = v; }
   else if (a === 'opsFriday') o.fridayWeekend = !o.fridayWeekend;
   else if (a === 'opsLift') { if (!liftById(id) || !LIFT_MODES.some(([k]) => k === v)) return false; if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
   else if (a === 'opsBld') { const B = bldById(id); if (!B || isDecor(B) || !['open', 'closed', ...(lunchOnlyOk(B) ? ['lunch'] : [])].includes(v)) return false; if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
@@ -21059,7 +21061,7 @@ async function matchApplyPending() {
   const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
   const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
-  matchView.quiet = true; matchView.soon = []; // what's built here opens tomorrow: closed if you watch today
+  matchView.quiet = true; matchView.soon = []; matchView.going = null; // what's built here opens tomorrow: closed if you watch today
   let short = 0;
   // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
   const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
@@ -21099,7 +21101,7 @@ const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall
   'landBuy', 'landLease', 'landCancel', 'landEnd'];
 // Painting areas: the draft goes with the action, so the server paints the same ground.
 const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs (not terrain parks yet)
-const MATCH_PAUSE = ['remove', 'patrolStaff', 'opsDay', 'editArea', ...MATCH_ACTS];
+const MATCH_PAUSE = ['shrinkLot']; // cars may be parked on it
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
@@ -21109,13 +21111,26 @@ function matchGate(b) {
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
+  if (a === 'removeYes' && matchLive() && selected && selected.obj && matchListOf(selected.kind)) { matchRemoveTonight(b); return true; }
   return false;
 }
 // Building while the day plays: lifts, trails and buildings go into the day you're watching, closed until tomorrow
 // (the server opens them the next morning), and the cash shown drops by what they cost. Other tools pause the day.
-const MATCH_LIVE_TOOLS = ['lift', 'trail', 'bld'];
+const MATCH_LIVE_TOOLS = ['lift', 'trail', 'bld', 'clear'];
 const matchLive = () => !!(matchPlay && matchView && matchView.replay);
-// Painting ground and clearing trees need the resort closed: those pause the live day.
+// Removing a lift, trail, area or building while the day plays: guests are still on it, so it stays for today
+// and goes tonight. The order is the same one the server would get after a pause.
+const matchGoing = (kind, o) => !!(matchView && matchView.going && o && matchView.going.has(kind + ':' + o.id));
+function matchRemoveTonight(b) {
+  const { kind, obj } = selected;
+  if (!matchView.going) matchView.going = new Set();
+  if (matchGoing(kind, obj)) return;
+  matchOrder('remove', { ds: { ...b.dataset }, sel: matchRef(kind, obj), on: kind });
+  matchView.going.add(kind + ':' + obj.id);
+  sheetConfirm = false; renderSheet();
+  toast(`${obj.name} stays open for the rest of today and is removed tonight.`);
+}
+// Tools that aren't in matches yet (shaping, terrain parks, mid-stations) pause the live day.
 function matchHold() {
   if (!matchView || !matchView.replay) return;
   stopReplay(false); matchView.paused = true;
@@ -21125,12 +21140,12 @@ function matchSoon(kind, o) {
   if (kind === 'lift') { o.open = false; o.planOff = true; if (runOps) runOps.lifts[o.id] = 'off'; labelsDirty = true; }
   else if (kind === 'trail') { o.open = false; styleTrail(o); }
   else if (kind === 'bld' && runOps) runOps.bld[o.id] = 'closed';
+  else if (kind === 'area' && !isHub(o)) { o.closed = true; styleArea(o); computeNetwork(); } // a guest area is ground to walk on: it's there at once
 }
 function matchBuilt(kind, o, cost) {
   if (!matchView) return;
   if (matchView.soon) matchView.soon.push([kind, o.id]);
   if (!matchView.replay) return;
-  matchView.replay.cash -= cost;
   try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ }
 }
 // Pause the live day, put the panel back on the same thing, then press the same button again.
@@ -21423,9 +21438,9 @@ async function startReplay(manual) {
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n; passBuyers = () => 0;
-  try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; }
+  try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
-  const byId = { lift: liftById, trail: trailById, bld: bldById };
+  const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
   toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
   replaySync();
@@ -21436,7 +21451,9 @@ const clockText = (t) => { const h = Math.floor(t / 60), m = Math.floor(t % 60);
 function replaySync() {
   if (!matchView || !matchView.replay || state.phase !== 'open') return;
   const l = matchView.lobby, target = replayClock(l), w = replayWindow(l);
+  const keep = state.cash; // its takings were already counted by the server
   let n = 0; while (state.phase === 'open' && state.time < target - 1 && n++ < 200000) simStep(1.5);
+  state.cash = keep; updateCash(false);
   const left = Math.max(1, (w.len - w.e) / 1000), gameLeft = Math.max(0, DAY_HARD_END - state.time) * 60;
   state.speed = state.phase === 'open' ? clamp(gameLeft / left / GS_PER_REAL, 0.05, 4) : 0;
 }
@@ -21667,6 +21684,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.87', date: 'Nov 3, 2026', title: 'Overnight jobs without pausing', kotm: true, items: [
+    'King of the Mountain: the live day no longer pauses for overnight jobs. Clear trees, paint learning areas, glades and guest areas, level ground, add parking, and set up snowmaking, lights, loans, land, events and ski patrol while you watch. Everything is sent to the server for tonight as before.',
+    'Removing a lift, trail, area or building while the day plays keeps it running for the rest of today. Its card says it’s removed tonight.',
+    'Only removing a parking section still pauses the live day, since cars may be parked on it.'] },
   { v: '2.86', date: 'Nov 3, 2026', title: 'Build without pausing the live day', kotm: true, items: [
     'King of the Mountain: lifts, trails and buildings no longer pause the live day. Build while you watch: what you add shows up straight away, stays closed for the rest of today, and opens the next morning.',
     'Your cash goes down by what you build as you build it.',
@@ -23145,11 +23166,12 @@ function frame(now) {
   if (state.started && !visiting) syncShowSpeed();
   if (matchView && RIVAL_SKI.on) { try { rivalSkiersTick(dt); } catch (e) { RIVAL_SKI.on = false; } }
   // The day you watch in a match was already counted by the server, so its takings aren't added again: the cash
-  // shown stays your real cash (the server's) while it plays.
-  if (matchView && matchView.replay && state.cash !== matchView.replay.cash) { state.cash = matchView.replay.cash; updateCash(false); }
+  // shown stays your real cash (the server's) while it plays, less what you spend building.
+  const keep = matchView && matchView.replay ? state.cash : null;
   if (state.started && state.phase === 'open' && state.speed > 0) {
     let gdt = dt * GS_PER_REAL * (showSlow() ? Math.min(1, state.speed) : state.speed);
     while (gdt > 1e-6 && state.phase === 'open') { const st = Math.min(gdt, 1.5); simStep(st); gdt -= st; }
+    if (keep != null && state.cash !== keep) { state.cash = keep; updateCash(false); }
     autosaveT += dt;
     // A crowded day makes a big save that pauses the game while it's written: save it less often.
     if (autosaveT > (lastSaveLen > 1.5e6 ? 45 : 15)) { autosaveT = 0; saveNow(); }

@@ -1,7 +1,7 @@
 // King of the Mountain: running the resort, removing things and money. Settings (open or closed, grooming,
 // operations plans) go to the server as their new values; one-off actions (snowmaking, a loan, removing a
 // building) go as the action. Coming back to the match puts them all back on screen until the server has them,
-// and actions that need the resort closed pause the live day first.
+// and during the live day they don't pause it: removing something sends it for tonight and leaves it for today.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const m = await openGame(browser, url, { query: '?matchMap=1', mountain: 'fresh' });
@@ -108,22 +108,19 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`({ debt: state.debt, lodge: !!bldById(${lodge}), open: trailById(${t}).open, areas: world.areas.length })`), { debt: now.debt, lodge: false, open: false, areas: 1 }, 'changes the server has just marked done stay on screen until its new copy arrives');
   await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const o of d.match.orders) o.applied_day = null; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
 
-  // The live day: removing pauses it first, then carries on with the same panel.
+  // The live day: removing doesn't pause it. The lift stays for today and goes tonight.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 65 * 60000).toISOString(); matchView.nothing = null`);
   await g.ev('startReplay(true)');
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   const lift = await g.ev('world.lifts[0].id');
   await g.ev(`select({ kind: 'lift', obj: liftById(${lift}) })`); await g.wait(200);
   await press('[data-action=remove]');
-  await g.page.waitForFunction(() => window.__dbg('!matchView.replay && !!document.querySelector("#sheet [data-action=removeYes]")'), null, { timeout: 10000 });
-  eq(await g.ev(`[state.phase, matchView.paused, selected && selected.kind, selected && selected.obj && selected.obj.id]`), ['closed', true, 'lift', lift], 'Remove pauses the live day and asks on the same lift');
+  eq(await g.ev(`[state.phase, !!matchView.replay, !!document.querySelector('#sheet [data-action=removeYes]')]`), ['open', true, true], 'Remove asks without pausing the live day');
   await press('[data-action=removeYes]');
-  eq(await g.ev(`!!liftById(${lift})`), false, 'the lift is removed');
+  eq(await g.ev(`[!!liftById(${lift}), !!matchView.replay, /Removed tonight/.test(document.getElementById('sheet').innerText)]`), [true, true, true], 'the lift stays for today, marked to go tonight');
   o = await orders();
   eq([o.length, o[8].kind, o[8].payload.sel.id], [9, 'remove', lift], 'and the removal is sent');
-  // Closing a trail while the day plays doesn't pause it.
-  await g.ev(`setTool('explore')`);
-  await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  // Closing a trail while the day plays doesn't pause it either.
   const t2 = await g.ev('realTrails()[1].id');
   await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);
   await press('[data-action=toggleOpen]');
@@ -135,11 +132,11 @@ export default async function ({ browser, url }) {
   const tabs = await g.ev(`(() => { const out = {}; for (const v of ['area', 'glade', 'hub', 'tpark']) { setTool('trail'); renderSheet(); const b = document.querySelector('#sheet [data-action=trailMode][data-v=' + v + ']'); if (b) b.click(); out[v] = !!b && state.tool + ':' + state.landMode; } setTool('explore'); return out; })()`);
   eq([tabs.area, tabs.glade, tabs.hub], ['clear:area', 'clear:glade', 'clear:hub'], 'the Trail tool’s tabs open the area painters in a match');
   assert(tabs.tpark !== 'tpark:' && !/^tpark/.test(String(tabs.tpark)), `terrain parks stay closed (${tabs.tpark})`);
-  // During the live day: the Trail tool pauses it, then its tabs work.
+  // During the live day: the Trail tool's tabs work without pausing it.
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   await g.ev(`(() => { setTool('trail'); renderSheet(); const b = document.querySelector('#sheet [data-action=trailMode][data-v=glade]'); if (b) b.click(); })()`);
-  eq(await g.ev('[state.phase, !!matchView.replay, state.tool, state.landMode]'), ['closed', false, 'clear', 'glade'], 'during the live day the Trail tool pauses it, and its glade tab opens');
+  eq(await g.ev('[state.phase, !!matchView.replay, state.tool, state.landMode]'), ['open', true, 'clear', 'glade'], 'during the live day the glade tab opens and the day keeps playing');
   await g.ev(`setTool('explore')`);
   // Things not in matches yet still say so.
   await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);

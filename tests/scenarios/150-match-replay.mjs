@@ -50,13 +50,13 @@ export default async function ({ browser, url }) {
   // Lifts, trails and buildings are built while the day plays: no pause, closed until tomorrow, and ordered.
   await g.ev(`setTool('lift')`); await g.wait(300);
   eq(await g.ev(`[state.phase, !!matchView.replay, !!matchView.paused, state.tool]`), ['open', true, false, 'lift'], 'picking the lift tool keeps the day playing');
-  const cash0 = await g.ev('matchView.replay.cash'), lifts0 = await g.ev('world.lifts.length');
+  const cash0 = await g.ev('state.cash'), lifts0 = await g.ev('world.lifts.length');
   const built = await g.ev(`(() => { const L = world.lifts[0], dx = 14;
     for (const s of [1, -1, 2, -2, 3, -3]) { const a = { x: L.a.x + s * dx, z: L.a.z }, b = { x: L.b.x + s * dx, z: L.b.z }, i = evalLift(a, b, 'double', planning());
       if (!i.problems.length && i.cost <= state.cash) { draft.kind = 'lift'; draft.liftType = 'double'; draft.pts = [a, b]; draft.info = i; buildDraft(); return i.cost; } }
     return 0; })()`);
   assert(built > 0, 'a lift fits beside the first one');
-  const nl = await g.ev(`(() => { const L = world.lifts[world.lifts.length - 1]; return { n: world.lifts.length, open: L.open, plans: world.plans.length, cash: matchView.replay.cash, replay: !!matchView.replay, id: L.id }; })()`);
+  const nl = await g.ev(`(() => { const L = world.lifts[world.lifts.length - 1]; return { n: world.lifts.length, open: L.open, plans: world.plans.length, cash: state.cash, replay: !!matchView.replay, id: L.id }; })()`);
   eq([nl.n, nl.open, nl.plans, nl.replay], [lifts0 + 1, false, 0, true], 'the lift is built right away (not a blueprint), closed today, and the day keeps playing');
   eq(nl.cash, cash0 - built, 'the cash shown drops by what it cost');
   await g.wait(400);
@@ -80,24 +80,73 @@ export default async function ({ browser, url }) {
     return out; })()`);
   eq(tb, { trail: 1, open: false, bld: 1, bOpen: false, ran: true, used: false, replay: true }, 'a trail and a building go in too, closed today, and the day plays on');
   eq(await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => ['trail', 'building'].includes(o.payload.what)).length), 2, 'both ordered for the next overnight');
-  // Other tools still pause.
+  // Overnight jobs work while the day plays too: snowmaking, parking, painting areas. Nothing pauses.
+  const orders = () => g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders);
+  const press = async (sel) => { await g.wait(150); const ok = await g.ev(`(() => { const b = document.querySelector('#sheet ${sel}'); if (b && !b.disabled) { b.click(); return true; } return false; })()`); assert(ok, `${sel} is there to press`); await g.wait(300); };
   await g.ev(`setTool('explore')`); await g.wait(200);
   eq(await g.ev('!!matchView.replay'), true, 'back to Explore, still watching');
-  await g.ev(`setTool('clear')`); await g.wait(300);
-  eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused]`), ['closed', false, true], 'clearing trees still pauses the day');
-  eq(await g.ev(`(() => { const L = liftById(${nl.id}); return !!L && L.open; })()`), true, 'paused, tomorrow’s resort has the new lift, open');
-  await g.wait(200); eq(await g.ev('(drawPeople(), figMeshes.jacket.count - guests.filter((x) => x.px != null).length)'), 0, 'rivals’ skiers go when the day pauses');
-  await g.ev(`setTool('explore')`);
-  await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
-  eq(await g.ev(`liftById(${nl.id}).open`), false, 'back in the live day, the new lift is closed again until tomorrow');
-  // Parking any time: the button works while the day plays; the day pauses and the section is ordered.
+  await g.ev('state.cash = Math.max(state.cash, 3e6)'); await g.wait(100);
+  let c = await g.ev('state.cash'), n0 = (await orders()).length;
+  const nt = await g.ev('world.trails[world.trails.length - 1].id');
+  await g.ev(`select({ kind: 'trail', obj: trailById(${nt}) })`); await press('[data-action=smInstall]');
+  eq(await g.ev(`[!!matchView.replay, !!(trailById(${nt}).sm && trailById(${nt}).sm.on), state.cash < ${c}]`), [true, true, true], 'snowmaking goes in while the day plays, and is paid for');
+  eq((await orders()).length, n0 + 1, 'and it is ordered for tonight');
+  await g.wait(500); assert(await g.ev(`state.cash < ${c} - 1000`), 'the cash stays down while the day plays');
+  // Parking.
   const lots = await g.ev('state.lotSections');
-  await g.ev(`(() => { state.cash = Math.max(state.cash, 2e6); select({ kind: 'manage', obj: 'parking' }); renderSheet(); })()`); await g.wait(300);
+  await g.ev(`(() => { select({ kind: 'manage', obj: 'parking' }); renderSheet(); })()`); await g.wait(300);
   const btn = await g.ev(`(() => { const b = [...document.querySelectorAll('#sheet [data-action=expandLot]')].find((x) => !x.disabled); if (b) b.click(); return !!b; })()`);
   await g.wait(500);
-  eq([btn, await g.ev('state.lotSections'), await g.ev('!!matchView.replay'), await g.ev('matchView.paused')], [true, lots + 1, false, true], 'parking can be added while the day plays: it pauses and the section is added');
-  const lotOrders = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => o.payload.what === 'lot').length);
-  eq(lotOrders, 1, 'and it goes to the server for the next overnight');
+  eq([btn, await g.ev('state.lotSections'), await g.ev('!!matchView.replay')], [true, lots + 1, true], 'parking is added while the day plays, without a pause');
+  eq((await orders()).filter((o) => o.payload.what === 'lot').length, 1, 'and it goes to the server for the next overnight');
+  // A learning area painted while the day plays: closed today, ordered for tonight.
+  await g.ev(`select(null); state.landMode = 'area'; setTool('clear')`); await g.wait(200);
+  eq(await g.ev(`[state.tool, !!matchView.replay]`), ['clear', true], 'the Trail tool’s painters open while the day plays');
+  const la = await g.ev(`(() => { const A0 = world.areas.length, L = liftById(${nl.id});
+    for (const [ox, oz] of [[0, 8], [8, 8], [-8, 8], [0, 14], [10, 0], [-10, 0], [0, -8]]) {
+      const cx = Math.round(L.a.x + ox), cz = Math.round(L.a.z + oz), cells = new Set();
+      for (let x = cx - 6; x <= cx + 6; x++) for (let z = cz - 6; z <= cz + 6; z++) if (!cellProblem(x, z, null)) cells.add(cellKey(x, z));
+      areaDraft = { cells, erase: false, editId: null, blocks: null }; const i = areaDraftInfo();
+      if (i && !i.problems.length && i.cost <= state.cash) { renderSheet(); const b = document.querySelector('#sheet [data-action=areaBuild]'); if (b) b.click(); if (world.areas.length > A0) break; }
+    }
+    const A = world.areas[world.areas.length - 1]; return { made: world.areas.length - A0, closed: !!(A && A.closed), replay: !!matchView.replay };
+  })()`);
+  eq(la, { made: 1, closed: true, replay: true }, 'a learning area is painted while the day plays, closed for today');
+  eq((await orders()).filter((o) => o.kind === 'land').length, 1, 'and the painted ground is ordered for tonight');
+  // Clearing trees, levelling and a guest area while skiers are out: the day plays on without a hitch.
+  const live = await g.ev(`(() => { const L = liftById(${nl.id}), c0 = state.cash, cleared = state.cleared, t0 = state.time;
+    state.landMode = 'trees'; stroke.active = true; for (let k = 0; k < 6; k++) clearAt({ x: L.a.x + 12 + k * 2, y: 0, z: (L.a.z + L.b.z) / 2 }); endStroke();
+    state.landMode = 'level'; stroke.active = true; stroke.target = heightAt(L.a.x - 8, L.a.z - 6); for (let k = 0; k < 4; k++) clearAt({ x: L.a.x - 8 + k, y: 0, z: L.a.z - 6 }); endStroke();
+    state.landMode = 'hub'; setTool('clear'); const cells = new Set(), A0 = world.areas.length;
+    for (const A of world.areas) if (isHub(A)) { for (const k of A.cells) { const x = keyX(k), z = keyZ(k); for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!hubCellProblem(x + dx, z + dz, hubBlocks(A))) cells.add(cellKey(x + dx, z + dz)); } editArea(A); for (const k of cells) areaDraft.cells.add(k); renderSheet(); const b = document.querySelector('#sheet [data-action=areaBuild]'); if (b) b.click(); break; }
+    borrow(50000);
+    for (let k = 0; k < 1500 && state.phase === 'open'; k++) simStep(1.5);
+    setTool('explore');
+    return { cleared: state.cleared > cleared, cash: state.cash !== c0, ran: state.time > t0, replay: !!matchView.replay, guests: guests.length > 0 }; })()`);
+  eq(live, { cleared: true, cash: true, ran: true, replay: true, guests: true }, 'trees, levelling, a guest area and a loan while the day plays');
+  const kinds = (await orders()).map((o) => o.kind + ':' + (o.payload.what || '')).join(' ');
+  assert(/build:trees/.test(kinds) && /land:/.test(kinds), `trees and painted ground are ordered for tonight (${kinds})`);
+  await g.ev(`setTool('explore')`); await g.wait(200);
+  // Removing a lift while the day plays: it stays for today, and goes tonight.
+  const L0 = await g.ev('world.lifts[0].id'); n0 = (await orders()).length;
+  await g.ev(`select({ kind: 'lift', obj: liftById(${L0}) })`); await press('[data-action=remove]'); await press('[data-action=removeYes]');
+  const rm = await g.ev(`({ there: !!liftById(${L0}), open: liftById(${L0}).open, replay: !!matchView.replay, note: document.getElementById('sheet').innerText })`);
+  eq([rm.there, rm.open, rm.replay], [true, true, true], 'a lift removed while the day plays keeps running today');
+  assert(/Removed tonight/.test(rm.note), 'its card says it goes tonight');
+  const o = await orders(); eq([o.length, o[o.length - 1].kind], [n0 + 1, 'remove'], 'the removal is ordered for tonight');
+  await g.wait(100); assert(!(await g.ev(`!!document.querySelector('#sheet [data-action=remove]')`)), 'and it can’t be removed twice');
+  // Pausing by hand shows tomorrow's resort: the new lift open, the removed one gone.
+  await g.ev(`select(null); document.getElementById('visitWatch').click()`); await g.wait(1500);
+  eq(await g.ev(`[!!matchView.replay, !!liftById(${L0}), !!liftById(${nl.id}) && liftById(${nl.id}).open]`), [false, false, true], 'paused, tomorrow’s resort has the new lift open and the removed one gone');
+  await g.wait(200); eq(await g.ev('(drawPeople(), figMeshes.jacket.count - guests.filter((x) => x.px != null).length)'), 0, 'rivals’ skiers go when the day pauses');
+  await g.ev(`document.getElementById('visitWatch').click()`);
+  await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  eq(await g.ev(`liftById(${nl.id}).open`), false, 'back in the live day, the new lift is closed again until tomorrow');
+  // Shrinking the parking lot still needs the resort closed: it pauses.
+  await g.ev(`(() => { select({ kind: 'manage', obj: 'lotgrow' }); renderSheet(); })()`); await g.wait(300);
+  const shrink = await g.ev(`(() => { const b = document.querySelector('#sheet [data-action=shrinkLot]'); if (b && !b.disabled) b.click(); return !!b; })()`);
+  assert(shrink, 'the lot panel has Remove the newest section');
+  { await g.wait(1500); eq(await g.ev('[!!matchView.replay, matchView.paused]'), [false, true], 'shrinking the lot pauses the day'); }
   // The chat stays open when the day picks up again: closing it under your cursor made your letters game shortcuts.
   await g.ev(`select(null)`); await g.click('#visitChat'); await g.wait(300); await g.page.click('#mcText'); await g.page.keyboard.type('gl');
   await g.ev(`setTool('explore')`);
