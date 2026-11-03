@@ -1901,7 +1901,10 @@ const DEV = new URLSearchParams(location.search).has('dev');
 const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPreview') === '1';
 // Multiplayer map preview: ?matchMap=1 opens the match range to look around and build on. Nothing is saved, on
 // this device or online, so it never mixes with a player's own resorts or the leaderboards.
-const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1';
+// ?matchDemo=1 is the same, with a starter resort and two pretend rivals already built (bigger lots, bought land):
+// for checking how rivals look in previews, with no match or sign-in needed.
+const MATCH_DEMO = new URLSearchParams(location.search).get('matchDemo') === '1';
+const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1' || MATCH_DEMO;
 const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
 // Playing your own resort in a running match: you build on your copy and each change goes to the match server.
 let matchPlay = null;
@@ -17016,8 +17019,8 @@ function starterPrice() {
   setTimeout(() => { starterPlan(); if (selected && selected.kind === 'advice') renderSheet(); }, 120);
   return 'for about a million dollars';
 }
-function buildStarter() {
-  if (!starterOffered()) return;
+function buildStarter(force) { // force: the match demo builds one whatever the beginner-help setting
+  if (!force && !starterOffered()) return;
   const cash0 = state.cash;
   pushUndo('building the starter resort');
   const fail = (why) => { if (undoStack.length) undoLast(); toast(why, true); setTool('lift'); };
@@ -21245,6 +21248,16 @@ async function openMatch(lid) {
   startReplay();
   matchView.timer = setInterval(matchTick, 20000);
 }
+// ?matchDemo=1: a starter resort, then two pretend rivals made from it, drawn as a match draws them. Nothing online:
+// no lobby, no server, no saves. The rivals have grown their lots two rows deep and bought the valley below.
+function matchDemo() {
+  buildStarter(true);
+  const mine = saveData(false), land = PARCELS.filter((p) => /^S[1-3]$/.test(p.id)).map((p) => ({ id: p.id, own: 'buy', wait: 0, price: 0, rent: 0 }));
+  const rival = (n) => ({ ...mine, clock: { ...mine.clock, lotSections: n, lotLayout: Array.from({ length: n }, (_, k) => k < 4 ? [0, k] : [1, k - 4]), land } });
+  matchView = { demo: true, slot: 1, me: false, lobby: { name: 'Demo' }, players: [], resorts: [{ slot: 0, save: rival(6), summary: {} }, { slot: 2, save: rival(8), summary: {} }] };
+  drawRivals();
+  toast('Match demo: your starter resort, with two pretend rivals on the other slices of Crown Peak. Nothing here is saved or sent anywhere.');
+}
 // Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
 // part of your resort, so your guests never ride a rival's lift.
 function drawRivals() {
@@ -23676,7 +23689,8 @@ function start(hot) {
     state.resortName = 'Match preview'; state.welcomed = true;
     $('resortName').textContent = state.resortName;
     styleSnowVisuals(); refreshTimebar(true); select(null);
-    toast('Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
+    if (MATCH_DEMO) matchDemo();
+    else toast('Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
   }
   if (REFERRAL_PREVIEW) {
     $('title').hidden = true; $('hud').hidden = false; state.started = true;
