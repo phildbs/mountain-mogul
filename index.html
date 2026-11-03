@@ -6730,7 +6730,7 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0, tu
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot, style) {
-  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'building', type, x, z, rot });
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'building', type, x, z, rot, tier: info.tier || 0, style: styleOf(type, style) || null }); // size and theme too: a duplex is a condo's tier 1
   clearTreeSet(info.treeSet);
   const tier = info.tier || 0;
   state.cash -= info.cost;
@@ -20964,8 +20964,11 @@ async function matchTick() {
 // new day), without being sent again.
 async function matchApplyPending() {
   if (!matchPlay || !matchView || !CLOUD.sb) return;
-  const { data } = await CLOUD.sb.from('match_orders').select('id,kind,payload').eq('lobby_id', matchPlay.lobby).eq('slot', matchPlay.slot).is('applied_day', null).order('id', { ascending: true }).then((r) => r, () => ({}));
-  const list = data || [];
+  // Also the ones the server has marked done for a day newer than the copy shown: it marks them as each day starts and
+  // saves the resorts a few seconds later, so in between they're in neither (things vanished and the cash was wrong).
+  const shown = (matchView.resorts.find((r) => r.slot === matchPlay.slot) || {}).day ?? 0, q = () => CLOUD.sb.from('match_orders').select('id,kind,payload,applied_day,error').eq('lobby_id', matchPlay.lobby).eq('slot', matchPlay.slot);
+  const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
+  const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
   matchView.quiet = true;
   let short = 0;
@@ -20982,7 +20985,7 @@ async function matchApplyPending() {
           if (p.prices) Object.assign(state.prices, p.prices);
         } else if (p.what === 'lift') { const i = evalLift(p.a, p.b, p.type); if (!i.problems.length && fits(i)) commitLift(i, p.type); }
         else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length && fits(i)) commitTrail(i, pts, p.width || 'medium'); }
-        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
+        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined); }
         else if (p.what === 'lot') { if (state.cash < LOT_EXPAND_COST) short++; else growLot(p.row ?? null, p.lot || 0); }
         else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k]).slice(0, Math.max(0, Math.floor(state.cash / TREE_COST)))); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
         else if (o.kind !== 'build' && matchDo(o.kind, p) && o.kind === 'other') short++;
@@ -21542,6 +21545,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.84.3', date: 'Nov 3, 2026', title: 'Match buildings and new days', kotm: true, small: true, items: ['Fixed: a duplex or townhomes you built in a match arrived as a single chalet, and themed buildings arrived in the classic style. They now come in the size and style you picked.', 'Fixed: just as a new day started, things you’d built could vanish from your screen for a moment and your cash could show the wrong amount, so a purchase could look fine and then be refused overnight. Thanks to Snowy for the detailed reports!'] },
   { v: '2.84.2', date: 'Nov 2, 2026', title: 'Match menu button', kotm: true, small: true, items: ['King of the Mountain: the big match bar is now one crown button on the left. Tap it for the standings, chat, reports, pausing the live day and going back to the title screen. It lights up orange, with a count, when there are new chat messages.'] },
   { v: '2.84.1', date: 'Nov 2, 2026', title: 'Painting areas in matches', kotm: true, small: true, items: ['Fixed: in King of the Mountain, the Trail tool’s tabs for learning areas, glades and guest areas said they weren’t part of matches yet. They open now, and what you paint is built overnight.'] },
   { v: '2.84', date: 'Nov 2, 2026', title: 'Run your match resort', kotm: true, items: [

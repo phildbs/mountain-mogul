@@ -417,6 +417,10 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   needing the resort closed pause the live day (`matchPause`, then re-press the button). Panels show Remove and overnight buttons
   in a match during the day (`overnightOk()`). Not in matches yet: moving lifts/trails/buildings, trail shape/route, lift
   upgrades, mid-stations, terrain parks, blueprints (every match build already waits for the night). Scenario 153; server-test day 2.
+- Order timing (2.84.3, Claude, Nov 3): the server marks a day's orders applied before it plays the day, and saves the
+  resorts ~15 s later. `matchApplyPending` therefore also replays orders marked for a day newer than the copy shown
+  (`applied_day` in shown+1..shown+2, without errors); before, things vanished in that gap and the cash shown was stale, so
+  players ordered things the server then refused (Snowy's parking). Building orders now carry `tier` and `style`.
 - Rule (Phil, Nov 2): in a match players must be able to do everything whenever they're on, even if it only queues for the next overnight. Build tools pause the live day; panel actions like parking (`lotBuildable()`) pause it too. Keep this for every new match action.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot

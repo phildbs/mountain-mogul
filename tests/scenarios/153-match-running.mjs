@@ -100,6 +100,13 @@ export default async function ({ browser, url }) {
   assert(Math.abs(back.h - lv.h) < 0.01, `the levelled ground comes back the same (${back.h} vs ${lv.h}, was ${lv.h0})`); delete back.h;
   eq(back, { sm: true, debt: now.debt, lodge: false, open: false, groomed: false, staff: 'lean', pending: 5, areas: 1 }, 'coming back puts every waiting change back on screen');
   eq((await orders()).length, 8, 'without sending them again');
+  // As the next day starts the server marks them done, and saves the resorts a few seconds later. Reloading in
+  // between must still show them (they used to vanish, and the cash shown was wrong).
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const o of d.match.orders) o.applied_day = 3; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.ev(`(() => { applySave(matchView.resorts.find((r) => r.slot === matchView.slot).save); afterLoad(); })()`);
+  await g.ev('matchApplyPending()'); await g.wait(500);
+  eq(await g.ev(`({ debt: state.debt, lodge: !!bldById(${lodge}), open: trailById(${t}).open, areas: world.areas.length })`), { debt: now.debt, lodge: false, open: false, areas: 1 }, 'changes the server has just marked done stay on screen until its new copy arrives');
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const o of d.match.orders) o.applied_day = null; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
 
   // The live day: removing pauses it first, then carries on with the same panel.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 65 * 60000).toISOString(); matchView.nothing = null`);
@@ -138,6 +145,15 @@ export default async function ({ browser, url }) {
   await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);
   await press('[data-action=moveTrail]');
   eq((await orders()).length, 10, 'moving a trail isn’t part of matches yet: nothing is sent');
+  // A building goes with its size and theme (a duplex is a condo's second size; it used to arrive as a chalet).
+  const bo = await g.ev(`(() => {
+    setTool('bld'); state.cash = Math.max(state.cash, 5e6); const L = world.lifts[0] || { a: { x: 0, z: 60 } };
+    for (let k = 0; k < 80; k++) { const x = Math.round(L.a.x) - 20 + (k % 10) * 4, z = Math.round(L.a.z) + 4 + Math.floor(k / 10) * 4, i = evalBuilding('lodge', x, z, 0, false, null, null, 1);
+      if (i && !i.problems.length) { commitBuilding(i, 'lodge', x, z, 0, 'modern'); setTool('explore'); return true; } }
+    setTool('explore'); return false; })()`);
+  assert(bo, 'a bigger modern lodge can be placed');
+  o = await orders();
+  eq([o[o.length - 1].payload.what, o[o.length - 1].payload.tier, o[o.length - 1].payload.style], ['building', 1, 'modern'], 'its order carries the size and the theme');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

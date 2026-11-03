@@ -101,6 +101,7 @@
           }
           let rows = o.filter((r) => r.user_id === me);
           for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+          for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
           return { data: rows, error: null };
         }
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table ' + table } };

@@ -59,7 +59,7 @@ export const pageOrders = (orders) => `(() => {
           const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium');
           if (i.an.problems.length) throw new Error(i.an.problems[0]); pay(i); commitTrail(i, pts, p.width || 'medium');
         } else if (p.what === 'building') {
-          const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building'); pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0);
+          const i = evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0); if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building'); pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined);
         } else if (p.what === 'trees') {
           // Trees cleared by the brush or the bulldozer: only on your own land, as many as the cash covers.
           const set = new Set();

@@ -56,7 +56,8 @@ try {
     order('other', { ds: { action: 'borrow', v: '50000' }, sel: null, on: 'manage' }),
     order('remove', { ds: { action: 'removeYes' }, sel: { kind: 'bld', id: 3, x: 4, z: 60 }, on: 'bld' }),
     order('remove', { ds: { action: 'removeYes' }, sel: { kind: 'bld', id: 99, x: 90, z: 90 }, on: 'bld' }),
-    order('other', { ds: { action: 'borrow', v: '999999999' }, sel: null, on: 'manage' })]);
+    order('other', { ds: { action: 'borrow', v: '999999999' }, sel: null, on: 'manage' }),
+    order('build', { what: 'building', type: 'lodge', x: 4, z: 60, rot: 0, tier: 1, style: 'modern' })]);
   await tick(db, game, T0 + 2 * H + 60000);
   const O2 = db.tables.match_orders.slice(n0), s2 = R(1).save, t2 = (s2.world.trails || []).find((t) => t.id === 2);
   ok(L().day === 2 && O2.every((o) => o.applied_day === 2), 'day 2\'s orders are handled overnight');
@@ -66,6 +67,8 @@ try {
   ok(!O2[2].error && !(s2.world.buildings || []).some((B) => B.id === 3), `removing: the lodge is gone (${O2[2].error})`);
   ok(O2[3].error === 'it isn’t there any more', `removing something that isn't there says so (${O2[3].error})`);
   ok(!!O2[4].error || (s2.clock.debt || 0) < 999999999, `a loan past the bank's limit is capped or refused (${O2[4].error})`);
+  const big = (s2.world.buildings || []).find((B) => B.type === 'lodge');
+  ok(!O2[5].error && big && big.tier === 1 && big.style === 'modern', `a building comes in the size and style ordered (${O2[5].error}, ${big && [big.tier, big.style]})`);
 
   await tick(db, game, T0 + 3 * H + 60000);
   ok(L().day === 3 && L().status === 'finished', 'days 2 and 3 play, then the match finishes');
