@@ -1,5 +1,5 @@
 // Watching today live: during a day's ski slot, Watch today plays the day on screen in step with the clock (the
-// lifts open as the slot begins and close five minutes before the next) with the share of skiers the server gave
+// lifts open as the slot begins and close 18 minutes in; 156 covers the evening) with the share of skiers the server gave
 // this resort; Stop watching, or the end of the slot, goes back to building with the server's official numbers.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -23,7 +23,7 @@ export default async function ({ browser, url }) {
   // The day plays by itself.
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   const w = await g.ev(`({ time: state.time, want: replayClock(matchView.lobby), speed: state.speed, bar: document.getElementById('visitText').innerText, btn: document.getElementById('visitWatch').innerText, expected: today.expected })`);
-  assert(Math.abs(w.time - w.want) < (process.env.SHOTS ? 15 : 5) && Math.abs(w.want - (480 + 555 * 5 / 25)) < 3, `today plays by itself, at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
+  assert(Math.abs(w.time - w.want) < (process.env.SHOTS ? 15 : 5) && Math.abs(w.want - (480 + 480 * 5 / 18)) < 3, `today plays by itself, at the right time of day (${w.time.toFixed(0)} vs ${w.want.toFixed(0)})`);
   assert(w.speed > 0.25 && w.speed < 0.5, `in step with the clock (${w.speed.toFixed(2)})`);
   eq(w.expected, 150, 'with the share of skiers the server gave this resort');
   assert(/watching day 2 live/.test(w.bar) && w.btn === 'Pause the day', 'the bar says so');
@@ -157,7 +157,7 @@ export default async function ({ browser, url }) {
   await g.click('#visitReports'); await g.wait(300);
   assert(await g.page.$('#sheet [data-action=pastReport]'), 'Reports lists the past days');
 
-  // When the slot's ski part ends, the day ends with the server's own report.
+  // When the day is over (5:15 PM with no evening plans, about 21 minutes in), it ends with the server's own report.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 86 * 60000).toISOString(); matchTick()`); await g.wait(800);
   const end = await g.ev(`({ phase: state.phase, replay: !!matchView.replay, report: !document.getElementById('report').hidden, day: state.lastReport && state.lastReport.day, guests: state.lastReport && state.lastReport.guests })`);
   eq([end.phase, end.replay, end.report], ['closed', false, true], 'at night the watched day ends with the day report');

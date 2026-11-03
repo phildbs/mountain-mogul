@@ -10727,8 +10727,8 @@ function opsState() {
   return state.ops;
 }
 // What kind of day this is, by the calendar alone.
-function dayKind(day) {
-  if (state.event && state.event.days.includes(day)) return 'weekend';
+function dayKind(day, event = state.event) {
+  if (event && event.days && event.days.includes(day)) return 'weekend';
   if (peakDay(day)) return 'weekend';
   const d = dateOf(day), m = d.getUTCMonth();
   return (m === 11 && d.getUTCDate() < 20) || (m >= 2 && m < 6) ? 'quiet' : 'weekday';
@@ -11785,6 +11785,11 @@ function drawLightMap() {
   // floodlights on the lift terminals light the loading and unloading areas
   for (const L of world.lifts) if (liftLightOn(L)) for (const p of [L.a, L.b]) spot(p.x, p.z, 6, LAMP, 0.8);
   if (nightLightsOn() || (torchTonight() && state.time < TORCH.end)) for (const sp of lampSpots) spot(sp.x, sp.z, 5.5, LAMP, 0.75);
+  // Rivals' evenings: their lit trails and lifts while they night ski, and their open bars and lodges.
+  if (rivalEve()) for (const sl of RIVAL_SKI.slices) {
+    if (rivalNight(sl)) { for (const p of sl.lamps) spot(p.x, p.z, 5.5, LAMP, 0.75); for (const R of sl.lifts) if (R.lit) for (const p of [R.a, R.b]) spot(p.x, p.z, 6, LAMP, 0.8); }
+    for (const b of sl.blds) if (rivalBldLit(sl, b)) { if (b.type === 'firepit') spot(b.x, b.z, 6, FIRE, 0.9); else if (!BULB_TYPES.includes(b.type)) spot(b.x, b.z, b.r, WARM, 0.35); }
+  }
   lightTex.needsUpdate = true;
 }
 
@@ -11920,12 +11925,13 @@ function updateEveningGlow() {
   if (sig !== lightSig) { lightSig = sig; rebuildGlows(); }
   const dark = duskK, open = state.phase === 'open';
   // windows and which pools are on, when something changes
-  const lit = (state.phase === 'open' ? Math.round(sstep(EVENING[0] - 25, EVENING[0] + 15, state.time) * 8) : 0) + ':' + world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightLightsOn() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '');
+  const lit = (state.phase === 'open' ? Math.round(sstep(EVENING[0] - 25, EVENING[0] + 15, state.time) * 8) : 0) + ':' + world.buildings.map((B) => (bldLitNow(B) ? 1 : 0)).join('') + world.lifts.map((L) => (liftLightOn(L) ? 1 : 0)).join('') + (open ? lotsOpen() : 'c') + (dark > 0.1 ? 'd' : '') + (nightLightsOn() || (torchTonight() && state.time < TORCH.end) ? 'n' + lampSpots.length : '') + rivalEveSig();
   if (lit !== litSig) {
     litSig = lit;
     // by day windows look like glass; as dusk falls they turn lit or dark
     const k = state.phase === 'open' && !state.summer ? sstep(EVENING[0] - 25, EVENING[0] + 15, state.time) : 0; // by the clock, so it holds while paused too
     for (const B of world.buildings) if (B.glowMat) B.glowMat.color.copy(_winA.setHex(WIN_DAY).lerp(_winB.setHex(bldLitNow(B) ? WIN_ON : WIN_OFF), k));
+    for (const sl of matchView ? RIVAL_SKI.slices : []) for (const b of sl.blds) if (b.glow) b.glow.color.copy(_winA.setHex(WIN_DAY).lerp(_winB.setHex(rivalBldLit(sl, b) ? WIN_ON : WIN_OFF), k));
     styleLotHeads(dark, open);
     const col = groundPools.geometry.attributes.color;
     if (col) {
@@ -21269,6 +21275,25 @@ function matchDemo() {
   drawRivals();
   toast('Match demo: your starter resort, with two pretend rivals on the other slices of Crown Peak. Nothing here is saved or sent anywhere.');
 }
+// A rival's evening today, from their own plan: night skiing until when (0 for none), and après until when (0).
+function rivalEvening(clock, w) {
+  const ops = clock.ops || {}, day = state.day, o = ops.override, ev = clock.event && clock.event.days && clock.event.days.includes(day);
+  const kind = o && o.day === day && !ev ? o.plan : !ev && ops.fridayWeekend === true && dateOf(day).getUTCDay() === 5 ? 'weekend' : dayKind(day, clock.event);
+  const P = { ...blankPlan(), ...((ops.plans || {})[kind] || {}) }, lit = (w.trails || []).some((t) => t.lit && !t.virtual);
+  const night = P.night && lit ? P.night : 0, apres = P.apres === 'on' && (w.buildings || []).some(rivalApresType);
+  return { night, apres: apres ? Math.max(P.lastCall || APRES_END, night ? night + 45 : 0) : 0 };
+}
+// Close enough to apresType for a rival's building (a casual restaurant counts wherever it is).
+const rivalApresType = (B) => APRES_VENUES.includes(B.type) || BASE_APRES.includes(B.type) || (B.type === 'hotel' && !!bspec(B).seats);
+const rivalEve = () => !!(matchView && matchView.replay && state.phase === 'open' && state.time >= DAY_CLOSE);
+const rivalNight = (sl) => rivalEve() && state.time < sl.eve.night;
+const rivalApres = (sl) => rivalEve() && state.time < sl.eve.apres;
+function rivalBldLit(sl, b) {
+  if (b.type === 'firepit' || b.type === 'lamp' || BULB_TYPES.includes(b.type) || b.type === 'hotel' || b.type === 'condo') return true;
+  if (!rivalEve() || state.time < DAY_CLOSE + 15) return true;
+  return (b.apres && rivalApres(sl)) || (NIGHT_OPEN.includes(b.type) && rivalNight(sl) && state.time < sl.eve.night + 15);
+}
+const rivalEveSig = () => (rivalEve() ? RIVAL_SKI.slices.map((sl) => `${+rivalNight(sl)}${+rivalApres(sl)}${sl.blds.map((b) => +rivalBldLit(sl, b)).join('')}`).join('|') : '');
 // Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
 // part of your resort, so your guests never ride a rival's lift.
 function drawRivals() {
@@ -21290,7 +21315,7 @@ function drawRivals() {
     if (r.slot === matchView.slot || !r.save || !r.save.world) continue;
     const phi = (r.slot - matchView.slot) * 2 * Math.PI / CROWN.n, c = Math.cos(phi), sn = Math.sin(phi);
     const turn = (p) => ({ x: cx + (p.x - cx) * c - (p.z - cz) * sn, z: cz + (p.x - cx) * sn + (p.z - cz) * c });
-    const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [] };
+    const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [], lamps: [], blds: [], eve: rivalEvening(r.save.clock || {}, w) };
     RIVAL_SKI.slices.push(sl);
     for (const L of w.lifts || []) {
       try {
@@ -21307,15 +21332,26 @@ function drawRivals() {
       try {
         const pts = (t.pts || []).map(turn), hw = TRAIL_WIDTHS[t.width] ? TRAIL_WIDTHS[t.width].hw : 2, sm = trailSamples(pts, hw, t.ws);
         if (sm.length < 2) continue;
-        sl.trails.push({ sm, hw, len: (sm.length - 1) * 0.5 });
+        const lit = !!t.lit && t.open !== false;
+        sl.trails.push({ sm, hw, len: (sm.length - 1) * 0.5, lit });
+        if (lit) for (let d = 0, side = 1; d < sm.length - 1; d += LIGHT_GAP * 2, side = -side) { // their trail lights: a pool every pole, alternate sides
+          const a = sm[Math.floor(d)], b = sm[Math.floor(d) + 1], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, off = side * ((a.hw || hw) * 0.6);
+          sl.lamps.push({ x: a.x - (b.z - a.z) / L * off, z: a.z + (b.x - a.x) / L * off });
+        }
         const m = new THREE.Mesh(ribbonGeometry(sm, hw, edgeTint(t.sign ?? analyzeTrail(sm).rating)), trailMaterial());
         m.renderOrder = 2; m.userData.rival = true; rivalGroup.add(m); matchView.drawn++;
         for (let i = 0; i < sm.length; i += 2) cutAt(sm[i].x, sm[i].z, (sm[i].hw || hw) * 0.95);
       } catch (e) { /* skip */ }
     }
     for (const B of w.buildings || []) {
-      try { const p = turn(B), v = buildingVisual({ ...B, x: p.x, z: p.z }, false); v.group.rotation.y -= phi; rivalGroup.add(v.group); matchView.drawn++; } catch (e) { /* skip */ }
+      try {
+        const p = turn(B), o = { ...B, x: p.x, z: p.z }, v = buildingVisual(o, false), s = bspec(o);
+        v.group.rotation.y -= phi; rivalGroup.add(v.group); matchView.drawn++;
+        sl.blds.push({ type: B.type, x: p.x, z: p.z, r: Math.max(s.w, s.d) * 0.75 + 1, glow: o.glowMat || null, apres: rivalApresType(o) });
+      } catch (e) { /* skip */ }
     }
+    // A lift is lit if a lit trail starts at its top, as night skiers ride it.
+    for (const R of sl.lifts) R.lit = sl.trails.some((T) => T.lit && Math.hypot(T.sm[0].x - R.b.x, T.sm[0].z - R.b.z) < 25);
     // Their road, parking lot and land: everyone's base is laid out alike, so it's yours turned onto their slice.
     try { rivalLot(r.save.clock || {}, turn, cutAt); } catch (e) { /* skip */ }
     const held = ((r.save.clock && r.save.clock.land) || []).filter((l) => !l.wait).map((l) => PARCELS.find((p) => p.id === l.id)).filter(Boolean);
@@ -21810,13 +21846,27 @@ $('sheet').addEventListener('click', async (e) => {
 $('visitChat').onclick = () => { if (mcOpen()) select(null); else { select({ kind: 'mchat', obj: null }); mcShow(); if ($('mcList')) $('mcList').scrollTop = $('mcList').scrollHeight; } };
 /* ---------- Multiplayer: watching today live ----------
    The match server plays each day in a moment at the start of its slot; your game then plays the same day
-   again, for you to watch, in step with the clock: the lifts open as the slot begins and close five minutes
-   before the next one (the last five minutes are night). It uses the share of the town's skiers the server
+   again, for you to watch, in step with the clock: the lifts open as the slot begins and close at 4 PM, 18
+   minutes in. Then the evening (night skiing and après, if you run them) plays faster, to be over by 28
+   minutes, so the day ends a little before the next one. It uses the share of the town's skiers the server
    gave your resort, so it looks like the real day; the server's numbers stay the official ones. */
-const SKI_PART = 25 / 30; // of each day's slot: skiing, then night
-const replayWindow = (l) => { const t0 = Date.parse(l.starts_at) + l.day * l.day_minutes * 60000, len = l.day_minutes * 60000 * SKI_PART; return { t0, len, e: Date.now() - t0 }; };
-const replayClock = (l) => { const w = replayWindow(l); return DAY_OPEN + clamp(w.e / w.len, 0, 1) * (DAY_HARD_END - DAY_OPEN); };
-const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && matchView.lobby.day >= 1 && replayWindow(matchView.lobby).e < replayWindow(matchView.lobby).len);
+const DAY_PART = 18 / 30, EVE_PART = 28 / 30; // of each day's slot: to the lifts closing, and to the end of the evening
+const replayWindow = (l) => { const t0 = Date.parse(l.starts_at) + l.day * l.day_minutes * 60000, len = l.day_minutes * 60000; return { t0, len, e: Date.now() - t0 }; };
+// The latest today can run on its plan: 5:15 PM, or later with après and night skiing (the same as dayHardEnd).
+function plannedEnd() {
+  if (state.phase === 'open') return dayHardEnd();
+  const was = runOps;
+  try { runOps = resolvePlan(planFor(state.day)); return dayHardEnd(); } catch (e) { return DAY_HARD_END; } finally { runOps = was; }
+}
+const replayEnd = () => (matchView && matchView.replay && matchView.replay.end) || plannedEnd();
+// The time of day for this moment of the slot (`at`, ms after it began): the day at an even pace, then the evening
+// at least as fast, quicker the longer it runs. A day with no evening plans ends at 5:15 PM, about 21 minutes in.
+function replayClock(l, at = replayWindow(l).e, end = replayEnd()) {
+  const f = Math.max(0, at / (l.day_minutes * 60000)), day = (DAY_CLOSE - DAY_OPEN) / DAY_PART;
+  if (f <= DAY_PART) return DAY_OPEN + f * day;
+  return Math.min(end, DAY_CLOSE + (f - DAY_PART) * Math.max(day, (end - DAY_CLOSE) / (EVE_PART - DAY_PART)));
+}
+const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && matchView.lobby.day >= 1 && replayWindow(matchView.lobby).e >= 0 && replayClock(matchView.lobby) < replayEnd() - 1);
 function watchButton() {
   const b = $('visitWatch'); if (!b) return;
   b.hidden = !matchView || (!matchView.replay && !canWatch());
@@ -21843,6 +21893,7 @@ async function startReplay(manual) {
   demandForDay = () => n; passBuyers = () => 0;
   try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
+  matchView.replay.end = dayHardEnd(); // today's plan: how long the evening runs
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
   toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
@@ -21857,8 +21908,9 @@ function replaySync() {
   const keep = state.cash; // its takings were already counted by the server
   let n = 0; while (state.phase === 'open' && state.time < target - 1 && n++ < 200000) simStep(1.5);
   state.cash = keep; updateCash(false);
-  const left = Math.max(1, (w.len - w.e) / 1000), gameLeft = Math.max(0, DAY_HARD_END - state.time) * 60;
-  state.speed = state.phase === 'open' ? clamp(gameLeft / left / GS_PER_REAL, 0.05, 4) : 0;
+  // Aim for where the clock will be 20 seconds from now (the next check), so the pace changes as the evening starts.
+  const ahead = replayClock(l, w.e + 20000) - state.time;
+  state.speed = state.phase === 'open' ? clamp(ahead * 60 / 20 / GS_PER_REAL, 0.05, 4) : 0;
 }
 function stopReplay(done) {
   if (!matchView || !matchView.replay) return;
@@ -21890,7 +21942,7 @@ function rivalSkiersBuild() {
       // Dressed and skiing like your own guests: their own colours, lane across the trail and rhythm of turns.
       const g = { sl, mode: 'lift', i: Math.floor(Math.random() * sl.lifts.length), c: 0, d: 0, seat: Math.floor(Math.random() * 6),
         jc: pick(JACKETS), pc: pick(PANTS), hc: pick(HELMETS), lane: (Math.random() * 2 - 1) * 0.5, ph: Math.random() * 6.28, tf: 0.8 + Math.random() * 0.8, ta: 0.14 + 0.08 * Math.floor(Math.random() * 4),
-        speed: 3.4 + Math.random() * 2.2, x: 0, y: 0, z: 0, yaw: 0, sy: 1 };
+        speed: 3.4 + Math.random() * 2.2, x: 0, y: 0, z: 0, yaw: 0, sy: 1, home: Math.random() < 0.6 };
       const V = sl.lifts[g.i].V; g.c = Math.floor(Math.random() * V.chairCount);
       if (Math.random() < 0.6 || rivalChairP(V, g.c) >= V.upLen) { g.mode = 'ski'; g.i = Math.floor(Math.random() * sl.trails.length); g.d = Math.random() * sl.trails[g.i].len; }
       RIVAL_SKI.ghosts.push(g);
@@ -21906,13 +21958,20 @@ const rivalLive = () => !!(matchView && matchView.replay && state.phase === 'ope
 // Moves them along: up a lift seated below the cable, then down a trail weaving across it, then the nearest lift again.
 function rivalSkiersTick(dt) {
   if (!rivalLive()) return;
-  const pace = clamp(state.speed / 0.37, 0.2, 4);
-  for (const sl of RIVAL_SKI.slices) for (const R of sl.lifts) { const V = R.V; V.phase = (V.phase + dt * pace * 1.4 * LIFT_TYPES[R.type].speed / LIFT_TYPES.double.speed) % V.total; placeChairs(V); }
+  const pace = clamp(state.speed / 0.37, 0.2, 4), eve = rivalEve();
+  // After the lifts close, only lit lifts run for night skiers, and any lift still carrying someone up.
+  if (eve) { for (const sl of RIVAL_SKI.slices) for (const R of sl.lifts) R.busy = R.lit && rivalNight(sl); for (const g of RIVAL_SKI.ghosts) if (g.mode === 'lift') g.sl.lifts[g.i].busy = true; }
+  for (const sl of RIVAL_SKI.slices) for (const R of sl.lifts) { if (eve && !R.busy) continue; const V = R.V; V.phase = (V.phase + dt * pace * 1.4 * LIFT_TYPES[R.type].speed / LIFT_TYPES.double.speed) % V.total; placeChairs(V); }
   for (const g of RIVAL_SKI.ghosts) {
     const sl = g.sl;
+    if (g.mode === 'gone') continue;
     if (g.mode === 'lift') {
       const R = sl.lifts[g.i], V = R.V, p = rivalChairP(V, g.c);
-      if (p >= V.upLen) { g.mode = 'ski'; const t = nearest(sl.trails, R.b, (T) => T.sm[0]); g.i = t.d < 25 ? t.k : Math.floor(Math.random() * sl.trails.length); g.d = 0; }
+      if (p >= V.upLen) {
+        g.mode = 'ski'; g.d = 0;
+        const lit = eve ? sl.trails.filter((T) => T.lit) : [], pool = lit.length ? lit : sl.trails, t = nearest(pool, R.b, (T) => T.sm[0]); // at night, down a lit trail
+        g.i = sl.trails.indexOf(t.d < 25 || lit.length ? pool[t.k] : pick(sl.trails));
+      }
       else {
         liftPoint(V, p, RIVAL_CP);
         const dx = Math.sin(R.head), dz = Math.cos(R.head), seats = LIFT_TYPES[R.type].seats, o = (g.seat % seats - (seats - 1) / 2) * SEAT_W;
@@ -21924,7 +21983,12 @@ function rivalSkiersTick(dt) {
     }
     const T = sl.trails[g.i];
     g.d += dt * pace * g.speed;
-    if (g.d >= T.len) { g.mode = 'lift'; const end = T.sm[T.sm.length - 1], l = nearest(sl.lifts, end, (L) => L.a); g.i = l.d < 30 ? l.k : Math.floor(Math.random() * sl.lifts.length); g.c = rivalBoard(sl.lifts[g.i].V); g.d = 0; continue; }
+    if (g.d >= T.len) {
+      // After the lifts close: home after this run, unless they night ski (fewer stay on than skied all day).
+      const end = T.sm[T.sm.length - 1], lit = eve ? sl.lifts.filter((R) => R.lit) : sl.lifts;
+      if (eve && (g.home || !rivalNight(sl) || !lit.length)) { g.mode = 'gone'; continue; }
+      const l = nearest(lit, end, (L) => L.a); g.mode = 'lift'; g.i = sl.lifts.indexOf(l.d < 30 || eve ? lit[l.k] : pick(sl.lifts)); g.c = rivalBoard(sl.lifts[g.i].V); g.d = 0; continue;
+    }
     const n = T.sm.length, f = g.d / 0.5, i = Math.min(n - 2, Math.floor(f)), t = Math.min(1, f - i), a = T.sm[i], b = T.sm[i + 1];
     let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
     const hw = a.hw ? lerp(a.hw, b.hw || a.hw, t) : T.hw, wave = Math.sin(g.d * g.tf + g.ph), off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw;
@@ -21935,7 +21999,7 @@ function rivalSkiersTick(dt) {
 // Drawn with your own guests' figures, after them (drawPeople).
 function drawRivalSkiers(n) {
   if (!RIVAL_SKI.on || !rivalLive()) return n;
-  for (const g of RIVAL_SKI.ghosts) { if (n >= MAX_G) break; writeFig(n++, g.x, g.y, g.z, g.yaw, g.sy, g); }
+  for (const g of RIVAL_SKI.ghosts) { if (n >= MAX_G) break; if (g.mode !== 'gone') writeFig(n++, g.x, g.y, g.z, g.yaw, g.sy, g); }
   return n;
 }
 $('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
@@ -22117,6 +22181,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.90', date: 'Nov 3, 2026', title: 'Evenings in matches', kotm: true, items: [
+    'King of the Mountain: the live day now carries on into the evening. Night skiing under your lights and après at your bars play out on screen, just as they do in a normal game.',
+    'To fit the evening into the half hour, the lifts now close at 4 PM, about 18 minutes into each day, and the evening plays a little faster after that. Without night skiing or après, the day is over about 21 minutes in.',
+    'Your rivals have evenings too: their skiers stay on lit trails while they night ski and head home otherwise, and their lit trails, lifts and bars glow after dark.',
+    'Night skiing and après always counted on the match server. Now you can watch them.'] },
   { v: '2.89.1', date: 'Nov 3, 2026', title: 'Quicker online saves', small: true, items: [
     'Online saves are much smaller now: your resort’s photo only uploads when it has changed, at most every half hour. Saving and loading should feel quicker for everyone.',
   ] },
