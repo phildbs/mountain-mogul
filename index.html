@@ -9683,11 +9683,12 @@ const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCoun
 const villageLifts = (za, zb) => world.lifts.filter((L) => isVillage(L) && L.open && !L.windHold && new Set([baseOf(L.a), baseOf(L.b)]).size === 2 && [za, zb].every((z) => baseOf(L.a) === z || baseOf(L.b) === z));
 const zoneStations = (z) => stations().filter((B) => baseOf(B.door) === z);
 const baseShuttle = (za, zb) => zoneStations(za).length > 0 && zoneStations(zb).length > 0;
-const LOOP_SEATS = 40, LOOP_WAIT = 8; // a base shuttle bus, and about how long a wait for one feels
+const LOOP_SEATS = 40, LOOP_WAIT = 8, LOOP_MAX = 6; // a base shuttle bus, about how long a wait for one feels, and the most on the road
+let loopWait = {}; // guests waiting for the base shuttle at each base, counted each step
 function crossCost(za, zb) {
   let c = Infinity;
   for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? (L.xq[za] || []).length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
-  if (baseShuttle(za, zb)) c = Math.min(c, 1.6);
+  if (baseShuttle(za, zb)) c = Math.min(c, 1.6 * (1 + (loopWait[za] || 0) / LOOP_SEATS / LOOP_MAX)); // a long line at the stops puts guests off crossing
   return c;
 }
 // Head for the other base: the quicker of the gondola and the shuttle, then carry on with `next`.
@@ -9744,13 +9745,25 @@ function crossStep(dt) {
 function loopStep() {
   if (lotCount() < 2 || !hasStation()) return;
   const waiting = guests.filter((g) => g.st === 'xbq');
-  if (!waiting.length || buses.filter((b) => b.kind === 'loop').length >= (waiting.length * AGENT > LOOP_SEATS ? 2 : 1)) return; // a second bus when one can't take everyone
-  const from = bldById(waiting[0].stn); if (!from) return;
-  const zone = waiting[0].xZone, to = zoneStations(zone).sort((p, q) => distXZ(p.door, from.door) - distXZ(q.door, from.door))[0];
+  loopWait = {}; for (const g of waiting) loopWait[baseOf(g)] = (loopWait[baseOf(g)] || 0) + AGENT;
+  // Another bus for every busload waiting, or for a stop no bus is heading to where someone has waited a while, up to
+  // LOOP_MAX: two buses left hundreds of guests at the stops all afternoon.
+  const n = buses.filter((b) => b.kind === 'loop').length;
+  if (!waiting.length || n >= LOOP_MAX) return;
+  const first = loopNext(null), from = first && bldById(first.stn); if (!from) return;
+  if (n >= Math.ceil(waiting.length * AGENT / LOOP_SEATS) && state.time - first.qSince < LOOP_WAIT * 2) return;
+  const to = loopDest(first, from);
   if (!to) return;
   const path = loopPath(to, from); // it comes from the far station to pick them up
   buses.push({ id: nextCid++, kind: 'loop', stn: from.id, to: to.id, st: 'in', path, len: pathLen(path), pd: 0, riders: [], dwell: 0, legs: 0 });
 }
+// The guest who has waited longest at a stop no other base shuttle is heading for, and the stop across that they want.
+function loopNext(b) {
+  let first = null;
+  for (const g of guests) if (g.st === 'xbq' && (!first || g.qSince < first.qSince) && !buses.some((o) => o !== b && o.kind === 'loop' && o.stn === g.stn)) first = g;
+  return first;
+}
+const loopDest = (g, from) => zoneStations(g.xZone).sort((p, q) => distXZ(p.door, from.door) - distXZ(q.door, from.door))[0];
 function loopPath(a, b) {
   const road = roadBetween(a.approach, b.approach);
   return [a.stop, ...(a.bayIn ? [a.bayIn] : []), a.approach, ...road, b.approach, ...(b.bayIn ? [b.bayIn] : []), b.stop];
@@ -15391,8 +15404,16 @@ function busStep(dt) {
       if (b.st === 'in' && b.pd >= b.len) { b.st = 'stop'; b.dwell = state.time + 2; loopArrive(b); }
       else if (b.st === 'stop' && state.time >= b.dwell) {
         const here = bldById(b.stn), there = bldById(b.to);
-        if (!here || !there || (!b.riders.length && !guests.some((g) => g.st === 'xbq'))) { b.st = 'gone'; continue; }
-        b.path = loopPath(here, there); b.len = pathLen(b.path); b.pd = 0; b.st = 'in'; [b.stn, b.to] = [b.to, b.stn]; b.legs++;
+        if (!here || !there) { b.st = 'gone'; continue; }
+        if (!b.riders.length) {
+          // Empty: go to whoever has waited longest, at any stop. Bouncing between the same two stops left guests at a
+          // resort's other stations waiting all day (Cedar Point: seven stations, over a thousand missed lunches).
+          const first = loopNext(b), S = first && bldById(first.stn), T = S && loopDest(first, S);
+          if (!S || !T) { b.st = 'gone'; continue; }
+          if (S !== here) { b.path = loopPath(here, S); b.len = pathLen(b.path); b.pd = 0; b.st = 'in'; b.stn = S.id; b.to = T.id; b.legs++; continue; }
+          loopArrive(b); b.to = T.id; // they came up to this stop while the bus stood here
+        }
+        b.path = loopPath(here, bldById(b.to)); b.len = pathLen(b.path); b.pd = 0; b.st = 'in'; [b.stn, b.to] = [b.to, b.stn]; b.legs++;
       }
       continue;
     }
@@ -21684,6 +21705,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.87.1', date: 'Nov 3, 2026', title: 'Base shuttles that keep up', small: true, items: [
+    'Fixed: with more than one shuttle station at a base, the base shuttle went back and forth between the same two stops, and guests at the others could wait all day. Some went hungry because they were stuck at a stop over lunch. Now an empty bus goes to whoever has waited longest.',
+    'More base shuttles run when the lines at the stops grow, up to six at once, and guests are less keen to cross to the other base when the stops are busy.'] },
   { v: '2.87', date: 'Nov 3, 2026', title: 'Overnight jobs without pausing', kotm: true, items: [
     'King of the Mountain: the live day no longer pauses for overnight jobs. Clear trees, paint learning areas, glades and guest areas, level ground, add parking, and set up snowmaking, lights, loans, land, events and ski patrol while you watch. Everything is sent to the server for tonight as before.',
     'Removing a lift, trail, area or building while the day plays keeps it running for the rest of today. Its card says it’s removed tonight.',
