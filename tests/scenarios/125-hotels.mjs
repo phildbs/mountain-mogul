@@ -38,6 +38,16 @@ export default async function ({ browser, url }) {
   const H = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'); return { id: B.id, tier: B.tier, style: B.style, ski: skiInOut(B), base: B.isBase }; })()`);
   eq([H.tier, H.style], [1, 'modern'], 'built as a medium, modern hotel');
   assert(H.ski, 'ski-in, ski-out beside the lift');
+  // The card ticks ski-in, ski-out and names the places to eat a short walk from the door.
+  const checks = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'), d = document.createElement('div'); d.innerHTML = bldSheet(B);
+    const li = [...d.querySelectorAll('.checks li')]; return { n: li.length, ok: li.map((x) => x.classList.contains('ok')), text: li.map((x) => x.textContent.replace(/\\s+/g, ' ').trim()),
+      eats: hotelSpot(B.door).eats.map((o) => o.name), all: world.buildings.filter((o) => HOTEL_EATS.includes(o.type)).map((o) => [o.name, Math.round(distXZ(o.door, B.door))]) }; })()`);
+  eq(checks.n, 2, 'two checks on the hotel card');
+  eq(checks.ok[0], true, 'ski-in, ski-out is ticked');
+  eq(checks.ok[1], checks.eats.length > 0, 'food is ticked only with somewhere to eat close by');
+  assert(checks.eats.length ? checks.eats.every((n) => checks.text[1].includes(n)) : /No food close by/.test(checks.text[1]), 'the card names the places to eat: ' + JSON.stringify(checks));
+  const far = await g.ev(`hotelChecks({ ski: false, eats: [] })`);
+  assert(/Not ski-in, ski-out/.test(far) && /No food close by/.test(far) && !/class="ok"/.test(far), 'a hotel far from everything shows two empty circles');
 
   // What fills rooms: weekends over weekdays, a lower price over a higher one.
   const share = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'hotel'), d0 = state.day, out = {};
