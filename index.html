@@ -17972,6 +17972,18 @@ function preseasonLine() {
   const need = Math.min(...net.map(needOf)), have = Math.round(Math.max(...net.map((t) => t.base || 0)));
   return `Waiting for snow · trails ${inch(have)} of ${inch(need)}`;
 }
+// In a match, between days: how long until the next day opens, by the second (the match server plays it as its
+// half hour starts, then it plays live here). Null while a day plays or outside a running match.
+function matchCountdown() {
+  let l = null; try { l = matchView && !matchView.replay && matchView.lobby; } catch (e) { return null; } // not set up yet while the page loads
+  if (!l || l.status !== 'running' || state.phase === 'open') return null;
+  if (l.day >= 1 && canWatch()) return { clock: 'Live', sub: `Day ${l.day} is playing now`, btn: '<button class="tb-plan" data-watch="1">Back to the live day</button>' };
+  if (l.day >= l.days) return null;
+  const left = Math.ceil((matchNext(l) - Date.now()) / 1000), next = l.day + 1;
+  if (left <= 0) return { clock: '…', sub: `Day ${next} is starting: the match server is playing it` };
+  const h = Math.floor(left / 3600), m = Math.floor(left / 60) % 60, sec = String(left % 60).padStart(2, '0');
+  return { clock: h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`, sub: `${next === 1 ? 'Opening day' : `Day ${next}`} opens in <b>${h ? `${h} h ${m} min` : m ? `${m} min ${sec} s` : `${left} s`}</b>` };
+}
 function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
   const onMtn = onMountain * AGENT;
@@ -17989,7 +18001,9 @@ function refreshTimebar(force) {
   const evLbl = !ev ? '' : ev.type === 'torch' ? (state.phase === 'open' && state.time >= TORCH.parade[0] ? (state.time >= TORCH.end ? 'Show over' : state.time >= TORCH.fireworks[0] ? 'Fireworks' : 'Parade under way') : 'Parade tonight')
     : ev.type === 'race' ? 'Race day' : 'Pond skim today';
   const evChip = ev ? `<button class="tb-plan tb-ev" ${visiting ? 'disabled' : ''} title="${esc(EVENTS[ev.type].name)} today">${evLbl}</button>` : '';
-  sub = `<span class="tb-st">${sub}</span>${evChip}${plan}`;
+  const mc = matchCountdown();
+  if (mc) sub = mc.sub;
+  sub = `<span class="tb-st">${sub}</span>${mc && mc.btn ? mc.btn : evChip + plan}`;
   const w = todayWx();
   const base = avgBase();
   const wxKey = state.summer ? 'summer' : `${w.type}${w.hi}${Math.round(base)}${w.snow}`;
@@ -18002,7 +18016,7 @@ function refreshTimebar(force) {
     : `<span class="ic" aria-hidden="true">${WX[w.type].icon}</span><b>${tempF(w.hi)}</b><span class="lbl">·</span><b>${inch(base)}</b><span class="lbl">base</span>${w.snow >= 1 && w.type !== 'rain' ? `<span class="new">+${inch(w.snow)}</span>` : ''}`;
   $('tbWait').hidden = state.phase !== 'closed' || state.summer;
   $('tbSub').innerHTML = sub;
-  $('tbClock').textContent = state.phase === 'open' ? clockLabel(state.time) : state.summer ? '' : 'Night';
+  $('tbClock').textContent = mc ? mc.clock : state.phase === 'open' ? clockLabel(state.time) : state.summer ? '' : 'Night';
   $('tbClock').hidden = state.summer;
   $('tbSpeed').hidden = state.phase !== 'open';
   const slow = showSlow();
@@ -18023,6 +18037,7 @@ function refreshTimebar(force) {
   for (const id of Object.keys(BUILD_TITLES)) $(id).title = locked ? (id === 'tClear' ? 'Trees can only be cleared overnight' : BUILD_TITLES[id].replace(/ \(/, ' plan (')) : BUILD_TITLES[id];
 }
 $('tbSub').onclick = (e) => {
+  if (e.target.closest('[data-watch]')) { if (matchView) { matchView.paused = false; startReplay(true); } return; }
   if (!e.target.closest('.tb-plan') || visiting) return;
   if (e.target.closest('.tb-ev')) return openManage('events');
   opsEdit = null; resortTab = 'ops';
@@ -21344,7 +21359,8 @@ async function openMatch(lid) {
   if (!me) matchOverview();
   await matchApplyPending();
   startReplay();
-  matchView.timer = setInterval(matchTick, 20000);
+  // Every 20 seconds, or every 10 once the next day is due, so it starts soon after the server has played it.
+  let n = 0; matchView.timer = setInterval(() => { if (matchView && !matchView.ticking && (++n % 2 === 0 || Date.now() >= matchNext(matchView.lobby) + 15000)) { matchView.ticking = true; matchTick().finally(() => { if (matchView) matchView.ticking = false; }); } }, 10000);
 }
 // ?matchDemo=1: a starter resort, then two pretend rivals made from it, drawn as a match draws them. Nothing online:
 // no lobby, no server, no saves. The rivals have grown their lots two rows deep and bought the valley below.
@@ -21556,6 +21572,7 @@ async function matchTick() {
   const { data: rs } = await CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', data.id).then((r) => r, () => ({}));
   if (!rs || !matchView) return;
   matchView.lobby = data; matchView.resorts = rs;
+  matchView.paused = false; // a new day plays live, even if you paused the last one
   const mine = rs.find((r) => r.slot === matchView.slot);
   if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   if (matchPlay) {
@@ -22084,6 +22101,7 @@ async function startReplay(manual) {
   const { data } = await CLOUD.sb.from('match_days').select('day,results').eq('lobby_id', l.id).eq('day', l.day).maybeSingle().then((r) => r, () => ({}));
   if (!matchView) return;
   matchView.starting = false;
+  if (!data || !data.results) { if (manual) toast('Today isn’t ready to watch yet. Try again in a moment.', true); return; } // not loaded: try again at the next check
   const res = data && data.results, k = res ? res.resorts.findIndex((r) => r.slot === slot) : -1;
   if (res) { RIVAL_SKI.share = Object.fromEntries(res.resorts.map((r, i) => [r.slot, res.share[i] || 0])); try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; } }
   const n = k >= 0 ? res.share[k] || 0 : 0;
@@ -22390,8 +22408,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money in matches', kotm: true, small: true, items: [
-    'King of the Mountain: while you watch the day, your money now goes up and down with what actually happens: ticket sales as guests arrive, food sales at lunch, lift power through the afternoon. Wages and upkeep come off at the end of the day, as in single player, and the money lands on the server’s official figure.'] },
+  { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money and a countdown in matches', kotm: true, small: true, items: [
+    'King of the Mountain: while you watch the day, your money now goes up and down with what actually happens: ticket sales as guests arrive, food sales at lunch, lift power through the afternoon. Wages and upkeep come off at the end of the day, as in single player, and the money lands on the server’s official figure.',
+    'Between match days, the top bar counts down to the next day, second by second. If you paused today, it offers Back to the live day.',
+    'The next day now starts playing sooner after the server has played it, and plays live even if you paused the day before.'] },
   { v: '2.94', date: 'Nov 3, 2026', title: 'Terrain parks and blueprints in matches', kotm: true, items: [
     'King of the Mountain: build, move and remove terrain park features in a match.',
     'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.',
