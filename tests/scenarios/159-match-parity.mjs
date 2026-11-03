@@ -116,11 +116,11 @@ export default async function ({ browser, url }) {
       eq((await orders()).length, k + 1, 'and is sent once');
     }
   }
-  // Still to come: blueprints say so and send nothing.
+  // Not part of matches: says so and sends nothing.
   const k2 = (await orders()).length;
   await g.ev(`select({ kind: 'lift', obj: liftById(${L1}) })`); await g.wait(200);
-  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
-  eq((await orders()).length, k2, 'blueprints aren’t part of matches yet: nothing is sent');
+  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'waitWeek'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
+  eq((await orders()).length, k2, 'waiting a week isn’t part of matches: nothing is sent');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

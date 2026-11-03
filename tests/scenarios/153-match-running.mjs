@@ -128,10 +128,10 @@ export default async function ({ browser, url }) {
   o = await orders();
   eq([o.length, o[9].kind, o[9].payload.set['T' + t2][0]], [10, 'ops', false], 'and the trail’s settings are sent');
 
-  // The Trail tool's tabs open the painters for learning areas, glades and guest areas; terrain parks aren't in matches yet.
+  // The Trail tool's tabs open the painters for learning areas, glades and guest areas, and the terrain park tool.
   const tabs = await g.ev(`(() => { const out = {}; for (const v of ['area', 'glade', 'hub', 'tpark']) { setTool('trail'); renderSheet(); const b = document.querySelector('#sheet [data-action=trailMode][data-v=' + v + ']'); if (b) b.click(); out[v] = !!b && state.tool + ':' + state.landMode; } setTool('explore'); return out; })()`);
   eq([tabs.area, tabs.glade, tabs.hub], ['clear:area', 'clear:glade', 'clear:hub'], 'the Trail tool’s tabs open the area painters in a match');
-  assert(tabs.tpark !== 'tpark:' && !/^tpark/.test(String(tabs.tpark)), `terrain parks stay closed (${tabs.tpark})`);
+  assert(/^tpark/.test(String(tabs.tpark)), `the terrain park tab opens too (${tabs.tpark})`);
   // During the live day: the Trail tool's tabs work without pausing it.
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
@@ -139,8 +139,8 @@ export default async function ({ browser, url }) {
   eq(await g.ev('[state.phase, !!matchView.replay, state.tool, state.landMode]'), ['open', true, 'clear', 'glade'], 'during the live day the glade tab opens and the day keeps playing');
   await g.ev(`setTool('explore')`);
   // Things not in matches yet still say so.
-  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'saveBlueprint'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
-  eq((await orders()).length, 10, 'blueprints aren’t part of matches yet: nothing is sent');
+  await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'waitWeek'; document.getElementById('sheet').appendChild(b); b.click(); b.remove(); })()`);
+  eq((await orders()).length, 10, 'waiting a week isn’t part of matches: nothing is sent');
   // A building goes with its size and theme (a duplex is a condo's second size; it used to arrive as a chalet).
   const bo = await g.ev(`(() => {
     setTool('bld'); state.cash = Math.max(state.cash, 5e6); const L = world.lifts[0] || { a: { x: 0, z: 60 } };

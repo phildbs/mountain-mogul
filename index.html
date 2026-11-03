@@ -7123,7 +7123,7 @@ function buildPlan(p) {
 // the rest of the line (the cash is saved for it); one that can't be built for another reason is
 // skipped, and tried again once others are up (a trail waiting on its lift, say). Paused ones wait.
 function executePlans() {
-  if (!world.plans.some((p) => !p.paused)) return;
+  if (matchPlay || !world.plans.some((p) => !p.paused)) return; // in a match the server builds them, overnight
   const built = [];
   let saving = null;
   for (let progress = true; progress;) {
@@ -7171,7 +7171,7 @@ function planStatus(p) {
 }
 // The blueprint list: build order, pause and resume, and build now when the resort is closed.
 function plansList() {
-  if (!world.plans.length) return `<p class="help">No blueprints yet. While building, choose <b>Save as a blueprint</b> to plan something for later. Anything you place while the resort is open becomes a blueprint too.</p>`;
+  if (!world.plans.length) return `<p class="help">No blueprints yet. While building, choose <b>Save as a blueprint</b> to plan something for later. ${matchPlay ? 'In a match, the server builds them overnight, in your order, when there’s cash.' : 'Anything you place while the resort is open becomes a blueprint too.'}</p>`;
   const live = world.plans.filter((p) => !p.paused), total = live.reduce((a, p) => a + (p.cost || 0), 0), closed = state.phase === 'closed';
   const rows = world.plans.map((p, i) => {
     const [st, cls] = planStatus(p);
@@ -7599,20 +7599,26 @@ function parkBuild() {
   if (d.moving) {
     const m = d.moving;
     pushUndo(`moving ${F.name.toLowerCase()}`);
-    m.t.feats = m.t.feats.filter((f) => f !== m.f);
-    t.feats.push({ ...m.f, at, off });
-    state.cash -= info.cost;
-    if (m.t !== t) buildFeats(m.t);
-    buildFeats(t); parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost();
+    matchParked({ op: 'move', from: matchRef('trail', m.t), fid: m.f.id, type: m.f.type, fat: m.f.at, sel: matchRef('trail', t), at, off });
+    featMove(m.t, m.f, t, at, off, info.cost);
+    parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost();
     updateCash(true); scheduleSave(); renderSheet();
     toast(`Moved ${F.name.toLowerCase()}${m.t !== t ? ` to ${t.name}` : ''} · −${money(info.cost)}`); return;
   }
   pushUndo(`building ${F.name.toLowerCase()}`);
+  matchParked({ op: 'build', sel: matchRef('trail', t), type: d.type, at, off });
   t.feats.push({ id: world.nextId++, type: d.type, at, off });
   state.cash -= info.cost;
   buildFeats(t); d.site = null; clearParkGhost();
   updateCash(true); scheduleSave(); renderSheet();
   toast(`Built ${F.name.toLowerCase()} on ${t.name} · −${money(info.cost)}`);
+}
+function featMove(from, f, t, at, off, cost) {
+  from.feats = from.feats.filter((o) => o !== f);
+  t.feats.push({ ...f, at, off });
+  state.cash -= cost;
+  if (from !== t) buildFeats(from);
+  buildFeats(t);
 }
 function parkMove() {
   const s = parkDraft.sel;
@@ -7639,6 +7645,7 @@ function parkRemove() {
   if (!s || state.phase !== 'closed' || visiting || !world.trails.includes(s.t)) return;
   const F = FEATS[s.f.type], back = Math.round(F.cost * 0.25);
   pushUndo(`removing ${F.name.toLowerCase()}`);
+  matchParked({ op: 'remove', sel: matchRef('trail', s.t), fid: s.f.id, type: s.f.type, fat: s.f.at });
   s.t.feats = s.t.feats.filter((f) => f !== s.f);
   state.cash += back; buildFeats(s.t); parkDraft.sel = null;
   updateCash(true); scheduleSave(); renderSheet();
@@ -8846,9 +8853,11 @@ function serializeWorld() {
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
-    plans: world.plans.map((p) => ({ kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' || p.kind === 'feat' ? p.name : undefined, at: p.at, off: p.off, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting })),
+    plans: world.plans.map(planData),
   };
 }
+// What a blueprint is, for saving it and for a match order (uid: how a match finds it again).
+function planData(p) { return { uid: p.uid, kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' || p.kind === 'feat' ? p.name : undefined, at: p.at, off: p.off, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting }; }
 let satSpaces = 0;
 function rebuildWorld(data) {
   for (const t of [...world.trails]) removeTrail(t);
@@ -21591,6 +21600,7 @@ async function matchApplyPending() {
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
   'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
+  'parkPick', 'parkSel', 'parkMove', 'parkHere', 'parkBuild', 'parkRemove', 'saveBlueprint', 'planGo', 'planMove', 'planPause', 'planDrop', 'planNow', 'cancelPlan',
   'moveLift', 'liftMoveReset', 'moveTrail', 'trailMoveCancel', 'trailMoveReset', 'gradeTrail', 'chainUndo', 'shapeTrail', 'shapeAll', 'shapeReset', 'shapeCancel', 'shapeApply', 'moveBld'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
@@ -21600,15 +21610,15 @@ const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 
 const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes',
   'landBuy', 'landLease', 'landCancel', 'landEnd', 'liftUp', 'midBuild', 'midRemove', 'offsiteBuy', 'offsiteClose'];
 // Painting areas: the draft goes with the action, so the server paints the same ground.
-const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs (not terrain parks yet)
+const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs
 // The lot (cars may be parked on it), off-site parking, and lifts guests are riding: the live day pauses for these.
 const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'liftUp', 'midOpen', 'midRemove', 'moveLift', 'moveTrail', 'shapeTrail', 'moveBld', 'turnBld'];
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
   if (!a) return false;
-  if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a) || MATCH_LAND.includes(a)) || (a === 'trailMode' && b.dataset.v === 'tpark')) {
-    toast('That isn’t part of King of the Mountain yet. Terrain parks and blueprints are still to come.', true); return true;
+  if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a) || MATCH_LAND.includes(a))) {
+    toast('That isn’t part of King of the Mountain.', true); return true;
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
@@ -21722,6 +21732,47 @@ function matchMove(m) {
   } else return 'not supported yet';
   return '';
 }
+// Terrain park features: built, moved or removed on a trail, found again by id or by type and spot.
+function matchParked(park) { if (matchPlay && matchView && !matchView.quiet) matchOrder('other', { park }); }
+function matchPark(k) {
+  const t = matchFind(k.sel), F = FEATS[k.type];
+  if (!t || t.virtual || !F) return 'its trail isn’t there any more';
+  const find = (tr) => tr && (tr.feats || []).find((f) => f.id === k.fid && f.type === k.type) || tr && (tr.feats || []).find((f) => f.type === k.type && Math.abs(f.at - k.fat) < 0.002);
+  const at = clamp(+k.at || 0, 0, 1), off = clamp(+k.off || 0, -1, 1);
+  if (k.op === 'remove') {
+    const f = find(t); if (!f) return 'it isn’t there any more';
+    t.feats = t.feats.filter((o) => o !== f); state.cash += Math.round(F.cost * 0.25); buildFeats(t); return '';
+  }
+  const from = k.op === 'move' ? matchFind(k.from) : null, f = from ? find(from) : null;
+  if (k.op === 'move' && !f) return 'it isn’t there any more';
+  const sp = featSpot(t, { type: k.type, at, off, id: -1 }), why = featProblems(t, sp, f && from === t ? f : null);
+  if (why.length) return why[0];
+  const cost = f ? featMoveFee(k.type) : F.cost;
+  if (cost > state.cash) return 'not enough cash';
+  if (f) featMove(from, f, t, at, off, cost);
+  else { (t.feats || (t.feats = [])).push({ id: world.nextId++, type: k.type, at, off }); state.cash -= cost; buildFeats(t); }
+  return '';
+}
+// Blueprints: the server keeps them in your resort and builds them overnight, in your order, like single player.
+const MATCH_PLAN_OPS = ['planMove', 'planPause', 'planDrop', 'planNow', 'cancelPlan'];
+const matchUid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function matchPlan(d) {
+  if (!d || !['trail', 'lift', 'bld', 'shape', 'feat'].includes(d.kind) || typeof d.uid !== 'string') return 'not a blueprint';
+  if (world.plans.some((p) => p.uid === d.uid)) return '';
+  if (d.kind === 'bld' && !BTYPES[d.type]) return 'unknown building';
+  const keep = ['uid', 'kind', 'pts', 'width', 'trail', 'ws', 'name', 'at', 'off', 'a', 'b', 'type', 'tier', 'style', 'x', 'z', 'rot', 'cost', 'grade'];
+  const p = {}; for (const k of keep) if (d[k] !== undefined) p[k] = d[k];
+  addPlan(p); return '';
+}
+function matchPlanOp(o) {
+  const p = world.plans.find((q) => q.uid === o.uid);
+  if (!p) return 'it isn’t there any more';
+  if (o.op === 'planMove') { const i = world.plans.indexOf(p); movePlan(p, clamp(+o.at, 0, world.plans.length - 1) - i); }
+  else if (o.op === 'planPause') { if (!!p.paused !== !!o.paused) pausePlan(p, !!o.paused); }
+  else if (o.op === 'planDrop' || o.op === 'cancelPlan') cancelPlan(p);
+  else if (o.op === 'planNow') { buildPlanNow(p); if (world.plans.includes(p)) return p.reason || 'it couldn’t be built'; }
+  refreshPlanBtn(); return '';
+}
 // Everything a player sets on what's built, as text per thing, so a change shows as a difference.
 function matchKnobs() {
   const k = {}, J = JSON.stringify, sm = (o) => (o.sm ? [o.sm.mode, o.sm.target] : null);
@@ -21767,11 +21818,15 @@ function matchSetKnobs(set) {
 function matchBefore(b) {
   const a = b.dataset.action, kind = selected && selected.kind, obj = selected && selected.obj;
   if (a === 'areaBuild' || a === 'hubLevel') return areaDraft ? { a, ds: { ...b.dataset }, sig: matchSig(), area: { mode: state.landMode, cells: [...areaDraft.cells], editId: areaDraft.editId ?? null, thin: state.gladeThin || null } } : null;
+  if (a === 'saveBlueprint') return { a, plans: world.plans.slice() };
+  if (MATCH_PLAN_OPS.includes(a)) { const p = a === 'cancelPlan' ? obj : world.plans.find((o) => o.id === +b.dataset.id); return p && p.uid ? { a, p, d: +b.dataset.d || 0 } : null; }
   if (!a || !(isKnob(a) || MATCH_ACTS.includes(a))) return null;
   if (a === 'midBuild') return midDraft ? { a, ds: { ...b.dataset }, sel: matchRef('lift', midDraft.L), on: 'lift', mid: midDraft.s, sig: matchSig() } : null;
   return { a, ds: { ...b.dataset }, sel: obj && matchListOf(kind) ? matchRef(kind, obj) : null, on: kind || null, sig: matchSig(), knobs: matchKnobs() };
 }
 function matchAfter(s) {
+  if (s.plans) { for (const p of world.plans) if (!s.plans.includes(p)) { p.uid = p.uid || matchUid(); matchOrder('other', { plan: planData(p) }); } return; }
+  if (s.p) { matchOrder('other', { planOp: { op: s.a, uid: s.p.uid, d: s.d, paused: !!s.p.paused, at: world.plans.indexOf(s.p) } }); return; }
   if (s.area) { if (matchSig() !== s.sig) matchOrder('land', { ds: s.ds, area: s.area }); return; }
   if (MATCH_ACTS.includes(s.a)) { if (matchSig() !== s.sig) matchOrder(s.a === 'removeYes' ? 'remove' : 'other', { ds: s.ds, sel: s.sel, on: s.on, ...(s.mid != null ? { mid: s.mid } : {}) }); return; }
   const now = matchKnobs(), set = {};
@@ -21783,6 +21838,9 @@ function matchAfter(s) {
 function matchDo(kind, p) {
   if (kind === 'ops') { matchSetKnobs(p.set); return ''; }
   if (p.move) return matchMove(p.move);
+  if (p.park) return matchPark(p.park);
+  if (p.plan) return matchPlan(p.plan);
+  if (p.planOp) return matchPlanOp(p.planOp);
   if (!p.doze && !p.brush && !(p.ds && p.ds.action)) return 'not supported yet';
   const before = matchSig();
   if (kind === 'land') matchLand(p);
@@ -22313,6 +22371,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.94', date: 'Nov 3, 2026', title: 'Terrain parks and blueprints in matches', kotm: true, items: [
+    'King of the Mountain: build, move and remove terrain park features in a match.',
+    'Save things as blueprints in a match too. The match server builds them overnight in your order when there’s cash, just like in single player. Pause, reorder or cancel them any time.'] },
   { v: '2.93', date: 'Nov 3, 2026', title: 'Moving things and trail edits in matches', kotm: true, items: [
     'King of the Mountain: move lifts and buildings, edit a trail’s route, and widen or narrow trails in a match. They’re done overnight, like everything else.',
     'Lifts, trails and buildings you build while the day plays now show as blueprints until they’re built that night, with “opens tomorrow morning” on their panel.',

@@ -33,10 +33,13 @@ try {
     order('build', { what: 'lift', type: 'double', a: { x: 0, z: 0 }, b: { x: 0, z: 1 } }),
     order('build', { what: 'lot', row: null, lot: 0 }),
     order('build', { what: 'trees', ks: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49].map((k) => k * 997) }),
-    order('remove', { what: 'lift', id: 1 })]);
+    order('remove', { what: 'lift', id: 1 }),
+    order('other', { plan: { uid: 'bp1', kind: 'bld', type: 'cafe', x: 10, z: 64, rot: 0, tier: 0 } })]);
   await tick(db, game, T0 + H + 60000);
   const O = db.tables.match_orders;
   ok(L().day === 1, 'day 1 plays one day length after the start');
+  { const bp = (R(1).save.world.plans || []).find((p) => p.uid === 'bp1'), built = (R(1).save.world.buildings || []).some((B) => B.type === 'cafe');
+    ok(!O[O.length - 1].error && (built ? !bp : bp && bp.reason), `a blueprint is kept and tried overnight after the day (${built ? 'built' : bp && bp.reason})`); }
   ok(O.every((o) => o.applied_day === 1), 'every order is handled overnight');
   ok(O.slice(0, 4).every((o) => !o.error), `prices, a lift, a trail and a lodge are built (${O.slice(0, 4).map((o) => o.error).join(' | ')})`);
   ok(!O[5].error && R(1).save.clock.lotSections === 2, `a parking lot section is built (${O[5].error})`);
