@@ -39,7 +39,8 @@ export const pagePlay = (share, passShare) => `(() => {
 })()`;
 // A player's orders, applied overnight in the order sent. Each comes back ok, or with the reason it failed.
 // Prices: ticket, peak ticket (null for none) and season pass. Builds: a lift, a trail or a building, checked by
-// the game's own rules and paid for from the resort's cash (no loans). Anything else isn't supported yet.
+// the game's own rules and paid for from the resort's cash. Settings, removals, loans, events and the like go
+// through the game's matchDo, which presses the same panel button the player did. Anything else isn't supported yet.
 export const pageOrders = (orders) => `(() => {
   const out = [];
   for (const o of ${JSON.stringify(orders)}) {
@@ -70,6 +71,9 @@ export const pageOrders = (orders) => `(() => {
           growLot(p.row ?? null, p.lot || 0); if (state.lotSections === n) throw new Error('the parking lot can’t grow there');
         } else throw new Error('unknown build');
         computeNetwork();
+      } else if (['ops', 'other', 'remove'].includes(o.kind)) {
+        // Running the resort, removing things and money: done by the game's own code (matchDo in index.html).
+        const why = matchDo(o.kind, p); if (why) throw new Error(why);
       } else throw new Error('not supported yet');
       out.push({ id: o.id, ok: true });
     } catch (e) { out.push({ id: o.id, ok: false, error: String(e.message || e).slice(0, 200) }); }

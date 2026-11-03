@@ -49,6 +49,24 @@ try {
   const wx = [0, 1, 2].map((s) => JSON.stringify(R(s).save.clock.wx));
   ok(wx[0] === wx[1] && wx[1] === wx[2], 'all three resorts share one forecast');
 
+  // Day 2's orders: running the resort, money and removing things, done by the game's own panel code.
+  const n0 = O.length, debt1 = R(1).save.clock.debt || 0;
+  await db.insert('match_orders', [
+    order('ops', { set: { T2: [false, false, null, null, false], ops: { plans: { weekday: { staff: 'lean' } }, override: null } } }),
+    order('other', { ds: { action: 'borrow', v: '50000' }, sel: null, on: 'manage' }),
+    order('remove', { ds: { action: 'removeYes' }, sel: { kind: 'bld', id: 3, x: 4, z: 60 }, on: 'bld' }),
+    order('remove', { ds: { action: 'removeYes' }, sel: { kind: 'bld', id: 99, x: 90, z: 90 }, on: 'bld' }),
+    order('other', { ds: { action: 'borrow', v: '999999999' }, sel: null, on: 'manage' })]);
+  await tick(db, game, T0 + 2 * H + 60000);
+  const O2 = db.tables.match_orders.slice(n0), s2 = R(1).save, t2 = (s2.world.trails || []).find((t) => t.id === 2);
+  ok(L().day === 2 && O2.every((o) => o.applied_day === 2), 'day 2\'s orders are handled overnight');
+  ok(!O2[0].error && t2 && t2.open === false && t2.groomed === false, `settings: a trail closed and left ungroomed (${O2[0].error}, ${t2 && [t2.open, t2.groomed]})`);
+  ok(s2.clock.ops && s2.clock.ops.plans.weekday.staff === 'lean', 'settings: the operations plan is the player\'s');
+  ok(!O2[1].error && (s2.clock.debt || 0) >= debt1 + 50000, `money: a $50,000 loan (${O2[1].error}, debt ${s2.clock.debt})`);
+  ok(!O2[2].error && !(s2.world.buildings || []).some((B) => B.id === 3), `removing: the lodge is gone (${O2[2].error})`);
+  ok(O2[3].error === 'it isn’t there any more', `removing something that isn't there says so (${O2[3].error})`);
+  ok(!!O2[4].error || (s2.clock.debt || 0) < 999999999, `a loan past the bank's limit is capped or refused (${O2[4].error})`);
+
   await tick(db, game, T0 + 3 * H + 60000);
   ok(L().day === 3 && L().status === 'finished', 'days 2 and 3 play, then the match finishes');
   const b = db.tables.match_badges || [];

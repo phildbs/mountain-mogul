@@ -3618,7 +3618,7 @@ let toastTimer = 0;
 let warnUntil = 0; // a warning stays up until then; routine messages don't replace it
 // A short message at the bottom. `act` ({ label, fn }) adds a button that takes the player straight there.
 function toast(msg, bad, act) {
-  if (simulating) return;
+  if (simulating || (matchView && matchView.quiet)) return; // nor while a match puts your waiting changes back
   const now = performance.now();
   if (!bad && now < warnUntil) return;
   const t = $('toast');
@@ -3687,7 +3687,11 @@ function dozeAt(sx, sy) {
   if (visiting || state.phase !== 'closed') return;
   const o = dozeTarget(sx, sy);
   if (!o) { toast('Nothing to bulldoze there. Tap a tree, light, seat, fence section or snow gun.'); return; }
-  if (matchPlay && o.kind !== 'tree') { toast('In King of the Mountain the bulldozer clears trees for now. The rest is coming.', true); return; }
+  if (matchPlay && !matchView.quiet && o.kind !== 'tree') matchOrder('remove', { doze: { kind: o.kind, x: o.x, z: o.z, key: o.key, area: o.A && o.A.id, bld: o.B && matchRef('bld', o.B) } });
+  dozeApply(o);
+}
+// What the bulldozer takes away. A match's server does the same overnight with the player's target.
+function dozeApply(o) {
   if (o.kind === 'tree') {
     if (matchPlay && !matchView.quiet && state.cash >= TREE_COST) matchOrder('build', { what: 'trees', ks: [o.k] });
     if (state.cash < TREE_COST) { toast('Not enough cash to clear this tree.', true); return; }
@@ -5597,7 +5601,7 @@ function hubLevelRow() {
 }
 function hubDepth(A) { return A.cells.reduce((n, k) => n + sampleGrid(NS, keyX(k) + HALF, keyZ(k) + HALF), 0) / Math.max(1, A.cells.length); }
 function hubSheet(A) {
-  const closed = state.phase === 'closed' && !visiting, sm = A.sm;
+  const closed = overnightOk() && !visiting, sm = A.sm;
   return `<div class="sheet-title"><input class="name" id="nameInput" value="${esc(A.name)}" maxlength="28" aria-label="Area name" ${visiting ? 'readonly' : ''}>${NAME_DICE}<button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${hubName(A.set)} · ${fmtAcres(acresOf(A.cells.length), 1)}. Guests walk freely between the trails, lifts and services inside it.</p>
     <p class="conn">${A.basePoint ? 'Connects to the base.' : A.returns ? 'Connected to a route home.' : 'Needs a trail or lift leading back to the base.'}</p>
@@ -7544,6 +7548,7 @@ function liftMoveSheet() {
     <button class="link" data-action="exitTool">Keep it where it is</button>`;
 }
 
+// In a match, Remove shows while the day plays too: pressing it pauses the day first (matchPause).
 function removeBlock(what, note) {
   return sheetConfirm
     ? `<div class="confirm-box"><p>${note}</p><div class="row"><button class="btn secondary" data-action="removeNo">Keep it</button><button class="btn danger" data-action="removeYes">Remove</button></div></div>`
@@ -7574,7 +7579,7 @@ function gladeSheet(A) {
     <div class="toggle-row"><div><b>“Experts only” signs</b><span>${A.signs ? 'Skiers who aren’t good enough stay out' : 'Anyone can wander in, and the wrong skier in the trees is how accidents happen'}</span></div>
       <button class="switch" role="switch" aria-checked="${!!A.signs}" data-action="gladeSigns" aria-label="Experts only signs"><i></i></button></div>
     <p class="help">Glades aren’t groomed and can’t have snowmaking, so they open on natural snow. To change how tight it is, use Landscape: Replant inside it for tighter trees, or Clear trees to open it up.</p>
-    ${state.phase === 'closed' ? removeBlock('this glade', `Remove ${esc(A.name)}? The trees stay as they are; you get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
+    ${state.phase === 'closed' || matchPlay ? removeBlock('this glade', `Remove ${esc(A.name)}? The trees stay as they are; you get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function areaSheet(A) {
   if (isHub(A)) return hubSheet(A);
@@ -7593,7 +7598,7 @@ function areaSheet(A) {
       <div><dt>Grooming</dt><dd>${money(A.cells.length * AREA_GROOM_CELL)}/night</dd></div>
     </dl>
     ${state.phase === 'closed' && !visiting ? `<button class="btn secondary" data-action="editArea">Edit learning area</button>` : ''}
-    ${state.phase === 'closed' ? removeBlock('this learning area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
+    ${state.phase === 'closed' || matchPlay ? removeBlock('this learning area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function trailSheet(t) {
   const an = t.an, sign = trailSign(t);
@@ -7628,7 +7633,7 @@ function trailSheet(t) {
     ${notes.length ? `<ul class="problems soft">${notes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${shapePlanFor(t) ? `<p class="conn">A new width is planned. <button class="link" data-action="planGo" data-id="${shapePlanFor(t).id}">See the blueprint</button></p>` : ''}
     ${!visiting && !t.virtual ? `<div class="row">${state.phase === 'closed' ? `<button class="btn secondary" data-action="moveTrail">Edit route</button>` : ''}<button class="btn secondary" data-action="shapeTrail">Widen or narrow</button></div>` : ''}
-    ${state.phase !== 'closed' ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
+    ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('trail', 'Removing this trail won’t regrow its trees or refund its cost.')}`;
 }
 
 // On the lift's panel: Upgrade, which opens the choices with what each changes and costs.
@@ -7686,7 +7691,7 @@ function liftSheet(L) {
     ${liftMidSection(L)}
     ${liftUpgradeSection(L)}
     ${state.phase !== 'closed' || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
-    ${state.phase !== 'closed' ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
+    ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
 
 sheet.addEventListener('pointermove', (e) => chartHover(e));
@@ -7695,10 +7700,15 @@ sheet.addEventListener('pointerout', (e) => { const f = e.target.closest && e.ta
 sheet.addEventListener('click', (e) => {
   const b = e.target.closest('[data-action]');
   if (!b || b.disabled) return;
+  if (matchPlay && matchGate(b)) return;
+  const sent = matchPlay && matchView && !matchView.quiet ? matchBefore(b) : null;
+  sheetAct(b);
+  if (sent) matchAfter(sent);
+});
+// A panel button's action. The match server calls this too, with a stand-in button, to do a player's action overnight.
+function sheetAct(b) {
   const a = b.dataset.action;
   if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read)
-  if (matchPlay && a && (!MATCH_ACTIONS.includes(a) || (a === 'landMode' && !['trees', 'doze'].includes(b.dataset.v)))) { toast('That isn’t part of King of the Mountain yet. For now you can build lifts, trails, buildings and parking, clear trees, and set prices.', true); return; }
-  if (matchPlay && ['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -7916,7 +7926,7 @@ sheet.addEventListener('click', (e) => {
     select(null);
     computeNetwork(); syncLabels(); scheduleSave();
   }
-});
+}
 // The dice beside a name: a fresh name that fits it.
 const NAME_DICE = '<button type="button" class="dice namedice" data-action="rerollName" title="Suggest another name" aria-label="Suggest another name">🎲</button>';
 function suggestName(kind, o) {
@@ -8718,6 +8728,8 @@ function shrinkLot() {
 // The Grow the main lot panel: tap a + on the map (or a button here) to add a section there.
 // In a match you can add parking any time: it's ordered for the next overnight (the live day pauses while you do).
 const lotBuildable = () => state.phase === 'closed' || !!matchPlay;
+// Overnight work (snowmaking, lights, patrol staff, levelling): in a match it can be ordered any time, pausing the live day.
+const overnightOk = () => state.phase === 'closed' || !!matchPlay;
 function lotGrowPanel() {
   const closed = lotBuildable(), short = state.cash < LOT_EXPAND_COST, many = lotCount() > 1;
   const block = (lot) => {
@@ -16001,7 +16013,7 @@ function priceStepper(key) {
     <div class="stepper"><button data-action="setPrice" data-k="${key}" data-d="-${info.step}" aria-label="Lower ${info.label.toLowerCase()} price">−</button><output>${money(state.prices[key])}</output><button data-action="setPrice" data-k="${key}" data-d="${info.step}" aria-label="Raise ${info.label.toLowerCase()} price">+</button></div>`;
 }
 function levelOffer(B) {
-  if (state.phase !== 'closed') return '';
+  if (!overnightOk()) return '';
   const fs = footprintStats(boxOf(B)), pad = (B.baseY - 0.03) / VEX;
   if (pad - fs.hmin < 0.25) return '';
   const cost = levelRect(boxOf(B), pad, 2.5, true).cost;
@@ -16021,7 +16033,7 @@ function bldSheet(B) {
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
   const staffing = B.type === 'patrol' ? `<div class="field-label">This hut’s manual staffing</div>
-    <div class="stepper"><button data-action="patrolStaff" data-d="-1" aria-label="Fewer patrollers" ${visiting || open || patrolSize(B) <= 1 ? 'disabled' : ''}>−</button><output>${patrolSize(B)}</output><button data-action="patrolStaff" data-d="1" aria-label="More patrollers" ${visiting || open || patrolSize(B) >= 6 ? 'disabled' : ''}>+</button></div>
+    <div class="stepper"><button data-action="patrolStaff" data-d="-1" aria-label="Fewer patrollers" ${visiting || (open && !matchPlay) || patrolSize(B) <= 1 ? 'disabled' : ''}>−</button><output>${patrolSize(B)}</output><button data-action="patrolStaff" data-d="1" aria-label="More patrollers" ${visiting || (open && !matchPlay) || patrolSize(B) >= 6 ? 'disabled' : ''}>+</button></div>
     <p class="help">${patrolOverride(patrolPlan()) != null ? `Operations overrides this hut with ${patrolTeamSize(B)} patrollers. Your manual choice is kept for when the override is off.` : 'This hut uses its manual staffing.'} ${visiting ? '' : '<button class="link" data-action="opsOpen">Operations</button>'}</p>
     <p class="help">Choose 1–6 overnight. ${money(PATROLLER_DAY)} per patroller per operating day, plus ${money(PATROL_HUT_DAY)} hut upkeep. No extra building-staff charge. Lean, Normal and Extra staffing apply to other employees.${open ? ' Change manual staffing after the day ends.' : ''}</p>` : '';
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
@@ -16050,7 +16062,7 @@ function bldSheet(B) {
     ${themed(B.type) && !visiting ? (state.phase === 'closed' ? `${themeSeg(true, 'bldTheme', B.style || 'classic', B.type)}<p class="help">Free to change overnight. Same size, seats and service.</p>` : `<p class="help">${THEMES[B.style || 'classic'].label} theme · change it overnight.</p>`) : ''}
     ${levelOffer(B)}
     ${state.phase !== 'closed' || visiting || B.sold ? '' : `${canTurn(B.type) ? '<button class="btn secondary" data-action="turnBld">Rotate it</button>' : ''}<button class="btn secondary" data-action="moveBld">Move it · from ${money(moveFee(B))}</button>`}
-    ${state.phase !== 'closed' || B.sold ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
+    ${(state.phase !== 'closed' && !matchPlay) || B.sold ? '' : removeBlock('building', `Removing it returns ${money((B.spent || 0) * 0.25)} in salvage.`)}`;
 }
 
 /* ---------- Drawing people at buildings, patrollers and buses ---------- */
@@ -16603,7 +16615,7 @@ function runBaseSnowmaking(lo) {
 }
 function baseSnowSection() {
   if (!baseZone().length) return '';
-  const d = baseDepth(), sm = state.baseSm, closed = state.phase === 'closed' && !state.summer;
+  const d = baseDepth(), sm = state.baseSm, closed = overnightOk() && !state.summer;
   const status = d < BASE_NEED ? `<span class="pill off">Bare · ${inch(d)}</span>` : d < BASE_NEED * 1.6 ? `<span class="pill warn">Thin · ${inch(d)}</span>` : `<span class="pill on">${inch(d)}</span>`;
   const body = !sm
     ? `<p class="help">Low and sunny, the base melts first. When it’s bare, guests slog through mud to the lifts and the ski school can’t teach. Snowmaking adds ${baseGuns()} guns around your base lifts and buildings.</p>
@@ -16866,7 +16878,7 @@ function weatherSheet(noHead) {
 }
 function trailNightSection(t) {
   if (visiting) return t.lit ? `<div class="field-label">Night skiing</div><p class="help">Lit for night skiing.</p>` : '';
-  const closed = state.phase === 'closed' && !state.summer, cost = lightCost(t), hrs = Math.round(t.len * LIGHT_HOUR_UNIT * MOUNTAIN.costs);
+  const closed = overnightOk() && !state.summer, cost = lightCost(t), hrs = Math.round(t.len * LIGHT_HOUR_UNIT * MOUNTAIN.costs);
   if (!t.lit) return `<div class="field-label">Night skiing</div>
     <p class="help">Light poles along ${esc(t.name)} let it stay open after dark when your plan runs night skiing.</p>
     <button class="btn secondary" data-action="lightsInstall" ${closed && state.cash >= cost ? '' : 'disabled'}>${closed ? `Add lights · ${money(cost)}` : 'Add lights overnight'}</button>`;
@@ -16879,7 +16891,7 @@ function trailNightSection(t) {
 function trailSnowSection(t) {
   const need = needOf(t), sm = t.sm || {};
   const status = !t.snowOk ? `<span class="pill off">Not enough snow</span>` : t.surface === 'thin' ? `<span class="pill warn">Thin cover</span>` : `<span class="pill on">${SURFACE[t.surface] || 'Groomed'}</span>`;
-  const closed = state.phase === 'closed' && !state.summer;
+  const closed = overnightOk() && !state.summer;
   let smHtml;
   if (!sm.on) {
     smHtml = `<p class="help">Snowmaking adds ${gunCount(t)} snow guns along this trail.</p>
@@ -20950,23 +20962,137 @@ async function matchApplyPending() {
         else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0); }
         else if (p.what === 'lot') { if (state.cash < LOT_EXPAND_COST) short++; else growLot(p.row ?? null, p.lot || 0); }
         else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k]).slice(0, Math.max(0, Math.floor(state.cash / TREE_COST)))); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
+        else if (o.kind !== 'build' && matchDo(o.kind, p) && o.kind === 'other') short++;
       } catch (e) { /* one that no longer fits is skipped here; the server says why overnight */ }
     }
   } finally { matchView.quiet = false; }
   if (list.length) { computeNetwork(); clearUndo(); renderSheet(); }
-  matchView.pending = list.filter((o) => o.kind === 'build').length - short; matchView.sent = matchPrices(); matchBar();
+  matchView.pending = list.filter((o) => matchCounts(o.kind)).length - short; matchView.sent = matchPrices(); matchBar();
   if (short) toast(`${short === 1 ? 'One of your changes costs' : `${short} of your changes cost`} more than the cash you have left, so ${short === 1 ? 'it won’t be' : 'they won’t be'} built tonight.`, true);
 }
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
-  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode'];
+  'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
+  'remove', 'removeNo'];
+// Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
+// however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
+// again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
+const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
+  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor'];
+const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes'];
+const MATCH_PAUSE = ['remove', 'patrolStaff', 'opsDay', ...MATCH_ACTS];
+const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
+function matchGate(b) {
+  const a = b.dataset.action;
+  if (!a) return false;
+  if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a)) || (a === 'landMode' && !['trees', 'doze'].includes(b.dataset.v))) {
+    toast('That isn’t part of King of the Mountain yet. For now you can build, remove things, run your resort, set prices and borrow.', true); return true;
+  }
+  if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
+  if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
+  return false;
+}
+// Pause the live day, put the panel back on the same thing, then press the same button again.
+async function matchPause(b) {
+  const ds = { ...b.dataset }, kind = selected && selected.kind, ref = selected && selected.obj && matchListOf(kind) ? matchRef(kind, selected.obj) : null, keep = selected && !ref ? selected : null;
+  const back = stopReplay(false);
+  matchView.paused = true; // after the reload: going back to Explore while paused would start the day again
+  await back;
+  if (ref) { const o = matchFind(ref); select(o ? { kind, obj: o } : null); } else if (keep) select(keep);
+  toast('The live day is paused while you change this. Pick Explore to go back to it.');
+  const same = [...sheet.querySelectorAll('[data-action]')].find((x) => !x.disabled && Object.keys(ds).every((k) => x.dataset[k] === ds[k]));
+  if (same) same.click();
+}
+// Lifts, trails, areas and buildings are found again by id, checked against where they stand.
+const matchListOf = (kind) => ({ trail: world.trails, lift: world.lifts, area: world.areas, bld: world.buildings })[kind] || null;
+const matchAt = (kind, o) => (kind === 'trail' ? o.pts[0] : kind === 'lift' ? o.a : kind === 'area' ? o.center || { x: 0, z: 0 } : o);
+const matchRef = (kind, o) => { const p = matchAt(kind, o); return { kind, id: o.id, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }; };
+function matchFind(r) {
+  const list = r && matchListOf(r.kind);
+  if (!list) return null;
+  const off = (o) => { const p = matchAt(r.kind, o); return Math.hypot(p.x - r.x, p.z - r.z); };
+  const o = list.find((x) => x.id === r.id);
+  return o && off(o) < 1 ? o : list.find((x) => off(x) < 0.3) || null;
+}
+// Everything a player sets on what's built, as text per thing, so a change shows as a difference.
+function matchKnobs() {
+  const k = {}, J = JSON.stringify, sm = (o) => (o.sm ? [o.sm.mode, o.sm.target] : null);
+  for (const L of world.lifts) k['L' + L.id] = J([!!(L.open || L.planOff), L.color ?? null]);
+  for (const t of world.trails) if (!t.virtual) k['T' + t.id] = J([!!t.open, t.groomed !== false, sm(t), t.sign ?? null, !!t.snowClosed]);
+  for (const A of world.areas) k['A' + A.id] = J([!!A.closed, !!A.signs, sm(A), !!A.snowClosed]);
+  for (const B of world.buildings) k['B' + B.id] = J([B.patrollers ?? null, !!B.keep, B.hue ?? null, !!B.bare]);
+  k.ops = J(state.ops || null); k.baseSm = J(state.baseSm ? [state.baseSm.mode, state.baseSm.target] : null);
+  return k;
+}
+const matchSig = () => [state.cash, state.debt, state.lotSections, state.offsite, world.lifts.length, world.trails.length, world.buildings.length, world.areas.length,
+  (world.noPoles || []).length, (world.noGuns || []).length, world.areas.reduce((n, A) => n + (A.noFence || []).length, 0),
+  JSON.stringify(state.event || null), JSON.stringify(state.investor || null), JSON.stringify(matchKnobs())].join('|');
+function matchSetKnobs(set) {
+  const sm = (o, v) => { if (o.sm && v) { o.sm.mode = v[0]; o.sm.target = v[1]; } };
+  for (const [key, v] of Object.entries(set || {})) {
+    const id = +key.slice(1);
+    if (key === 'ops') { state.ops = v; opsState(); }
+    else if (key === 'baseSm') { if (state.baseSm && v) { state.baseSm.mode = v[0]; state.baseSm.target = v[1]; } }
+    else if (key[0] === 'L') { const L = liftById(id); if (!L) continue; L.open = !!v[0]; L.planOff = false; if (v[1] != null && v[1] !== L.color) setLiftColor(L, v[1]); }
+    else if (key[0] === 'T') {
+      const t = trailById(id); if (!t) continue;
+      const sign = t.sign ?? null;
+      t.open = !!v[0]; t.groomed = !!v[1]; sm(t, v[2]); t.sign = v[3]; t.snowClosed = v[4] || undefined;
+      if (sign !== t.sign) refreshTrailMesh(t);
+      styleTrail(t); updateTrailSnow(t, todayWx());
+    } else if (key[0] === 'A') { const A = areaById(id); if (!A) continue; A.closed = !!v[0]; A.signs = !!v[1]; sm(A, v[2]); A.snowClosed = v[3] || undefined; }
+    else if (key[0] === 'B') {
+      const B = bldById(id); if (!B) continue;
+      if (B.type === 'patrol' && v[0] != null && v[0] !== B.patrollers) { B.patrollers = clamp(v[0], 1, 6); resetPatrolCrew(B); }
+      if (B.type === 'condo') B.keep = !!v[1];
+      if (BULB_TYPES.includes(B.type) && (B.hue ?? null) !== v[2]) { B.hue = v[2] || undefined; restyleBuilding(B); }
+      if (B.type === 'firepit' && !!B.bare !== !!v[3]) { B.bare = !!v[3]; restyleBuilding(B); }
+    }
+  }
+  computeNetwork(); labelsDirty = true;
+}
+function matchBefore(b) {
+  const a = b.dataset.action, kind = selected && selected.kind, obj = selected && selected.obj;
+  if (!a || !(isKnob(a) || MATCH_ACTS.includes(a))) return null;
+  return { a, ds: { ...b.dataset }, sel: obj && matchListOf(kind) ? matchRef(kind, obj) : null, on: kind || null, sig: matchSig(), knobs: matchKnobs() };
+}
+function matchAfter(s) {
+  if (MATCH_ACTS.includes(s.a)) { if (matchSig() !== s.sig) matchOrder(s.a === 'removeYes' ? 'remove' : 'other', { ds: s.ds, sel: s.sel, on: s.on }); return; }
+  const now = matchKnobs(), set = {};
+  for (const k in now) if (now[k] !== s.knobs[k]) set[k] = JSON.parse(now[k]);
+  if (Object.keys(set).length) matchOrder('ops', { set });
+}
+// One player's order, done by the game itself: on the match server overnight, and on the player's screen while it
+// waits. Returns '' when done, or why it couldn't be.
+function matchDo(kind, p) {
+  if (kind === 'ops') { matchSetKnobs(p.set); return ''; }
+  if (!p.doze && !(p.ds && p.ds.action)) return 'not supported yet';
+  const before = matchSig();
+  if (p.doze) {
+    const d = p.doze, o = { ...d, A: d.area != null ? areaById(d.area) : null, B: d.bld ? matchFind(d.bld) : null };
+    if ((d.kind === 'bld' && !o.B) || (d.kind === 'fence' && !o.A)) return 'it isn’t there any more';
+    dozeApply(o);
+  } else {
+    const obj = p.sel ? matchFind(p.sel) : null;
+    if (p.sel && !obj) return 'it isn’t there any more';
+    const was = selected;
+    selected = obj ? { kind: p.sel.kind, obj } : p.on ? { kind: p.on, obj: was && was.kind === p.on ? was.obj : null } : null;
+    try { sheetAct({ dataset: { ...p.ds }, disabled: false }); } finally { selected = was && (!was.obj || !matchListOf(was.kind) || matchListOf(was.kind).includes(was.obj)) ? was : null; }
+  }
+  computeNetwork();
+  return matchSig() !== before ? '' : 'there wasn’t enough cash, or it couldn’t be done';
+}
 const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
+// Counted in the match bar: builds, removals and other one-off actions (not prices or settings).
+const matchCounts = (kind) => !['price', 'ops'].includes(kind);
 function matchOrder(kind, payload) {
   if (!matchPlay || !CLOUD.sb) return;
-  matchView.pending++; matchBar();
+  const n = matchCounts(kind) ? 1 : 0;
+  matchView.pending += n; matchBar();
   CLOUD.sb.from('match_orders').insert({ lobby_id: matchPlay.lobby, slot: matchPlay.slot, kind, payload }).then(({ error }) => {
-    if (error) { matchView.pending = Math.max(0, matchView.pending - 1); matchBar(); toast('Couldn’t send that to the match server. Check your connection: it will be gone after the next day.', true); }
+    if (error) { matchView.pending = Math.max(0, matchView.pending - n); matchBar(); toast('Couldn’t send that to the match server. Check your connection: it will be gone after the next day.', true); }
     else if (kind === 'build') toast('Sent to the match server: it opens tomorrow morning.');
+    else if (kind === 'ops' && !matchView.toldOps) { matchView.toldOps = true; toast('Sent to the match server: your resort runs this way from tomorrow.'); }
   }, () => {});
 }
 function matchSendPrices() {
@@ -21148,8 +21274,8 @@ function stopReplay(done) {
   const mine = matchView.resorts.find((r) => r.slot === matchView.slot);
   if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   watchButton(); matchBar();
-  matchApplyPending();
-  if (!done) return;
+  const back = matchApplyPending();
+  if (!done) return back;
   const r = state.lastReport;
   if (r && r.day != null) showReport(r, true); // the server's own report of the day: the official one
   else if (off) toast(`Day ${day} is over. Official: ${off.guests.toLocaleString('en-US')} guests, ${signedMoney(off.profit)} for the day.`);

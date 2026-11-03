@@ -48,13 +48,13 @@ export default async function ({ browser, url }) {
   // What the server can't do, the day, undo, and saving.
   const blocked = await g.ev(`(() => {
     const before = world.lifts.length, phase = state.phase; select({ kind: 'lift', obj: world.lifts[0] }); renderSheet();
-    const rm = document.querySelector('#sheet [data-action=remove]'); if (rm) rm.click();
+    const rm = document.querySelector('#sheet [data-action=moveLift]'); if (rm) rm.click();
     const t1 = document.getElementById('toast').textContent; openDay(); const t2 = document.getElementById('toast').textContent; undoLast(); saveNow();
     return { removeBtn: !!rm, t1, t2, lifts: world.lifts.length === before, phase: state.phase === phase };
   })()`);
-  assert(blocked.removeBtn && /isn’t part of King of the Mountain yet/.test(blocked.t1), `removing isn't sent, and says so (${blocked.t1})`);
+  assert(blocked.removeBtn && /isn’t part of King of the Mountain yet/.test(blocked.t1), `moving a lift isn't part of matches yet, and says so (${blocked.t1})`);
   assert(/server plays every day/.test(blocked.t2) && blocked.phase, 'the day can’t be opened by hand');
-  eq(blocked.lifts, true, 'nothing removed or undone');
+  eq(blocked.lifts, true, 'nothing moved or undone');
   const keysAfter = await g.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('skiTycoon')).sort().join());
   eq(keysAfter, keysBefore, 'nothing is saved on the device');
   eq(g.errors, [], 'no page errors');
