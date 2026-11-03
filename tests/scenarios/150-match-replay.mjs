@@ -29,6 +29,8 @@ export default async function ({ browser, url }) {
   assert(/watching day 2 live/.test(w.bar) && w.btn === 'Pause the day', 'the bar says so');
   await g.wait(3000);
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
+  await g.wait(2000);
+  assert(Math.abs(await g.ev('state.cash') - save.cash) < 1, 'the cash shown stays your real cash while the day plays (it was already counted by the server)');
   const rv = await g.ev(`(() => { const own = world.lifts[0].a, M = RIVAL_SKI.mesh, m = new THREE.Matrix4(), p = new THREE.Vector3(), far = [];
     for (let i = 0; i < M.count; i++) { M.getMatrixAt(i, m); p.setFromMatrixPosition(m); far.push(Math.hypot(p.x - own.x, p.z - own.z)); }
     return { n: RIVAL_SKI.ghosts.length, shown: M.count, visible: M.visible, on: RIVAL_SKI.on, minFar: Math.min(...far) }; })()`);
