@@ -3676,7 +3676,7 @@ function toast(msg, bad, act) {
 }
 
 function setTool(tool) {
-  if (matchView && matchView.replay && tool !== 'explore') { stopReplay(false); matchView.paused = true; toast('The live day is paused while you build. Pick Explore to go back to it.'); }
+  if (matchView && matchView.replay && tool !== 'explore' && !(matchPlay && MATCH_LIVE_TOOLS.includes(tool))) matchHold();
   else if (matchView && matchView.paused && tool === 'explore') { matchView.paused = false; setTimeout(startReplay, 0); }
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (state.phase !== 'closed' && tool === 'clear') {
@@ -6151,7 +6151,8 @@ function recomputeDraft() {
 /* ---------- Evaluating and committing construction (used by drafts and plans) ---------- */
 // Open for the day, anything placed becomes a blueprint; overnight, the player can still choose to save one.
 let planMode = false;
-const planning = () => state.phase !== 'closed' || planMode;
+// In a match the live day doesn't make blueprints: what you place is ordered for the next overnight straight away.
+const planning = () => (state.phase !== 'closed' && !matchLive()) || planMode;
 // While planning, a trail may start or end at things that are only planned so far.
 function nearPlan(p, which) {
   for (const pl of world.plans) {
@@ -6320,6 +6321,7 @@ function commitTrail(info, pts, width) {
   const ordered = info.reversed ? [...pts].reverse() : pts.slice();
   const made = { id: world.nextId++, name: trailNameFor(info.samples, info.an.rating, width), pts: ordered.map((p) => ({ x: p.x, z: p.z })), width, open: true, sign: null };
   addTrail(made);
+  matchBuilt('trail', made, info.cost);
   return made;
 }
 // Trail routes are edited overnight using the same handles as a new trail.
@@ -6535,6 +6537,7 @@ function commitLift(info, type) {
     color: LIFT_COLORS[world.lifts.length % LIFT_COLORS.length], open: true, cost: info.cost,
   };
   addLift(made);
+  matchBuilt('lift', made, info.cost);
   return made;
 }
 // Moving a lift: re-rigging the towers and cable costs a quarter of what the lift cost (at least $5,000),
@@ -6753,11 +6756,12 @@ function commitBuilding(info, type, x, z, rot, style) {
   b.name = nextBuildingName(type, x, z);
   if (BULB_TYPES.includes(type) && bulbPick) b.hue = bulbPick;
   if (info.pts) b.pts = info.pts;
-  if (BTYPES[type].noPad) { addBuilding(b); return b; }
+  if (BTYPES[type].noPad) { addBuilding(b); matchBuilt('bld', b, info.cost); return b; }
   const res = levelRect(info.bb, info.padY, 2.5, false);
   applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   addBuilding(b);
   refreshOnTerrain(res.i0, res.j0, res.i1, res.j1, b);
+  matchBuilt('bld', b, info.cost);
   return b;
 }
 
@@ -7809,7 +7813,7 @@ function sheetAct(b) {
     updateCash(true); renderSheet(); scheduleSave();
     toast(`Leveled the ground around ${obj.name} · −${money(est.cost)}`);
   }
-  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
+  else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (['area', 'glade', 'hub'].includes(b.dataset.v)) matchHold(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
   else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
@@ -21055,7 +21059,7 @@ async function matchApplyPending() {
   const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
   const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
-  matchView.quiet = true;
+  matchView.quiet = true; matchView.soon = []; // what's built here opens tomorrow: closed if you watch today
   let short = 0;
   // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
   const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
@@ -21106,6 +21110,28 @@ function matchGate(b) {
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
   return false;
+}
+// Building while the day plays: lifts, trails and buildings go into the day you're watching, closed until tomorrow
+// (the server opens them the next morning), and the cash shown drops by what they cost. Other tools pause the day.
+const MATCH_LIVE_TOOLS = ['lift', 'trail', 'bld'];
+const matchLive = () => !!(matchPlay && matchView && matchView.replay);
+// Painting ground and clearing trees need the resort closed: those pause the live day.
+function matchHold() {
+  if (!matchView || !matchView.replay) return;
+  stopReplay(false); matchView.paused = true;
+  toast('The live day is paused while you build. Pick Explore to go back to it.');
+}
+function matchSoon(kind, o) {
+  if (kind === 'lift') { o.open = false; o.planOff = true; if (runOps) runOps.lifts[o.id] = 'off'; labelsDirty = true; }
+  else if (kind === 'trail') { o.open = false; styleTrail(o); }
+  else if (kind === 'bld' && runOps) runOps.bld[o.id] = 'closed';
+}
+function matchBuilt(kind, o, cost) {
+  if (!matchView) return;
+  if (matchView.soon) matchView.soon.push([kind, o.id]);
+  if (!matchView.replay) return;
+  matchView.replay.cash -= cost;
+  try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ }
 }
 // Pause the live day, put the panel back on the same thing, then press the same button again.
 async function matchPause(b) {
@@ -21399,6 +21425,8 @@ async function startReplay(manual) {
   demandForDay = () => n; passBuyers = () => 0;
   try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; }
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
+  const byId = { lift: liftById, trail: trailById, bld: bldById };
+  for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
   toast(`Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
@@ -21639,6 +21667,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.86', date: 'Nov 3, 2026', title: 'Build without pausing the live day', kotm: true, items: [
+    'King of the Mountain: lifts, trails and buildings no longer pause the live day. Build while you watch: what you add shows up straight away, stays closed for the rest of today, and opens the next morning.',
+    'Your cash goes down by what you build as you build it.',
+    'Clearing trees, painting areas, parking and changes that need the resort closed still pause the live day for now.'] },
   { v: '2.85', date: 'Nov 3, 2026', title: 'Hotel restaurants and lunch on the way home', items: ['Medium and large hotels now have a restaurant inside, open to every guest: sit-down lunch at the casual restaurant price, and après after the lifts close. Hotel guests like eating where they stay, so their rooms always count as having food close by. Small hotels don’t have one. Their upkeep goes up a little to pay the restaurant staff ($3,300 a day for medium, $8,400 for large).', 'Thanks for the feedback! Guests heading home after their lunch time used to walk straight past an open lodge to their car, and the day report said they found nowhere to eat at the base. Now they grab a bite on the way out.', 'Guests who head home before their lunch time no longer count as leaving without eating.', 'Skiers passing a few buildings on a trail now compare them for restrooms, hot drinks and a seat too, not only lunch: a long line at the first door sends them to the same thing a little further on.', 'A hotel’s card ticks off ski-in, ski-out and food close by, and names the lodges, restaurants and bars a short walk from the door. You see the same ticks while placing a hotel.'] },
   { v: '2.84.5', date: 'Nov 3, 2026', title: 'Rival chairs and no invite pop-up', kotm: true, small: true, items: ['Fixed: your rivals’ lifts showed skiers riding up on nothing. Their chairs now show when you zoom in, like yours.', 'Your rivals’ slices are no longer faded like land beyond your boundary, so their trails sit naturally on the mountain instead of showing as grey stripes.', 'Fixed: the pop-up inviting friends to see your resort kept coming back. It no longer shows in matches.'] },
   { v: '2.84.4', date: 'Nov 3, 2026', title: 'Rivals that look the part', kotm: true, items: ['Your rivals’ slices now look like a real resort: their trails are groomed snow with the rating along the edges, the trees on their runs are cleared, their lifts have moving chairs, and their skiers are proper little skiers in their own colours, riding up and weaving down.'] },

@@ -47,12 +47,49 @@ export default async function ({ browser, url }) {
   if (process.env.SHOTS) { await g.ev("document.getElementById('updCard').hidden = true; cam.viewH = 150; cam.viewGoal = null; updateCamera()"); await g.wait(2500); await g.page.screenshot({ path: 'rival-skiers.png' }); }
   assert(rv.shown === rv.n && rv.minFar > 25, `drawn with your guests’ figures, on their own slices, away from yours (${JSON.stringify(rv)})`);
 
-  // A build tool pauses it; Explore picks it up again.
+  // Lifts, trails and buildings are built while the day plays: no pause, closed until tomorrow, and ordered.
   await g.ev(`setTool('lift')`); await g.wait(300);
-  eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused, state.tool]`), ['closed', false, true, 'lift'], 'picking a build tool pauses the day so you can build');
+  eq(await g.ev(`[state.phase, !!matchView.replay, !!matchView.paused, state.tool]`), ['open', true, false, 'lift'], 'picking the lift tool keeps the day playing');
+  const cash0 = await g.ev('matchView.replay.cash'), lifts0 = await g.ev('world.lifts.length');
+  const built = await g.ev(`(() => { const L = world.lifts[0], dx = 14;
+    for (const s of [1, -1, 2, -2, 3, -3]) { const a = { x: L.a.x + s * dx, z: L.a.z }, b = { x: L.b.x + s * dx, z: L.b.z }, i = evalLift(a, b, 'double', planning());
+      if (!i.problems.length && i.cost <= state.cash) { draft.kind = 'lift'; draft.liftType = 'double'; draft.pts = [a, b]; draft.info = i; buildDraft(); return i.cost; } }
+    return 0; })()`);
+  assert(built > 0, 'a lift fits beside the first one');
+  const nl = await g.ev(`(() => { const L = world.lifts[world.lifts.length - 1]; return { n: world.lifts.length, open: L.open, plans: world.plans.length, cash: matchView.replay.cash, replay: !!matchView.replay, id: L.id }; })()`);
+  eq([nl.n, nl.open, nl.plans, nl.replay], [lifts0 + 1, false, 0, true], 'the lift is built right away (not a blueprint), closed today, and the day keeps playing');
+  eq(nl.cash, cash0 - built, 'the cash shown drops by what it cost');
+  await g.wait(400);
+  assert(Math.abs(await g.ev('state.cash') - (cash0 - built)) < 1, 'and stays there while the day plays');
+  eq(await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => o.payload.what === 'lift').length), 1, 'the lift goes to the server for the next overnight');
+  await g.ev(`(() => { for (let k = 0; k < 400 && state.phase === 'open'; k++) simStep(1.5); })()`);
+  eq(await g.ev(`(() => { const L = liftById(${nl.id}); return [L.open, L.queue.length, guests.some((x) => x.L === L), (L.riders || []).flat().length]; })()`), [false, 0, false, 0], 'nobody rides it today');
+  // A trail down from the new lift and a building at its foot: built today, closed today, and the day plays on.
+  await g.ev(`setTool('trail')`);
+  const tb = await g.ev(`(() => { const L = liftById(${nl.id}), T = world.trails.length, t0 = state.time;
+    const top = { x: L.b.x, z: L.b.z }, bot = { x: L.a.x, z: L.a.z }, out = {};
+    for (const w of [0, 6, -6, 10, -10]) { const mid = { x: (top.x + bot.x) / 2 + w, z: (top.z + bot.z) / 2 }, pts = [top, mid, bot].map((q) => ({ ...q, y: heightAt(q.x, q.z) })), i = evalTrail(pts, 'medium', planning());
+      if (!i.an.problems.length && i.cost <= state.cash) { draft.kind = 'trail'; draft.width = 'medium'; draft.pts = pts; draft.info = i; buildDraft(); out.trail = world.trails.length - T; break; } }
+    const t = world.trails[world.trails.length - 1]; out.open = t.open;
+    setTool('bld'); const B0 = world.buildings.length;
+    for (let k = 0; k < 40 && world.buildings.length === B0; k++) { const x = bot.x + (k % 8 - 4) * 4, z = bot.z + 6 + Math.floor(k / 8) * 4, v = evalBuilding('restroom', x, z, 0);
+      if (v && !v.problems.length) { draft.btype = 'restroom'; draft.bpos = { x, z }; draft.rot = 0; buildBuildingDraft(); } }
+    const B = world.buildings[world.buildings.length - 1]; out.bld = world.buildings.length - B0; out.bOpen = bldOpenNow(B);
+    for (let k = 0; k < 1500 && state.phase === 'open'; k++) simStep(1.5);
+    out.ran = state.time > t0; out.used = guests.some((x) => x.T === t) || !!(B.today && B.today.visits); out.replay = !!matchView.replay;
+    return out; })()`);
+  eq(tb, { trail: 1, open: false, bld: 1, bOpen: false, ran: true, used: false, replay: true }, 'a trail and a building go in too, closed today, and the day plays on');
+  eq(await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => ['trail', 'building'].includes(o.payload.what)).length), 2, 'both ordered for the next overnight');
+  // Other tools still pause.
+  await g.ev(`setTool('explore')`); await g.wait(200);
+  eq(await g.ev('!!matchView.replay'), true, 'back to Explore, still watching');
+  await g.ev(`setTool('clear')`); await g.wait(300);
+  eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused]`), ['closed', false, true], 'clearing trees still pauses the day');
+  eq(await g.ev(`(() => { const L = liftById(${nl.id}); return !!L && L.open; })()`), true, 'paused, tomorrow’s resort has the new lift, open');
   await g.wait(200); eq(await g.ev('(drawPeople(), figMeshes.jacket.count - guests.filter((x) => x.px != null).length)'), 0, 'rivals’ skiers go when the day pauses');
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  eq(await g.ev(`liftById(${nl.id}).open`), false, 'back in the live day, the new lift is closed again until tomorrow');
   // Parking any time: the button works while the day plays; the day pauses and the section is ordered.
   const lots = await g.ev('state.lotSections');
   await g.ev(`(() => { state.cash = Math.max(state.cash, 2e6); select({ kind: 'manage', obj: 'parking' }); renderSheet(); })()`); await g.wait(300);
