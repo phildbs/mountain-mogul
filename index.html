@@ -11833,6 +11833,7 @@ function drawPeople() {
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
   }
   if (showFigs && state.phase === 'open') n = drawStaff(n);
+  if (showFigs && matchView) { try { n = drawRivalSkiers(n); } catch (e) { RIVAL_SKI.on = false; } }
   // event figures; with figures hidden, only the torch glows still show
   if (state.phase === 'open') { const m = drawPond(drawRace(drawTorches(showFigs ? n : MAX_G))); if (showFigs) n = m; } else torchGlow.geometry.setDrawRange(0, 0);
   drawBuses();
@@ -20872,8 +20873,16 @@ async function openMatch(lid) {
 // Each rival's lifts, trails and buildings, turned onto their slice. Drawn for looking at only: none of it is
 // part of your resort, so your guests never ride a rival's lift.
 function drawRivals() {
-  for (const o of [...rivalGroup.children]) { rivalGroup.remove(o); if (o.userData.rival) o.geometry.dispose(); }
+  for (const o of [...rivalGroup.children]) { rivalGroup.remove(o); if (o.userData.rival) { o.geometry.dispose(); o.material.dispose(); } }
   if (!matchView) return;
+  const cut = new Set(), cutAt = (x, z, r) => { // like treesInBrush, but out on the rivals' slices (outside your land)
+    if (inProperty(x, z)) return;
+    const gx = x + HALF, gz = z + HALF, r2 = r * r;
+    for (let j = Math.max(0, Math.floor(gz - r)); j <= Math.min(WN - 1, Math.floor(gz + r)); j++) for (let i = Math.max(0, Math.floor(gx - r)); i <= Math.min(WN - 1, Math.floor(gx + r)); i++) {
+      const c = j * WN + i, s0 = trees.cellStart[c], e = s0 + trees.cellCount[c];
+      for (let k = s0; k < e; k++) if (trees.alive[k] && (trees.x[k] - x) ** 2 + (trees.z[k] - z) ** 2 < r2 && !inProperty(trees.x[k], trees.z[k])) cut.add(k);
+    }
+  };
   const [cu, cv] = CROWN.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
   matchView.drawn = 0; RIVAL_SKI.slices = [];
   for (const r of matchView.resorts) {
@@ -20883,31 +20892,48 @@ function drawRivals() {
     const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [] };
     RIVAL_SKI.slices.push(sl);
     for (const L of w.lifts || []) {
-      try { const a = turn(L.a), b = turn(L.b), lay = liftLayout(a, b, L.type, L.mid && L.mid.s); rivalGroup.add(buildLiftVisual({ ...L, a, b }, lay, false)); matchView.drawn++;
-        sl.lifts.push({ a: { ...a, y: heightAt(a.x, a.z) }, b: { ...b, y: heightAt(b.x, b.z) }, len: Math.hypot(b.x - a.x, b.z - a.z) }); } catch (e) { /* skip one that won't draw */ }
-    }
-    for (const t of w.trails || []) {
       try {
-        const pts = (t.pts || []).map(turn), hw = TRAIL_WIDTHS[t.width] ? TRAIL_WIDTHS[t.width].hw : 2, sm = trailSamples(pts, hw);
+        // With moving chairs, like yours: their skiers ride them (rivalSkiersTick).
+        const a = turn(L.a), b = turn(L.b), lay = liftLayout(a, b, L.type, L.mid && L.mid.s), V = { ...L, a, b, lay, phase: Math.random() * 100 };
+        rivalGroup.add(buildLiftVisual(V, lay, true)); matchView.drawn++;
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        sl.lifts.push({ V, a: { ...a, y: heightAt(a.x, a.z) }, b: { ...b, y: heightAt(b.x, b.z) }, len, type: L.type, head: lay.heading });
+        for (let d = 0; d <= len; d += 1) cutAt(a.x + (b.x - a.x) * d / len, a.z + (b.z - a.z) * d / len, 1.3); } catch (e) { /* skip one that won't draw */ }
+    }
+    // Their trails look like yours: groomed snow with the rating along the edges, through trees cleared as on their copy.
+    for (const t of w.trails || []) {
+      if (t.virtual) continue;
+      try {
+        const pts = (t.pts || []).map(turn), hw = TRAIL_WIDTHS[t.width] ? TRAIL_WIDTHS[t.width].hw : 2, sm = trailSamples(pts, hw, t.ws);
         if (sm.length < 2) continue;
-        const col = RATINGS[analyzeTrail(sm).rating].col, pos = [], idx = [];
-        sl.trails.push({ pts: sm.map((p) => ({ x: p.x, z: p.z, y: heightAt(p.x, p.z) + 0.05 })), len: (sm.length - 1) * 0.5 });
-        for (let i = 0; i < sm.length; i++) {
-          const p = sm[i], q = sm[Math.min(sm.length - 1, i + 1)], o = sm[Math.max(0, i - 1)], dx = q.x - o.x, dz = q.z - o.z, d = Math.hypot(dx, dz) || 1, nx = -dz / d * hw, nz = dx / d * hw;
-          pos.push(p.x + nx, heightAt(p.x + nx, p.z + nz) + 0.25, p.z + nz, p.x - nx, heightAt(p.x - nx, p.z - nz) + 0.25, p.z - nz);
-          if (i < sm.length - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
-        }
-        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
-        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: new THREE.Color(...col), transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
-        m.userData.rival = true; rivalGroup.add(m); matchView.drawn++;
+        sl.trails.push({ sm, hw, len: (sm.length - 1) * 0.5 });
+        const m = new THREE.Mesh(ribbonGeometry(sm, hw, edgeTint(t.sign ?? analyzeTrail(sm).rating)), trailMaterial());
+        m.renderOrder = 2; m.userData.rival = true; rivalGroup.add(m); matchView.drawn++;
+        for (let i = 0; i < sm.length; i += 2) cutAt(sm[i].x, sm[i].z, (sm[i].hw || hw) * 0.95);
       } catch (e) { /* skip */ }
     }
     for (const B of w.buildings || []) {
       try { const p = turn(B), v = buildingVisual({ ...B, x: p.x, z: p.z }, false); v.group.rotation.y -= phi; rivalGroup.add(v.group); matchView.drawn++; } catch (e) { /* skip */ }
     }
   }
+  matchView.rivalCut = [...cut]; rivalTreesCut();
   if (typeof renderer !== 'undefined' && renderer) renderer.shadowMap.needsUpdate = true;
   try { rivalSkiersBuild(); } catch (e) { RIVAL_SKI.on = false; }
+}
+// Trees standing on rivals' trails and lift lines go from your screen, as they have on theirs. Only for looking at:
+// no cost, no puffs, nothing counted, and never on your own land. Again after each reload, which brings them back.
+function rivalTreesCut() {
+  const ks = (matchView && matchView.rivalCut) || [];
+  let i0 = WN, i1 = 0, j0 = WN, j1 = 0, n = 0;
+  for (const k of ks) {
+    if (!trees.alive[k]) continue;
+    trees.alive[k] = 0; cellTrees[trees.cell[k]]--; dropTree(k); n++;
+    const gx = trees.x[k] + HALF, gz = trees.z[k] + HALF;
+    i0 = Math.min(i0, gx); i1 = Math.max(i1, gx); j0 = Math.min(j0, gz); j1 = Math.max(j1, gz);
+  }
+  if (!n) return;
+  treeMesh.instanceMatrix.needsUpdate = true;
+  refreshTreeShade(Math.floor(i0) - 1, Math.floor(j0) - 1, Math.ceil(i1) + 1, Math.ceil(j1) + 1);
 }
 const matchNext = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
 const matchTable = () => [...matchView.resorts].sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
@@ -20993,6 +21019,7 @@ async function matchApplyPending() {
     }
   } finally { matchView.quiet = false; }
   if (list.length) { computeNetwork(); clearUndo(); renderSheet(); }
+  rivalTreesCut();
   matchView.pending = list.filter((o) => matchCounts(o.kind)).length - short; matchView.sent = matchPrices(); matchBar();
   if (short) toast(`${short === 1 ? 'One of your changes costs' : `${short} of your changes cost`} more than the cash you have left, so ${short === 1 ? 'it won’t be' : 'they won’t be'} built tonight.`, true);
 }
@@ -21344,57 +21371,65 @@ function stopReplay(done) {
    While the day plays, little skiers ride your rivals' lifts and ski down their trails, as many as each rival's
    share of the town's skiers that day. They're for looking at only: drawn in one batch, never part of your
    resort, and switched off for good if anything about them goes wrong, so they can't spoil the match screen. */
-const RIVAL_SKI = { on: true, mesh: null, slices: [], ghosts: [], share: {} };
+const RIVAL_SKI = { on: true, slices: [], ghosts: [], share: {} };
 function rivalSkiersBuild() {
   RIVAL_SKI.ghosts = [];
   if (!RIVAL_SKI.on || !matchView) return;
-  if (!RIVAL_SKI.mesh) {
-    const geo = new THREE.BoxGeometry(0.32, 0.8, 0.32); geo.translate(0, 0.4, 0);
-    RIVAL_SKI.mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xffffff }), 360);
-    RIVAL_SKI.mesh.frustumCulled = false; RIVAL_SKI.mesh.count = 0; scene.add(RIVAL_SKI.mesh);
-  }
-  const col = new THREE.Color();
   for (const sl of RIVAL_SKI.slices) {
     if (!sl.lifts.length || !sl.trails.length) continue;
     const share = RIVAL_SKI.share[sl.slot] ?? ((sl.last && sl.last.guests) || 0);
-    const n = Math.min(120, Math.round(share * 0.18));
+    const n = Math.min(160, Math.round(share * 0.25));
     for (let k = 0; k < n; k++) {
-      const g = { sl, mode: 'lift', i: Math.floor(Math.random() * sl.lifts.length), p: Math.random(), d: 0 };
-      if (Math.random() < 0.6) { g.mode = 'ski'; g.i = Math.floor(Math.random() * sl.trails.length); g.d = Math.random() * sl.trails[g.i].len; }
-      RIVAL_SKI.mesh.setColorAt(RIVAL_SKI.ghosts.length, col.setHex(JACKETS[Math.floor(Math.random() * JACKETS.length)]));
+      // Dressed and skiing like your own guests: their own colours, lane across the trail and rhythm of turns.
+      const g = { sl, mode: 'lift', i: Math.floor(Math.random() * sl.lifts.length), c: 0, d: 0, seat: Math.floor(Math.random() * 6),
+        jc: pick(JACKETS), pc: pick(PANTS), hc: pick(HELMETS), lane: (Math.random() * 2 - 1) * 0.5, ph: Math.random() * 6.28, tf: 0.8 + Math.random() * 0.8, ta: 0.14 + 0.08 * Math.floor(Math.random() * 4),
+        speed: 3.4 + Math.random() * 2.2, x: 0, y: 0, z: 0, yaw: 0, sy: 1 };
+      const V = sl.lifts[g.i].V; g.c = Math.floor(Math.random() * V.chairCount);
+      if (Math.random() < 0.6 || rivalChairP(V, g.c) >= V.upLen) { g.mode = 'ski'; g.i = Math.floor(Math.random() * sl.trails.length); g.d = Math.random() * sl.trails[g.i].len; }
       RIVAL_SKI.ghosts.push(g);
     }
   }
-  if (RIVAL_SKI.mesh.instanceColor) RIVAL_SKI.mesh.instanceColor.needsUpdate = true;
 }
 const nearest = (list, p, key) => { let best = 0, bd = Infinity; list.forEach((x, k) => { const q = key(x), d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = k; } }); return { k: best, d: bd }; };
+const RIVAL_CP = new THREE.Vector3();
+const rivalChairP = (V, c) => ((V.phase + c * V.total / V.chairCount) % V.total + V.total) % V.total;
+// The chair nearest the bottom station on its way up: the one a skier arriving there gets on.
+function rivalBoard(V) { let best = 0, bp = Infinity; for (let c = 0; c < V.chairCount; c++) { const p = rivalChairP(V, c); if (p < bp) { bp = p; best = c; } } return best; }
+const rivalLive = () => !!(matchView && matchView.replay && state.phase === 'open' && RIVAL_SKI.ghosts.length);
+// Moves them along: up a lift seated below the cable, then down a trail weaving across it, then the nearest lift again.
 function rivalSkiersTick(dt) {
-  const M = RIVAL_SKI.mesh;
-  if (!M) return;
-  const live = !!(matchView && matchView.replay && state.phase === 'open' && RIVAL_SKI.ghosts.length);
-  M.visible = live;
-  if (!live) return;
-  const pace = clamp(state.speed / 0.37, 0.2, 4), m = new THREE.Matrix4(), s = clamp(cam.viewH / 55, 1, 1.6);
-  let n = 0;
+  if (!rivalLive()) return;
+  const pace = clamp(state.speed / 0.37, 0.2, 4);
+  for (const sl of RIVAL_SKI.slices) for (const R of sl.lifts) { const V = R.V; V.phase = (V.phase + dt * pace * 1.4 * LIFT_TYPES[R.type].speed / LIFT_TYPES.double.speed) % V.total; placeChairs(V); }
   for (const g of RIVAL_SKI.ghosts) {
     const sl = g.sl;
-    let x, y, z;
     if (g.mode === 'lift') {
-      const L = sl.lifts[g.i];
-      g.p += dt * pace * 1.4 / Math.max(10, L.len);
-      if (g.p >= 1) { g.mode = 'ski'; const t = nearest(sl.trails, L.b, (T) => T.pts[0]); g.i = t.d < 25 ? t.k : Math.floor(Math.random() * sl.trails.length); g.d = 0; }
-      x = L.a.x + (L.b.x - L.a.x) * g.p; y = L.a.y + (L.b.y - L.a.y) * g.p + 1.2; z = L.a.z + (L.b.z - L.a.z) * g.p;
+      const R = sl.lifts[g.i], V = R.V, p = rivalChairP(V, g.c);
+      if (p >= V.upLen) { g.mode = 'ski'; const t = nearest(sl.trails, R.b, (T) => T.sm[0]); g.i = t.d < 25 ? t.k : Math.floor(Math.random() * sl.trails.length); g.d = 0; }
+      else {
+        liftPoint(V, p, RIVAL_CP);
+        const dx = Math.sin(R.head), dz = Math.cos(R.head), seats = LIFT_TYPES[R.type].seats, o = (g.seat % seats - (seats - 1) / 2) * SEAT_W;
+        const x = RIVAL_CP.x - dz * o, z = RIVAL_CP.z + dx * o;
+        if (R.type === 'tbar' || R.type === 'carpet') Object.assign(g, { x, z, y: heightAt(x, z) + 0.14, yaw: R.head, sy: 1 });
+        else Object.assign(g, { x, z, y: RIVAL_CP.y - (R.type === 'gondola' ? 0.8 : 0.47 + 0.13 * figScale), yaw: R.head, sy: 0.72 });
+        continue;
+      }
     }
-    if (g.mode === 'ski') {
-      const T = sl.trails[g.i];
-      g.d += dt * pace * 4.5;
-      if (g.d >= T.len) { g.mode = 'lift'; const end = T.pts[T.pts.length - 1], l = nearest(sl.lifts, end, (L) => L.a); g.i = l.d < 30 ? l.k : Math.floor(Math.random() * sl.lifts.length); g.p = 0; g.d = 0; }
-      else { const f = g.d / 0.5, i = Math.min(T.pts.length - 2, Math.floor(f)), u = f - i, a = T.pts[i], b = T.pts[i + 1]; x = a.x + (b.x - a.x) * u; y = a.y + (b.y - a.y) * u; z = a.z + (b.z - a.z) * u; }
-    }
-    if (x === undefined) continue;
-    m.makeScale(s, s, s); m.setPosition(x, y, z); M.setMatrixAt(n++, m);
+    const T = sl.trails[g.i];
+    g.d += dt * pace * g.speed;
+    if (g.d >= T.len) { g.mode = 'lift'; const end = T.sm[T.sm.length - 1], l = nearest(sl.lifts, end, (L) => L.a); g.i = l.d < 30 ? l.k : Math.floor(Math.random() * sl.lifts.length); g.c = rivalBoard(sl.lifts[g.i].V); g.d = 0; continue; }
+    const n = T.sm.length, f = g.d / 0.5, i = Math.min(n - 2, Math.floor(f)), t = Math.min(1, f - i), a = T.sm[i], b = T.sm[i + 1];
+    let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    const hw = a.hw ? lerp(a.hw, b.hw || a.hw, t) : T.hw, wave = Math.sin(g.d * g.tf + g.ph), off = clamp(g.lane + wave * g.ta * 2.2, -0.8, 0.8) * hw;
+    const x = lerp(a.x, b.x, t) - dz * off, z = lerp(a.z, b.z, t) + dx * off;
+    Object.assign(g, { x, z, y: surfaceAt(x, z, lerp(a.y, b.y, t)) + 0.14, yaw: Math.atan2(dx, dz) - Math.cos(g.d * g.tf + g.ph) * 0.5, sy: 1 });
   }
-  M.count = n; M.instanceMatrix.needsUpdate = true;
+}
+// Drawn with your own guests' figures, after them (drawPeople).
+function drawRivalSkiers(n) {
+  if (!RIVAL_SKI.on || !rivalLive()) return n;
+  for (const g of RIVAL_SKI.ghosts) { if (n >= MAX_G) break; writeFig(n++, g.x, g.y, g.z, g.yaw, g.sy, g); }
+  return n;
 }
 $('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
 $('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
@@ -21545,6 +21580,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.84.4', date: 'Nov 3, 2026', title: 'Rivals that look the part', kotm: true, items: ['Your rivals’ slices now look like a real resort: their trails are groomed snow with the rating along the edges, the trees on their runs are cleared, their lifts have moving chairs, and their skiers are proper little skiers in their own colours, riding up and weaving down.'] },
   { v: '2.84.3', date: 'Nov 3, 2026', title: 'Match buildings and new days', kotm: true, small: true, items: ['Fixed: a duplex or townhomes you built in a match arrived as a single chalet, and themed buildings arrived in the classic style. They now come in the size and style you picked.', 'Fixed: just as a new day started, things you’d built could vanish from your screen for a moment and your cash could show the wrong amount, so a purchase could look fine and then be refused overnight. Thanks to Snowy for the detailed reports!'] },
   { v: '2.84.2', date: 'Nov 2, 2026', title: 'Match menu button', kotm: true, small: true, items: ['King of the Mountain: the big match bar is now one crown button on the left. Tap it for the standings, chat, reports, pausing the live day and going back to the title screen. It lights up orange, with a count, when there are new chat messages.'] },
   { v: '2.84.1', date: 'Nov 2, 2026', title: 'Painting areas in matches', kotm: true, small: true, items: ['Fixed: in King of the Mountain, the Trail tool’s tabs for learning areas, glades and guest areas said they weren’t part of matches yet. They open now, and what you paint is built overnight.'] },
@@ -23014,7 +23050,7 @@ function frame(now) {
   if (draft.dirty) recomputeDraft();
   if (practice && state.started && !visiting) tutTick();
   if (state.started && !visiting) syncShowSpeed();
-  if (RIVAL_SKI.mesh) { try { rivalSkiersTick(dt); } catch (e) { RIVAL_SKI.on = false; RIVAL_SKI.mesh.visible = false; } }
+  if (matchView && RIVAL_SKI.on) { try { rivalSkiersTick(dt); } catch (e) { RIVAL_SKI.on = false; } }
   // The day you watch in a match was already counted by the server, so its takings aren't added again: the cash
   // shown stays your real cash (the server's) while it plays.
   if (matchView && matchView.replay && state.cash !== matchView.replay.cash) { state.cash = matchView.replay.cash; updateCash(false); }

@@ -31,17 +31,22 @@ export default async function ({ browser, url }) {
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
   await g.wait(2000);
   assert(Math.abs(await g.ev('state.cash') - save.cash) < 1, 'the cash shown stays your real cash while the day plays (it was already counted by the server)');
-  const rv = await g.ev(`(() => { const own = world.lifts[0].a, M = RIVAL_SKI.mesh, m = new THREE.Matrix4(), p = new THREE.Vector3(), far = [];
-    for (let i = 0; i < M.count; i++) { M.getMatrixAt(i, m); p.setFromMatrixPosition(m); far.push(Math.hypot(p.x - own.x, p.z - own.z)); }
-    return { n: RIVAL_SKI.ghosts.length, shown: M.count, visible: M.visible, on: RIVAL_SKI.on, minFar: Math.min(...far) }; })()`);
-  eq([rv.on, rv.visible, rv.n], [true, true, Math.round(100 * 0.18) + Math.round(90 * 0.18)], 'rivals have skiers too, in proportion to their share of the day');
+  const rv = await g.ev(`(() => { cam.viewH = 60; cam.viewGoal = null; rivalSkiersTick(0.05); drawPeople(); const own = world.lifts[0].a, G = RIVAL_SKI.ghosts, far = G.map((x) => Math.hypot(x.x - own.x, x.z - own.z));
+    const drawn = guests.filter((x) => x.px != null).length;
+    return { n: G.length, shown: figMeshes.jacket.count - drawn, on: RIVAL_SKI.on, minFar: Math.min(...far), riding: G.filter((x) => x.mode === 'lift').length, skiing: G.filter((x) => x.mode === 'ski').length,
+      chairs: RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => R.V.chairs && R.V.chairCount > 1)), trees: (matchView.rivalCut || []).filter((k) => trees.alive[k]).length, cut: (matchView.rivalCut || []).length,
+      looks: rivalGroup.children.filter((o) => o.userData.rival).every((o) => o.material.map === CORD && o.material.opacity === 1) }; })()`);
+  eq([rv.on, rv.n], [true, Math.round(100 * 0.25) + Math.round(90 * 0.25)], 'rivals have skiers too, in proportion to their share of the day');
+  assert(rv.riding > 0 && rv.skiing > 0, `some riding up, some skiing down (${rv.riding}, ${rv.skiing})`);
+  eq([rv.chairs, rv.looks], [true, true], 'rival lifts have chairs, and their trails are drawn like yours');
+  assert(rv.cut > 0 && rv.trees === 0, `the trees on rivals’ trails and lift lines are gone (${rv.cut} cut)`);
   if (process.env.SHOTS) { await g.ev("document.getElementById('updCard').hidden = true; cam.viewH = 150; cam.viewGoal = null; updateCamera()"); await g.wait(2500); await g.page.screenshot({ path: 'rival-skiers.png' }); }
-  assert(rv.shown === rv.n && rv.minFar > 25, `on their own slices, away from yours (${JSON.stringify(rv)})`);
+  assert(rv.shown === rv.n && rv.minFar > 25, `drawn with your guests’ figures, on their own slices, away from yours (${JSON.stringify(rv)})`);
 
   // A build tool pauses it; Explore picks it up again.
   await g.ev(`setTool('lift')`); await g.wait(300);
   eq(await g.ev(`[state.phase, !!matchView.replay, matchView.paused, state.tool]`), ['closed', false, true, 'lift'], 'picking a build tool pauses the day so you can build');
-  await g.wait(200); eq(await g.ev('RIVAL_SKI.mesh.visible'), false, 'rivals’ skiers go when the day pauses');
+  await g.wait(200); eq(await g.ev('(drawPeople(), figMeshes.jacket.count - guests.filter((x) => x.px != null).length)'), 0, 'rivals’ skiers go when the day pauses');
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
   // Parking any time: the button works while the day plays; the day pauses and the section is ordered.
