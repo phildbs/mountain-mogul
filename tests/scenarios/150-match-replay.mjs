@@ -39,6 +39,12 @@ export default async function ({ browser, url }) {
   eq([rv.on, rv.n], [true, Math.round(100 * 0.25) + Math.round(90 * 0.25)], 'rivals have skiers too, in proportion to their share of the day');
   assert(rv.riding > 0 && rv.skiing > 0, `some riding up, some skiing down (${rv.riding}, ${rv.skiing})`);
   eq([rv.chairs, rv.looks], [true, true], 'rival lifts have chairs, and their trails are drawn like yours');
+  // Same pace as your own resort: one real second moves rivals as far as one real second of your guests and lifts.
+  const pace = await g.ev(`(() => { const sp = state.speed; state.speed = 0.5; const R = RIVAL_SKI.slices[0].lifts[0], V = R.V, p0 = V.phase, x = RIVAL_SKI.ghosts.find((q) => q.mode === 'ski'), d0 = x.d;
+    rivalSkiersTick(0.02); const lift = (V.phase - p0 + V.total) % V.total, ski = x.mode === 'ski' ? (x.d - d0) / x.speed : null; state.speed = sp;
+    const gs = 0.02 * GS_PER_REAL * 0.5, own = gs * LIFT_TYPES[R.type].speed / 10 / PACE, lo = Math.min(...SKI_SPEED) * 0.85, hi = Math.max(...SKI_SPEED) * 1.15;
+    return { lift: Math.abs(lift - own) < 1e-6, ski: ski == null || Math.abs(ski - gs) < 1e-6, speeds: RIVAL_SKI.ghosts.every((q) => q.speed >= lo && q.speed <= hi) }; })()`);
+  eq(pace, { lift: true, ski: true, speeds: true }, 'rival lifts and skiers move at the same speeds as yours, on the same clock');
   // Chairs are made while the view is zoomed out (hidden then): zooming in shows them, like yours.
   eq(await g.ev(`(() => { cam.viewH = 300; updateChairs(); const a = RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => !R.V.chairs.visible)); cam.viewH = 60; updateChairs(); return [a, RIVAL_SKI.slices.every((sl) => sl.lifts.every((R) => R.V.chairs.visible))]; })()`), [true, true], 'rival chairs hide and show with zoom, like yours');
   // Rivals' slices aren't hazed like land beyond the boundary.
