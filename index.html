@@ -10959,6 +10959,7 @@ function simStep(dt) {
 }
 
 // Watching a match day: your resort's day stays on screen until the match clock's end, so your rivals' evenings play on.
+function replaying() { try { return !!(matchView && matchView.replay); } catch (e) { return false; } } // matchView isn't set up while the page loads
 function replayHold() { try { return !!(matchView && matchView.replay && matchView.replay.end && state.time < matchView.replay.end - 0.5); } catch (e) { return false; } } // matchView isn't set up while the page loads
 function openDay() {
   if (matchPlay && !(matchView && matchView.replay)) { toast('In a match the server plays every day, for every resort at once. Tap Watch today to see yours live.', true); return; }
@@ -15896,7 +15897,8 @@ function condoMorning(room, short) {
   for (const C of C0) {
     const s = bspec(C);
     // Sales: each listed home has a chance of a buyer, better with happy owners and a good name.
-    if (!C.keep) for (let u = condoUnsold(C); u > 0; u--) {
+    // Not in a watched match day: the server already sold today's homes (they're in the save), so they aren't sold twice.
+    if (!C.keep && !replaying()) for (let u = condoUnsold(C); u > 0; u--) {
       if (Math.random() >= CONDO_SELL * (0.3 + m) * clamp(state.reputation, 0.5, 1.3) * (condoSki(C) ? 1.2 : 1) * Math.max(0.03, 1 - mk.k)) continue;
       mk.sold++; mk.k = Math.min(1, mk.sold / mk.homes);
       const price = condoValue(C, s);
@@ -22118,6 +22120,7 @@ async function startReplay(manual) {
   // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
   if (!mcOpen()) select(null);
   if (state.tool !== 'explore') setTool('explore');
+  const condo = state.lastReport && state.lastReport.condo; // the server's own report of today: the homes it sold this morning
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash, sim: 0, shut };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n || 1; passBuyers = () => 0;
@@ -22128,11 +22131,14 @@ async function startReplay(manual) {
   // The morning's cash and loan, from the server's result for today (older results: the cash less the day's profit).
   const off = matchView.replay.official;
   if (off) matchView.replay.sim += off.passes || 0; // season passes the server sold this morning
+  const sold = off && condo && condo.sold ? condo : null; // and condo homes: shown with the morning's money, as in a day of your own
+  if (sold) { matchView.replay.sim += sold.sales || 0; today.condoSold = sold.sold; today.condoSales = sold.sales || 0; }
   if (off) matchView.replay.gap = { cash: off.cash0 != null ? state.cash - off.cash0 : off.profit || 0, debt: off.debt0 != null ? (state.debt || 0) - off.debt0 : 0 };
   updateCash(false);
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
-  toast(shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.` : `Day ${l.day}, live from ${clockText(replayClock(l))}. Pick a build tool any time to build.`);
+  const soldLine = sold ? ` Sold ${sold.sold === 1 ? 'a condo home' : `${sold.sold} condo homes`} for ${money(sold.sales || 0)} this morning.` : '';
+  toast(shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.${soldLine}` : `Day ${l.day}, live from ${clockText(replayClock(l))}.${soldLine} Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
 }
@@ -22417,6 +22423,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.94.2', date: 'Nov 3, 2026', title: 'Condo sales in matches', kotm: true, small: true, items: [
+    'King of the Mountain: the live day no longer makes up its own condo sales. Before, it could say a home sold and count it, then the count went back down overnight and the money never came. Now it shows the homes the match server really sold that morning, with their money.'] },
   { v: '2.94.1', date: 'Nov 3, 2026', title: 'Live money, a countdown and shared evenings in matches', kotm: true, small: true, items: [
     'King of the Mountain: while you watch the day, your money now goes up and down with what actually happens: ticket sales as guests arrive, food sales at lunch, lift power through the afternoon. Wages and upkeep come off at the end of the day, as in single player, and the money lands on the server’s official figure.',
     'Between match days, the top bar counts down to the next day, second by second. If you paused today, it offers Back to the live day.',
