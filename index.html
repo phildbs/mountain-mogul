@@ -1557,6 +1557,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="btn secondary" id="visitLeague" hidden>Standings</button>
       <button class="btn secondary" id="visitChat" hidden>Chat</button>
       <button class="btn secondary" id="visitReports" hidden>Reports</button>
+      <button class="btn secondary" id="visitSwitch" hidden>Next resort</button>
       <button class="btn secondary" id="visitWatch" hidden>Watch today</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
@@ -7940,7 +7941,7 @@ sheet.addEventListener('click', (e) => {
 // A panel button's action. The match server calls this too, with a stand-in button, to do a player's action overnight.
 function sheetAct(b) {
   const a = b.dataset.action;
-  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read)
+  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', ...(matchView ? ['pastReport', 'matchSlot'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read, and a spectator picks whose resort to follow)
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -8144,6 +8145,7 @@ function sheetAct(b) {
   else if (a === 'qSm') { const t = trailById(+b.dataset.id); if (t && t.sm) { t.sm.mode = SM_NEXT[t.sm.mode] || 'auto'; renderSheet(); scheduleSave(); } }
   else if (a === 'bulkGroom') { for (const t of realTrails()) { t.groomed = b.dataset.v === '1'; updateTrailSnow(t, todayWx()); } renderSheet(); scheduleSave(); toast(b.dataset.v === '1' ? 'Every trail will be groomed tonight.' : 'Grooming stopped on every trail.'); }
   else if (a === 'bulkSm') { let n = 0; for (const t of realTrails()) if (t.sm && t.sm.on) { t.sm.mode = b.dataset.v; n++; } renderSheet(); scheduleSave(); toast(`Snow guns on ${n} ${n === 1 ? 'trail' : 'trails'}: ${SM_WORD[b.dataset.v]}`); }
+  else if (a === 'matchSlot') matchSwitch(+b.dataset.slot);
   else if (a === 'pastReport') { const h = (state.history || [])[+b.dataset.i]; if (h) showReport(h, true); } else if (a === 'sign' && obj) {
     const v = +b.dataset.v;
     obj.sign = v === obj.an.rating ? null : v;
@@ -20565,7 +20567,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
-  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; $('visitReports').hidden = true; $('mpFab').hidden = true; mpMenu(false); document.body.classList.remove('matchview'); mcStop(); }
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; $('visitReports').hidden = true; $('visitSwitch').hidden = true; $('mpFab').hidden = true; mpMenu(false); document.body.classList.remove('matchview'); mcStop(); }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -21244,7 +21246,8 @@ async function openMatch(lid) {
   afterLoad();
   drawRivals();
   matchBar(); watchButton(); document.body.classList.add('matchview');
-  $('visitReports').hidden = false;
+  $('visitReports').hidden = false; $('visitSwitch').hidden = !!me;
+  if (!me) matchOverview();
   await matchApplyPending();
   startReplay();
   matchView.timer = setInterval(matchTick, 20000);
@@ -21398,7 +21401,7 @@ function matchBar() {
   if (!matchView) return;
   const l = matchView.lobby, t = matchTable(), place = t.findIndex((r) => r.slot === matchView.slot) + 1;
   const when = l.status === 'finished' ? `finished after ${l.days} days` : l.day ? `day ${l.day} of ${l.days} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
-  const who = matchView.me ? `${mpPlace(place)} of ${t.length}` : `watching <b>${esc((visiting && visiting.name) || '')}</b>`;
+  const who = matchView.me ? `${mpPlace(place)} of ${t.length}` : `following <b>${esc((visiting && visiting.name) || '')}</b>, ${mpPlace(place)} of ${t.length}`;
   const live = matchView.replay ? ` · <b>watching day ${matchView.replay.day} live</b>` : '';
   const pend = matchPlay && matchView.pending ? ` · <b>${matchView.pending} ${matchView.pending === 1 ? 'change opens' : 'changes open'}</b> tomorrow` : '';
   $('visitText').innerHTML = `<b>${esc(l.name)}</b> · ${who} · ${when}${live}${pend}`;
@@ -21408,7 +21411,8 @@ function matchSheet() {
   const l = matchView.lobby, t = matchTable(), mine = (t.find((r) => r.slot === matchView.slot) || { summary: {} }).summary;
   return `<div class="sheet-title"><h3>Standings</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${esc(l.name)} on Crown Peak. The most season profit wins${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
-    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>
+    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
+    ${matchView.me ? '' : '<p class="help">Watching: the guests, ticket, reports and live day are for the resort you follow. Tap Follow to switch.</p>'}
     <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
     <p class="help">${matchPlay ? 'Build, run your resort and set your prices any time. Everything you change is sent to the match server and takes effect the next morning.' : 'You’re looking around: only the resort’s owner can build here.'}</p>`;
@@ -21929,6 +21933,36 @@ function drawRivalSkiers(n) {
 }
 $('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
 $('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
+$('visitSwitch').onclick = () => { if (!matchView) return; const S = matchView.resorts.filter((r) => r.save).map((r) => r.slot).sort((a, b) => a - b); matchSwitch(S[(S.indexOf(matchView.slot) + 1) % S.length]); };
+// Watching a match: the whole mountain, from above the summit.
+function matchOverview() {
+  const cx = PLAY0 + CROWN.c[0] * PN - HALF, cz = PLAY1 - CROWN.c[1] * PN - HALF;
+  camTween = null; cam.target.x = cx; cam.target.z = cz + 10; cam.viewH = Math.min(VIEW_MAX, 250); cam.viewGoal = null; updateCamera();
+}
+// A spectator follows another resort: theirs becomes the one in front, with its numbers, reports and live day. Every
+// game turns the mountain so the resort it shows is in front, so the camera turns with it and the view stays put.
+function matchSwitch(slot) {
+  if (!matchView || matchView.me || slot === matchView.slot) return;
+  const r = matchView.resorts.find((x) => x.slot === slot);
+  if (!r || !r.save) return;
+  if (matchView.replay) stopReplay(true);
+  const phi = (slot - matchView.slot) * 2 * Math.PI / CROWN.n, c = Math.cos(-phi), sn = Math.sin(-phi);
+  const cx = PLAY0 + CROWN.c[0] * PN - HALF, cz = PLAY1 - CROWN.c[1] * PN - HALF, dx = cam.target.x - cx, dz = cam.target.z - cz;
+  const view = { x: cx + dx * c - dz * sn, z: cz + dx * sn + dz * c, az: cam.az + phi, azGoal: cam.azGoal + phi, viewH: cam.viewH };
+  const name = (matchView.players.find((p) => p.slot === slot) || {}).resort_name || (r.summary && r.summary.name) || 'A resort';
+  matchView.slot = slot; matchView.nothing = null;
+  select(null);
+  applySave(r.save);
+  state.resortName = name; clearUndo();
+  if (visiting) visiting.name = name;
+  $('resortName').textContent = name;
+  afterLoad();
+  drawRivals();
+  camTween = null; cam.target.x = view.x; cam.target.z = view.z; cam.az = view.az; cam.azGoal = view.azGoal; cam.viewH = view.viewH; cam.viewGoal = null; updateCamera();
+  matchBar(); watchButton();
+  toast(`Now following ${name}.`);
+  startReplay();
+}
 // The match menu: one button on the left opens the match's status and choices; picking one, or tapping elsewhere, closes it.
 function mpMenu(open) { $('visitBar').classList.toggle('open', open); $('mpFab').setAttribute('aria-expanded', String(open)); if (open) matchBar(); }
 $('mpFab').onclick = () => mpMenu(!$('visitBar').classList.contains('open'));
@@ -22080,6 +22114,7 @@ const CHANGES = [
     'King of the Mountain: you can now move the view out to the edge of the map, to look over your rivals’ bases.',
     'Your rivals’ roads and parking lots now show on their slices, and land they’ve bought is no longer faded.',
     'In the King of the Mountain window, Go to your resort and Watch are now orange, so they’re easy to spot.',
+    'Watching a match you’re not in now opens on the whole mountain. Choose whose numbers, reports and live day you follow with Next resort in the crown menu, or Follow in the standings.',
     'Crown Peak’s ground now carries on past the old edge of the map, with forest and hills, so your rivals’ furthest lot rows, land and lifts have ground under them, and the road runs on toward town.'] },
   { v: '2.88.1', date: 'Nov 3, 2026', title: 'A tidier visit', small: true, items: [
     'Visiting a resort, the bar across the top is now a small eye button at the top left. Tap it for whose resort it is, Like, and Back to title.',
