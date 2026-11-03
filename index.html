@@ -3229,15 +3229,36 @@ function saveNow() {
   try {
     const text = JSON.stringify(saveData(true));
     lastSaveLen = text.length;
-    localStorage.setItem(saveKey(), text);
-  } catch (e) { /* storage unavailable: the game still plays, it just won't persist */ }
+    storeSet(saveKey(), text); // storage unavailable or full: the game still plays, and the online copy keeps it
+  } catch (e) { /* ignore */ }
   const s = !practice && activeSlot();
   if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); writeSlots(); }
 }
 const newId = () => crypto.randomUUID();
 const slotById = (id) => slots.list.find((s) => s.id === id) || null;
 const activeSlot = () => slotById(slots.active);
-function writeSlots() { if (NO_SAVE) return; try { localStorage.setItem(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { /* ignore */ } }
+function writeSlots() { if (NO_SAVE) return true; try { return storeSet(SLOTS_KEY, JSON.stringify(slots)); } catch (e) { return false; } }
+// The browser keeps about 5 MB per site, and a few big resorts can fill it. When a write doesn't fit, make
+// room by dropping this device's copies of other mountains that are saved online at least as recently
+// (they download again when played), then try once more. Returns whether the write went in.
+let storeKeep = []; // the mountains being switched between: never dropped to make room (the one left may have changes not online yet)
+function storeSet(key, text) {
+  try { localStorage.setItem(key, text); return true; } catch (e) { /* full, or storage blocked */ }
+  if (!CLOUD.ready || !CLOUD.own) return false;
+  const drop = slots.list.filter((s) => s.id !== slots.active && !storeKeep.includes(s.id) && slotKey(s.id) !== key && (!s.owner || s.owner === CLOUD.uid) && (() => {
+    const m = CLOUD.own.find((x) => x.id === s.id);
+    return m && (m.updatedAt || 0) >= (s.savedAt || 0) - 600000;
+  })());
+  if (!drop.length) return false;
+  for (const s of drop) try { localStorage.removeItem(slotKey(s.id)); } catch (e) { /* ignore */ }
+  slots.list = slots.list.filter((s) => !drop.includes(s));
+  try {
+    if (key !== SLOTS_KEY) localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
+    localStorage.setItem(key, key === SLOTS_KEY ? JSON.stringify(slots) : text);
+    return true;
+  } catch (e) { return false; }
+}
+const STORAGE_FULL_MSG = 'This browser’s storage for Mountain Mogul is full, so that mountain couldn’t open. Your mountains are safe online. Delete a mountain you no longer play, or clear this site’s data in your browser settings and sign in again.';
 function readSlots() {
   if (NO_SAVE) { slots = { active: null, list: [] }; return; }
   try {
@@ -3314,12 +3335,31 @@ function newMountain(mt = MOUNTAIN.id) {
 }
 // Make a mountain the one you're playing. Returns false when the page reloads to get there.
 function useSlot(id, sv, then) {
+  storeKeep = [id, slots.active];
+  try { return useSlotIn(id, sv, then); } finally { storeKeep = []; }
+}
+function useSlotIn(id, sv, then) {
   if (onThisMountain() && state.started && !visiting) saveNow();
-  slots.active = id; writeSlots();
-  CLOUD.sentJson = ''; CLOUD.offered = false; CLOUD.error = '';
+  const was = slots.active;
+  slots.active = id;
   const s = activeSlot();
-  if (sv && s) { try { localStorage.setItem(slotKey(id), JSON.stringify(sv)); } catch (e) { /* ignore */ } }
-  if (s && slotMt(s) !== MOUNTAIN.id) { reloadInto(then || 'title'); return false; }
+  // the save goes in first: freeing space for it can drop other mountains from the list written next
+  let stored = true;
+  if (sv && s) { try { stored = storeSet(slotKey(id), JSON.stringify(sv)); } catch (e) { stored = false; } }
+  stored = writeSlots() && stored;
+  CLOUD.sentJson = ''; CLOUD.offered = false; CLOUD.error = '';
+  if (s && slotMt(s) !== MOUNTAIN.id) {
+    // Another mountain needs a page reload, which reads the list and the save back from storage. If they
+    // didn't fit, the reload would land back here, so stay and say why.
+    if (!stored) {
+      slots.active = was;
+      // a mountain just fetched from online with no copy here leaves the list again, so it's fetched next time
+      let here = false; try { here = !!localStorage.getItem(slotKey(id)); } catch (e) { /* ignore */ }
+      if (!here) slots.list = slots.list.filter((x) => x !== s);
+      writeSlots(); toast(STORAGE_FULL_MSG, true); refreshTitle(); return false;
+    }
+    reloadInto(then || 'title'); return false;
+  }
   applySave(sv || loadSave());
   return true;
 }
@@ -20986,9 +21026,19 @@ function mcShow() {
   $('visitChat').textContent = unread ? `Chat · ${unread}` : 'Chat';
   if (!mcOpen()) return;
   const list = $('mcList'), atEnd = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30, focused = document.activeElement && document.activeElement.id === 'mcText';
-  renderSheet();
+  if (focused) mcPatch(); else renderSheet();
   if ($('mcText')) { $('mcText').value = MC.draft; if (focused) $('mcText').focus(); }
   if ($('mcList') && atEnd) $('mcList').scrollTop = $('mcList').scrollHeight;
+}
+// While you type, only the messages (and any error) are redrawn: redrawing the whole card would take the cursor out
+// of the box, so a message sent with Enter, or one arriving, would only show once you clicked away.
+function mcPatch() {
+  const tmp = document.createElement('div'); tmp.innerHTML = matchChatSheet();
+  const list = tmp.querySelector('#mcList');
+  if (!list || !$('mcList') || !$('mcForm')) return renderSheet();
+  $('mcList').replaceWith(list);
+  for (const e of sheet.querySelectorAll('.mc-err')) e.remove();
+  const err = tmp.querySelector('.mc-err'); if (err) $('mcForm').after(err);
 }
 const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 function matchChatSheet() {
@@ -21069,7 +21119,9 @@ async function startReplay(manual) {
   const n = k >= 0 ? res.share[k] || 0 : 0;
   if (!n) { matchView.nothing = l.day; if (manual) toast('Nobody came to this resort today, so there’s nothing to watch.', true); return; }
   if (!matchView || matchView.replay || state.tool !== 'explore' && !manual) return;
-  select(null); if (state.tool !== 'explore') setTool('explore');
+  // The chat stays open: closing it while you type would turn your next letters into game shortcuts.
+  if (!mcOpen()) select(null);
+  if (state.tool !== 'explore') setTool('explore');
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash };
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n; passBuyers = () => 0;
@@ -21301,7 +21353,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
-  { v: '2.83.6', date: 'Nov 2, 2026', title: 'Match cash shown right', small: true, items: ['Fixed: in King of the Mountain, your cash went up while the live day played, then dropped back when you built or night came. The day you watch was already counted, so its takings were being added twice on screen. Your cash now stays at the real figure while the day plays. Thanks to Snowy’s Peak for spotting it!'] },
+  { v: '2.83.8', date: 'Nov 2, 2026', title: 'Match cash shown right', small: true, items: ['Fixed: in King of the Mountain, your cash went up while the live day played, then dropped back when you built or night came. The day you watch was already counted, so its takings were being added twice on screen. Your cash now stays at the real figure while the day plays. Thanks to Snowy’s Peak for spotting it!'] },
+  { v: '2.83.7', date: 'Nov 2, 2026', title: 'Opening your other mountains', small: true, items: ['Fixed: when your browser’s storage was full (a few big resorts can fill it), choosing another of your mountains quietly put you back on the one you were playing. The game now makes room by clearing this device’s copy of mountains already saved online, which download again when you play them. If there’s still no room, it says so instead of doing nothing.'] },
+  { v: '2.83.6', date: 'Nov 2, 2026', title: 'Match chat typing fix', small: true, items: ['Fixed: in King of the Mountain, the match chat could close by itself while you typed when the live day started, so your next letters worked as game shortcuts. The chat now stays open, and a message sent with Enter shows straight away.'] },
   { v: '2.83.5', date: 'Nov 2, 2026', title: 'Parking any time in matches', small: true, items: ['King of the Mountain: you can add parking whenever you’re on, not just at night. The live day pauses while you do, and the new section opens the next morning like everything else.'] },
   { v: '2.83.4', date: 'Nov 2, 2026', title: 'Match cash fix', small: true, items: ['Fixed: in King of the Mountain, coming back into a match could show your cash below zero, adding up changes that cost more than you had. The server only ever built what you could pay for; now your screen shows the same, with a message about any change it will skip.'] },
   { v: '2.83.3', date: 'Nov 2, 2026', title: 'Clearing trees in matches', small: true, items: ['King of the Mountain: the landscape tool is back in matches. Clear trees with the brush or bulldoze them one at a time; they go overnight, like everything else. Painting areas, levelling and replanting are coming next.'] },

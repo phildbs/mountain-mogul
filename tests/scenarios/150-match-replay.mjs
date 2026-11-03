@@ -52,8 +52,12 @@ export default async function ({ browser, url }) {
   eq([btn, await g.ev('state.lotSections'), await g.ev('!!matchView.replay'), await g.ev('matchView.paused')], [true, lots + 1, false, true], 'parking can be added while the day plays: it pauses and the section is added');
   const lotOrders = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => o.payload.what === 'lot').length);
   eq(lotOrders, 1, 'and it goes to the server for the next overnight');
-  await g.ev(`select(null); setTool('explore')`);
+  // The chat stays open when the day picks up again: closing it under your cursor made your letters game shortcuts.
+  await g.ev(`select(null)`); await g.click('#visitChat'); await g.wait(300); await g.page.click('#mcText'); await g.page.keyboard.type('gl');
+  await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
+  await g.page.keyboard.type(' 3 wasd');
+  eq(await g.ev(`[selected && selected.kind, document.activeElement.id, document.getElementById('mcText').value, state.tool, !!matchView.replay]`), ['mchat', 'mcText', 'gl 3 wasd', 'explore', true], 'typing in the chat as the day starts stays in the chat');
   // Reports opens the past days.
   await g.click('#visitReports'); await g.wait(300);
   assert(await g.page.$('#sheet [data-action=pastReport]'), 'Reports lists the past days');
