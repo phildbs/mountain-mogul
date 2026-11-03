@@ -54,9 +54,10 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-01)
 
-**Live: 2.82.3.** Phil approved publication on Nov 2 after checking it on iPad (quick-fix tier).
+**Live: 2.83.7.** Phil said Publish on Nov 3 (00:40 UTC) after the full GitHub run was green.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
+- 2.83.7: a full localStorage no longer traps players on one mountain. Published Nov 3 (full GitHub run green). From James Rothman's report: 4 big resorts (Elk Pines ~0.9 MB online, more locally with the day in progress) filled the ~5 MB quota, so Play on a mountain needing an online pull couldn't write the slot list and the reload came back. `storeSet` now frees room by dropping local copies of other mountains saved online at least as recently (never the one opened or the one left); if nothing can go, the switch is refused with a message. Scenario 152. (Claude, Nov 3)
 - 2.82.3: title screen scrolls on iPad. Published Nov 2 (Phil checked it on iPad; quick-fix tier: 144, 01, 13, 74 passed). From player reports. `#title` was `pointer-events: none` (children
   `auto`) so taps fell through to the 3D view; iPad Safari won't touch-scroll a box like that, and gaps between cards hit the canvas.
   `#title` now takes touches itself (canvas input ignores everything until `state.started`); `#title.out` goes back to `none` while it
@@ -180,7 +181,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `ccr-373e923a-qdafh9` | Claude | **2.83 King of the Mountain beta published Nov 2 (21:48 UTC, Phil's Publish).** The Hetzner match server still follows this branch: only push tested changes here until it's switched to `main`. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
-| `ccr-1a047b49-to2875` | Claude | **2.83.7 fix (preview, not published):** a full localStorage (James Rothman, 4 big resorts, Elk Pines save ~0.9 MB) silently trapped players on one mountain: Play on a mountain needing an online pull couldn't write the slot list, so the reload came back. `storeSet` now frees room by dropping local copies of other mountains saved online at least as recently; if nothing can go, the switch is refused with a message. Test `152-storage-full`. | Nov 3, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
