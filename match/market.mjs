@@ -71,8 +71,8 @@ export const pageOrders = (orders) => `(() => {
           growLot(p.row ?? null, p.lot || 0); if (state.lotSections === n) throw new Error('the parking lot can’t grow there');
         } else throw new Error('unknown build');
         computeNetwork();
-      } else if (['ops', 'other', 'remove'].includes(o.kind)) {
-        // Running the resort, removing things and money: done by the game's own code (matchDo in index.html).
+      } else if (['ops', 'other', 'remove', 'land'].includes(o.kind)) {
+        // Running the resort, removing things, money and land: done by the game's own code (matchDo in index.html).
         const why = matchDo(o.kind, p); if (why) throw new Error(why);
       } else throw new Error('not supported yet');
       out.push({ id: o.id, ok: true });

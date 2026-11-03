@@ -52,9 +52,9 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-11-01)
+## Current status (updated 2026-11-03)
 
-**Live: 2.83.7.** Phil said Publish on Nov 3 (00:40 UTC) after the full GitHub run was green.
+**Live: 2.83.8** (match cash shown right), published Nov 3 ~01:15 UTC. **In preview: 2.84** (running the resort in matches), branch `ccr-54d78266-eg1xc5`.
 
 **Recently shipped** (newest first; older releases are in `CHANGES`)
 - 2.83.7: a full localStorage no longer traps players on one mountain. Published Nov 3 (full GitHub run green). From James Rothman's report: 4 big resorts (Elk Pines ~0.9 MB online, more locally with the day in progress) filled the ~5 MB quota, so Play on a mountain needing an online pull couldn't write the slot list and the reload came back. `storeSet` now frees room by dropping local copies of other mountains saved online at least as recently (never the one opened or the one left); if nothing can go, the switch is refused with a message. Scenario 152. (Claude, Nov 3)
@@ -181,6 +181,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
+| `ccr-54d78266-eg1xc5` | Claude | **2.84: running your resort in matches** (Phil's pick, Nov 3): settings, removing, money and land as match orders. See the multiplayer note. Server changes in `match/market.mjs` go live with the publish (the box follows `main`). | Nov 3, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
 ## Known issues
@@ -406,6 +407,15 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   panel (`MC`, realtime channel plus 20 s poll), the live day (`startReplay`, automatic; a build tool pauses it, Explore resumes; plays day N locally with the server's
   share from match_days, paced so 8:00 to 17:15 fills the first 25 of each 30 min; ends with the server's own day report; Reports opens Money history).
   Scenarios 146 to 150. Not yet: skiers on rivals' slices, the Plans/remove/land/ops orders, stats.html tools.
+- Match orders (2.84, Claude, Nov 3): the sheet click handler is now `sheetAct(b)`, wrapped by `matchGate` (allow-list, pause) and
+  `matchBefore`/`matchAfter`. Settings (`MATCH_KNOBS`, `ops*`/`pk*`) send their new values as `ops` `{ set: { T<id>: [...], L<id>, A<id>,
+  B<id>, ops, baseSm } }` (`matchKnobs`/`matchSetKnobs`), never toggles. One-off actions (`MATCH_ACTS`) send `other`/`remove`
+  `{ ds, sel, on }`: the server's `matchDo` re-finds the object (`matchFind`: id, checked against position) and presses the same
+  button with a stand-in (`sheetAct({ dataset })`); success = `matchSig()` changed. Land: `land` with `{ area }` (painted cells +
+  areaBuild/hubLevel) or `{ brush }` (level/plant path, rounded to 0.01). Bulldozer: `remove` `{ doze }` via `dozeApply`. Actions
+  needing the resort closed pause the live day (`matchPause`, then re-press the button). Panels show Remove and overnight buttons
+  in a match during the day (`overnightOk()`). Not in matches yet: moving lifts/trails/buildings, trail shape/route, lift
+  upgrades, mid-stations, terrain parks, blueprints (every match build already waits for the night). Scenario 153; server-test day 2.
 - Rule (Phil, Nov 2): in a match players must be able to do everything whenever they're on, even if it only queues for the next overnight. Build tools pause the live day; panel actions like parking (`lotBuildable()`) pause it too. Keep this for every new match action.
 - Boundaries: for now each player's resort is its own copy of the map, and its property line is their boundary.
   A shared map needs one main lot, road and base per player inside their area; the engine assumes one main lot

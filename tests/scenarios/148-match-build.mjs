@@ -77,8 +77,9 @@ export default async function ({ browser, url }) {
   await g.wait(400);
   o = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((x) => x.payload.what === 'trees').map((x) => x.payload.ks.length));
   eq(o, [tr.cleared], 'and the exact trees go to the server');
-  const blocked2 = await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'landMode'; b.dataset.v = 'area'; select({ kind: 'manage', obj: 'snow' }); document.getElementById('sheet').appendChild(b); b.click(); return [state.landMode, document.getElementById('toast').textContent]; })()`);
-  assert(blocked2[0] !== 'area' && /isn’t part of King of the Mountain yet/.test(blocked2[1]), `painting areas isn't in matches yet, and says so (${blocked2})`);
+  const blocked2 = await g.ev(`(() => { const b = document.createElement('button'); b.dataset.action = 'landMode'; b.dataset.v = 'area'; select({ kind: 'manage', obj: 'snow' }); document.getElementById('sheet').appendChild(b); b.click();
+    const s = document.createElement('button'); s.dataset.action = 'shapeTrail'; document.getElementById('sheet').appendChild(s); s.click(); return [state.landMode, state.tool, document.getElementById('toast').textContent]; })()`);
+  assert(blocked2[0] === 'area' && blocked2[1] !== 'shape' && /isn’t part of King of the Mountain yet/.test(blocked2[2]), `painting areas works in matches; reshaping trails isn't there yet, and says so (${blocked2})`);
   o = await orders();
   const sentBefore = o.length;
 

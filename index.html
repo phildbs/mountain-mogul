@@ -3513,6 +3513,7 @@ function replantAt(p) {
 }
 function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks)) n++; }); return n; }
 function clearAt(p) {
+  if (matchPlay && !matchView.quiet && ['level', 'plant'].includes(state.landMode)) (stroke.mpts || (stroke.mpts = [])).push([Math.round(p.x * 100) / 100, Math.round(p.z * 100) / 100]); // replayed by the match server
   if (state.landMode === 'level') return levelAt(p);
   if (paintingArea()) return areaPaintAt(p, !stroke.active);
   if (state.landMode === 'plant') return replantAt(p);
@@ -3566,6 +3567,8 @@ function endStroke() {
     renderSheet();
     return;
   }
+  if (matchPlay && !matchView.quiet && stroke.cost && stroke.mpts) matchOrder('land', { brush: { mode: state.landMode, r: state.brushR, target: stroke.target, pts: stroke.mpts } });
+  stroke.mpts = null;
   if (state.landMode === 'level') {
     if (stroke.box) refreshOnTerrain(stroke.box.i0, stroke.box.j0, stroke.box.i1, stroke.box.j1);
     if (stroke.broke) toast('Not enough cash to keep leveling', true);
@@ -8095,7 +8098,7 @@ function landPanel() {
       <p class="help">Then you can buy or lease parcels beside your property: road frontage for more parking and a village, valley ground for a second base, or mountain for more terrain.</p>`;
   }
   const held = state.land || [], rent = held.filter((l) => l.own === 'lease' && !l.wait).reduce((a, l) => a + l.rent, 0);
-  const closed = state.phase === 'closed' && !visiting;
+  const closed = overnightOk() && !visiting;
   let detail = '';
   const P = landSel && PARCELS.find((q) => q.id === landSel);
   if (P) {
@@ -20905,7 +20908,7 @@ function matchSheet() {
     <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>
     <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
-    <p class="help">${matchPlay ? 'Build lifts, trails and buildings, and set your prices, any time. Everything you change is sent to the match server and opens the next morning.' : 'You’re looking around: only the resort’s owner can build here.'}</p>`;
+    <p class="help">${matchPlay ? 'Build, run your resort and set your prices any time. Everything you change is sent to the match server and takes effect the next morning.' : 'You’re looking around: only the resort’s owner can build here.'}</p>`;
 }
 // Every 20 seconds: the countdown, and a fresh copy of the match once the server has played another day.
 async function matchTick() {
@@ -20973,20 +20976,23 @@ async function matchApplyPending() {
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
-  'remove', 'removeNo'];
+  'remove', 'removeNo', 'landSel', 'landList'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
 const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
-  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor'];
-const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes'];
-const MATCH_PAUSE = ['remove', 'patrolStaff', 'opsDay', ...MATCH_ACTS];
+  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'hubFence'];
+const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes',
+  'landBuy', 'landLease', 'landCancel', 'landEnd'];
+// Painting areas: the draft goes with the action, so the server paints the same ground.
+const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin'];
+const MATCH_PAUSE = ['remove', 'patrolStaff', 'opsDay', 'editArea', ...MATCH_ACTS];
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
   if (!a) return false;
-  if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a)) || (a === 'landMode' && !['trees', 'doze'].includes(b.dataset.v))) {
-    toast('That isn’t part of King of the Mountain yet. For now you can build, remove things, run your resort, set prices and borrow.', true); return true;
+  if (!(MATCH_ACTIONS.includes(a) || isKnob(a) || MATCH_ACTS.includes(a) || MATCH_LAND.includes(a))) {
+    toast('That isn’t part of King of the Mountain yet. Moving things, trail edits, lift upgrades and blueprints are still to come.', true); return true;
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
@@ -21019,14 +21025,14 @@ function matchKnobs() {
   const k = {}, J = JSON.stringify, sm = (o) => (o.sm ? [o.sm.mode, o.sm.target] : null);
   for (const L of world.lifts) k['L' + L.id] = J([!!(L.open || L.planOff), L.color ?? null]);
   for (const t of world.trails) if (!t.virtual) k['T' + t.id] = J([!!t.open, t.groomed !== false, sm(t), t.sign ?? null, !!t.snowClosed]);
-  for (const A of world.areas) k['A' + A.id] = J([!!A.closed, !!A.signs, sm(A), !!A.snowClosed]);
+  for (const A of world.areas) k['A' + A.id] = J([!!A.closed, !!A.signs, sm(A), !!A.snowClosed, !!A.fenced]);
   for (const B of world.buildings) k['B' + B.id] = J([B.patrollers ?? null, !!B.keep, B.hue ?? null, !!B.bare]);
   k.ops = J(state.ops || null); k.baseSm = J(state.baseSm ? [state.baseSm.mode, state.baseSm.target] : null);
   return k;
 }
 const matchSig = () => [state.cash, state.debt, state.lotSections, state.offsite, world.lifts.length, world.trails.length, world.buildings.length, world.areas.length,
   (world.noPoles || []).length, (world.noGuns || []).length, world.areas.reduce((n, A) => n + (A.noFence || []).length, 0),
-  JSON.stringify(state.event || null), JSON.stringify(state.investor || null), JSON.stringify(matchKnobs())].join('|');
+  JSON.stringify(state.event || null), JSON.stringify(state.investor || null), JSON.stringify(state.land || []), JSON.stringify(matchKnobs())].join('|');
 function matchSetKnobs(set) {
   const sm = (o, v) => { if (o.sm && v) { o.sm.mode = v[0]; o.sm.target = v[1]; } };
   for (const [key, v] of Object.entries(set || {})) {
@@ -21040,7 +21046,11 @@ function matchSetKnobs(set) {
       t.open = !!v[0]; t.groomed = !!v[1]; sm(t, v[2]); t.sign = v[3]; t.snowClosed = v[4] || undefined;
       if (sign !== t.sign) refreshTrailMesh(t);
       styleTrail(t); updateTrailSnow(t, todayWx());
-    } else if (key[0] === 'A') { const A = areaById(id); if (!A) continue; A.closed = !!v[0]; A.signs = !!v[1]; sm(A, v[2]); A.snowClosed = v[3] || undefined; }
+    } else if (key[0] === 'A') {
+      const A = areaById(id); if (!A) continue;
+      A.closed = !!v[0]; A.signs = !!v[1]; sm(A, v[2]); A.snowClosed = v[3] || undefined;
+      if (isHub(A) && !!A.fenced !== !!v[4]) { A.fenced = !!v[4]; refreshAreaMesh(A); }
+    }
     else if (key[0] === 'B') {
       const B = bldById(id); if (!B) continue;
       if (B.type === 'patrol' && v[0] != null && v[0] !== B.patrollers) { B.patrollers = clamp(v[0], 1, 6); resetPatrolCrew(B); }
@@ -21053,10 +21063,12 @@ function matchSetKnobs(set) {
 }
 function matchBefore(b) {
   const a = b.dataset.action, kind = selected && selected.kind, obj = selected && selected.obj;
+  if (a === 'areaBuild' || a === 'hubLevel') return areaDraft ? { a, ds: { ...b.dataset }, sig: matchSig(), area: { mode: state.landMode, cells: [...areaDraft.cells], editId: areaDraft.editId ?? null, thin: state.gladeThin || null } } : null;
   if (!a || !(isKnob(a) || MATCH_ACTS.includes(a))) return null;
   return { a, ds: { ...b.dataset }, sel: obj && matchListOf(kind) ? matchRef(kind, obj) : null, on: kind || null, sig: matchSig(), knobs: matchKnobs() };
 }
 function matchAfter(s) {
+  if (s.area) { if (matchSig() !== s.sig) matchOrder('land', { ds: s.ds, area: s.area }); return; }
   if (MATCH_ACTS.includes(s.a)) { if (matchSig() !== s.sig) matchOrder(s.a === 'removeYes' ? 'remove' : 'other', { ds: s.ds, sel: s.sel, on: s.on }); return; }
   const now = matchKnobs(), set = {};
   for (const k in now) if (now[k] !== s.knobs[k]) set[k] = JSON.parse(now[k]);
@@ -21066,9 +21078,10 @@ function matchAfter(s) {
 // waits. Returns '' when done, or why it couldn't be.
 function matchDo(kind, p) {
   if (kind === 'ops') { matchSetKnobs(p.set); return ''; }
-  if (!p.doze && !(p.ds && p.ds.action)) return 'not supported yet';
+  if (!p.doze && !p.brush && !(p.ds && p.ds.action)) return 'not supported yet';
   const before = matchSig();
-  if (p.doze) {
+  if (kind === 'land') matchLand(p);
+  else if (p.doze) {
     const d = p.doze, o = { ...d, A: d.area != null ? areaById(d.area) : null, B: d.bld ? matchFind(d.bld) : null };
     if ((d.kind === 'bld' && !o.B) || (d.kind === 'fence' && !o.A)) return 'it isn’t there any more';
     dozeApply(o);
@@ -21081,6 +21094,29 @@ function matchDo(kind, p) {
   }
   computeNetwork();
   return matchSig() !== before ? '' : 'there wasn’t enough cash, or it couldn’t be done';
+}
+// Painting an area or a brush stroke of levelling or replanting, done again where the player did it.
+function matchLand(p) {
+  const mode = state.landMode, thin = state.gladeThin, draft = areaDraft, r = state.brushR, keep = { ...stroke };
+  try {
+    if (p.brush) {
+      const d = p.brush;
+      state.landMode = d.mode; state.brushR = d.r; stroke.target = d.target; stroke.box = null;
+      for (const [x, z] of d.pts || []) clearAt(new THREE.Vector3(x, heightAt(x, z), z));
+      if (d.mode === 'level' && stroke.box) refreshOnTerrain(stroke.box.i0, stroke.box.j0, stroke.box.i1, stroke.box.j1);
+      if (d.mode === 'plant' && world.areas.some(isGlade)) { computeNetwork(); syncLabels(); }
+    } else if (p.area) {
+      const d = p.area, A = d.editId != null ? areaById(d.editId) : null;
+      if (d.editId != null && !A) return;
+      state.landMode = d.mode; if (d.thin) state.gladeThin = d.thin;
+      areaDraft = { cells: new Set(d.cells), erase: false, editId: A ? A.id : null, ...(A ? { blocks: isHub(A) ? hubBlocks(A) : areaBlocks(A) } : {}) };
+      sheetAct({ dataset: { ...p.ds }, disabled: false });
+    }
+  } finally {
+    state.landMode = mode; state.gladeThin = thin; state.brushR = r; Object.assign(stroke, keep);
+    if (p.area && areaDraft && areaDraft !== draft) clearAreaDraft();
+    areaDraft = draft;
+  }
 }
 const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
 // Counted in the match bar: builds, removals and other one-off actions (not prices or settings).
@@ -21479,6 +21515,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.84', date: 'Nov 2, 2026', title: 'Run your match resort', items: [
+    'King of the Mountain: run your resort the way you do at home. Open and close lifts and trails, groom, set snowmaking, edit your operating plans and change your ski patrol. Your resort runs that way from the next day.',
+    'Remove lifts, trails and buildings in a match, or bulldoze decorations, with the usual salvage. They go overnight.',
+    'Money and land: borrow from the bank and repay, book events, add snowmaking and night lights, buy or lease land, paint guest areas, learning areas and glades, level ground and replant trees.',
+    'A change that needs the resort closed pauses the live day for you. Pick Explore to go back to it.'] },
   { v: '2.83.8', date: 'Nov 2, 2026', title: 'Match cash shown right', small: true, items: ['Fixed: in King of the Mountain, your cash went up while the live day played, then dropped back when you built or night came. The day you watch was already counted, so its takings were being added twice on screen. Your cash now stays at the real figure while the day plays. Thanks to Snowy’s Peak for spotting it!'] },
   { v: '2.83.7', date: 'Nov 2, 2026', title: 'Opening your other mountains', small: true, items: ['Fixed: when your browser’s storage was full (a few big resorts can fill it), choosing another of your mountains quietly put you back on the one you were playing. The game now makes room by clearing this device’s copy of mountains already saved online, which download again when you play them. If there’s still no room, it says so instead of doing nothing.'] },
   { v: '2.83.6', date: 'Nov 2, 2026', title: 'Match chat typing fix', small: true, items: ['Fixed: in King of the Mountain, the match chat could close by itself while you typed when the live day started, so your next letters worked as game shortcuts. The chat now stays open, and a message sent with Enter shows straight away.'] },

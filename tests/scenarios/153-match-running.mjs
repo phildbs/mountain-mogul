@@ -56,13 +56,50 @@ export default async function ({ browser, url }) {
   eq([now.sm, now.debt > debt, now.lodge, now.open], [true, true, false, false], 'and done on screen straight away');
   assert(/3 changes open/.test(await g.ev(`document.getElementById('visitText').innerText`)), 'the bar counts the three waiting for tonight');
 
+  // Land: a stroke of the levelling brush goes as its path, to be levelled the same way overnight.
+  const lv = await g.ev(`(() => {
+    const L = world.lifts[0]; let at = null;
+    for (let k = 0; k < 60 && !at; k++) { const x = L.a.x + 6 + (k % 10) * 3, z = L.a.z - 8 - Math.floor(k / 10) * 5; if (inProperty(x, z) && inProperty(x + 4, z) && levelBrush({ x: x + 4, z }, 3, trueY(x, z), 0.4, true).cost > 500) at = { x, z }; }
+    if (!at) return null;
+    setTool('clear'); state.landMode = 'level'; state.brushR = 3; const cash = state.cash, h0 = trueY(at.x + 4, at.z);
+    stroke.active = true; stroke.target = trueY(at.x, at.z); stroke.last = null; stroke.cost = 0;
+    strokeTo(new THREE.Vector3(at.x, heightAt(at.x, at.z), at.z)); strokeTo(new THREE.Vector3(at.x + 4, heightAt(at.x + 4, at.z), at.z));
+    endStroke(); setTool('explore');
+    return { at, spent: cash - state.cash, h0, h: trueY(at.x + 4, at.z) };
+  })()`);
+  assert(lv && lv.spent > 0 && Math.abs(lv.h - lv.h0) > 0.05, `the ground is levelled on screen (${JSON.stringify(lv)})`);
+  o = await orders();
+  eq([o.length, o[6].kind, o[6].payload.brush.mode, o[6].payload.brush.pts.length > 2], [7, 'land', 'level', true], 'and the stroke is sent as land, with its path');
+
+  // Land: a painted learning area goes with its ground, and Build paints it.
+  const ar = await g.ev(`(() => {
+    setTool('clear'); state.landMode = 'area';
+    const L = world.lifts[0];
+    for (let k = 0; k < 40; k++) {
+      const x0 = Math.round(L.a.x) - 20 + (k % 8) * 5, z0 = Math.round(L.a.z) - 4 - Math.floor(k / 8) * 6, cells = new Set();
+      for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) if (!cellProblem(x0 + i, z0 + j, areaBlocks(null))) cells.add(cellKey(x0 + i, z0 + j));
+      areaDraft = { cells, erase: false, editId: null }; const info = areaDraftInfo();
+      if (info && !info.problems.length) { renderSheet(); const b = document.querySelector('#sheet [data-action=areaBuild]'); const n = world.areas.length; if (b && !b.disabled) b.click(); setTool('explore'); return { built: world.areas.length - n, cells: cells.size }; }
+    }
+    setTool('explore'); return null;
+  })()`);
+  assert(ar && ar.built === 1, `a learning area is painted (${JSON.stringify(ar)})`);
+  o = await orders();
+  eq([o.length, o[7].kind, o[7].payload.area.mode, o[7].payload.area.cells.length, o[7].payload.ds.action], [8, 'land', 'area', ar.cells, 'areaBuild'], 'and sent as land, with its ground');
+
+  // Land for sale: leasing a parcel, as the server does it overnight.
+  const lease = await g.ev(`(() => { state.seasonStats = { ...(state.seasonStats || {}), days: 99 }; const p = PARCELS.find((q) => !landHeld(q.id) && landReachable(q)); if (!p) return null;
+    const n = (state.land || []).length, why = matchDo('other', { ds: { action: 'landLease', v: p.id }, sel: null, on: 'manage' }); return { why, more: (state.land || []).length - n, again: matchDo('other', { ds: { action: 'landLease', v: p.id } }) }; })()`);
+  eq(lease && [lease.why, lease.more, !!lease.again], ['', 1, true], 'land can be leased overnight, once');
+
   // Coming back: the server's copy doesn't have them yet, so they go back on screen.
   await g.ev(`(() => { applySave(matchView.resorts.find((r) => r.slot === matchView.slot).save); afterLoad(); })()`);
   eq(await g.ev(`[!!bldById(${lodge}), trailById(${t}).open]`), [true, true], '(the server’s copy, before the changes)');
   await g.ev('matchApplyPending()'); await g.wait(500);
-  const back = await g.ev(`({ sm: !!trailById(${t}).sm, debt: state.debt, lodge: !!bldById(${lodge}), open: trailById(${t}).open, groomed: trailById(${t}).groomed, staff: state.ops.plans.weekday.staff, pending: matchView.pending })`);
-  eq(back, { sm: true, debt: now.debt, lodge: false, open: false, groomed: false, staff: 'lean', pending: 3 }, 'coming back puts every waiting change back on screen');
-  eq((await orders()).length, 6, 'without sending them again');
+  const back = await g.ev(`({ sm: !!trailById(${t}).sm, debt: state.debt, lodge: !!bldById(${lodge}), open: trailById(${t}).open, groomed: trailById(${t}).groomed, staff: state.ops.plans.weekday.staff, pending: matchView.pending, areas: world.areas.length, h: trueY(${lv.at.x + 4}, ${lv.at.z}) })`);
+  assert(Math.abs(back.h - lv.h) < 0.01, `the levelled ground comes back the same (${back.h} vs ${lv.h}, was ${lv.h0})`); delete back.h;
+  eq(back, { sm: true, debt: now.debt, lodge: false, open: false, groomed: false, staff: 'lean', pending: 5, areas: 1 }, 'coming back puts every waiting change back on screen');
+  eq((await orders()).length, 8, 'without sending them again');
 
   // The live day: removing pauses it first, then carries on with the same panel.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 65 * 60000).toISOString(); matchView.nothing = null`);
@@ -76,7 +113,7 @@ export default async function ({ browser, url }) {
   await press('[data-action=removeYes]');
   eq(await g.ev(`!!liftById(${lift})`), false, 'the lift is removed');
   o = await orders();
-  eq([o.length, o[6].kind, o[6].payload.sel.id], [7, 'remove', lift], 'and the removal is sent');
+  eq([o.length, o[8].kind, o[8].payload.sel.id], [9, 'remove', lift], 'and the removal is sent');
   // Closing a trail while the day plays doesn't pause it.
   await g.ev(`setTool('explore')`);
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
@@ -85,12 +122,12 @@ export default async function ({ browser, url }) {
   await press('[data-action=toggleOpen]');
   eq(await g.ev(`[!!matchView.replay, trailById(${t2}).open]`), [true, false], 'closing a trail doesn’t pause the day');
   o = await orders();
-  eq([o.length, o[7].kind, o[7].payload.set['T' + t2][0]], [8, 'ops', false], 'and the trail’s settings are sent');
+  eq([o.length, o[9].kind, o[9].payload.set['T' + t2][0]], [10, 'ops', false], 'and the trail’s settings are sent');
 
   // Things not in matches yet still say so.
   await g.ev(`select({ kind: 'trail', obj: trailById(${t2}) })`); await g.wait(200);
   await press('[data-action=moveTrail]');
-  eq((await orders()).length, 8, 'moving a trail isn’t part of matches yet: nothing is sent');
+  eq((await orders()).length, 10, 'moving a trail isn’t part of matches yet: nothing is sent');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
