@@ -11,6 +11,14 @@ export default async function ({ browser, url }) {
   await g.ev(`loadBoard(true)`); await g.wait(300);
   await g.ev(`visitResort('theirs')`); await g.wait(2000);
   eq(await g.ev(`[visiting.name, world.lifts.length, state.ticket, $('tbGo').textContent].join()`), 'Sam Summit,1,80,Watch a day', 'visiting');
+  // The visit bar is a menu behind a floating eye button, open on arrival and tucked away by a tap on the map.
+  eq(await g.ev(`[!$('mpFab').hidden, getComputedStyle($('mpFab').querySelector('.eye')).display !== 'none', getComputedStyle($('mpFab').querySelector('.crown')).display, $('visitBar').classList.contains('open')]`), [true, true, 'none', true], 'an eye button, its menu open on arrival');
+  assert(/Visiting.*Sam Summit/.test(await g.ev(`$('visitBar').innerText`)), 'the menu says whose resort it is');
+  await g.page.mouse.click(640, 500); await g.wait(100);
+  eq(await g.page.isVisible('#visitBar'), false, 'a tap on the map closes it');
+  await g.click('#mpFab'); await g.wait(100);
+  eq(await g.page.isVisible('#visitHome'), true, 'the eye opens it again');
+  await g.click('#mpFab'); await g.wait(100);
   await g.ev(`select({ kind: 'lift', obj: world.lifts[0] })`);
   eq(await g.ev(`!!selected`), false, 'lift panel stays closed');
   await g.click('#badge');
@@ -30,7 +38,8 @@ export default async function ({ browser, url }) {
   eq(await g.ev('state.tool'), 'explore', 'visitor still cannot build');
   await g.ev(`select(null)`); await g.click('#tbGo'); await g.ev(SETUPS.finishDay);
   assert(await g.ev(`state.lastReport.guests`) > 0, 'watched a day');
-  await g.click('#visitHome'); await g.wait(1200);
+  await g.click('#mpFab'); await g.click('#visitHome'); await g.wait(1200);
+  eq(await g.ev(`$('mpFab').hidden`), true, 'the eye goes with the visit');
   eq(await g.ev(`[$('title').hidden, state.resortName, world.lifts.length].join()`), 'false,My Hill,0', 'back on the title with my resort');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
