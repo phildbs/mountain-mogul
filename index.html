@@ -328,6 +328,21 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
   display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; font-size: 13.5px; max-width: calc(100vw - 24px);
 }
 .visitbar b { font-weight: 700; }
+/* In a match the bar is a menu behind one button on the left, in the same style as the map buttons. */
+.mpfab { position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); top: calc(84px + env(safe-area-inset-top, 0px)); width: 48px; height: 48px; padding: 0; border-radius: 14px; display: grid; place-items: center; cursor: pointer; color: var(--ink); z-index: 6; }
+.mpfab svg { width: 24px; height: 24px; }
+.mpfab:hover { background: #f3f5f8; }
+.mpfab[aria-expanded="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.mpfab.unread { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(223, 86, 44, 0.35); }
+.mpdot { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; border: 2px solid #fff; background: var(--ink); color: #fff; font: 700 11px/16px var(--ui); text-align: center; }
+body.matchview .visitbar { left: calc(68px + env(safe-area-inset-left, 0px)); right: auto; top: calc(84px + env(safe-area-inset-top, 0px)); transform: none; z-index: 6;
+  flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 2px; padding: 10px; width: min(280px, calc(100vw - 84px)); }
+body.matchview .visitbar:not(.open) { display: none; }
+body.matchview .visitbar span { white-space: normal; flex: none; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); padding: 0 6px 8px; margin-bottom: 2px; border-bottom: 1px solid rgba(20, 36, 58, 0.1); }
+body.matchview .visitbar span b { color: var(--ink); }
+body.matchview .visitbar .btn { flex: none; display: block; width: 100%; text-align: left; border: 0; background: none; box-shadow: none; border-radius: 8px; padding: 9px 8px; font: 600 13.5px var(--ui); color: var(--ink); }
+body.matchview .visitbar .btn:hover { background: rgba(20, 36, 58, 0.06); }
+body.matchview .visitbar #visitHome { margin-top: 2px; border-top: 1px solid rgba(20, 36, 58, 0.1); border-radius: 0 0 8px 8px; color: var(--accent); }
 .visitbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.visiting .dock .tool:not(#tExplore):not(#tManage):not(.ph), body.visiting .manage [data-m=biz], body.visiting .manage [data-m=plans], body.visiting .manage [data-m=parking], body.visiting .dock .sep, body.visiting .tb-wait, body.visiting .hint { display: none; }
 body.visiting .badge { cursor: default; }
@@ -1402,6 +1417,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
   .visitbar { top: calc(160px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; transform: none; font-size: 12.5px; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .visitbar span { white-space: normal; flex: 1 1 100%; }
   .visitbar .btn { flex: 1 1 100%; padding: 10px; }
+  .mpfab, body.matchview .visitbar { top: calc(178px + env(safe-area-inset-top, 0px)); }
   .dock { left: calc(8px + env(safe-area-inset-left, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); transform: none; max-width: none; gap: 2px; padding: 4px; }
   .dock .tool { min-width: 0; flex: 1 1 0; padding: 6px 1px 5px; font-size: 9.5px; line-height: 1.15; text-align: center; }
   .dock .sep { display: none; }
@@ -1532,6 +1548,10 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="btn secondary" id="visitWatch" hidden>Watch today</button>
       <button class="btn" id="visitHome">Back to title</button>
     </div>
+    <button class="panel mpfab" id="mpFab" hidden aria-haspopup="true" aria-expanded="false" aria-controls="visitBar" title="King of the Mountain: standings, chat, reports" aria-label="King of the Mountain menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8l4.5 4 4-7 4 7 4.5-4-2 10.5h-13z"/><path d="M5.5 21h13"/><circle cx="12" cy="5" r="0.6" fill="currentColor"/></svg>
+      <span class="mpdot" id="mpDot" hidden></span>
+    </button>
 
     <div class="panel tut" id="tutCard" hidden></div>
 
@@ -20166,7 +20186,7 @@ $('visitLike').onclick = async () => {
 };
 function returnHome() {
   if (!visiting) return;
-  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; $('visitReports').hidden = true; document.body.classList.remove('matchview'); mcStop(); }
+  if (matchView) { clearInterval(matchView.timer); matchView = null; drawRivals(); $('visitLeague').hidden = true; $('visitChat').hidden = true; $('visitWatch').hidden = true; $('visitReports').hidden = true; $('mpFab').hidden = true; mpMenu(false); document.body.classList.remove('matchview'); mcStop(); }
   const fromTitle = visiting.fromTitle;
   visiting = null;
   document.body.classList.remove('visiting');
@@ -20837,7 +20857,7 @@ async function openMatch(lid) {
   state.resortName = name; clearUndo();
   matchView.sent = matchPrices();
   $('resortName').textContent = name;
-  $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false; $('visitChat').hidden = false;
+  $('visitBar').hidden = false; $('visitLike').hidden = true; $('visitLeague').hidden = false; $('visitChat').hidden = false; $('mpFab').hidden = false; mpMenu(false);
   $('visitHome').textContent = 'Back to title';
   mcStart(lid);
   if (!state.started) startGame(null);
@@ -21119,7 +21139,7 @@ function matchLand(p) {
   }
 }
 const matchPrices = () => JSON.stringify({ ticket: state.ticket, ticketPeak: state.ticketPeak ?? null, pass: state.passPrice, prices: state.prices });
-// Counted in the match bar: builds, removals and other one-off actions (not prices or settings).
+// Counted in the match menu: builds, removals and other one-off actions (not prices or settings).
 const matchCounts = (kind) => !['price', 'ops'].includes(kind);
 function matchOrder(kind, payload) {
   if (!matchPlay || !CLOUD.sb) return;
@@ -21185,7 +21205,8 @@ function mcShow() {
   const last = MC.msgs.length ? MC.msgs[MC.msgs.length - 1].id : 0;
   if (mcOpen()) MC.seen = last;
   const unread = MC.msgs.filter((m) => m.id > MC.seen && m.user_id !== CLOUD.uid && !MC.mutes.has(m.user_id)).length;
-  $('visitChat').textContent = unread ? `Chat · ${unread}` : 'Chat';
+  $('visitChat').textContent = unread ? `Chat · ${unread} new` : 'Chat';
+  $('mpFab').classList.toggle('unread', !!unread); $('mpDot').hidden = !unread; $('mpDot').textContent = unread > 9 ? '9+' : unread;
   if (!mcOpen()) return;
   const list = $('mcList'), atEnd = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30, focused = document.activeElement && document.activeElement.id === 'mcText';
   if (focused) mcPatch(); else renderSheet();
@@ -21374,6 +21395,11 @@ function rivalSkiersTick(dt) {
 }
 $('visitWatch').onclick = () => { if (!matchView) return; if (matchView.replay) { stopReplay(false); matchView.paused = true; } else { matchView.paused = false; startReplay(true); } };
 $('visitReports').onclick = () => select({ kind: 'manage', obj: 'money' });
+// The match menu: one button on the left opens the match's status and choices; picking one, or tapping elsewhere, closes it.
+function mpMenu(open) { $('visitBar').classList.toggle('open', open); $('mpFab').setAttribute('aria-expanded', String(open)); if (open) matchBar(); }
+$('mpFab').onclick = () => mpMenu(!$('visitBar').classList.contains('open'));
+$('visitBar').addEventListener('click', (e) => { if (matchView && e.target.closest('.btn')) mpMenu(false); });
+document.addEventListener('pointerdown', (e) => { if ($('visitBar').classList.contains('open') && !e.target.closest('#visitBar, #mpFab')) mpMenu(false); });
 $('visitLeague').onclick = () => (selected && selected.kind === 'match' ? select(null) : select({ kind: 'match', obj: null }));
 $('mpModal').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -21515,6 +21541,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // What's new, for players: the changes that affect how you play or use the site, newest first.
 // The top entry is the version shown on the title screen.
 const CHANGES = [
+  { v: '2.84.2', date: 'Nov 2, 2026', title: 'Match menu button', small: true, items: ['King of the Mountain: the big match bar is now one crown button on the left. Tap it for the standings, chat, reports, pausing the live day and going back to the title screen. It lights up orange, with a count, when there are new chat messages.'] },
   { v: '2.84.1', date: 'Nov 2, 2026', title: 'Painting areas in matches', small: true, items: ['Fixed: in King of the Mountain, the Trail tool’s tabs for learning areas, glades and guest areas said they weren’t part of matches yet. They open now, and what you paint is built overnight.'] },
   { v: '2.84', date: 'Nov 2, 2026', title: 'Run your match resort', items: [
     'King of the Mountain: run your resort the way you do at home. Open and close lifts and trails, groom, set snowmaking, edit your operating plans and change your ski patrol. Your resort runs that way from the next day.',

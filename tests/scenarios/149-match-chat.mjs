@@ -25,17 +25,22 @@ export default async function ({ browser, url }) {
     await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!matchView && MC.lid'), null, { timeout: 20000 }); await g.wait(800);
   };
   await into('C1');
-  assert(await g.page.isVisible('#visitChat'), 'the match bar has a Chat button');
+  // The match's choices sit behind one button on the left.
+  eq([await g.page.isVisible('#mpFab'), await g.page.isVisible('#visitBar')], [true, false], 'one match button, its menu closed');
+  await g.page.click('#mpFab'); await g.wait(200);
+  assert(await g.page.isVisible('#visitChat'), 'the match menu has Chat');
+  await g.page.mouse.click(600, 500); await g.wait(200);
+  eq(await g.page.isVisible('#visitBar'), false, 'tapping elsewhere closes the menu');
 
   // A new message from a rival is counted on the button.
   await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.messages.push({ id: 5, lobby_id: 'C1', user_id: 'u-rival', slot: 2, name: 'Rival Run', body: 'Powder tomorrow!', kind: 'chat', day: 2, hidden: false, created_at: new Date().toISOString() }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
   await g.ev('mcLoad()'); await g.wait(300);
-  eq(await g.page.innerText('#visitChat'), 'Chat · 1', 'new messages are counted');
+  eq(await g.ev(`[document.getElementById('visitChat').textContent, document.getElementById('mpFab').classList.contains('unread'), document.getElementById('mpDot').textContent, document.getElementById('mpDot').hidden]`), ['Chat · 1 new', true, '1', false], 'new messages light up the match button with a count, and show in its menu');
   await g.click('#visitChat'); await g.wait(400);
   let t = await g.page.innerText('#sheet');
   assert(/Match chat/i.test(t) && /Chat Cup has started/.test(t) && /Nice lift, neighbour/.test(t) && /Powder tomorrow/.test(t) && !/Hidden one/.test(t), `the chat shows news and messages, not hidden ones (${t.slice(0, 300)})`);
   assert(/😂 1/.test(t), 'with their reactions');
-  eq(await g.page.innerText('#visitChat'), 'Chat', 'opening the chat clears the count');
+  eq(await g.ev(`[document.getElementById('visitChat').textContent, document.getElementById('mpFab').classList.contains('unread'), document.getElementById('mpDot').hidden]`), ['Chat', false, true], 'opening the chat clears the count and the light');
 
   // Write a message; then too fast, then rude.
   const say = async (text) => { await g.page.fill('#mcText', text); await g.page.click('#mcForm button[type=submit]'); await g.wait(500); return g.page.innerText('#sheet'); };
