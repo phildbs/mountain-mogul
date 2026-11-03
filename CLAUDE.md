@@ -17,7 +17,8 @@ release checklist and shared notes, is `AI_HANDOFF.md`. Read it at the start of 
   Say to play as a guest and not sign in: previews keep separate saves, but feedback and votes go to the live database.
   A link is preferred over lots of screenshots.
   For multiplayer changes, add `?matchDemo=1` to the link: it opens Crown Peak with a starter resort and two
-  pretend rivals, no match or sign-in needed, and never saves. Ask Phil to check the preview rather than sending screenshots.
+  pretend rivals, no match or sign-in needed, and never saves.
+  For shaping a match map, `?mapView=1` is a viewer: every slice in full, fly to each base, tilt, steepness, each slice's numbers. Ask Phil to check the preview rather than sending screenshots.
 - **Only merge to `main` when Phil says "Publish".** Then `git merge --ff-only <branch>` and push. Approval
   for one change doesn't cover the next.
 - Explain things in plain words. Phil reads on a phone. Keep reports short: what changed, how it was tested,

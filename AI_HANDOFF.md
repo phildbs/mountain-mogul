@@ -197,6 +197,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-73d146cf-ia6tiz` | Claude | **Map viewer for a new multiplayer mountain** (`?mapView=1`, Phil's ask Nov 3). Step 1 is the viewer; the new map comes next, shaped with Phil through it. Not for release yet. | Nov 3, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
@@ -364,6 +365,23 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-03 · Claude · Map viewer for a new multiplayer mountain (`?mapView=1`, not published)
+
+- Phil wants to explore a new multiplayer mountain himself rather than get screenshots, so the `?matchMap=1` preview
+  grew a viewer mode. `MAP_VIEW` (also sets `MATCH_PREVIEW`, so nothing saves); `?mapView=<id>` opens another entry
+  in `MATCH_MAPS`, so a draft map can sit beside Crown Peak and the panel shows a picker.
+- It hides the game's tools (`body.mapview`); `hazeAt` keeps only the far-edge fade; `sliceAt(gx, gz)` says whose
+  slice a spot is on (slice k = `AREA` turned by +k·2π/n, as `drawRivals` turns rival slot k); `viewLines` draws each
+  slice's edge in its colour just inside it; `viewTags` tags each base and the summit; other bases' roads and lots
+  come from `drawRivals` with empty rivals.
+- Panel: whole mountain or fly to a base, tilt slider (`EL` is now `let`, 20–85°, only the viewer changes it),
+  steepness colours (`setSlope`, which in the viewer reaches rivals' slices and the ring), slice edges, labels, summer
+  (stashes `NS`), and `viewStats` per slice (acres, base to summit, vertical, share by `difficulty`) so an unfair slice
+  shows. `VIEW_MAX` is 560 in the viewer. Scenario 162-map-viewer.
+- Spotted, left alone: the game badge on Crown Peak says 632 acres (`ownedAcres` uses the whole square, `PN²`);
+  a slice is really 364.
+- A new map with a different shape will need `sliceAt`/`viewTurn` to read the map's own centre instead of `CROWN`.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

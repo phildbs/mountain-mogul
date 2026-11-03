@@ -553,6 +553,31 @@ body.visiting .badge { cursor: default; }
 .legend .grade { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .sym { width: 14px; height: 14px; flex: none; }
 
+/* Map viewer (?mapView=1): only the camera buttons, the slope legend and the viewer's own panel. */
+body.mapview #hud > .top-left, body.mapview #timebar, body.mapview #skipCard, body.mapview #cashBox, body.mapview #manage, body.mapview #bizFly,
+body.mapview #visitBar, body.mapview #mpFab, body.mapview #tutCard, body.mapview #hint, body.mapview #dock, body.mapview #undoFab, body.mapview #sheet,
+body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapview #chips { display: none !important; }
+.mapview.panel { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); width: 330px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; padding: 12px 14px; box-sizing: border-box; font-size: 13px; }
+.mapview .vhead { display: flex; align-items: flex-start; gap: 10px; }
+.mapview .vhead > div { flex: 1; }
+.mapview h2 { margin: 0; font: 800 19px var(--ui); color: var(--ink); }
+.mapview .vhead p { margin: 2px 0 0; color: var(--ink-2); font-size: 12px; }
+.mapview .vfold { border: 0; background: rgba(20, 36, 58, 0.07); border-radius: 8px; width: 30px; height: 30px; font: 700 18px var(--ui); color: var(--ink); cursor: pointer; flex: none; }
+.mapview h3 { margin: 12px 0 4px; font: 700 11px var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.mapview .vgo, .mapview .vtog { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mapview .vgo button, .mapview .vtog button { border: 1px solid rgba(20, 36, 58, 0.18); background: #fff; border-radius: 999px; padding: 6px 11px; font: 600 12.5px var(--ui); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.mapview button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.mapview i, .vtag i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; flex: none; }
+.mapview .vtilt, .mapview .vpick { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 600; color: var(--ink); }
+.mapview .vtilt input { flex: 1; accent-color: var(--accent); }
+.mapview .vtilt span { width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.mapview .vrow { padding: 7px 0; border-top: 1px solid rgba(20, 36, 58, 0.08); display: grid; gap: 3px; }
+.mapview .vrow b { display: flex; align-items: center; gap: 6px; }
+.mapview .vrow span, .mapview .vrow small { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mapview .vmix { display: flex; height: 9px; border-radius: 5px; overflow: hidden; background: #e3e7ed; }
+.mapview .vhelp { margin: 8px 0 0; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
+.vtag { position: absolute; left: 0; top: 0; pointer-events: none; background: rgba(20, 36, 58, 0.88); color: #fff; border-radius: 999px; padding: 4px 10px; font: 700 12px var(--ui); white-space: nowrap; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(20, 36, 58, 0.25); }
+
 .readout {
   position: absolute; left: 0; top: 0; pointer-events: none !important;
   background: rgba(20, 36, 58, 0.9); color: #fff; border-radius: 9px; padding: 6px 10px; font-size: 12.5px; line-height: 1.35; white-space: nowrap;
@@ -1911,7 +1936,10 @@ const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPrevi
 // ?matchDemo=1 is the same, with a starter resort and two pretend rivals already built (bigger lots, bought land):
 // for checking how rivals look in previews, with no match or sign-in needed.
 const MATCH_DEMO = new URLSearchParams(location.search).get('matchDemo') === '1';
-const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1' || MATCH_DEMO;
+// ?mapView=1 is a viewer for shaping match maps: the whole mountain and every slice, nothing to build, never saves.
+// ?mapView=<id> opens another map in MATCH_MAPS (a draft, say).
+const MAP_VIEW = (() => { const v = new URLSearchParams(location.search).get('mapView'); return v ? (v === '1' ? 'match' : v) : null; })();
+const MATCH_PREVIEW = new URLSearchParams(location.search).get('matchMap') === '1' || MATCH_DEMO || !!MAP_VIEW;
 const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
 // Playing your own resort in a running match: you build on your copy and each change goes to the match server.
 let matchPlay = null;
@@ -1989,6 +2017,7 @@ const BOOT_KEY = SAVE_KEY + '.boot';
 const BOOT = (() => { try { return JSON.parse(sessionStorage.getItem(BOOT_KEY)) || {}; } catch (e) { return {}; } })();
 try { sessionStorage.removeItem(BOOT_KEY); } catch (e) { /* ignore */ }
 function bootMountainId() {
+  if (MAP_VIEW) return MATCH_MAPS[MAP_VIEW] ? MAP_VIEW : 'match';
   if (MATCH_PREVIEW) return 'match';
   if (BOOT.mt) return BOOT.mt;
   try {
@@ -2582,6 +2611,7 @@ function landDist(gx, gz) {
 
 let rivalLand = []; // [{ c, s, rects }]: each rival's held parcels and the turn onto their slice
 function hazeAt(gx, gz) {
+  if (MAP_VIEW) return sstep(18, 1, Math.min(gx, WN - gx, gz, WN - gz) + FAR_E); // the map viewer: every slice in full, only the far edge fades
   let d = landDist(gx, gz);
   // Crown Peak: every slice is someone's resort, so the rivals' slices (yours turned round the summit) aren't faded either.
   if (MOUNTAIN.id === 'match' && AREA) {
@@ -2599,6 +2629,17 @@ function hazeAt(gx, gz) {
   let k = gz < PLAY0 ? sstep(12, 62, d) * 0.5 : sstep(3, 48, d) * 0.78;
   const e = Math.min(gx, WN - gx, gz, WN - gz) + FAR_E; // the edge of the ground fades away (past the ring, on Crown Peak)
   return Math.max(k, sstep(18, 1, e));
+}
+
+// Which slice of a match map a grid spot is on: 0 is the one at the bottom (your own, in a player's game), then
+// round the summit as rivals' slots go (drawRivals), or -1 for nobody's.
+function sliceAt(gx, gz) {
+  const cx = PLAY0 + CROWN.c[0] * PN, cz = PLAY1 - CROWN.c[1] * PN, x = gx - cx, z = gz - cz;
+  for (let k = 0; k < MOUNTAIN.slices; k++) {
+    const a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
+    if (inArea(cx + x * c + z * s, cz - x * s + z * c)) return k;
+  }
+  return -1;
 }
 
 const trees = {};
@@ -2908,7 +2949,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
-    if (overlay.slope && inGridLand(i, j)) mix(DIFF[difficulty(g)].col, 0.72);
+    if (overlay.slope && (MAP_VIEW ? sliceAt(i, j) >= 0 : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
   }
@@ -3021,6 +3062,7 @@ function recolorFar() {
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
+    if (overlay.slope && MAP_VIEW && sliceAt(gx, gz) >= 0) mix(DIFF[difficulty(g)].col, 0.72); // the viewer: rivals' slices reach out here
     col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
   }
   farGeo.attributes.color.needsUpdate = true;
@@ -3330,8 +3372,8 @@ function placeBrush(p, r, ok) {
    CAMERA
    ===================================================================== */
 let W = innerWidth, H = innerHeight;
-const EL = 0.47;
-const VIEW_MIN = 7, VIEW_MAX = 300;
+let EL = 0.47; // the camera's tilt; only the map viewer changes it
+const VIEW_MIN = 7, VIEW_MAX = MAP_VIEW ? 560 : 300;
 const cam = { target: new THREE.Vector3(0, 40, -4), az: 0.35, azGoal: 0.35, viewH: 170, viewGoal: null };
 function defaultView() { return clamp(Math.max(185, 250 / (W / H)), 185, 300); }
 function updateCamera() {
@@ -3975,10 +4017,12 @@ const readout = $('readout');
 function showReadout(p, px, py, pinned) {
   if (!p) { readout.hidden = true; return; }
   const owned = inProperty(p.x, p.z);
-  const g = sampleGrid(GR, p.x + HALF, p.z + HALF);
+  const g = MAP_VIEW ? Math.hypot(heightAt(p.x + 0.5, p.z) - heightAt(p.x - 0.5, p.z), heightAt(p.x, p.z + 0.5) - heightAt(p.x, p.z - 0.5)) / VEX // the ring too
+    : sampleGrid(GR, p.x + HALF, p.z + HALF);
   const dif = DIFF[difficulty(g)];
   let html = `<b>${fmtFt(ftVis(p.y))}</b> <span class="muted">·</span> ${Math.round(g * 100)}% grade <span class="muted">·</span> <span style="color:${dif.css}">${dif.name}</span>`;
-  if (!owned) html += `<br><span class="muted">Outside your property</span>`;
+  if (MAP_VIEW) { const k = sliceAt(p.x + HALF, p.z + HALF); html += k < 0 ? '<br><span class="muted">Nobody’s land</span>' : `<br><span style="color:${VIEW_COLS[k % VIEW_COLS.length]};filter:brightness(1.6)">●</span> Slice ${k + 1}`; }
+  else if (!owned) html += `<br><span class="muted">Outside your property</span>`;
   else if (state.tool === 'clear' && state.landMode === 'area') {
     const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
     html += why ? `<br><span class="warn">Can’t paint here: ${why}</span>` : '<br>Gentle enough for a learning area';
@@ -19479,6 +19523,7 @@ function pointerEnd(e) {
   }
 }
 function onTap(x, y, ptype) {
+  if (MAP_VIEW) { Object.assign(hover, { x, y, active: true, dirty: true, touch: ptype !== 'mouse' }); return; } // the viewer: height and grade, nothing to pick
   const p = pickTerrain(x, y);
   if (state.tool === 'tpark') parkTap(p);
   else if (state.tool === 'midstn') midTap(p);
@@ -21350,6 +21395,152 @@ function matchDemo() {
   matchView = { demo: true, slot: 1, me: false, lobby: { name: 'Demo' }, players: [], resorts: [{ slot: 0, save: rival(6), summary: {} }, { slot: 2, save: rival(8), summary: {} }] };
   drawRivals();
   toast('Match demo: your starter resort, with two pretend rivals on the other slices of Crown Peak. Nothing here is saved or sent anywhere.');
+}
+/* ---------- Map viewer (?mapView=1) ----------
+   For shaping match maps: the whole mountain with every slice in full, each slice's edge in its own colour, a
+   tag at each base, the camera free to tilt (to straight down) and zoom out over everything, and each slice's
+   numbers side by side, so an unfair slice shows. Nothing to build and nothing saved: it's a match preview. */
+const VIEW_COLS = ['#df562c', '#2f7de1', '#1f9d63', '#a65fd6', '#d9a21b', '#e0457b'];
+const mapViewer = { lines: null, tags: [], summer: false, ns: null };
+const viewCentre = () => ({ x: PLAY0 + CROWN.c[0] * PN - HALF, z: PLAY1 - CROWN.c[1] * PN - HALF });
+function viewTurn(k) { // a spot on slice 0 (world x, z) turned onto slice k, as drawRivals turns a rival's resort
+  const C = viewCentre(), a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
+  return (p) => ({ x: C.x + (p.x - C.x) * c - (p.z - C.z) * s, z: C.z + (p.x - C.x) * s + (p.z - C.z) * c });
+}
+// Each slice's acres, base and summit, and how much of it is each steepness, from the ground itself (ring included).
+function viewStats() {
+  const out = Array.from({ length: MOUNTAIN.slices }, () => ({ cells: 0, lo: Infinity, hi: -Infinity, mix: [0, 0, 0, 0, 0] }));
+  for (let fj = 0; fj < FN; fj++) for (let fi = 0; fi < FN; fi++) {
+    const k = sliceAt(fi - FAR_E + 0.5, fj - FAR_E + 0.5);
+    if (k < 0) continue;
+    const a = FAR[fj * FNV + fi], b = FAR[fj * FNV + fi + 1], c = FAR[(fj + 1) * FNV + fi], d = FAR[(fj + 1) * FNV + fi + 1];
+    const h = (a + b + c + d) / 4, g = Math.hypot((b - a + d - c) / 2, (c - a + d - b) / 2), S = out[k];
+    S.cells++; S.lo = Math.min(S.lo, h); S.hi = Math.max(S.hi, h); S.mix[difficulty(g)]++;
+  }
+  return out;
+}
+// Each slice's edge as a coloured band just inside it, so where two slices meet both colours show side by side.
+function viewLines() {
+  const grp = new THREE.Group();
+  for (let k = 0; k < MOUNTAIN.slices; k++) {
+    const turn = viewTurn(k), P = AREA.map(([gx, gz]) => turn({ x: gx - HALF, z: gz - HALF })), pos = [], idx = [];
+    let A2 = 0;
+    for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; A2 += a.x * b.z - b.x * a.z; }
+    const sg = Math.sign(A2) || 1, off = 0.9, hw = 0.4;
+    for (let i = 0; i < P.length; i++) {
+      const a = P[i], b = P[(i + 1) % P.length], L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (L < 2) continue; // the little edge round the cairn
+      const ux = (b.x - a.x) / L, uz = (b.z - a.z) / L, nx = -uz * sg, nz = ux * sg;
+      for (let t = 0, first = true; t <= L; t = t + 0.5 > L && t < L ? L : t + 0.5, first = false) {
+        for (const w of [-hw, hw]) { const x = a.x + ux * t + nx * (off + w), z = a.z + uz * t + nz * (off + w); pos.push(x, heightAt(x, z) + 0.4, z); }
+        if (!first) { const r = pos.length / 3 - 4; idx.push(r, r + 2, r + 1, r + 1, r + 2, r + 3); }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: VIEW_COLS[k % VIEW_COLS.length], transparent: true, opacity: 0.92, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false, side: THREE.DoubleSide }));
+    m.renderOrder = 6; m.frustumCulled = false; grp.add(m);
+  }
+  scene.add(grp);
+  return grp;
+}
+function viewTags() {
+  const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
+  const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
+  const C = viewCentre();
+  add(C, 'Summit · shared');
+  for (let k = 0; k < MOUNTAIN.slices; k++) add(viewTurn(k)(roadEnd()), `<i></i>Base ${k + 1}`, VIEW_COLS[k % VIEW_COLS.length]);
+}
+const _vt = new THREE.Vector3();
+function viewTagsTick() {
+  const on = !$('viewTags').hidden;
+  for (const T of mapViewer.tags) {
+    if (!on) continue;
+    _vt.set(T.p.x, T.p.y, T.p.z).project(camera);
+    const off = _vt.z > 1 || Math.abs(_vt.x) > 1.1 || Math.abs(_vt.y) > 1.1;
+    T.el.style.display = off ? 'none' : '';
+    if (!off) T.el.style.transform = `translate(${Math.round((_vt.x + 1) / 2 * W)}px, ${Math.round((1 - _vt.y) / 2 * H)}px) translate(-50%, -100%)`;
+  }
+}
+// The whole mountain in view, beside the panel when there's room for both.
+function viewWhole(az) {
+  const C = viewCentre(), viewH = clamp(Math.max(270, 250 / (W / H)), 270, VIEW_MAX), el = $('mapView');
+  const px = el && !isPhone() ? (el.offsetWidth + 12) / 2 : 0, sh = px * viewH / H; // half the panel, in ground units
+  return { x: C.x - Math.cos(az) * sh, z: C.z + 8 + Math.sin(az) * sh, az, viewH };
+}
+// Fly to the whole mountain (k < 0) or to one slice, looking up it from its base.
+function viewGo(k) {
+  const C = viewCentre(), base = roadEnd(), n = MOUNTAIN.slices;
+  let to;
+  if (k < 0) to = viewWhole(cam.az);
+  else {
+    const m = viewTurn(k)({ x: lerp(base.x, C.x, 0.45), z: lerp(base.z, C.z, 0.45) });
+    let az = -k * 2 * Math.PI / n, d = ((az - cam.az) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    to = { x: m.x, z: m.z, az: cam.az + d, viewH: clamp(Math.max(190, 150 / (W / H)), 190, VIEW_MAX) };
+  }
+  cam.azGoal = to.az; cam.viewGoal = null;
+  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to };
+  for (const b of document.querySelectorAll('#mapView [data-go]')) b.setAttribute('aria-pressed', +b.dataset.go === k);
+}
+function viewSummer(on) {
+  if (on === mapViewer.summer) return;
+  mapViewer.summer = on;
+  if (on) { mapViewer.ns = NS.slice(); mapViewer.tsnow = state.treeSnow; NS.fill(0); state.treeSnow = 0; }
+  else { NS.set(mapViewer.ns); state.treeSnow = mapViewer.tsnow; }
+  state.summer = on; winterView = !on;
+  styleSnowVisuals();
+  if (on) weatherFall = 0;
+}
+function viewPanel() {
+  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100);
+  const maps = Object.values(MATCH_MAPS);
+  const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
+      <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical</span>
+      <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
+      <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small></div>`).join('');
+  const el = document.createElement('div');
+  el.className = 'panel mapview'; el.id = 'mapView';
+  el.innerHTML = `<div class="vhead"><div><h2>${MOUNTAIN.name}</h2><p>Map viewer · ${n} resorts · nothing here is saved</p></div>
+      <button class="vfold" id="vFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
+    <div id="vBody">
+      ${maps.length > 1 ? `<label class="vpick">Map <select id="vMap">${maps.map((M) => `<option value="${M.id}"${M.id === MOUNTAIN.id ? ' selected' : ''}>${M.name}</option>`).join('')}</select></label>` : ''}
+      <div class="vgo"><button data-go="-1" aria-pressed="false">Whole mountain</button>${S.map((_, k) => `<button data-go="${k}" aria-pressed="false" style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>${k + 1}</button>`).join('')}</div>
+      <label class="vtilt">Tilt <input type="range" id="vTilt" min="20" max="85" step="1" value="${Math.round(EL * 180 / Math.PI)}"><span id="vTiltV">${Math.round(EL * 180 / Math.PI)}°</span></label>
+      <div class="vtog">
+        <button id="vSlope" aria-pressed="false">Steepness</button>
+        <button id="vLines" aria-pressed="true">Slice edges</button>
+        <button id="vTags" aria-pressed="true">Labels</button>
+        <button id="vSummer" aria-pressed="false">Summer</button>
+      </div>
+      <h3>Each slice</h3>${rows}
+      <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
+      ${MOUNTAIN.id === 'match' ? '<p class="vhelp"><a href="?matchDemo=1">See it with starter resorts</a></p>' : ''}
+    </div>`;
+  $('hud').appendChild(el);
+  for (const b of el.querySelectorAll('[data-go]')) b.onclick = () => viewGo(+b.dataset.go);
+  const tog = (id, fn) => { const b = $(id); b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); fn(on); }; };
+  tog('vSlope', (on) => setSlope(on));
+  tog('vLines', (on) => { mapViewer.lines.visible = on; });
+  tog('vTags', (on) => { $('viewTags').hidden = !on; });
+  tog('vSummer', viewSummer);
+  $('vTilt').oninput = (e) => { EL = +e.target.value * Math.PI / 180; $('vTiltV').textContent = `${e.target.value}°`; updateCamera(); hover.dirty = true; };
+  $('vFold').onclick = () => { const open = $('vBody').hidden; $('vBody').hidden = !open; $('vFold').textContent = open ? '–' : '+'; $('vFold').setAttribute('aria-expanded', open); };
+  if ($('vMap')) $('vMap').onchange = (e) => { location.search = `?mapView=${e.target.value}`; };
+  $('tSlope').addEventListener('click', () => $('vSlope').setAttribute('aria-pressed', overlay.slope));
+  if (isPhone()) $('vFold').click(); // phones: start folded, so the mountain shows
+}
+function mapViewStart() {
+  document.body.classList.add('mapview');
+  // Every other slice's road and parking lot, as a match draws a rival's: theirs is yours turned round the summit.
+  const empty = { world: { lifts: [], trails: [], buildings: [] }, clock: {} };
+  matchView = { demo: true, view: true, slot: 0, me: false, lobby: { name: 'Map viewer' }, players: [], resorts: Array.from({ length: MOUNTAIN.slices - 1 }, (_, k) => ({ slot: k + 1, save: empty, summary: {} })) };
+  drawRivals();
+  if (boundaryLine) boundaryLine.visible = false;
+  mapViewer.lines = viewLines();
+  viewTags(); viewPanel();
+  winterView = true; styleSnowVisuals();
+  const to = viewWhole(0.35);
+  camTween = null; cam.target.x = to.x; cam.target.z = to.z; cam.az = cam.azGoal = to.az; cam.viewH = to.viewH; cam.viewGoal = null; updateCamera();
 }
 // A rival's evening today, from their own plan: night skiing until when (0 for none), and après until when (0).
 function rivalEvening(clock, w) {
@@ -23981,6 +24172,7 @@ function frame(now) {
   updateLabels();
   updateChips();
   updateLandMarks();
+  if (MAP_VIEW) viewTagsTick();
   updateLotMarks();
   updateHandles();
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
@@ -24057,6 +24249,7 @@ function start(hot) {
     $('resortName').textContent = state.resortName;
     styleSnowVisuals(); refreshTimebar(true); select(null);
     if (MATCH_DEMO) matchDemo();
+    else if (MAP_VIEW) mapViewStart();
     else toast('Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
   }
   if (REFERRAL_PREVIEW) {
