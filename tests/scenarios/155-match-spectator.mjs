@@ -19,7 +19,10 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`document.querySelector('[data-mp=open][data-id=M1]').className`), 'btn go', 'Watch is the orange button');
   await g.page.evaluate(() => document.querySelector('[data-mp=open][data-id=M1]').click());
   await g.reloaded();
+  // The loading screen stays up while the match loads, so the title doesn't flash up in between.
+  assert(await g.ev(`!!document.querySelector('#loading[data-match]') || !!matchView`), 'the loading screen stays up until the match is on screen');
   await g.page.waitForFunction(() => window.__dbg('!!(visiting && matchView)'), null, { timeout: 20000 });
+  eq(await g.ev(`[!!document.getElementById('loading'), document.getElementById('title').hidden]`), [false, true], 'then it goes, with the match showing, not the title');
   await g.wait(500);
   const a = await g.ev(`(() => { const cz = PLAY1 - CROWN.c[1] * PN - HALF; return { me: matchView.me, slot: matchView.slot, ticket: state.ticket, sw: !document.getElementById('visitSwitch').hidden, over: Math.abs(cam.target.x) < 2 && Math.abs(cam.target.z - cz - 10) < 2 && cam.viewH > 200, bar: document.getElementById('visitText').innerText }; })()`);
   eq([a.me, a.slot, a.ticket, a.sw, a.over], [false, 0, 50, true, true], 'a spectator sees the whole mountain, following the first resort, with a Next resort button');
@@ -49,4 +52,18 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[matchView.slot, state.ticket]`), [2, 70], 'Follow in the standings switches to Valley View');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+  // A match with an empty first slice (one player, in slot 1): watching follows the resort that's there.
+  const one = { lobbies: [{ ...lob, id: 'M2', name: 'New Cup' }], players: [{ lobby_id: 'M2', slot: 1, user_id: 'u-x', resort_name: 'Lone Peak' }],
+    resorts: [{ lobby_id: 'M2', slot: 1, day: 13, save: { ...save, clock: { ...save.clock, ticket: 61 } }, summary: { name: 'Lone Peak', profit: 5000, guests: 400 } }] };
+  const h = await openGame(browser, url, { keepStorage: false });
+  await h.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, one);
+  await h.ev(`__fakeSwitch('user-B', 'b@example.com')`); await h.wait(1500);
+  await h.click('#mpCard');
+  await h.page.waitForSelector('[data-mp=open][data-id=M2]', { timeout: 10000, state: 'attached' });
+  await h.page.evaluate(() => document.querySelector('[data-mp=open][data-id=M2]').click());
+  await h.reloaded();
+  await h.page.waitForFunction(() => window.__dbg('!!(visiting && matchView)'), null, { timeout: 20000 });
+  eq(await h.ev(`[matchView.slot, state.ticket, document.getElementById('resortName').textContent]`), [1, 61, 'Lone Peak'], 'a match with an empty first slice opens on the resort that is there');
+  eq(h.errors, [], 'no page errors (one-resort match)');
+  await h.page.close();
 }

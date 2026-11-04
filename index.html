@@ -986,6 +986,7 @@ a.vtag { text-decoration: none; }
 
 /* The loading screen matches the home-screen app's splash (navy with the logo), so one hands over to the other smoothly. */
 #loading {
+  z-index: 50; /* above the title, kept up while a match loads */
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
   background: #14243a; color: #c8d4e3;
   font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: 0.06em; text-transform: uppercase;
@@ -1924,7 +1925,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 // when that script fails.
 window.mmBootTrouble = function (why) {
   var L = document.getElementById('loading');
-  if (!L || L.getAttribute('data-trouble')) return;
+  if (!L || L.getAttribute('data-trouble') || L.hasAttribute('data-match')) return; // heading into a match: the game is up, it's the match still loading
   L.setAttribute('data-trouble', why);
   var low = false; try { low = localStorage.getItem('mm.gfx') === 'low'; } catch (e) { /* ignore */ }
   var box = document.createElement('div');
@@ -3597,6 +3598,7 @@ function renameResort(raw) {
   saveNow(); CLOUD.lastUp = 0; cloudSave(false);
 }
 // Reload the page onto the active mountain's terrain, then carry on with `then`.
+function dropCover() { const L = $('loading'); if (L) L.remove(); } // the loading screen kept up while a match loads
 function reloadInto(then, mt) {
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then, mt })); } catch (e) { /* ignore */ }
   location.reload();
@@ -20869,7 +20871,7 @@ function readAuthReturn() {
 }
 async function initCloud() {
   if (NO_SAVE) { CLOUD.status = 'offline'; return; }
-  if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; refreshCommunity(); return; }
+  if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; dropCover(); refreshCommunity(); return; }
   try {
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     CLOUD.sb = sb;
@@ -20899,14 +20901,14 @@ async function initCloud() {
     await loadProfile();
     await settleAccount();
     offerCloudSave();
-    if (BOOT.then && typeof BOOT.then.match === 'string') openMatch(BOOT.then.match); // BOOT.then can be a word like 'start', whose .match is a string method
+    if (BOOT.then && typeof BOOT.then.match === 'string') openMatch(BOOT.then.match).finally(dropCover); // BOOT.then can be a word like 'start', whose .match is a string method
     else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
     else loadPeek(true);
     refreshCommunity();
     if (state.phase !== 'open') scheduleCloud();
   } catch (e) {
-    CLOUD.status = 'offline';
+    CLOUD.status = 'offline'; dropCover();
     CLOUD.error = setupProblem(e);
     refreshCommunity();
   }
@@ -21552,7 +21554,8 @@ async function openMatch(lid) {
     if (a.error || b.error || c.error || !a.data) throw new Error('load');
     lob = a.data; players = b.data || []; resorts = c.data || [];
   } catch (e) { toast('Couldn’t load that match. Try again in a moment.', true); return; }
-  const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : 0, mine = resorts.find((r) => r.slot === slot);
+  // Spectators follow the first resort that's there: a slice can be empty (New Player's Cup has only slot 1).
+  const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : (resorts.filter((r) => r.save).map((r) => r.slot).sort((x, y) => x - y)[0] ?? 0), mine = resorts.find((r) => r.slot === slot);
   if (!mine || !mine.save) { toast(lob.status === 'open' ? 'That match hasn’t started yet.' : 'That match’s resorts aren’t ready yet.', true); return; }
   closeMp(); $('community').hidden = true; setTool('explore');
   const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort', play = !!me && lob.status === 'running';
@@ -22655,6 +22658,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.96.1', date: 'Nov 4, 2026', title: 'Watching any match', kotm: true, small: true, items: ['King of the Mountain: you can now watch a match whose first slice of the mountain is empty, such as one with a single player. It opens on the resort that’s there.', 'Pressing Watch keeps the loading screen up until the match is on screen, instead of showing the title screen for a few seconds in between.'] },
   { v: '2.96', date: 'Nov 4, 2026', title: 'Stations beside a trail', items: ['Thanks for the feedback! A lift station no longer has to sit at the very end of a trail. If a trail runs right past a bottom station, skiers can leave it and join the line. Riders getting off at a top station beside a trail ski straight onto it.', 'When moving a lift costs more than you have, its panel now says so, and suggests drawing a short trail to the station instead.'] },
   { v: '2.95.6', date: 'Nov 4, 2026', title: 'Easier to spot Join now', kotm: true, small: true, items: ['King of the Mountain: on matches being played now, Join now is a proper button instead of a small link, so it’s easier to see when you can still jump in.'] },
   { v: '2.95.5', date: 'Nov 4, 2026', title: 'No more 10:30 gift rush', small: true, items: ['Thanks Snowy! Souvenir shoppers no longer all head to the gift kiosks at 10:30 on the dot. Each one now shops at their own time between 10:30 and 3, so the lines stay short.'] },
@@ -24321,7 +24325,10 @@ function start(hot) {
 
   resize();
   renderer.shadowMap.needsUpdate = true;
-  $('loading').remove();
+  // Heading into a match from the title: the loading screen stays up, as "Heading to the match…", until the match
+  // is on screen, rather than showing the title for the few seconds the match takes to load.
+  if (BOOT.then && typeof BOOT.then.match === 'string' && !NO_SAVE) { const L = $('loading'); L.setAttribute('data-match', ''); L.querySelector('span').textContent = 'Heading to the match…'; setTimeout(dropCover, 20000); }
+  else $('loading').remove();
   try { localStorage.removeItem(BOOT_MARK); } catch (e) { /* ignore */ }
   if (readJSON('mm.gfxAuto')) {
     try { localStorage.removeItem('mm.gfxAuto'); } catch (e) { /* ignore */ }
