@@ -4207,7 +4207,7 @@ function setTool(tool) {
   hover.dirty = true;
 }
 // Bulldoze: the tree, light or fire pit nearest the pointer on screen.
-const DOZE_TYPES = ['tlight', 'flood', 'lamp', 'strlight', 'xtree', 'tmap', 'firepit', 'tree', 'bench', 'picnic'];
+const DOZE_TYPES = ['tlight', 'flood', 'lamp', 'strlight', 'mfence', 'xtree', 'tmap', 'firepit', 'tree', 'bench', 'picnic'];
 function dozeTarget(sx, sy) {
   const p = pickTerrain(sx, sy);
   let best = null, bd = hover.touch ? 30 : 20;
@@ -4215,7 +4215,7 @@ function dozeTarget(sx, sy) {
   for (const B of world.buildings) {
     if (!DOZE_TYPES.includes(B.type)) continue;
     const back = Math.round((B.spent || 0) * 0.25);
-    for (const q of B.type === 'strlight' ? chainPts(B).map(([lx, lz]) => toWorld(B, lx, lz)) : [B]) consider({ kind: 'bld', B, x: q.x, z: q.z, r: B.type === 'firepit' ? 1.5 : 0.7, label: `${esc(B.name)} · ${money(back)} back` }, B.baseY + (B.type === 'firepit' ? 0.4 : 1.2), 1);
+    for (const q of isChain(B.type) ? chainPts(B).map(([lx, lz]) => toWorld(B, lx, lz)) : [B]) consider({ kind: 'bld', B, x: q.x, z: q.z, r: B.type === 'firepit' ? 1.5 : 0.7, label: `${esc(B.name)} · ${money(back)} back` }, B.baseY + (B.type === 'firepit' ? 0.4 : 1.2), 1);
   }
   for (const A of world.areas) for (const q of A.fenceSections || []) consider({ kind: 'fence', A, key: q.key, x: q.x, z: q.z, r: 0.55, label: 'Fence section · free' }, heightAt(q.x, q.z) + 0.3, 1);
   for (const q of gunSpots) if (!q.hidden) consider({ kind: 'gun', key: q.key, x: q.x, z: q.z, r: 0.6, label: 'Snow gun model · free; snowmaking stays on' }, q.y + 0.66, 1);
@@ -5840,9 +5840,11 @@ function refreshHubEdges() {
 // Learning areas are left open, with no fence: an empty group keeps the area code simple.
 const FENCE_ON = false;
 const FENCE_MAT = new THREE.MeshLambertMaterial({ color: 0xff7a1a });
+// Guest areas had an optional boundary fence until 2.100; placed mesh fences (decor `mfence`) replaced it.
+// Old saves keep `fenced` and `noFence` but nothing is drawn from them.
 function areaFence(a, trailCells) {
   a.fenceSections = [];
-  if (isHub(a) ? !a.fenced : !FENCE_ON) return new THREE.Group();
+  if (isHub(a) || !FENCE_ON) return new THREE.Group();
   const posts = [], rope = [], seen = new Set(), gone = new Set(a.noFence || []);
   trailCells ||= fenceTrailCells();
   const gap = (x, z) => (isHub(a) && trailCells.has(cellKey(Math.round(x), Math.round(z)))) || world.lifts.some((L) => distXZ({ x, z }, L.a) < 2.2 || distXZ({ x, z }, L.b) < 2.2) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2);
@@ -6152,7 +6154,7 @@ function hubSheet(A) {
     <p class="help">${hubName(A.set)} · ${fmtAcres(acresOf(A.cells.length), 1)}. Guests walk freely between the trails, lifts and services inside it.</p>
     <p class="conn">${A.basePoint ? 'Connects to the base.' : A.returns ? 'Connected to a route home.' : 'Needs a trail or lift leading back to the base.'}</p>
     <dl class="kv"><div><dt>Lift stations</dt><dd>${A.loads.length + A.tops.length}</dd></div><div><dt>Trail entrances</dt><dd>${A.starts.length}</dd></div><div><dt>Buildings</dt><dd>${A.buildings.length}</dd></div><div><dt>Snow underfoot</dt><dd>${inch(hubDepth(A))}</dd></div></dl>
-    <div class="toggle-row"><div><b>Boundary fence</b><span>${A.fenced ? 'Orange fence around this area' : 'No fence; ground keeps its original look'}</span></div><button class="switch" role="switch" aria-checked="${!!A.fenced}" data-action="hubFence" aria-label="Boundary fence" ${visiting ? 'disabled' : ''}><i></i></button></div>
+    <p class="help">To fence it off, place a mesh fence (Build › Decor) along its edge.</p>
     <div class="field-label">Snowmaking</div>
     ${sm && sm.on ? `<div class="seg" role="group" aria-label="Snowmaking mode">${[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([k, label]) => `<button data-action="smMode" data-v="${k}" aria-pressed="${sm.mode === k}">${label}</button>`).join('')}</div><p class="help">${gunCount(A)} guns · about ${money(gunCount(A) * GUN_NIGHT)} per cold night. Auto keeps ${inch(sm.target)} underfoot.</p>` : `<p class="help">Works on natural snow. Optional snowmaking keeps the ground white: ${gunCount(A)} guns, about ${money(gunCount(A) * GUN_NIGHT)} per cold night.</p><button class="btn secondary" data-action="smInstall" ${closed && state.cash >= snowmakingCost(A) ? '' : 'disabled'}>Add snowmaking · ${money(snowmakingCost(A))}</button>`}
     ${closed ? '<button class="btn secondary" data-action="editArea">Edit painted area</button>' + removeBlock('this guest area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
@@ -7325,13 +7327,15 @@ function evalBuilding(type, x, z, rot, allowPlans, selfPlan, mover, tier = 0, tu
   return { ...v, tier, build, cost: build + v.treeSet.size * TREE_COST + v.grading };
 }
 function commitBuilding(info, type, x, z, rot, style) {
-  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'building', type, x, z, rot, tier: info.tier || 0, style: styleOf(type, style) || null }); // size and theme too: a duplex is a condo's tier 1
+  const hue = info.hue != null ? info.hue : type === 'mfence' ? fencePick : BULB_TYPES.includes(type) ? bulbPick : 0;
+  // size and theme too (a duplex is a condo's tier 1); a chain's poles or posts, and its colour
+  if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'building', type, x, z, rot, tier: info.tier || 0, style: styleOf(type, style) || null, pts: info.pts || undefined, hue: hue || undefined });
   clearTreeSet(info.treeSet);
   const tier = info.tier || 0;
   state.cash -= info.cost;
   const b = { id: world.nextId++, type, tier, x, z, rot, spent: info.cost, yday: null, padY: info.padY, style: styleOf(type, style) };
   b.name = nextBuildingName(type, x, z);
-  if (BULB_TYPES.includes(type) && bulbPick) b.hue = bulbPick;
+  if (hue) b.hue = hue;
   if (info.pts) b.pts = info.pts;
   if (BTYPES[type].noPad) { addBuilding(b); matchBuilt('bld', b, info.cost); return b; }
   const res = levelRect(info.bb, info.padY, 2.5, false);
@@ -7421,7 +7425,7 @@ function planVisual(p) {
   } else if (p.kind === 'lift') {
     g = blueprint(buildLiftVisual({ a: p.a, b: p.b, color: 0x4f8ff0, type: p.type }, liftLayout(p.a, p.b, p.type), false), p.paused);
   } else {
-    g = blueprint(buildingVisual({ type: p.type, tier: p.tier || 0, x: p.x, z: p.z, rot: p.rot, style: p.style, pts: p.pts }, true).group, p.paused);
+    g = blueprint(buildingVisual({ type: p.type, tier: p.tier || 0, x: p.x, z: p.z, rot: p.rot, style: p.style, pts: p.pts, hue: p.hue }, true).group, p.paused);
   }
   p.group = g;
   planGroup.add(g);
@@ -7463,13 +7467,14 @@ function buildPlan(p) {
   let info;
   if (p.kind === 'trail') info = evalTrail(p.pts, p.width, false, p.grade);
   else if (p.kind === 'lift') info = evalLift(p.a, p.b, p.type, false);
-  else if (p.type === 'strlight' && p.pts) info = evalChain(p.pts.map(([lx, lz]) => ({ x: p.x + lx, z: p.z + lz })));
+  else if (isChain(p.type) && p.pts) info = evalChain(p.pts.map(([lx, lz]) => ({ x: p.x + lx, z: p.z + lz })), p.type);
   else info = evalBuilding(p.type, p.x, p.z, p.rot, true, p, null, p.tier || 0);
   const problems = info.an ? info.an.problems : info.problems;
   if (problems.length) return problems[0];
   p.cost = info.cost;
   if (info.cost > state.cash) { p.short = true; return `there wasn’t enough cash (it needs ${money(info.cost)}).`; }
   p.short = false;
+  if (p.kind === 'bld' && p.hue != null) info.hue = p.hue; // the colour picked when it was planned
   const made = p.kind === 'trail' ? commitTrail(info, p.pts, p.width) : p.kind === 'lift' ? commitLift(info, p.type) : commitBuilding(info, p.type, p.x, p.z, p.rot, p.style);
   p.madeName = made.name;
   return true;
@@ -7576,7 +7581,7 @@ function draftTap(p) {
   if (!p) return;
   if (draft.kind === 'bld') {
     if (!draft.btype || visiting || draft.turnOnly) return;
-    if (draft.btype === 'strlight' && !draft.moving) return chainTap(p);
+    if (isChain(draft.btype) && !draft.moving) return chainTap(p);
     if (draft.btype === 'flood' && !draft.aimSet && !draft.moving) draft.rot = floodAimRot(p);
     if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); draft.bpos = { x: sn.x, z: sn.z }; draft.rot = sn.rot; }
     else draft.bpos = { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2 };
@@ -7605,12 +7610,12 @@ function draftTap(p) {
   draft.dirty = true;
   syncHandles();
 }
-// String lights: each tap sets the next pole. A tap far from the last pole is refused, with a reason.
+// String lights and mesh fences: each tap sets the next pole or post. A tap far from the last one is refused, with a reason.
 function chainTap(p) {
-  const C = draft.chain || (draft.chain = []), q = { x: Math.round(p.x * 4) / 4, z: Math.round(p.z * 4) / 4 }, last = C[C.length - 1];
+  const C = draft.chain || (draft.chain = []), q = { x: Math.round(p.x * 4) / 4, z: Math.round(p.z * 4) / 4 }, last = C[C.length - 1], c = CHAIN[draft.btype];
   if (last && distXZ(q, last) < 0.6) return;
-  if (C.length >= CHAIN_MAX) { toast(`A chain can have up to ${CHAIN_MAX} poles. Build it, then start another.`, true); return; }
-  if (last && distXZ(q, last) > CHAIN_SPAN) { toast(`Poles can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart. Tap a little closer to the last one.`, true); return; }
+  if (C.length >= c.max) { toast(`A ${draft.btype === 'mfence' ? 'fence' : 'chain'} can have up to ${c.max} ${c.post}s. Build it, then start another.`, true); return; }
+  if (last && distXZ(q, last) > CHAIN_SPAN) { toast(`${c.post === 'post' ? 'Posts' : 'Poles'} can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart. Tap a little closer to the last one.`, true); return; }
   C.push(q); draft.bpos = { x: C[0].x, z: C[0].z };
   recomputeBldDraft(); renderSheet();
 }
@@ -7664,7 +7669,7 @@ function pickBldAt(sx, sy) {
   for (const B of world.buildings) {
     if (!isDecor(B) || !B.group) continue;
     const top = B.type === 'tree' ? 1.2 : (B.pickTop ??= new THREE.Box3().setFromObject(B.group).max.y - B.baseY) || 0.5;
-    const spots = B.type === 'strlight' ? chainPts(B).map(([lx, lz]) => toWorld(B, lx, lz)) : [B];
+    const spots = isChain(B.type) ? chainPts(B).map(([lx, lz]) => toWorld(B, lx, lz)) : [B];
     for (const q of spots) for (const f of [0.15, 0.5, 0.9]) {
       const s = project(q.x, B.baseY + top * f, q.z); if (!s.ok) continue;
       const d = Math.hypot(s.x - sx, s.y - sy);
@@ -8393,7 +8398,11 @@ function sheetAct(b) {
   else if (a === 'patrolStaff') setPatrolStaff(obj, Number(b.dataset.d));
   else if (a === 'condoSell' && obj && obj.type === 'condo') { obj.keep = !obj.keep; renderSheet(); scheduleSave(); }
   else if (a === 'chainUndo') draftUndo();
-  else if (a === 'bulbHue' && obj && BULB_TYPES.includes(obj.type)) { obj.hue = +b.dataset.v || undefined; bulbPick = +b.dataset.v || 0; restyleBuilding(obj); lightSig = ''; renderSheet(); scheduleSave(); }
+  else if (a === 'bulbHue' && obj && (BULB_TYPES.includes(obj.type) || obj.type === 'mfence')) { // a fence's colour uses the same button
+    obj.hue = +b.dataset.v || undefined;
+    if (obj.type === 'mfence') fencePick = +b.dataset.v || 0; else { bulbPick = +b.dataset.v || 0; lightSig = ''; }
+    restyleBuilding(obj); renderSheet(); scheduleSave();
+  }
   else if (a === 'firepitBase' && obj && obj.type === 'firepit') { obj.bare = !obj.bare; restyleBuilding(obj); renderSheet(); scheduleSave(); }
   else if (a === 'offsiteBuy') buyOffsite();
   else if (a === 'levelB' && obj) {
@@ -9215,7 +9224,7 @@ function serializeWorld() {
   };
 }
 // What a blueprint is, for saving it and for a match order (uid: how a match finds it again).
-function planData(p) { return { uid: p.uid, kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' || p.kind === 'feat' ? p.name : undefined, at: p.at, off: p.off, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting }; }
+function planData(p) { return { uid: p.uid, kind: p.kind, pts: p.pts, width: p.width, trail: p.trail, ws: p.ws, name: p.kind === 'shape' || p.kind === 'feat' ? p.name : undefined, at: p.at, off: p.off, a: p.a, b: p.b, type: p.type, tier: p.tier || undefined, style: p.style || undefined, hue: p.hue || undefined, x: p.x, z: p.z, rot: p.rot, cost: p.cost, reason: p.reason, grade: p.grade, paused: p.paused, short: p.short, waiting: p.waiting }; }
 let satSpaces = 0;
 function rebuildWorld(data) {
   for (const t of [...world.trails]) removeTrail(t);
@@ -12698,6 +12707,9 @@ const BTYPES = {
     desc: 'A big painted map of your own trails and lifts, kept up to date as you build. Put one by a lift or at the base so guests can plan their day.' },
   strlight: { name: 'String lights', where: 'any', cost: 300, accent: 0xe8b04a, w: 0.3, d: 0.3, upkeep: 2, decor: true, plop: true, noPad: true,
     desc: 'Set down a row of poles and bulbs hang between them, lit from dusk: one chain, one card. Warm white, holiday colours or icy blue. Hung by a bar, lodge or restaurant, they draw a few more guests to après.' },
+  // Mesh fence (2.100): a chain of posts like string lights, with plastic mesh between; colour in B.hue (FENCE_COLS). Just for looks.
+  mfence: { name: 'Mesh fence', where: 'any', cost: 120, accent: 0xf26a1b, w: 0.3, d: 0.3, upkeep: 1, decor: true, plop: true, noPad: true,
+    desc: 'Set down a row of posts and plastic mesh is strung between them, to mark off a guest area, a race course or a corner of the base. Orange to start; pick another colour on its card. Guests and skiers aren’t stopped by it: it’s there for looks.' },
   xtree: { name: 'Holiday tree', where: 'any', cost: 4000, accent: 0x2e6b45, w: 1.2, d: 1.2, upkeep: 15, decor: true, plop: true, noPad: true,
     desc: 'A big evergreen wrapped in lights with a star on top, lit from dusk. It stays up until you take it down. Beside an après venue, it draws a few more guests too.' },
   flood: { name: 'Floodlight', where: 'any', cost: 9000, accent: 0x9aa3b0, w: 0.8, d: 0.8, upkeep: 25, decor: true,
@@ -12746,11 +12758,11 @@ const BTYPES = {
     ],
   },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tmap', 'tlight', 'flood', 'lamp', 'strlight', 'xtree', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel', 'condo'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tmap', 'tlight', 'flood', 'lamp', 'strlight', 'mfence', 'xtree', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel', 'condo'];
 // The build menu's sections.
 // The build menu's tabs: [key, label, building types].
 const BGROUPS = [['food', 'Food', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['shops', 'Shops', ['rental', 'tuning', 'store', 'gift']],
-  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Lodging', ['hotel', 'condo']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'tmap', 'firepit', 'lamp', 'strlight', 'xtree', 'tlight', 'flood']]];
+  ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['transport', 'Transport', ['shuttle', 'transit']], ['stay', 'Lodging', ['hotel', 'condo']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'tmap', 'firepit', 'lamp', 'strlight', 'mfence', 'xtree', 'tlight', 'flood']]];
 // The tab you were on last, remembered on this device.
 let bTabNow = null;
 function bTab() { if (bTabNow == null) { try { bTabNow = localStorage.getItem('mm.bTab') || 'food'; } catch (e) { bTabNow = 'food'; } } return bTabNow; }
@@ -12784,6 +12796,7 @@ const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes 
   firepit: '<path d="M12 3c1 3 5 5 5 9.3a5 5 0 0 1-10 0c0-2 1-3.4 2-4.3 0 2 1 3 2 3 0-3-1-5 1-8z"/><path d="M4 21h16"/>',
   lamp: '<path d="M12 10.5v10.5M9 21h6"/><path d="M9 4h6l1 6.5H8z"/><path d="M12 2v2"/>',
   tmap: '<rect x="3" y="3.5" width="18" height="12" rx="1"/><path d="M6 21l1.5-5.5M18 21l-1.5-5.5"/><path d="M6 13l4-6 3 4 2-2 3 4"/>',
+  mfence: '<path d="M3 20V6M12 20V6M21 20V6"/><path d="M3 8h18M3 17h18M3 8l9 9M12 8l9 9M12 8l-9 9M21 8l-9 9"/>',
   strlight: '<path d="M3 21V4M21 21V4"/><path d="M3 5c4 5 14 5 18 0"/><circle cx="7" cy="9" r="1.2"/><circle cx="12" cy="10.3" r="1.2"/><circle cx="17" cy="9" r="1.2"/>',
   xtree: '<path d="M12 4.5L7 11h2.5l-4 6h13l-4-6H17z"/><path d="M12 17v4"/><path d="M12 1.5l.8 1.6 1.7.2-1.2 1.2.3 1.7-1.6-.8-1.6.8.3-1.7-1.2-1.2 1.7-.2z"/><path d="M9.5 13.5h.01M14 11.5h.01M13 15h.01"/>',
   flood: '<path d="M12 21V9"/><path d="M8.5 21h7"/><rect x="5" y="3" width="14" height="5" rx="1"/><path d="M8.5 3v5M12 3v5M15.5 3v5"/><path d="M6 11l-2 2.5M18 11l2 2.5M12 11v2.5"/>',
@@ -12800,7 +12813,7 @@ const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a war
   rental: 'Rents skis to guests', tuning: 'Rentals plus ski tuning', store: 'Sells gear and clothing', gift: 'Souvenirs and small treats', school: 'Lessons for beginners', kids: 'Day camp for young kids',
   patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over', condo: 'Homes to sell, or rent by the night',
   tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 40 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing',
-  tmap: 'Your trails, on a board', strlight: 'A chain of bulbs on poles', xtree: 'A lit tree with a star', flood: 'Bright light for wide trails' };
+  tmap: 'Your trails, on a board', strlight: 'A chain of bulbs on poles', mfence: 'Orange mesh between posts', xtree: 'A lit tree with a star', flood: 'Bright light for wide trails' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
 const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
@@ -12896,7 +12909,7 @@ const patrolDuty = (B) => bldModeIn(patrolPlan() || blankPlan(), B) === 'closed'
 const PATROL_HUT_DAY = 100, PATROLLER_DAY = 425;
 const patrolWages = (B, P = patrolPlan()) => B.type === 'patrol' && bldModeIn(P || blankPlan(), B) !== 'closed' ? PATROLLER_DAY * patrolTeamSize(B, P) : 0;
 const patrolDailyCost = (B, P = patrolPlan()) => PATROL_HUT_DAY + patrolWages(B, P);
-const bspec = (b, P) => b.type === 'strlight' && b.pts ? { ...BTYPES.strlight, upkeep: BTYPES.strlight.upkeep * b.pts.length }
+const bspec = (b, P) => isChain(b.type) && b.pts ? { ...BTYPES[b.type], upkeep: BTYPES[b.type].upkeep * b.pts.length }
   : b.type === 'patrol' ? { ...BTYPES.patrol, crew: patrolTeamSize(b, P), upkeep: PATROL_HUT_DAY + PATROLLER_DAY * patrolTeamSize(b, P) }
   : (BTYPES[b.type].tiers ? BTYPES[b.type].tiers[b.tier || 0] : BTYPES[b.type]);
 // What a building costs at a size: lodges come small, medium or large, each its own choice in the build menu.
@@ -13054,7 +13067,7 @@ class Kit {
       geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = mat !== BM.glow; mesh.receiveShadow = true;
+      mesh.castShadow = mat !== BM.glow && !mat.userData.noShadow; mesh.receiveShadow = true;
       group.add(mesh);
     }
     return group;
@@ -13241,9 +13254,12 @@ function modelFlood() {
 }
 // String lights are a chain: poles at B.pts (local offsets, the first at 0,0) with sagging bulbs strung
 // between them. Pieces placed before chains (preview only) have two posts.
+// Mesh fences (`mfence`) are chains too: posts instead of poles, mesh instead of bulbs.
 const CHAIN_SPAN = 4, CHAIN_MAX = 16, CHAIN_PER_UNIT = 200, POLE_H = 1.5;
+const CHAIN_TYPES = ['strlight', 'mfence'], isChain = (type) => CHAIN_TYPES.includes(type);
+const CHAIN = { strlight: { max: CHAIN_MAX, perUnit: CHAIN_PER_UNIT, post: 'pole' }, mfence: { max: 30, perUnit: 40, post: 'post' } };
 const chainPts = (b) => b.pts || [[-1.22, 0], [1.22, 0]];
-const chainCost = (pts) => pts.length * BTYPES.strlight.cost + Math.round(pts.slice(1).reduce((a, q, i) => a + Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0) * CHAIN_PER_UNIT / 50) * 50;
+const chainCost = (pts, type = 'strlight') => pts.length * BTYPES[type].cost + Math.round(pts.slice(1).reduce((a, q, i) => a + Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0) * CHAIN[type].perUnit / 50) * 50;
 // Points along each span (world x/z, height above the first pole's ground), for bulbs and their light.
 function chainCurve(b, step) {
   const P = chainPts(b), y0 = heightAt(b.x, b.z), out = [];
@@ -13269,6 +13285,54 @@ function modelStrlight(tier, b) {
     k.pop();
   }
   C.forEach((q, i) => { if (!q.end) k.add(bx(0.06, 0.08, 0.06), bulbMat(cols[i % cols.length]), q.lx, q.y - 0.05, q.lz); });
+  return k;
+}
+// Mesh fence: thin stakes at each tapped post and about every 0.8 units between, and a strip of see-through
+// mesh that follows the ground. The mesh texture has holes, so its material is transparent (see-through
+// textures on solid materials show the sky through them; see AI_HANDOFF).
+const FENCE_COLS = [{ label: 'Orange', hex: 0xf26a1b }, { label: 'Blue', hex: 0x2f7fd8 }, { label: 'Red', hex: 0xd8342c }, { label: 'Green', hex: 0x2f9a4c }, { label: 'Black', hex: 0x2a2d33 }];
+const FENCE_H = 0.28;
+let fencePick = 0; // new fences match the colour picked last
+const FENCE_TEX = (() => { // one hole of the mesh: plastic all round an oval gap (rows of them, like barrier fencing)
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 32, 32);
+  x.globalCompositeOperation = 'destination-out'; x.beginPath(); x.ellipse(16, 16, 11, 8, 0, 0, Math.PI * 2); x.fill();
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+})();
+const FENCE_MATS = new Map();
+function fenceMat(i) {
+  let m = FENCE_MATS.get(i);
+  if (!m) {
+    const col = new THREE.Color((FENCE_COLS[i] || FENCE_COLS[0]).hex);
+    m = new THREE.MeshLambertMaterial({ color: col, emissive: col.clone().multiplyScalar(0.2), map: FENCE_TEX, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
+    m.userData.noShadow = true; FENCE_MATS.set(i, m);
+  }
+  return m;
+}
+function modelMfence(tier, b) {
+  const k = new Kit(), y0 = heightAt(b.x, b.z), P = chainPts(b), pos = [], uv = [];
+  const gy = (lx, lz) => { const w = toWorld(b, lx, lz); return heightAt(w.x, w.z) - y0; };
+  const stake = (lx, lz, h) => { const dy = gy(lx, lz); k.add(bx(0.03, h + 0.12, 0.03), BM.dark, lx, dy + (h - 0.12) / 2, lz); };
+  let run = 0;
+  for (let i = 0; i < P.length; i++) {
+    stake(P[i][0], P[i][1], FENCE_H + 0.04);
+    if (i === P.length - 1) break;
+    const [ax, az] = P[i], [cx, cz] = P[i + 1], L = Math.hypot(cx - ax, cz - az), n = Math.max(1, Math.ceil(L / 0.4));
+    for (let j = 1; j < Math.round(L / 0.8); j++) { const f = j / Math.round(L / 0.8); stake(lerp(ax, cx, f), lerp(az, cz, f), FENCE_H); }
+    for (let j = 0; j < n; j++) {
+      const f0 = j / n, f1 = (j + 1) / n, x0 = lerp(ax, cx, f0), z0 = lerp(az, cz, f0), x1 = lerp(ax, cx, f1), z1 = lerp(az, cz, f1);
+      const g0 = gy(x0, z0) + 0.03, g1 = gy(x1, z1) + 0.03, u0 = (run + L * f0) / 0.075, u1 = (run + L * f1) / 0.075;
+      pos.push(x0, g0, z0, x1, g1, z1, x1, g1 + FENCE_H, z1, x0, g0, z0, x1, g1 + FENCE_H, z1, x0, g0 + FENCE_H, z0);
+      uv.push(u0, 0, u1, 0, u1, 4, u0, 0, u1, 4, u0, 4); // four rows of holes
+    }
+    run += L;
+  }
+  if (pos.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.computeVertexNormals();
+    k.add(g, fenceMat(b.hue || 0));
+  }
   return k;
 }
 // An evergreen wrapped in a spiral of bulbs, with a gold star.
@@ -13644,7 +13708,7 @@ function modelTransit() {
   sign(k, 'transit', 0, 1.0, -0.22, 1.2);
   return k;
 }
-const MODELS = { tlight: modelTrailLight, flood: modelFlood, strlight: modelStrlight, xtree: modelXtree, tmap: modelTmap, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, rack: modelRack, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel, condo: modelCondo };
+const MODELS = { tlight: modelTrailLight, flood: modelFlood, strlight: modelStrlight, mfence: modelMfence, xtree: modelXtree, tmap: modelTmap, lamp: modelLamp, firepit: modelFirepit, tree: modelTree, bench: modelBench, picnic: modelPicnic, rack: modelRack, bar: modelBar, clinic: modelClinic, kids: modelKids, hrest: modelHrest, transit: modelTransit, tuning: modelTuning, store: modelStore, gift: modelGift, lodge: modelLodge, truck: modelTruck, cafe: modelCafe, restaurant: modelRestaurant, fine: modelFine, rental: modelRental, school: modelSchool, patrol: modelPatrol, restroom: modelRestroom, shuttle: modelShuttle, hotel: modelHotel, condo: modelCondo };
 /* ---------- Modern mountain alternatives; opt-in registry, no live style selection yet. ---------- */
 // Same Kit/box pipeline and shared wood, stone and glow as classic buildings. No new textures.
 const MODERN_METAL = accentMat(0x252b30);
@@ -14741,6 +14805,7 @@ const OTHER_NAMES = {
   rack: ['Ski rack'],
   tmap: ['Trail map'],
   strlight: ['String lights'],
+  mfence: ['Mesh fence'],
   xtree: ['Holiday tree'],
   flood: ['Floodlight'],
   bar: ['The Last Chair', 'Après Lounge', 'The Mogul Pub', 'Fireside Tap', 'The Chairlift Saloon', 'Bootpack Bar', 'The Tipsy Moose', 'Après Haus'],
@@ -14764,7 +14829,7 @@ const OTHER_NAMES = {
   condo: ['Trailside Condos', 'Slopeside Homes', 'Snowbird Townhomes', 'Fir Hollow Chalets', 'The Ski-In Cabins', 'Powder Ridge Homes', 'Aspen Row', 'Hearthstone Condos', 'Ptarmigan Place', 'Snowcrest Village'],
 };
 // Practical buildings keep their plain names in order; the rest are picked at random.
-const PLAIN_NAMES = ['tlight', 'flood', 'tmap', 'strlight', 'xtree', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'rack', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
+const PLAIN_NAMES = ['tlight', 'flood', 'tmap', 'strlight', 'mfence', 'xtree', 'lamp', 'firepit', 'tree', 'bench', 'picnic', 'rack', 'restroom', 'shuttle', 'transit', 'hrest', 'patrol', 'clinic'];
 function nextBuildingName(type, x, z, skip) {
   const used = new Set(world.buildings.map((b) => b.name)); if (skip) used.add(skip);
   let bases;
@@ -14941,7 +15006,7 @@ function showGhost(type, tier, x, z, rot, ok, padY, style, pts) {
   if (draft.turnOnly && draft.moving) draft.moving.group.visible = false;
   style = style === undefined ? (draft.moving ? draft.moving.style : styleOf(type, bTheme())) : style;
   const key = `${type}:${tier}:${style || ''}${pts ? `:${x},${z}:${JSON.stringify(pts)}` : ''}`;
-  const b = { type, tier, x, z, rot, style, pts };
+  const b = { type, tier, x, z, rot, style, pts, hue: type === 'mfence' ? fencePick : BULB_TYPES.includes(type) ? bulbPick : 0 };
   if (key !== ghostKey) {
     if (ghost) { scene.remove(ghost); ghost.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
     ghost = buildingVisual(b, true).group;
@@ -16483,6 +16548,7 @@ function capOf(type, s) {
     case 'lamp': return 'Lights up after dark';
     case 'flood': return 'Floods a wide patch of the trail beside it during night skiing';
     case 'strlight': return 'A chain of poles with bulbs between · lit from dusk';
+    case 'mfence': return 'Just for looks · pick its colour on its card';
     case 'xtree': return 'Lit from dusk · pick the bulb colour on its card';
     case 'tmap': return 'Shows your trails and lifts';
     case 'firepit': return `${s.seats} seats around the fire · free`;
@@ -16509,11 +16575,11 @@ function capOf(type, s) {
   }
 }
 function recomputeBldDraft() {
-  if (draft.btype === 'strlight' && !draft.moving) {
+  if (isChain(draft.btype) && !draft.moving) {
     if (!(draft.chain || []).length) { draft.info = null; clearGhost(); return; }
-    const v = evalChain(draft.chain);
+    const v = evalChain(draft.chain, draft.btype);
     draft.info = v;
-    showGhost('strlight', 0, v.x, v.z, 0, !v.problems.length, null, undefined, v.pts);
+    showGhost(draft.btype, 0, v.x, v.z, 0, !v.problems.length, null, undefined, v.pts);
     return;
   }
   if (!draft.btype || !draft.bpos) { draft.info = null; clearGhost(); return; }
@@ -16522,28 +16588,28 @@ function recomputeBldDraft() {
   showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, draft.bpos.x, draft.bpos.z, draft.rot, !v.problems.length, v.padY, undefined, draft.moving && draft.moving.pts);
 }
 function hoverGhost(p) {
-  if (draft.btype === 'strlight' && !draft.moving && (draft.chain || []).length) return;
+  if (isChain(draft.btype) && !draft.moving && (draft.chain || []).length) return;
   if (!p || !draft.btype || draft.bpos) return;
   let x = Math.round(p.x * 2) / 2, z = Math.round(p.z * 2) / 2;
   if (draft.btype === 'flood' && !draft.aimSet && !draft.moving) draft.rot = floodAimRot({ x, z });
   if (BY_ROAD.includes(draft.btype)) { const sn = snapToRoad(draft.btype, p); x = sn.x; z = sn.z; draft.rot = sn.rot; }
   const v = evalBuilding(draft.btype, x, z, draft.rot, planning() && !draft.moving, null, draft.moving, draft.btier || 0, !!draft.turnOnly);
-  showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, x, z, draft.rot, !v.problems.length, v.padY, undefined, draft.btype === 'strlight' ? (draft.moving ? draft.moving.pts : [[0, 0]]) : undefined);
+  showGhost(draft.btype, draft.moving ? draft.moving.tier : draft.btier || 0, x, z, draft.rot, !v.problems.length, v.padY, undefined, isChain(draft.btype) ? (draft.moving ? draft.moving.pts : [[0, 0]]) : undefined);
 }
-// A chain of string lights from the poles tapped so far (world points): each pole is checked like a small
-// building, spans can be up to CHAIN_SPAN long, and trees right under the string are cleared.
-function evalChain(chain) {
-  const o = chain[0], pts = chain.map((q) => [Math.round((q.x - o.x) * 100) / 100, Math.round((q.z - o.z) * 100) / 100]);
+// A chain of string lights or a mesh fence from the poles tapped so far (world points): each pole is checked
+// like a small building, spans can be up to CHAIN_SPAN long, and trees right under the string are cleared.
+function evalChain(chain, type = 'strlight') {
+  const o = chain[0], pts = chain.map((q) => [Math.round((q.x - o.x) * 100) / 100, Math.round((q.z - o.z) * 100) / 100]), post = CHAIN[type].post;
   const problems = [], treeSet = new Set();
-  for (const q of chain) for (const p of validateBuilding('strlight', 0, q.x, q.z, 0).problems) if (!problems.includes(p)) problems.push(p);
+  for (const q of chain) for (const p of validateBuilding(type, 0, q.x, q.z, 0).problems) if (!problems.includes(p)) problems.push(p);
   for (const q of chain) footprintTrees({ x: q.x, z: q.z, rot: 0 }, 0.3, 0.3, 0.15, treeSet);
   for (let i = 1; i < chain.length; i++) {
     const a = chain[i - 1], b = chain[i], L = distXZ(a, b);
-    if (L > CHAIN_SPAN + 0.01) { problems.push(`Poles can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart.`); break; }
+    if (L > CHAIN_SPAN + 0.01) { problems.push(`${post === 'post' ? 'Posts' : 'Poles'} can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart.`); break; }
     treesInBrush({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, L / 2 + 0.3, (k) => { if (distToSeg({ x: trees.x[k], z: trees.z[k] }, a, b) < 0.3) treeSet.add(k); });
   }
-  if (chain.length < 2) problems.push('Add at least one more pole.');
-  const bb = bAABB('strlight', 0, o.x, o.z, 0), build = chainCost(pts);
+  if (chain.length < 2) problems.push(`Add at least one more ${post}.`);
+  const bb = bAABB(type, 0, o.x, o.z, 0), build = chainCost(pts, type);
   return { problems, treeSet, bb, fs: footprintStats(bb), lotWarn: false, padY: null, grading: 0, tier: 0, x: o.x, z: o.z, pts, build, cost: build + treeSet.size * TREE_COST };
 }
 // The theme picker: in the build menu (for tabs with themed buildings) and while placing one.
@@ -16557,7 +16623,7 @@ function themeSeg(show, act = 'bTheme', cur = bTheme(), type = null) {
   }).join('')}</div>`;
 }
 // Degrees in the controls; fractional quarter-turns on disk keep every old save facing the same way.
-const canTurn = (type) => !!BTYPES[type] && !BY_ROAD.includes(type) && !['tree', 'tlight', 'xtree', 'strlight'].includes(type);
+const canTurn = (type) => !!BTYPES[type] && !BY_ROAD.includes(type) && !['tree', 'tlight', 'xtree', 'strlight', 'mfence'].includes(type);
 // Positive Y rotation turns counterclockwise when viewed from above.
 function rotationArrow(left) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><g${left ? ' transform="translate(24 0) scale(-1 1)"' : ''}><path d="M21 2v6h-6M20.5 13a9 9 0 1 1-2.67-6.36L21 8"/></g></svg>`;
@@ -16617,8 +16683,8 @@ function bldDraftSheet() {
   }
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? tierName(t, s) : t.name;
-  const chain = draft.btype === 'strlight' ? (draft.chain || []) : null;
-  const help = chain ? (chain.length ? `${chain.length} pole${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first pole goes, then each pole after it. The lights hang between them.`)
+  const chain = isChain(draft.btype) ? (draft.chain || []) : null, post = chain && CHAIN[draft.btype].post;
+  const help = chain ? (chain.length ? `${chain.length} ${post}${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first ${post} goes, then each ${post} after it. ${draft.btype === 'mfence' ? 'The mesh is strung between them.' : 'The lights hang between them.'}`)
     : draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
     : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door right by a trail, in the lower third of the mountain.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
   let body = '';
@@ -16635,7 +16701,7 @@ function bldDraftSheet() {
     <p class="help">${t.desc}</p>
     <dl class="kv"><div><dt>Capacity</dt><dd>${capOf(draft.btype, s)}</dd></div><div><dt>${draft.btype === 'patrol' ? 'Daily cost' : 'Upkeep'}</dt><dd>${money(s.upkeep)}/day</dd></div></dl>
     <p class="help"><b>${help}</b></p>
-    ${chain && chain.length ? `<button class="btn secondary" data-action="chainUndo">Remove the last pole</button>` : ''}
+    ${chain && chain.length ? `<button class="btn secondary" data-action="chainUndo">Remove the last ${post}</button>` : ''}
     ${rotationControls()}
     <div class="b-preview-result">
     ${draft.btype === 'rack' && draft.bpos ? rackChecks(draft.bpos) : ''}
@@ -16705,7 +16771,7 @@ function buildBuildingDraft() {
   if (!info || info.problems.length) return;
   if (info.pts) draft.bpos = { x: info.x, z: info.z }, draft.rot = 0; // a chain is placed from its first pole
   if (planning()) {
-    addPlan({ kind: 'bld', type: draft.btype, tier: draft.btier || 0, x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, cost: info.cost, style: styleOf(draft.btype, bTheme()), pts: info.pts });
+    addPlan({ kind: 'bld', type: draft.btype, tier: draft.btier || 0, x: draft.bpos.x, z: draft.bpos.z, rot: draft.rot, cost: info.cost, style: styleOf(draft.btype, bTheme()), pts: info.pts, hue: draft.btype === 'mfence' ? fencePick || undefined : BULB_TYPES.includes(draft.btype) ? bulbPick || undefined : undefined });
     toast(planToast());
     draft.bpos = null; draft.info = null; draft.chain = []; clearGhost();
     renderSheet(); scheduleSave();
@@ -16850,6 +16916,7 @@ function bldSheet(B) {
     ${assetPlans('bld', B)}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
     ${BULB_TYPES.includes(B.type) && !visiting ? `<div class="field-label">Bulbs</div><div class="themes" role="group" aria-label="Bulb colour">${BULB_SETS.map((S, i) => `<button data-action="bulbHue" data-v="${i}" aria-pressed="${(B.hue || 0) === i}">${S.label}</button>`).join('')}</div><p class="help">Free to change any time. They stay this way until you change them.</p>` : ''}
+    ${B.type === 'mfence' && !visiting ? `<div class="field-label">Colour · ${FENCE_COLS[B.hue || 0].label}</div><div class="lift-colors" style="grid-template-columns: repeat(${FENCE_COLS.length}, minmax(0, 1fr))" role="group" aria-label="Fence colour">${FENCE_COLS.map((C, i) => `<button data-action="bulbHue" data-v="${i}" aria-pressed="${(B.hue || 0) === i}" aria-label="${C.label}" title="${C.label}"><span style="background:${hexOf(C.hex)}"></span></button>`).join('')}</div><p class="help">Free to change any time.</p>` : ''}
     ${B.type === 'firepit' && !visiting ? `<div class="toggle-row"><div><b>Stone base</b><span>${B.bare ? 'Just the fire ring and log benches, on the snow' : 'A stone pad under the fire ring and benches'}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.bare}" aria-label="Stone base" data-action="firepitBase"><i></i></button></div>` : ''}
     ${staffing}
@@ -22496,7 +22563,11 @@ async function matchApplyPending() {
           if (p.prices) Object.assign(state.prices, p.prices);
         } else if (p.what === 'lift') { const i = evalLift(p.a, p.b, p.type); if (!i.problems.length && fits(i)) commitLift(i, p.type); }
         else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length && fits(i)) commitTrail(i, pts, p.width || 'medium'); }
-        else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined); }
+        else if (p.what === 'building') {
+          const i = Array.isArray(p.pts) && p.pts.length > 1 && isChain(p.type) ? evalChain(p.pts.map(([lx, lz]) => ({ x: p.x + lx, z: p.z + lz })), p.type) : evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0);
+          if (i && p.hue != null) i.hue = +p.hue || 0;
+          if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined);
+        }
         else if (p.what === 'lot') { if (state.cash < LOT_EXPAND_COST) short++; else growLot(p.row ?? null, p.lot || 0); }
         else if (o.applied_day == null && p.ds && p.ds.action === 'liftUp') { // re-rigged tonight: paid for, the old lift runs until then
           const L = matchFind(p.sel), up = L && !matchUp(L) && liftUpgrades(L).find((u) => u.type === p.ds.v);
@@ -23364,6 +23435,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.100', date: 'Nov 4, 2026', title: 'Mesh fences', items: [
+    'New in Build › Decor: a mesh fence. Tap where each post goes and plastic mesh is strung between them along the ground, like string lights. Use it to mark off a guest area, a race course or a corner of the base.',
+    'Fences start orange; pick blue, red, green or black on the fence’s card, free, any time. Your next fence starts in the colour you picked last.',
+    'A fence costs $120 a post plus a little for each length of mesh, and $1 a post a day to keep up. It’s just for looks: guests and skiers aren’t stopped by it.',
+    'Guest areas no longer have a Boundary fence switch, and fences turned on that way are gone. The new mesh fence replaces it: you choose exactly where it goes, and its colour.',
+    'Works the same in King of the Mountain. String lights placed in a match now keep all their poles overnight too, instead of arriving as a single pole.',
+  ] },
   { v: '2.99.1', date: 'Nov 4, 2026', title: 'Faster days at resorts with two bases', small: true, items: ['Busy resorts with two bases play their days about twice as fast, at 4× and when you skip to the day report. Nothing about the day itself changes, only how long you wait for it. Thanks Papasfritas!'] },
   { v: '2.99', date: 'Nov 4, 2026', title: 'Leave a match, or rescue a resort', kotm: true, items: [
     'In King of the Mountain, the menu’s Start this mountain over is now Leave this match. Your resort stays on the mountain, shut, for another player to claim.',

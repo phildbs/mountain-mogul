@@ -59,7 +59,12 @@ export const pageOrders = (orders) => `(() => {
           const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium');
           if (i.an.problems.length) throw new Error(i.an.problems[0]); pay(i); commitTrail(i, pts, p.width || 'medium');
         } else if (p.what === 'building') {
-          const i = evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0); if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building'); pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined);
+          // string lights and mesh fences carry their poles or posts (offsets from the first) and their colour
+          const chain = Array.isArray(p.pts) && p.pts.length > 1 && typeof isChain === 'function' && isChain(p.type);
+          const i = chain ? evalChain(p.pts.map(([lx, lz]) => ({ x: p.x + lx, z: p.z + lz })), p.type) : evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0);
+          if (!i || i.problems.length) throw new Error(i ? i.problems[0] : 'unknown building');
+          if (p.hue != null) i.hue = Math.max(0, Math.round(+p.hue) || 0);
+          pay(i); commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined);
         } else if (p.what === 'trees') {
           // Trees cleared by the brush or the bulldozer: only on your own land, as many as the cash covers.
           const set = new Set();
