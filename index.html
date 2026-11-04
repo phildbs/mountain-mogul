@@ -780,6 +780,11 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mp-table li em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .mp-table li.me { font-weight: 700; }
 .mp-table li.me em { color: var(--ink); }
+/* A resort its player left: tagged in the standings, and offered to claim on the live match's card. */
+.mp-left { font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.mp-claims { display: grid; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.mp-claim { display: grid; gap: 2px; padding: 9px 10px; border-radius: 10px; background: var(--accent-soft); min-width: 0; }
+.mp-claim b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-join { display: grid; gap: 8px; margin-top: 6px; }
 .mp-join input { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font: 500 15px var(--ui); color: var(--ink); background: #fff; min-width: 0; }
 .mp-join .mp-err { color: var(--steep); font-size: 13px; }
@@ -1612,7 +1617,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mReset" class="danger">Start this mountain over</button>
         </div>
         <div id="menuConfirm" hidden>
-          <div class="confirm">This regrows every tree you cleared and resets your cash. It can't be undone.</div>
+          <div class="confirm" id="mResetWhat">This regrows every tree you cleared and resets your cash. It can't be undone.</div>
           <div class="confirm-row"><button id="mResetNo">Keep it</button><button id="mResetYes" class="yes">Start over</button></div>
         </div>
       </div>
@@ -20290,9 +20295,12 @@ $('mReset').onclick = () => {
   if (visiting) { toast('Return home first.', true); return; }
   // a match resort lives on the match server: starting over here would only blank the screen, wipe this device's
   // copy of your own resort and send default prices to the match
-  if (matchPlay) { toast('A match resort can’t be started over. It keeps going until the match ends.', true); return; } $('menuMain').hidden = true; $('menuConfirm').hidden = false; };
+  // in a match it's Leave this match instead (matchLeaveButton): your resort stays, shut, for someone to claim
+  if (matchView && matchView.me && !matchPlay) { toast('This match is over, so there’s nothing to leave.', true); return; }
+  $('menuMain').hidden = true; $('menuConfirm').hidden = false; };
 $('mResetNo').onclick = closeMenu;
 $('mResetYes').onclick = () => {
+  if (matchPlay) { closeMenu(); abandonMatch(); return; }
   closeMenu(); setTool('explore');
   if (practice) { newTutorial(); renderTut(); toast('Tutorial restarted'); return; }
   const name = state.resortName, sandbox = state.sandbox;
@@ -21362,17 +21370,19 @@ function creatorHtml(id) {
 const KOTM_REC = {};
 function kotmRecordHtml(id) {
   const r = KOTM_REC[id];
-  if (!r || (!r.played && !r.badges.length)) return '';
+  if (!r || (!r.played && !r.badges.length && !(r.more && (r.more.rescued || r.more.abandoned)))) return '';
   const badges = [...r.badges].sort((a, b) => a.place - b.place || Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
   return `<div class="cr-kotm"><h4>King of the Mountain</h4>${badges.length ? `<ul class="cr-badges">${badges.map((b) => `<li class="p${b.place}" title="${esc(mpPlace(b.place))} place">${MP_ICON.trophy}${esc(b.title)}</li>`).join('')}</ul>` : ''}
-    <p class="help">Matches: <b>${r.played}</b> played · <b>${r.won}</b> won</p></div>`;
+    <p class="help">Matches: <b>${r.played}</b> played · <b>${r.won}</b> won</p>${r.more ? `<p class="help">Resorts rescued: <b>${r.more.rescued}</b> · Abandoned: <b>${r.more.abandoned}</b></p>` : ''}</div>`;
 }
 async function loadKotmRecord(id) {
   if (!CLOUD.sb || !id) return;
   try {
-    const [rec, b] = await Promise.all([CLOUD.sb.rpc('match_record', { uid: id }), CLOUD.sb.from('match_badges').select('lobby_id,place,title,created_at').eq('user_id', id)]);
+    const [rec, b, x] = await Promise.all([CLOUD.sb.rpc('match_record', { uid: id }), CLOUD.sb.from('match_badges').select('lobby_id,place,title,created_at').eq('user_id', id),
+      CLOUD.sb.rpc('match_record_more', { uid: id }).then((r) => r, () => ({}))]);
     const row = Array.isArray(rec.data) ? rec.data[0] : rec.data; // without supabase/match-custom.sql: badges only
-    KOTM_REC[id] = { played: (row && row.played) || 0, won: (row && row.won) || 0, badges: b.data || [] };
+    const more = Array.isArray(x.data) ? x.data[0] : x.data; // resorts rescued and matches left (supabase/match-abandon.sql); none before it
+    KOTM_REC[id] = { played: (row && row.played) || 0, won: (row && row.won) || 0, badges: b.data || [], more: more && !x.error ? { rescued: more.rescued || 0, abandoned: more.abandoned || 0 } : null };
     if (CLOUD.viewCreator === id && !$('community').hidden) refreshCommunity();
   } catch (e) { /* the page shows without it */ }
 }
@@ -21587,7 +21597,10 @@ const MP_LINE = { match: 'One mountain, three slices, one winner.', ridge: 'One 
 const mpSvg = (d) => `<svg class="mp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const MP_ICON = { trophy: mpSvg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8.5 20h7M10 17h4v3h-4z"/>'),
   lock: mpSvg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>') };
-const mpOfficial = (l) => l.kind !== 'custom'; // lobbies from before player matches are all official
+const mpOfficial = (l) => l.kind !== 'custom';
+// Claiming a left resort (supabase/match-abandon.sql): until three-quarters of the season, and the first claim's fresh start
+// tops the cash up to this (RESCUE_CASH in match/server.mjs).
+const mpClaimEnd = (l) => Math.floor(l.days * 3 / 4), MATCH_RESCUE = 500000; // lobbies from before player matches are all official
 // What a player can pick when making a match: minutes a turn (one game day), days, and minutes until it starts.
 // Every player match is one whole season (Phil, Nov 4); two seasons waits for a server test of the summer.
 const MP_TURNS = [10, 15, 30], MP_SEASON = 168, MP_STARTS = [5, 15, 30, 60, 180, 720];
@@ -21626,7 +21639,7 @@ async function loadMp() {
       .in('status', ['open', 'running', 'finished']).order('starts_at', { ascending: false }).limit(40);
     if (error) throw error;
     const ids = (lob || []).map((l) => l.id);
-    const [p, r] = ids.length ? await Promise.all([CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name').in('lobby_id', ids),
+    const [p, r] = ids.length ? await Promise.all([CLOUD.sb.from('match_players').select('*').in('lobby_id', ids),
       CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary').in('lobby_id', ids)]) : [{ data: [] }, { data: [] }];
     if (p.error || r.error) throw p.error || r.error;
     MP.lobbies = lob || []; MP.players = p.data || []; MP.resorts = r.data || []; MP.err = '';
@@ -21637,19 +21650,21 @@ async function loadMp() {
   renderMp();
 }
 // The resort name form, for joining an open lobby or (late) a running match.
-function joinForm(l, note, late) {
-  return `<form class="mp-join" data-id="${l.id}"${late ? ' data-late="1"' : ''}><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
+function joinForm(l, note, late, claim = null) { // claim: the slot of a left resort being claimed
+  return `<form class="mp-join" data-id="${l.id}"${late ? ' data-late="1"' : ''}${claim != null ? ` data-claim="${claim}"` : ''}><span class="field-label">Your resort’s name</span><input id="mpName" maxlength="40" autocomplete="off" value="${esc(MP.joinName || '')}" aria-label="Your resort’s name">`
     + (l.locked ? '<span class="field-label">Password</span><input id="mpKey" maxlength="30" autocomplete="off" aria-label="Password" placeholder="Ask the player who made it">' : '')
     + `${MP.joinErr ? `<span class="mp-err">${esc(MP.joinErr)}</span>` : ''}<span class="help">${esc(note)}</span>`
-    + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? 'Joining…' : late ? 'Join now' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
+    + `<div class="mp-acts"><button class="btn" type="submit"${MP.busy ? ' disabled' : ''}>${MP.busy ? (claim != null ? 'Claiming…' : 'Joining…') : claim != null ? 'Claim it' : late ? 'Join now' : 'Join this match'}</button><button class="link" type="button" data-mp="cancel">Cancel</button></div></form>`;
 }
 // What King of the Mountain is, shown the first time the window opens (and from How it works).
 const MP_INTRO = `<div class="mp-intro"><b>How King of the Mountain works</b>
-  <p>Each match is one big mountain shared by rival resorts. On <b>Crown Peak</b>, two or three resorts each have a slice from their own base up to the summit. On <b>Ridgeline</b>, two to four resorts each have their own valley below one long ridge, side by side.</p>
-  <p>The match keeps going day and night: a new game day every 10, 15 or 30 minutes, depending on the match. Build lifts, trails and buildings and set your prices any time. New things open the next morning, and you can watch each day live.</p>
-  <p><b>Check in whenever you like.</b> You don’t need to stay and watch: your resort keeps running while you’re away. Come back on your phone or your computer, signed in to the same account, to see how your mountain is doing against its rivals, change your prices and build what’s next.</p>
-  <p>Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins.</p>
-  <p><b>Official</b> tournaments give badges to the top three, shown on their profiles. Any signed-in player can also make a match, open to everyone or locked with a password for friends. Those count on your profile as played and won.</p>
+  <p><b>One mountain, rival resorts.</b> On <b>Crown Peak</b>, two or three resorts each have a slice from their own base up to a shared summit. On <b>Ridgeline</b>, two to four resorts each have their own valley below one long ridge. Every slice or valley is about as good as the others.</p>
+  <p><b>Joining.</b> Sign in and pick a player name, then join an open lobby or make your own match: public, or locked with a password for friends. Most matches let you join late, until a quarter of the way through, with a catch-up investment for the days you missed. You can be in up to three matches at once.</p>
+  <p><b>A match runs day and night.</b> A new game day starts every 10, 15 or 30 minutes, and a match is one whole season. Your resort keeps running while you’re away, so check in from your phone or computer whenever you like.</p>
+  <p><b>Build and run it any time.</b> Almost everything from your own resorts works here: lifts, trails, buildings, parking, prices, plans, events and more. Watch each day live, evenings included. What you build during the day shows as a blueprint and opens the next morning. On quiet days, an operations plan can keep you closed to save money.</p>
+  <p><b>Winning.</b> Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins. Building never counts against you. <b>Official</b> tournaments give badges to the top three; every match you finish counts on your profile as played and won.</p>
+  <p><b>Leaving and rescuing.</b> Can’t keep going? Leave this match, in the menu. Your resort stays shut for another player to claim, until three-quarters of the way through the season. The first to claim it gets a fresh start from the bank: no debt and at least $500,000. A win only counts if you run your resort for at least half the season.</p>
+  <p><b>Watch and chat.</b> Anyone can watch a match and follow any resort. Players and signed-in spectators share the match chat.</p>
   <p><b>This is a beta.</b> Things will go wrong. Please tell us about any bug, however small, and we’ll fix it as soon as we can.</p>
   <div class="mp-acts"><button class="btn" type="button" data-mp="intro-ok">Got it</button><button class="btn secondary" type="button" data-mp="bug">Report a bug</button></div></div>`;
 const mpIntroSeen = () => { try { return !!localStorage.getItem('mm.kotm.intro'); } catch (e) { return true; } };
@@ -21657,7 +21672,7 @@ const mpNeedsName = () => !CLOUD.guest && !!CLOUD.uid && !(CLOUD.profile && CLOU
 function renderMp() {
   if ($('mpModal').hidden) return;
   const me = CLOUD.uid, guest = CLOUD.guest || !me, now = Date.now(), L = MP.lobbies, needName = mpNeedsName();
-  let h = MP.intro || !mpIntroSeen() ? MP_INTRO : '<p class="help"><button class="link" type="button" data-mp="intro">How it works</button> · <button class="link" type="button" data-mp="bug">Report a bug</button></p>';
+  let h = MP.intro || !mpIntroSeen() ? MP_INTRO : '<p class="help"><button class="link" type="button" data-mp="intro">How it works</button> · <button class="link" type="button" data-mp="bug">Report a bug</button> · <button class="link" type="button" data-mp="profile">Profile</button></p>';
   // A player name first: it's what rivals and the chat see.
   if (needName) h += `<form class="mp-join mp-namef" id="mpNameForm"><b>First, pick your player name</b><span class="help">Everyone in a match sees it, in the standings and the chat. It’s also your name on the leaderboards.</span>`
     + `<input id="mpPlayerName" maxlength="24" autocomplete="off" aria-label="Your player name" value="${esc(MP.pname || '')}">${MP.nameErr ? `<span class="mp-err">${esc(MP.nameErr)}</span>` : ''}`
@@ -21678,7 +21693,8 @@ function renderMp() {
   const by = (l) => (mpOfficial(l) ? '' : `<div class="mp-sub">Player match${l.created_by === me ? ', made by you' : MP.makers[l.created_by] ? ` by ${esc(MP.makers[l.created_by])}` : ''}${l.locked ? ` · <span class="mp-lock">${MP_ICON.lock}Password</span>` : ''}</div>`);
   const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>${l.status === 'finished' ? '' : opts(l)}`;
   const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
-  const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
+  const left = (l, slot) => inL(l).some((p) => p.slot === slot && !p.user_id && p.abandoned); // its player left it (supabase/match-abandon.sql)
+  const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${left(l, r.slot) ? ' <small class="mp-left">left</small>' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
   const when = (l) => {
     if (l.status === 'open') return `Starts in <b>${mpIn(Date.parse(l.starts_at) - now)}</b> (${esc(mpAt(l.starts_at))}) · ${inL(l).length} of ${l.slots} joined`;
     if (l.status === 'running') return l.day ? `Day <b>${l.day}</b> of ${l.days} · next day in <b>${mpIn(next(l) - now)}</b>` : `Opening day in <b>${mpIn(next(l) - now)}</b>: time to build`;
@@ -21729,15 +21745,34 @@ function renderMp() {
   // Matches being played now that you're not in. Until the cut-off (the first quarter, unless the lobby says
   // otherwise) you can still join: you take over a computer resort, or an empty slice, with a catch-up investment.
   const live = L.filter((l) => l.status === 'running' && !mine(l));
-  const lateEnd = (l) => (l.late_days ?? Math.floor(l.days / 4)), lateRoom = (l) => l.late !== false && (inL(l).some((p) => !p.user_id) || inL(l).length < l.slots);
+  // Resorts their players left: shut until someone claims one, until three-quarters of the way through the season.
+  // The first claim of each gets a fresh start from the bank (the match server gives it that night).
+  const claims = (l) => {
+    const free = l.day <= mpClaimEnd(l) ? inL(l).filter((p) => !p.user_id && p.abandoned) : [];
+    if (!free.length) return '';
+    const win = l.days - l.day >= l.days / 2 ? 'Run it for the rest of the season and a win counts for you.' : 'It’s past halfway, so a win or badge won’t count for you in this match, but you can still play.';
+    return `<div class="mp-claims"><div class="mp-sub"><b>${free.length === 1 ? 'A resort is' : `${free.length} resorts are`} free to claim</b>, until day ${mpClaimEnd(l)}. Its owner left it.</div>${free.map((p) => {
+      const s = (MP.resorts.find((r) => r.lobby_id === l.id && r.slot === p.slot) || {}).summary || {};
+      const facts = `Cash ${money(s.cash || 0)}${s.debt ? ` · owes ${money(s.debt)}` : ''} · season profit ${money(s.profit || 0)} · ${plural(s.lifts || 0, 'lift')}, ${plural(s.trails || 0, 'trail')}, ${(s.guests || 0).toLocaleString('en-US')} guests so far`;
+      const note = p.rescued ? `It has had its fresh start already, so you take it over tonight as it is. ${win}`
+        : `You take it over tonight with a fresh start: its debt written off, cash topped up to at least ${money(MATCH_RESCUE)} and any season loss back to $0. It opens the next morning. ${win}`;
+      let act = guest ? '<button class="btn join" type="button" data-mp="signin">Sign in to claim</button>'
+        : inL(l).some((q) => (q.left_by || []).includes(me)) ? '<span class="help">You left this match, so you can’t claim a resort in it.</span>'
+        : needName ? '<span class="help">Pick your player name above to claim it.</span>' : active >= 3 ? '<span class="help">You’re already in three matches.</span>'
+        : `<button class="btn join" type="button" data-mp="claim" data-id="${l.id}" data-slot="${p.slot}">Claim it</button>`;
+      if (MP.claimFor === `${l.id}:${p.slot}` && !guest) act = joinForm(l, note, true, p.slot);
+      return `<div class="mp-claim"><b>${esc(s.name || p.resort_name)}</b><span class="help">${facts}</span>${p.rescued ? '' : '<span class="help">Fresh start for whoever claims it.</span>'}<div class="mp-acts">${act}</div></div>`;
+    }).join('')}</div>`;
+  };
+  const lateEnd = (l) => (l.late_days ?? Math.floor(l.days / 4)), lateRoom = (l) => l.late !== false && (inL(l).some((p) => !p.user_id && !p.abandoned) || inL(l).length < l.slots);
   if (live.length) h += `<section class="mp-sec"><h4>Being played now</h4><ul class="mp-list">${live.map((l) => {
     const canLate = l.day <= lateEnd(l) && lateRoom(l), bonus = Math.min(l.late_bonus_cap ?? 1000000, (l.late_bonus ?? 15000) * l.day);
-    const takes = inL(l).some((p) => !p.user_id) ? 'take over a computer resort' : 'start on an empty slice';
+    const takes = inL(l).some((p) => !p.user_id && !p.abandoned) ? 'take over a computer resort' : 'start on an empty slice';
     let act = `<button class="btn go" type="button" data-mp="open" data-id="${l.id}">Watch</button>`;
     if (canLate) act += guest ? '<button class="btn join" type="button" data-mp="signin">Sign in to join</button>' : active >= 3 || needName ? '' : `<button class="btn join" type="button" data-mp="pick" data-id="${l.id}">Join now</button>`;
-    if (canLate && MP.joinFor === l.id && !guest) act = joinForm(l, `You’ll ${takes}${bonus ? `, with a catch-up investment of ${money(bonus)} for the days you missed` : ''}${l.keep_profit === false || !inL(l).some((p) => !p.user_id) ? '. Your profit counts from today' : ''}.`, true);
+    if (canLate && MP.joinFor === l.id && !guest) act = joinForm(l, `You’ll ${takes}${bonus ? `, with a catch-up investment of ${money(bonus)} for the days you missed` : ''}${l.keep_profit === false || !inL(l).some((p) => !p.user_id && !p.abandoned) ? '. Your profit counts from today' : ''}.`, true);
     const late = canLate ? `<div class="mp-sub">Still time to join, until day ${lateEnd(l)}${bonus ? `: catch-up investment ${money(bonus)}` : ''}</div>` : '';
-    return `<li class="mp-card">${pic(l)}${head(l)}<div class="mp-when">${when(l)}</div>${late}${league(l, -1)}<div class="mp-acts">${act}</div></li>`;
+    return `<li class="mp-card">${pic(l)}${head(l)}<div class="mp-when">${when(l)}</div>${late}${league(l, -1)}${claims(l)}<div class="mp-acts">${act}</div></li>`;
   }).join('')}</ul></section>`;
   // Past matches: folded away at the bottom, newest first; stays open or shut as you left it.
   if (past.length) h += `<details class="mp-past" id="mpPast"${MP.pastOpen ? ' open' : ''}><summary>Past matches <span>${past.length}</span></summary><ul class="mp-list">${past.map(myCard).join('')}</ul></details>`;
@@ -21751,10 +21786,10 @@ function renderMp() {
 function openMp() {
   try { localStorage.setItem('mm.seen.kotm', '1'); } catch (e) { /* fine */ }
   if (!$('newMtn').hidden) $('newMtn').hidden = true;
-  MP.joinFor = null; MP.joinErr = ''; MP.make = false; MP.sureCancel = null;
+  MP.joinFor = null; MP.claimFor = null; MP.joinErr = ''; MP.make = false; MP.sureCancel = null;
   $('mpModal').hidden = false;
   renderMp(); loadMp();
-  clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor && !MP.make) loadMp(); else if (!MP.make) renderMp(); }, 30000);
+  clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor && !MP.claimFor && !MP.make) loadMp(); else if (!MP.make) renderMp(); }, 30000);
 }
 function closeMp() { $('mpModal').hidden = true; clearInterval(MP.timer); LOBBY_FLAG.at = 0; loadLobbyFlag(); lobbyFlag(); }
 $('mpCard').onclick = openMp;
@@ -21794,11 +21829,16 @@ $('mpModal').addEventListener('click', async (e) => {
   if (what === 'intro-ok') { try { localStorage.setItem('mm.kotm.intro', '1'); } catch (er) { /* fine */ } MP.intro = false; renderMp(); return; }
   if (what === 'intro') { MP.intro = true; renderMp(); $('mpBody').scrollTop = 0; return; }
   if (what === 'bug') { closeMp(); openFeedback('fb'); return; }
+  if (what === 'profile') { closeMp(); openCommunity('profile'); return; } // your name, badges and record: see and edit it there
   if (what === 'pick') {
     MP.joinFor = b.dataset.id; MP.joinErr = ''; MP.make = false;
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
     renderMp(); if ($('mpName')) $('mpName').focus();
-  } else if (what === 'cancel') { MP.joinFor = null; renderMp(); }
+  } else if (what === 'claim') {
+    MP.claimFor = `${b.dataset.id}:${b.dataset.slot}`; MP.joinFor = null; MP.joinErr = ''; MP.make = false;
+    MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
+    renderMp(); if ($('mpName')) $('mpName').focus();
+  } else if (what === 'cancel') { MP.joinFor = null; MP.claimFor = null; renderMp(); }
   else if (what === 'open') openMatch(b.dataset.id);
   else if (what === 'leave') {
     const { error } = await CLOUD.sb.rpc('match_leave', { lid: b.dataset.id });
@@ -21823,6 +21863,17 @@ function matchFresh(lob, me, resorts) {
     clock: { day: c.day ?? lob.day, phase: c.phase, time: c.time, season: c.season, summer: c.summer, wx: c.wx } };
   return { lobby_id: lob.id, slot: me.slot, day: lob.day, save, fresh: true, summary: { name: me.resort_name, profit: 0, guests: 0, bonus } };
 }
+// You claimed a left resort: the server gives it its fresh start tonight, before your changes, so it's shown here (and what
+// you build is checked against it) already, as the server will have it. Not once the server has done it.
+function matchRescueDue() {
+  const p = matchPlay && matchView && matchView.players.find((q) => q.slot === matchView.slot && q.user_id === CLOUD.uid), r = p && matchView.resorts.find((x) => x.slot === p.slot);
+  return !!(p && p.rescue_due && r && !(r.summary.rescued && r.summary.claimedDay === p.joined_day));
+}
+function matchRescue() {
+  if (!matchRescueDue()) return false;
+  state.debt = 0; state.cash = Math.max(state.cash, MATCH_RESCUE); state.reputation = Math.max(state.reputation, 1); state.bankrupt = false;
+  return true;
+}
 async function openMatch(lid, want = null) { // want: the slot a spectator asked to follow
   if (!CLOUD.sb) return;
   if (mpNeedsName()) { toast('Pick your player name first.', true); if (MOUNTAIN.match) reloadInto('title'); else openMp(); return; }
@@ -21830,7 +21881,7 @@ async function openMatch(lid, want = null) { // want: the slot a spectator asked
   let lob, players, resorts;
   try {
     const [a, b, c] = await Promise.all([CLOUD.sb.from('match_lobbies').select('*').eq('id', lid).maybeSingle(),
-      CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name,joined_day').eq('lobby_id', lid),
+      CLOUD.sb.from('match_players').select('*').eq('lobby_id', lid), // all columns: abandoned, rescue_due once match-abandon.sql is in
       CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', lid)]);
     if (a.error || b.error || c.error || !a.data) throw new Error('load');
     lob = a.data; players = b.data || []; resorts = c.data || [];
@@ -21852,8 +21903,10 @@ async function openMatch(lid, want = null) { // want: the slot a spectator asked
   matchView = { lobby: lob, players, resorts, slot, me: !!me, pending: 0, waiting };
   if (play) { visiting = null; matchPlay = { lobby: lid, slot }; document.body.classList.add('matchplay'); if (!['trees', 'doze'].includes(state.landMode)) state.landMode = 'trees'; }
   else { visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
+  matchLeaveButton();
   select(null);
   applySave(mine.save);
+  const rescue = matchRescue();
   state.resortName = name; clearUndo();
   matchView.sent = matchPrices();
   $('resortName').textContent = name;
@@ -21870,6 +21923,7 @@ async function openMatch(lid, want = null) { // want: the slot a spectator asked
   await matchApplyPending();
   if (waiting) toast(`Welcome to ${lob.name}! Your resort opens when day ${lob.day + 1} starts, in ${mpIn(matchNext(lob) - Date.now())}. Start building now: it’s all ready that morning.`);
   else startReplay();
+  if (rescue) toast(`${name} is yours! Its fresh start comes tonight: no debt and ${money(state.cash)} to spend. Fix it up now: it reopens when day ${lob.day + 1} starts.`);
   // Every 20 seconds, or every 10 once the next day is due, so it starts soon after the server has played it.
   let n = 0; matchView.timer = setInterval(() => { if (matchView && !matchView.ticking && (++n % 2 === 0 || Date.now() >= matchNext(matchView.lobby) + 15000)) { matchView.ticking = true; matchTick().finally(() => { if (matchView) matchView.ticking = false; }); } }, 10000);
 }
@@ -22349,7 +22403,7 @@ function matchSheet() {
   const l = matchView.lobby, t = matchTable(), mine = (t.find((r) => r.slot === matchView.slot) || { summary: {} }).summary;
   return `<div class="sheet-title"><h3>Standings</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${esc(l.name)} on Crown Peak. The most season profit wins${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
-    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
+    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${matchView.players.some((p) => p.slot === r.slot && !p.user_id && p.abandoned) ? ' <small class="mp-left">left · free to claim</small>' : r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
     ${matchView.me ? '' : '<p class="help">Watching: the guests, ticket, reports and live day are for the resort you follow. Tap Follow to switch.</p>'}
     <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
@@ -22376,11 +22430,11 @@ async function matchTick() {
   matchView.lobby = data; matchView.resorts = rs;
   matchView.paused = false; // a new day plays live, even if you paused the last one
   const mine = rs.find((r) => r.slot === matchView.slot);
-  if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
+  if (mine && mine.save) { applySave(mine.save); matchRescue(); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   if (matchPlay) {
     matchView.pending = 0; matchView.sent = matchPrices();
     await matchApplyPending();
-    if (data.status !== 'running') { matchPlay = null; document.body.classList.remove('matchplay'); visiting = { id: `match:${data.id}`, match: data.id, name: $('resortName').textContent, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
+    if (data.status !== 'running') { matchPlay = null; matchLeaveButton(); document.body.classList.remove('matchplay'); visiting = { id: `match:${data.id}`, match: data.id, name: $('resortName').textContent, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
     // Anything the server couldn't build, and why.
     const { data: bad } = await CLOUD.sb.from('match_orders').select('kind,payload,error').eq('lobby_id', data.id).eq('applied_day', data.day).then((r) => r, () => ({}));
     const fails = (bad || []).filter((o) => o.error);
@@ -22751,6 +22805,24 @@ function matchSendPrices() {
   matchView.sent = now;
   matchOrder('price', JSON.parse(now));
 }
+// In a match, the menu's Start this mountain over is Leave this match (supabase/match-abandon.sql, Phil, Nov 4): your
+// resort stays on the mountain, shut, and another player can claim it with a fresh start. It isn't counted as played.
+function matchLeaveButton() {
+  const on = !!matchPlay;
+  $('mReset').textContent = on ? 'Leave this match' : 'Start this mountain over';
+  $('mResetWhat').textContent = on ? 'Your resort stays on the mountain, shut, and another player can claim it with a fresh start. You can’t come back to it, and the match won’t count on your profile.' : 'This regrows every tree you cleared and resets your cash. It can’t be undone.';
+  $('mResetNo').textContent = on ? 'Stay' : 'Keep it'; $('mResetYes').textContent = on ? 'Leave the match' : 'Start over';
+}
+async function abandonMatch() {
+  if (!matchPlay || !CLOUD.sb) return;
+  const lid = matchPlay.lobby, name = matchView && matchView.lobby.name;
+  const { error } = await CLOUD.sb.rpc('match_abandon', { lid }).then((r) => r, (e) => ({ error: e }));
+  if (error) { toast(/match_abandon/.test(error.message || '') ? 'Leaving a match isn’t switched on yet. Check back soon.' : mpErr(error), true); return; }
+  if (matchView) clearInterval(matchView.timer);
+  matchPlay = null; // nothing more is sent: the resort isn't yours now
+  toast(`You’ve left ${name || 'the match'}. Your resort is shut until another player claims it.`);
+  setTimeout(() => reloadInto('title'), 1500);
+}
 function leaveMatch() {
   matchSendPrices();
   if (matchView) clearInterval(matchView.timer);
@@ -22948,7 +23020,7 @@ async function startReplay(manual) {
   if (off) matchView.replay.sim += off.passes || 0; // season passes the server sold this morning
   const sold = off && condo && condo.sold ? condo : null; // and condo homes: shown with the morning's money, as in a day of your own
   if (sold) { matchView.replay.sim += sold.sales || 0; today.condoSold = sold.sold; today.condoSales = sold.sales || 0; }
-  if (off) matchView.replay.gap = { cash: off.cash0 != null ? state.cash - off.cash0 : off.profit || 0, debt: off.debt0 != null ? (state.debt || 0) - off.debt0 : 0 };
+  if (off && !matchRescueDue()) matchView.replay.gap = { cash: off.cash0 != null ? state.cash - off.cash0 : off.profit || 0, debt: off.debt0 != null ? (state.debt || 0) - off.debt0 : 0 };
   updateCash(false);
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
@@ -22974,7 +23046,7 @@ function stopReplay(done) {
   matchView.replay = null;
   $('report').hidden = true;
   const mine = matchView.resorts.find((r) => r.slot === matchView.slot);
-  if (mine && mine.save) { applySave(mine.save); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
+  if (mine && mine.save) { applySave(mine.save); matchRescue(); state.resortName = $('resortName').textContent; clearUndo(); afterLoad(); }
   watchButton(); matchBar();
   const back = matchApplyPending();
   if (!done) return back;
@@ -23138,12 +23210,13 @@ $('mpModal').addEventListener('submit', async (e) => {
   if (!name) { MP.joinErr = 'Give your resort a name first.'; renderMp(); return; }
   if (key === '') { MP.joinErr = 'This match needs its password.'; renderMp(); return; }
   MP.busy = true; MP.joinErr = ''; renderMp();
-  const fn = f.dataset.late ? 'match_join_late' : 'match_join';
-  const { error } = await CLOUD.sb.rpc(key ? fn + '_key' : fn, key ? { lid: f.dataset.id, rname: name, pkey: key } : { lid: f.dataset.id, rname: name });
+  const claim = f.dataset.claim != null ? +f.dataset.claim : null, fn = claim != null ? 'match_claim' : f.dataset.late ? 'match_join_late' : 'match_join';
+  const { error } = await CLOUD.sb.rpc(key ? fn + '_key' : fn, { lid: f.dataset.id, ...(claim != null ? { pslot: claim } : {}), rname: name, ...(key ? { pkey: key } : {}) });
   MP.busy = false;
-  if (error) { MP.joinErr = mpErr(error); renderMp(); return; }
+  if (error) { MP.joinErr = /match_claim/.test(error.message || '') ? 'Claiming resorts isn’t switched on yet. Check back soon.' : mpErr(error); renderMp(); return; }
   const l = (MP.lobbies || []).find((x) => x.id === f.dataset.id);
-  MP.joinFor = null;
+  MP.joinFor = null; MP.claimFor = null;
+  if (claim != null) { toast(`${name} is yours! You take it over after tonight’s overnight. Go to your resort to start fixing it up.`); loadMp(); return; }
   toast(f.dataset.late ? `You’re in${l ? ` ${l.name}` : ''}! Your resort is ready after tonight’s overnight.` : `You’re in${l ? ` ${l.name}` : ''}!${l ? ` It starts ${mpAt(l.starts_at)}.` : ''}`);
   loadMp();
 });
@@ -23264,6 +23337,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.99', date: 'Nov 4, 2026', title: 'Leave a match, or rescue a resort', kotm: true, items: [
+    'In King of the Mountain, the menu’s Start this mountain over is now Leave this match. Your resort stays on the mountain, shut, for another player to claim.',
+    'Running matches show any resort someone left as free to claim, with its cash, debt, season profit and guests, until three-quarters of the way through the season.',
+    'The first player to claim a left resort gets a fresh start from the bank: its debt written off, its cash topped up to at least $500,000, a season loss back to $0 and its reputation restored. It reopens the next morning.',
+    'A left resort is shut until someone claims it, with no skiers and no costs. A badge or a win only counts for a player who ran their resort for at least half the season.',
+    'Profiles now show how many resorts a player has rescued, and how many matches they’ve abandoned.'] },
   { v: '2.98.1', date: 'Nov 4, 2026', title: 'King of the Mountain card fix', small: true, items: ['The King of the Mountain card on the title screen no longer lets its pictures spill over the heading on some phones, and its New 4-player mountain tag now sits on Ridgeline’s picture.'] },
   { v: '2.98', date: 'Nov 4, 2026', title: 'Ridgeline: a 4-player mountain', kotm: true, items: [
     'King of the Mountain has a second mountain, Ridgeline: up to four resorts side by side, each in its own valley below one long ridge.',

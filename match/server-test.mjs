@@ -142,6 +142,45 @@ try {
   await tick(db, game, T3 + H + 60000);
   const lot = db.tables.match_orders.find((o) => o.lobby_id === 'L6');
   ok(db.tables.match_lobbies.find((l) => l.id === 'L6').status === 'finished' && lot.applied_day === 1 && !lot.error, `a Ridgeline match plays, orders and all (${lot.error || 'ok'})`);
+  // Leaving and claiming (match-abandon.sql). Six days: First Hill's owner leaves after day 1 with a pending order and
+  // the resort deep in debt; it stays shut on day 2; U3 claims it and gets a fresh start; Second Hill is left and
+  // claimed on day 4, too late in the season for its new owner to get a place.
+  const T4 = T3 + 10 * H, U3 = 'u-3', U4 = 'u-4';
+  await db.insert('match_lobbies', [{ id: 'L7', name: 'Leave Cup', map: 'match', slots: 2, starts_at: new Date(T4).toISOString(), days: 6, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L7', slot: 0, user_id: U1, resort_name: 'First Hill' }, { lobby_id: 'L7', slot: 1, user_id: U2, resort_name: 'Second Hill' }]);
+  await tick(db, game, T4 + 60000);
+  const P7 = (s) => db.tables.match_players.find((p) => p.lobby_id === 'L7' && p.slot === s), R7 = (s) => rows('L7').find((r) => r.slot === s);
+  await db.insert('match_orders', [{ lobby_id: 'L7', slot: 0, user_id: U1, kind: 'build', payload: { what: 'lift', type: 'double', a: { x: 14, z: 56 }, b: { x: 12, z: -10 } }, applied_day: null, error: null }]);
+  await tick(db, game, T4 + H + 60000);
+  const lift = db.tables.match_orders.find((o) => o.lobby_id === 'L7');
+  ok(lift.applied_day === 1 && !lift.error, `day 1: First Hill builds a lift (${lift.error || 'ok'})`);
+  // In debt and losing money, then left (as match_abandon does), with one more order still waiting.
+  Object.assign(R7(0).save, { cash: 1000 }); R7(0).save.clock.debt = 800000; R7(0).summary.profit = -250000;
+  Object.assign(P7(0), { user_id: null, abandoned: true, left_by: [U1] });
+  await db.insert('match_orders', [{ lobby_id: 'L7', slot: 0, user_id: U1, kind: 'price', payload: { ticket: 5 }, applied_day: null, error: null }]);
+  await tick(db, game, T4 + 2 * H + 60000);
+  const d2 = db.tables.match_days.find((d) => d.lobby_id === 'L7' && d.day === 2), late = db.tables.match_orders.filter((o) => o.lobby_id === 'L7').at(-1);
+  ok(R7(0).summary.abandoned && d2.results.share[0] === 0 && d2.results.alone[0].day === 0 && R7(0).summary.last.guests === 0 && R7(0).summary.last.shut, `day 2: the left resort is shut, with no skiers (${d2.results.share})`);
+  ok(Math.round(R7(0).save.cash) === 1000 && R7(0).save.clock.debt === 800000 && R7(0).summary.profit === -250000, `shut costs nothing: cash, debt and profit as they were (${Math.round(R7(0).save.cash)}, ${R7(0).save.clock.debt}, ${R7(0).summary.profit})`);
+  ok(late.applied_day === 2 && /changed hands/.test(late.error) && R7(0).save.clock.ticket !== 5, `an order sent before leaving isn't applied (${late.error})`);
+  ok(R7(0).save.clock.day === R7(1).save.clock.day, 'its days still go by with everyone else\'s');
+  // Claimed (as match_claim does): a fresh start overnight.
+  Object.assign(P7(0), { user_id: U3, resort_name: 'Rescue Ridge', joined_day: 2, abandoned: false, rescue_due: true, rescued: true });
+  await tick(db, game, T4 + 3 * H + 60000);
+  const c3 = R7(0).summary;
+  ok(c3.name === 'Rescue Ridge' && !c3.abandoned && c3.rescued && c3.claimedDay === 2 && P7(0).rescue_due === false, 'day 3: claimed under its new name, fresh start given once');
+  ok(R7(0).save.clock.debt === 0 && c3.debt === 0, `the debt is written off (${c3.debt})`);
+  ok(c3.profit === c3.last.profit && c3.last.cash0 >= 500000, `season losses back to $0 and cash topped up to $500,000 that morning (profit ${c3.profit}, morning cash ${c3.last.cash0})`);
+  ok(R7(0).save.clock.reputation >= 0.95, `reputation back to a new resort's (${R7(0).save.clock.reputation})`);
+  const news7 = db.tables.match_messages.filter((m) => m.lobby_id === 'L7').map((m) => m.body);
+  ok(news7.some((b) => /First Hill has been left by its owner and is shut. Anyone can claim it until day 4/.test(b)) && news7.some((b) => /Rescue Ridge has claimed First Hill on day 2, with a fresh start: \$800,000 of debt written off and \$499,000 to get going/.test(b)), `the chat announces both (${news7.filter((b) => /claim/.test(b)).join(' | ')})`);
+  // Second Hill: left and claimed straight away on day 4, without a fresh start used up before.
+  Object.assign(P7(1), { user_id: U4, resort_name: 'Latecomer', joined_day: 4, abandoned: false, rescue_due: true, rescued: true, left_by: [U2] });
+  await tick(db, game, T4 + 6 * H + 60000);
+  ok(R7(1).summary.name === 'Latecomer' && R7(1).summary.rescued, 'left and claimed in one turn: it still gets its fresh start');
+  ok(db.tables.match_lobbies.find((l) => l.id === 'L7').status === 'finished', 'the match finishes');
+  ok(P7(0).place >= 1 && P7(1).place == null, `a place only for a player who ran the resort at least half the season (${P7(0).place}, ${P7(1).place})`);
+  ok(!(db.tables.match_badges || []).some((b) => b.lobby_id === 'L7' && b.user_id === U4) && (db.tables.match_badges || []).some((b) => b.lobby_id === 'L7' && b.user_id === U3), 'and a badge likewise');
 } finally {
   await game.close();
 }

@@ -44,10 +44,12 @@ export default async function ({ browser, url }) {
     await g.ev('select(null)'); await g.wait(300);
     await tap('#mpFab'); await g.wait(150); await tap('#visitChat'); await g.wait(600);
     eq(await newest('A late one'), 'in view', `${who}: opened again, at the newest`);
-    if (!phone) { // a match resort can't be started over from the menu
+    if (!phone) { // a match resort can't be started over: the button is Leave this match (172-match-abandon), and Stay changes nothing
       const lifts = await g.ev('world.lifts.length');
       await g.ev(`$('mReset').onclick()`);
-      eq([await g.ev(`$('menuConfirm').hidden`), await g.ev('world.lifts.length'), /can’t be started over/.test(await g.ev(`$('toast').textContent`))], [true, lifts, true], 'Start this mountain over is refused in a match');
+      eq([await g.ev(`$('mReset').textContent`), await g.ev(`$('menuConfirm').hidden`), await g.ev(`$('mResetYes').textContent`)], ['Leave this match', false, 'Leave the match'], 'in a match the menu offers Leave this match, not Start over');
+      await g.ev(`$('mResetNo').onclick()`);
+      eq([await g.ev(`$('menuConfirm').hidden`), await g.ev('world.lifts.length'), !!(await g.ev('matchPlay'))], [true, lifts, true], 'Stay keeps everything as it was');
     }
     eq(g.errors, [], `${who}: no page errors`);
     await g.page.close();

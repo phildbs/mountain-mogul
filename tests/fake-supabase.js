@@ -292,10 +292,34 @@
         if (!l) return { data: null, error: { message: 'only the player who made a match can cancel it, before it starts' } };
         l.status = 'closed'; put(d); return { data: null, error: null };
       }
+      if (fn === 'match_record_more') {
+        const P = (d.match || {}).players || [];
+        return { data: [{ rescued: P.filter((p) => (p.claimed_by || []).includes(args.uid)).length, abandoned: new Set(P.filter((p) => (p.left_by || []).includes(args.uid)).map((p) => p.lobby_id)).size }], error: null };
+      }
       if (fn === 'match_record') {
         const m = d.match || {}, mine = (m.players || []).filter((p) => p.user_id === args.uid && ((m.lobbies || []).find((l) => l.id === p.lobby_id) || {}).status === 'finished');
         const real = (lid) => (m.players || []).filter((p) => p.lobby_id === lid && p.user_id).length;
         return { data: [{ played: mine.length, won: mine.filter((p) => p.place === 1 && real(p.lobby_id) >= 2).length }], error: null };
+      }
+      // Leaving a running match and claiming a left resort (supabase/match-abandon.sql)
+      if (fn === 'match_abandon') {
+        const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), p = (m.players || []).find((q) => q.lobby_id === args.lid && q.user_id === me);
+        if (!L || L.status !== 'running') return { data: null, error: { message: 'this match isn\'t running' } };
+        if (!me || !p) return { data: null, error: { message: 'you\'re not in this match' } };
+        Object.assign(p, { user_id: null, abandoned: true, rescue_due: false, left_by: [...(p.left_by || []), me] }); put(d); return { data: p.slot, error: null };
+      }
+      if (fn === 'match_claim' || fn === 'match_claim_key') {
+        const m = d.match || (d.match = {}), L = (m.lobbies || []).find((l) => l.id === args.lid), P = m.players || [], p = P.find((q) => q.lobby_id === args.lid && q.slot === args.pslot);
+        const want = (m.keys || {})[args.lid];
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
+        if (!L || L.status !== 'running') return { data: null, error: { message: 'this match isn\'t running' } };
+        if (L.day > Math.floor(L.days * 3 / 4)) return { data: null, error: { message: 'it\'s too late to claim a resort in this match' } };
+        if (P.some((q) => q.lobby_id === L.id && q.user_id === me)) return { data: null, error: { message: 'already in this match' } };
+        if (want && String(args.pkey || '').trim() !== want) return { data: null, error: { message: 'that password isn\'t right' } };
+        if (P.some((q) => q.lobby_id === L.id && (q.left_by || []).includes(me))) return { data: null, error: { message: 'you left this match, so you can\'t claim a resort in it' } };
+        if (!p || p.user_id || !p.abandoned) return { data: null, error: { message: 'that resort isn\'t free to claim any more' } };
+        Object.assign(p, { user_id: me, resort_name: String(args.rname).slice(0, 40), joined_day: L.day, abandoned: false, rescue_due: !p.rescued, rescued: true, claimed_by: [...(p.claimed_by || []), me] }); put(d);
+        return { data: p.slot, error: null };
       }
       if (fn === 'match_join_key' || fn === 'match_join_late_key' || ((fn === 'match_join' || fn === 'match_join_late') && ((d.match || {}).keys || {})[args.lid])) {
         const want = ((d.match || {}).keys || {})[args.lid];
@@ -309,7 +333,7 @@
         if (L.late === false) return { data: null, error: { message: 'this match doesn\'t take late joiners' } };
         if (L.day > (L.late_days ?? Math.floor(L.days / 4))) return { data: null, error: { message: 'it\'s too late to join this match' } };
         if (P.some((p) => p.lobby_id === L.id && p.user_id === me)) return { data: null, error: { message: 'already in this match' } };
-        const comp = P.find((p) => p.lobby_id === L.id && !p.user_id);
+        const comp = P.find((p) => p.lobby_id === L.id && !p.user_id && !p.abandoned);
         if (comp) { Object.assign(comp, { user_id: me, resort_name: String(args.rname).slice(0, 40), joined_day: L.day }); put(d); return { data: comp.slot, error: null }; }
         const free = [...Array(L.slots).keys()].filter((s) => !P.some((p) => p.lobby_id === L.id && p.slot === s));
         if (!free.length) return { data: null, error: { message: 'this match is full' } };

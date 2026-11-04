@@ -32,6 +32,17 @@ async function news(db, lobby, day, lines) {
   try { await db.insert('match_messages', lines.map((body) => ({ lobby_id: lobby.id, user_id: null, slot: null, name: lobby.name.slice(0, 40), body: body.slice(0, 200), kind: 'news', day }))); }
   catch (e) { log(`${lobby.name}: news skipped (${e.message.slice(0, 80)})`); }
 }
+// Abandoned resorts (supabase/match-abandon.sql). A shut resort's money and reputation are put back after its day,
+// so being left costs it nothing. A claimed one's fresh start: what it owed and the cash it got, for the news.
+export const RESCUE_CASH = 500000, RESCUE_REP = 1;
+const claimEnd = (lobby) => Math.floor(lobby.days * 3 / 4);
+// (Its blueprints wait too: built overnight on money that's then put back, they'd be free.)
+const MOTHBALL = `(() => { window.__plans = world.plans; world.plans = [];
+  return { cash: state.cash, debt: state.debt || 0, reputation: state.reputation, intAcc: state.intAcc || 0, ohAcc: state.ohAcc || 0, leaseAcc: state.leaseAcc || 0, smAcc: state.smAcc || 0 }; })()`;
+const UNMOTHBALL = (h) => `(() => { Object.assign(state, ${JSON.stringify(h)}); world.plans = window.__plans || []; })()`;
+const RESCUE = `(() => { const debt = Math.round(state.debt || 0), cash = Math.round(state.cash);
+  state.debt = 0; state.intAcc = 0; state.bankrupt = false; state.cash = Math.max(state.cash, ${RESCUE_CASH}); state.reputation = Math.max(state.reputation, ${RESCUE_REP});
+  return { debt, gift: Math.round(state.cash) - cash }; })()`;
 const BUILT = { lift: 'a new lift', trail: 'a new trail', building: 'a new building' };
 
 export async function startGame() {
@@ -90,11 +101,29 @@ async function playDay(db, game, lobby) {
     for (const r of resorts) pages.push(await openResort(game, r.save, r.summary.name, lobby, r.slot));
     const ref = resorts.findIndex((r) => r.save);
     await setWeather(pages.filter((_, k) => k !== ref), await weatherOf(pages[ref]));
+    // A resort its player left (match-abandon.sql) stays shut until someone claims it: no skiers and no costs.
+    // The night after a claim it gets its fresh start, once a match: debt written off, cash up to RESCUE_CASH,
+    // season losses back to $0 (gains kept) and reputation back to at least a new resort's.
+    const owner = (r) => players.find((q) => q.slot === r.slot) || {}, shut = resorts.map((r) => !owner(r).user_id && !!owner(r).abandoned), rescued = [];
+    for (const [k, r] of resorts.entries()) {
+      const p = owner(r);
+      if (shut[k] && !r.summary.abandoned) {
+        r.summary.abandoned = true;
+        joins.push(`${r.summary.name} has been left by its owner and is shut. Anyone can claim it${claimEnd(lobby) >= lobby.day ? ` until day ${claimEnd(lobby)}` : ''}.`);
+      }
+      if (!p.user_id || !(r.summary.abandoned || p.rescue_due)) continue;
+      const was = r.summary.name, fresh = p.rescue_due ? await pages[k].ev(RESCUE) : null;
+      Object.assign(r.summary, { name: p.resort_name, computer: false, abandoned: undefined, joinedDay: p.joined_day || 0, claimedDay: p.joined_day || 0 });
+      if (fresh) { r.summary.rescued = true; r.summary.profit = Math.max(0, r.summary.profit || 0); rescued.push(p); }
+      await pages[k].ev(`state.resortName = ${JSON.stringify(p.resort_name)}`);
+      const help = fresh && [fresh.debt ? `${dollars(fresh.debt)} of debt written off` : '', fresh.gift ? `${dollars(fresh.gift)} to get going` : ''].filter(Boolean).join(' and ');
+      joins.push(`${p.resort_name} has claimed ${was} on day ${p.joined_day || 0}${fresh ? `, with a fresh start${help ? `: ${help}` : ''}` : ''}. Welcome!`);
+    }
     // A player who joined late: they take over a computer resort (or the fresh one above) tonight, with a
     // catch-up investment in cash for the days they missed. Profit so far stays, unless the lobby says otherwise.
     for (const [k, r] of resorts.entries()) {
       const p = players.find((q) => q.slot === r.slot);
-      if (!p || !p.user_id || !r.summary.computer) continue;
+      if (!p || !p.user_id || !r.summary.computer || shut[k]) continue;
       // (on a strip map the other resort's game is slid elsewhere along the ridge, so its snow is spread evenly instead)
       if (r.summary.fresh) await pages[k].ev(`(() => { const ns = ${JSON.stringify(await pages[ref].ev('Array.from(NS)'))}, even = ${mapQuery(lobby, 0) !== '1'}, mean = ns.reduce((a, b) => a + b, 0) / ns.length;
         for (let i = 0; i < NS.length; i++) NS[i] = even ? mean : ns[i];
@@ -111,7 +140,9 @@ async function playDay(db, game, lobby) {
     const orders = await db.select('match_orders', { lobby_id: lobby.id, applied_day: ['is', null] }, 'id.asc');
     const done = [];
     for (const [k, r] of resorts.entries()) {
-      const mine = orders.filter((o) => o.slot === r.slot);
+      // Only the resort's owner now: not what someone sent before they left it.
+      const p = owner(r), from = (o) => p.user_id && (!o.user_id || o.user_id === p.user_id), all = orders.filter((o) => o.slot === r.slot), mine = all.filter(from);
+      done.push(...all.filter((o) => !from(o)).map((o) => ({ id: o.id, ok: false, error: 'sent before the resort changed hands' })));
       if (mine.length) done.push(...await pages[k].ev(pageOrders(mine)));
     }
     for (const o of done) await db.update('match_orders', { id: o.id }, { applied_day: day, error: o.ok ? null : o.error });
@@ -123,9 +154,14 @@ async function playDay(db, game, lobby) {
       if (o.kind === 'price' && o.payload.ticket != null) said.push(`${who} set its lift ticket at ${dollars(o.payload.ticket)}.`);
     }
     // The town's skiers and pass buyers, shared; then every resort plays its day at once.
-    const alone = await Promise.all(pages.map((g) => g.ev(PAGE_ALONE)));
+    const alone = await Promise.all(pages.map((g, k) => (shut[k] ? { day: 0, passes: 0 } : g.ev(PAGE_ALONE))));
+    const held = await Promise.all(pages.map((g, k) => (shut[k] ? g.ev(MOTHBALL) : null))); // put back after the day: shut costs nothing
     const share = splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = splitSkiers(alone.map((a) => a.passes));
     const results = await Promise.all(pages.map((g, k) => g.ev(pagePlay(share[k], passShare[k]))));
+    for (const [k, h] of held.entries()) if (h) {
+      await pages[k].ev(UNMOTHBALL(h));
+      Object.assign(results[k], { profit: 0, guests: 0, passes: 0, turnedAway: 0, cash0: Math.round(h.cash), debt0: Math.round(h.debt || 0), shut: true });
+    }
     await setWeather(pages.slice(1), await weatherOf(pages[0]));
     const rows = [];
     for (const [k, r] of resorts.entries()) {
@@ -136,6 +172,8 @@ async function playDay(db, game, lobby) {
     await db.upsert('match_resorts', rows);
     await db.upsert('match_days', [{ lobby_id: lobby.id, day, results: { wx: results[0].wx, alone, share, passShare, resorts: results.map((x, k) => ({ slot: resorts[k].slot, ...x })) } }]);
     await db.update('match_lobbies', { id: lobby.id }, { day });
+    // Fresh starts given: noted once the resorts are saved, so a day that fails gives it again next time.
+    for (const p of rescued) await db.update('match_players', { lobby_id: lobby.id, slot: p.slot }, { rescue_due: false });
     const snow = +(String(results[0].wx).match(/([\d.]+)in/) || [])[1] || 0;
     if (snow >= 6) said.unshift(`Powder day! ${snow} inches of new snow overnight.`);
     await news(db, lobby, day, [...new Set(said)]);
@@ -154,13 +192,15 @@ async function playDay(db, game, lobby) {
 async function finish(db, lobby, rows) {
   const players = await db.select('match_players', { lobby_id: lobby.id });
   const ranked = [...rows].sort((a, b) => b.summary.profit - a.summary.profit), badges = [];
+  // A badge or a win only for a player who ran their resort at least half the season (a claimed one, say).
+  const long = (p) => p && p.user_id && lobby.days - (p.joined_day || 0) >= lobby.days / 2;
   ranked.forEach((r, i) => {
     const p = players.find((q) => q.slot === r.slot);
-    if (p && p.user_id && i < 3 && lobby.kind !== 'custom') badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
+    if (long(p) && i < 3 && lobby.kind !== 'custom') badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
   });
   if (badges.length) await db.upsert('match_badges', badges);
   // Every resort's place, for players' played and won counts (match-custom.sql). Skipped until that's run.
-  try { for (const [i, r] of ranked.entries()) await db.update('match_players', { lobby_id: lobby.id, slot: r.slot }, { place: i + 1 }); }
+  try { for (const [i, r] of ranked.entries()) { const p = players.find((q) => q.slot === r.slot); if (!p || !p.user_id || long(p)) await db.update('match_players', { lobby_id: lobby.id, slot: r.slot }, { place: i + 1 }); } }
   catch (e) { log(`${lobby.name}: places skipped (${e.message.slice(0, 80)})`); }
   await db.update('match_lobbies', { id: lobby.id }, { status: 'finished' });
   await news(db, lobby, lobby.days, [`Final standings: ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${dollars(r.summary.profit)}`).join(', ')}. Congratulations!`]);
