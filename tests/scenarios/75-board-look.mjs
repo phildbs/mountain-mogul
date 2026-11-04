@@ -1,16 +1,20 @@
 // The leaderboard's look: the top three on a stepped podium (first highest, then second, then third),
 // the rest in rows with a bar, ranking chips, and your own row pinned when you're past the list.
-// On wide screens the Community card heads the right-hand column; on phones it sits in line.
+// On wide screens, short ones too (a tablet on its side), the Community card heads the right-hand column; on phones it sits in line.
 import { openGame, eq, assert } from '../harness.mjs';
 const seed = `(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}');
   for (let i = 0; i < 30; i++) d.rows.push({ id: 'r' + i, owner: 'u' + i, public: true, updated_at: new Date().toISOString(), summary: { v: 1, mt: ['maple', 'juniper', 'raven'][i % 3], name: 'Resort ' + i, creator: i % 4 ? 'P' + i : '', guest: !(i % 4), stars: i % 5, when: 'Season 1', trails: 5, lifts: 2, buildings: 3, bestGuests: 9000 - i * 200, bestDayProfit: 1000, bestSeasonProfit: 10000, totalVisitors: 50000 - i * 100, rep: 1 } });
   localStorage.setItem('FAKE_DB', JSON.stringify(d)); })()`;
 export default async function ({ browser, url }) {
-  for (const [w, h, wide] of [[1280, 800, true], [390, 844, false]]) {
+  for (const [w, h, wide] of [[1280, 800, true], [1000, 505, true], [390, 844, false]]) {
     const g = await openGame(browser, url, { width: w, height: h });
     await g.page.evaluate(seed); await g.page.reload(); await g.wait(1500);
     await g.click('#startBtn'); await g.wait(300); await g.ev(`showTitle()`); await g.wait(300);
     eq(await g.ev(`[!$('titleComm').hidden, !!$('titleComm').querySelector('.ccard'), !!$('titleSlots').querySelector('.ccard')]`), [wide, wide, !wide], wide ? 'wide: community card heads the right column' : 'phone: community card in line');
+    if (wide) {
+      const r = await g.ev(`(() => { const b = (e) => e.getBoundingClientRect(), c = b($('titleComm')), t = b(document.querySelector('.tcards')), s = b($('titleSlots')); return { clear: c.left > s.right && t.left > s.right, stacked: t.top >= c.bottom - 1 }; })()`);
+      eq(r, { clear: true, stacked: true }, `${w}x${h}: the column is clear of your mountains, community above the other cards`);
+    }
     eq(await g.ev(`document.querySelectorAll('.ccard .cc-top li:not(.gap):not(.me)').length`), 3, 'with the top three');
     eq(await g.ev(`document.querySelector('.ccard .cc-top li.me .md').textContent`), '11', 'and you, further down');
     if (wide) { await g.ev(`$('titleComm').querySelector('[data-slot=board]').click()`); await g.wait(200); eq(await g.ev(`$('community').hidden`), false, 'its Leaderboard button opens the board'); }

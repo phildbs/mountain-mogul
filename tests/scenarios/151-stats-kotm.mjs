@@ -1,11 +1,11 @@
 // The owner's King of the Mountain tools on stats.html: make a lobby (start rounded to the half hour, with the
-// computer, kept-profit and title-screen flag switches), switch a setting and the flag, close a lobby, and hide or ban from the chat reports.
+// late-joining and title-screen flag switches; no computer players since Nov 4), switch a setting and the flag, close a lobby, and hide or ban from the chat reports.
 // Nobody else can use them.
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   const at = (min) => new Date(Date.now() + min * 60000).toISOString();
-  const match = { lobbies: [{ id: 'S1', name: 'Old Cup', map: 'match', slots: 3, starts_at: at(-90), days: 168, day_minutes: 30, status: 'running', day: 3, prize: null, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 }],
+  const match = { lobbies: [{ id: 'S1', name: 'Old Cup', map: 'match', slots: 3, starts_at: at(-90), days: 168, day_minutes: 30, status: 'running', day: 3, prize: null, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, late: true }],
     players: [{ lobby_id: 'S1', slot: 0, user_id: 'u-1', resort_name: 'Aspen Bowl', joined_day: 0 }, { lobby_id: 'S1', slot: 1, user_id: null, resort_name: 'Valley View', joined_day: 0 }],
     messages: [{ id: 7, lobby_id: 'S1', user_id: 'u-1', name: 'Aspen Bowl', body: 'spam spam', kind: 'chat', day: 3, hidden: false, created_at: at(-5) }],
     reports: [{ message_id: 7, user_id: 'u-2' }] };
@@ -23,17 +23,18 @@ export default async function ({ browser, url }) {
   assert(/Old Cup[\s\S]*running[\s\S]*day 3 of 168[\s\S]*Aspen Bowl · Valley View \(computer\)/i.test(t), `lobbies list their players (${t.slice(0, 400)})`);
   assert(/reported 1 time[\s\S]*spam spam/.test(t), `chat reports are listed (${t.slice(-300)})`);
 
-  // Make a lobby, without computers.
+  // Make a lobby, without late joining.
   await g.page.fill('#kNew [name=name]', 'Winter Cup');
   const start = new Date(Date.now() + 3 * 3600000); start.setMinutes(10, 0, 0);
   const p = (n) => String(n).padStart(2, '0');
   await g.page.fill('#kNew [name=starts]', `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}T${p(start.getHours())}:10`);
   await g.page.selectOption('#kNew [name=days]', '336');
-  await g.page.uncheck('#kNew [name=computers]');
+  await g.page.uncheck('#kNew [name=latejoin]');
+  eq(await g.page.$('#kNew [name=computers]'), null, 'no computer players to choose');
   await g.page.click('#kNew button[type=submit]');
   await g.page.waitForFunction(() => /Made “Winter Cup”/.test(document.getElementById('kotm').innerText), null, { timeout: 10000 });
   const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Winter Cup'));
-  eq([made.days, made.slots, made.computers, made.keep_profit, made.flag, new Date(made.starts_at).getMinutes()], [336, 3, false, true, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
+  eq([made.days, made.slots, made.computers, made.late, made.flag, new Date(made.starts_at).getMinutes()], [336, 3, false, false, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
   // The title screen flag can be switched off and on again from the lobby list.
   const flagOf = () => g.page.evaluate((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag, made.id);
   await g.page.waitForSelector(`[data-kflag=${made.id}]`, { timeout: 5000 });
@@ -47,8 +48,8 @@ export default async function ({ browser, url }) {
   eq(await g.page.$('[data-kflag=S1]'), null, 'a running match has no flag chip');
 
   // Switch a setting, close the old lobby.
-  await g.page.click('[data-kset=keep_profit][data-id=S1]');
-  await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === 'S1').keep_profit === false, null, { timeout: 5000 });
+  await g.page.click('[data-kset=late][data-id=S1]');
+  await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === 'S1').late === false, null, { timeout: 5000 });
   g.page.once('dialog', (d) => d.accept());
   await g.page.click('[data-kclose=S1]');
   await g.page.waitForFunction(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === 'S1').status === 'closed', null, { timeout: 5000 });

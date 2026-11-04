@@ -37,7 +37,7 @@ export default async function ({ browser, url }) {
   const built = await g.ev(`(() => {
     state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();
     const lift = (a, b) => { const i = evalLift(a, b, 'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i, 'double'); computeNetwork(); return world.lifts[world.lifts.length - 1]; };
-    const trail = (w) => { const pts = w.map(([x, z]) => ({ x, z, y: heightAt(x, z) })), t = evalTrail(pts, 'wide'); if (t.an.problems.length) throw new Error('trail: ' + t.an.problems); commitTrail(t, pts, 'wide'); computeNetwork(); return world.trails[world.trails.length - 1]; };
+    const trail = (w) => { const pts = w.map(([x, z]) => ({ x, z, y: heightAt(x, z) })), t = evalTrail(pts, 'wide'); if (t.an.problems.length) throw new Error('trail: ' + t.an.problems); commitTrail(t, pts, 'wide'); computeNetwork(); return realTrails().at(-1); };
     const LB = lift({ x: -36, z: 44 }, { x: -31, z: -10 }), LE = lift({ x: 40, z: 26 }, { x: 30, z: -22 });
     trail([[-34, -8], [-59, 10], [-54, 23], [-40, 46]]); // a green down the beginner peak
     trail([[27, -20], [7, -3], [8, 14], [36, 28]]); trail([[33, -20], [51, -13], [65, 0], [58, 15], [44, 28]]); // a blue and a double black off the expert peak

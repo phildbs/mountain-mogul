@@ -23,6 +23,9 @@ export default async function ({ browser, url }) {
   assert(far > HALF_OF(), `the view reaches past the old map edge (${Math.round(far)})`);
   const saved = await g.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('skiTycoon') && /"mt":"match"/.test(localStorage.getItem(k) || '')));
   eq(saved, [], 'the demo is never saved');
+  await g.ev(`openWhatsNew()`);
+  eq(await g.ev(`$('wnTabs').querySelector('[aria-pressed=true]').dataset.wn`), 'kotm', 'in a match, What’s new opens on the King of the Mountain tab');
+  if (process.env.SHOTS) { await g.page.setViewportSize({ width: 390, height: 844 }); await g.wait(400); await g.page.screenshot({ path: 'whats-new-kotm.png' }); }
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

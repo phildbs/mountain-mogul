@@ -24,15 +24,15 @@ export default async function ({ browser, url }) {
 
   // A guest: sees what's on, is asked to sign in, and can't join.
   assert(await g.page.isVisible('#mpCard') && /King of the Mountain/i.test(await g.page.innerText('#mpCard')) && /Multiplayer/i.test(await g.page.innerText('#mpCard')), 'the King of the Mountain card, marked Multiplayer, is on the title screen');
-  // The orange flag names the open lobby with room (the full one starting sooner is skipped), and stays after a look.
-  const flag = () => g.ev(`$('newMtn').hidden ? null : $('newMtn').innerText.replace(/\\s+/g, ' ').trim()`);
+  // The card names the open lobby with room (the full one starting sooner is skipped), and keeps it after a look.
+  const flag = () => g.ev(`$('mpFlag').hidden ? null : $('mpFlag').innerText.replace(/\\s+/g, ' ').trim()`);
   await g.ev('LOBBY_FLAG.at = 0; loadLobbyFlag()'); // the lobbies above were added after the page loaded
-  await g.page.waitForFunction(() => /Winter Cup/.test(document.getElementById('newMtn').innerText), null, { timeout: 10000 });
-  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'an orange flag names the open lobby and its spots left');
-  await g.click('#newMtn'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
-  eq(await g.ev(`$('newMtn').hidden`), true, 'the flag opens King of the Mountain (and hides behind it)');
+  await g.page.waitForFunction(() => /Winter Cup/.test(document.getElementById('mpFlag').innerText), null, { timeout: 10000 });
+  eq(await flag(), 'Join Winter Cup · 2 spots left', 'the card names the open lobby and its spots left');
+  eq(await g.ev(`$('newMtn').hidden`), true, 'no orange pill: the card is enough');
+  await g.click('#mpCard'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
   await g.click('#mpClose'); await g.ev('renderSlots()'); await g.wait(600);
-  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'and is back after closing it, while the lobby has room');
+  eq(await flag(), 'Join Winter Cup · 2 spots left', 'and still after closing it, while the lobby has room');
   await open();
   let t = await body();
   assert(/Sign in to play/.test(t) && !/Your matches/i.test(t), 'a guest is asked to sign in');
@@ -58,7 +58,12 @@ export default async function ({ browser, url }) {
   t = await body();
   assert(!/Sign in to play/.test(t), 'no sign-in note once signed in');
   assert(/Your matches[\s\S]*Test Cup[\s\S]*now 2nd of 3[\s\S]*Day 13 of 168[\s\S]*next day in/i.test(t), `a running match shows your place and the day (${t.slice(0, 300)})`);
-  assert(/Old Cup[\s\S]*you came 2nd of 2/.test(t), 'a finished match shows where you came');
+  assert(!/Old Cup/.test(t.split(/Past matches/i)[0]) && /Past matches\s*1/i.test(t) && !/you came/.test(t), 'a finished match is folded away under Past matches, at the bottom');
+  assert(await g.page.$('.mp-makecard[data-mp=make]'), 'with a Make a match card');
+  await g.page.click('#mpPast summary'); await g.wait(200);
+  t = await body();
+  assert(/Past matches[\s\S]*Old Cup[\s\S]*you came 2nd of 2/i.test(t), 'opened, it shows where you came');
+  await g.ev('renderMp()'); eq(await g.ev(`$('mpPast').open`), true, 'and stays open when the list refreshes');
   assert(/1st · Summit Ridge\s*\$45,315/.test(t), 'with its league table');
   assert(/Full Cup[\s\S]*Full/.test(t), 'a full lobby says so');
   const gotSave = await g.ev(`MP.resorts.some((r) => r.save)`);

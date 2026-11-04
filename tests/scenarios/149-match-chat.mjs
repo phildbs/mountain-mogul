@@ -21,7 +21,9 @@ export default async function ({ browser, url }) {
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
   const into = async (id) => {
-    await g.click('#mpCard'); await g.page.waitForSelector(`[data-mp=open][data-id=${id}]`, { timeout: 10000 }); await g.page.click(`[data-mp=open][data-id=${id}]`);
+    await g.click('#mpCard'); await g.page.waitForSelector(`[data-mp=open][data-id=${id}]`, { state: 'attached', timeout: 10000 });
+    await g.ev(`(() => { const p = document.getElementById('mpPast'); if (p && p.querySelector('[data-id=${id}]')) p.open = true; })()`); // a finished match is under Past matches, folded
+    await g.page.click(`[data-mp=open][data-id=${id}]`);
     await g.reloaded(); await g.page.waitForFunction(() => window.__dbg('!!matchView && MC.lid'), null, { timeout: 20000 }); await g.wait(800);
   };
   await into('C1');

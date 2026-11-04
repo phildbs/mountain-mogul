@@ -2,10 +2,14 @@
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url, { render: true });
+  // Notes whether the title screen ever shows with the loading screen gone, after each reload onto a mountain.
+  await g.page.addInitScript(() => { const look = () => { const t = document.getElementById('title'); if (t && !t.hidden && !t.classList.contains('out') && !document.getElementById('loading')) window.__titleFlash = true; requestAnimationFrame(look); }; requestAnimationFrame(look); });
+  const noFlash = async (what) => eq(await g.page.evaluate(() => !!window.__titleFlash), false, `${what}: the loading screen stays up until it's there, with no title in between`);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(600);
   await g.click('[data-slot=new]'); await g.wait(100);
   await g.click('[data-slot=pick][data-mt=raven]'); await g.reloaded();
   eq(await g.ev(`MOUNTAIN.id + '/' + state.started + '/' + Math.round(state.cash)`), 'raven/true/2000000', 'started on Raven Peak');
+  await noFlash('a new Raven Peak mountain');
   await g.ev(`(() => { const i = evalLift({x:0,z:56},{x:-5,z:-10},'double'); commitLift(i,'double'); computeNetwork(); syncLabels(); saveNow(); cloudSave(true); })()`); await g.wait(300);
   await g.ev(`$('mTitle').onclick()`); await g.wait(500);
   await g.click('[data-slot=new]'); await g.wait(100); await g.click('[data-slot=pick][data-mt=juniper]'); await g.reloaded();
@@ -14,9 +18,11 @@ export default async function ({ browser, url }) {
   const raven = await g.ev(`slots.list.find(s => s.mountain === 'raven').id`);
   await g.click(`[data-slot=play][data-id="${raven}"]`); await g.reloaded();
   eq(await g.ev(`MOUNTAIN.id + '/' + world.lifts.length`), 'raven/1', 'back on Raven with its lift');
+  await noFlash('playing your own mountain');
   await g.ev(`$('mTitle').onclick()`); await g.wait(500);
   await g.click('#tutBtn'); await g.reloaded();
   eq(await g.ev(`MOUNTAIN.id + '/' + practice`), 'juniper/true', 'tutorial runs on Juniper');
+  await noFlash('the tutorial');
   await g.ev(`$('mTitle').onclick()`); await g.reloaded();
   eq(await g.ev(`MOUNTAIN.id + '/' + world.lifts.length`), 'raven/1', 'leaving the tutorial returns to Raven intact');
   // leaderboards are per mountain; visiting a resort on the other mountain reloads and comes back
@@ -26,6 +32,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`ranked('guests', 'juniper').some(m => m.id === 'theirs')`), true, 'but on the Juniper board');
   await g.ev(`visitResort('theirs')`); await g.reloaded(); await g.wait(1500);
   eq(await g.ev(`MOUNTAIN.id + '/' + (visiting && visiting.name)`), 'juniper/Their Hill', 'visiting on Juniper');
+  await noFlash('a visit');
   await g.click('#visitHome'); await g.reloaded();
   eq(await g.ev(`MOUNTAIN.id + '/' + world.lifts.length + '/' + JSON.parse(localStorage.getItem(slotKey(slots.active))).world.lifts.length`), 'raven/1/1', 'Raven save untouched after everything');
   assert(!g.errors.length, 'no page errors: ' + g.errors[0]);

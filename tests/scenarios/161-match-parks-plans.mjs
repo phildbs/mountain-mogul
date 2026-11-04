@@ -63,6 +63,8 @@ export default async function ({ browser, url }) {
   assert(u1 !== u2, 'each blueprint has its own id');
   eq(await g.ev(`world.lifts.length`), await g.ev(`${JSON.stringify(save.world.lifts.length)}`), 'nothing is built yet');
 
+  // The Plans button shows in the menu, as in a resort of your own (it was hidden by a style left from before blueprints).
+  eq(await g.ev(`(() => { const b = $('manage').querySelector('[data-m=plans]'); return !b.hidden && getComputedStyle(b).display !== 'none' && b.querySelector('.cnt').textContent; })()`), '2', 'the Plans button shows in the menu, with the count');
   // The blueprint list: move the second one up, pause it.
   await g.ev(`select({ kind: 'manage', obj: 'plans' })`); await g.wait(200);
   const id2 = await g.ev(`world.plans.find((p) => p.uid === '${u2}').id`);

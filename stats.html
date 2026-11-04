@@ -183,6 +183,7 @@ details > summary { cursor: pointer; }
 .khead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .kstat { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; background: var(--line-soft); }
 .kstat.open { background: rgba(44, 154, 85, 0.14); color: #1f7a42; } .kstat.running { background: rgba(217, 154, 20, 0.16); color: #8a5d00; }
+.kkind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--line-soft); color: var(--ink-2); } .kkind.official { background: rgba(217, 154, 20, 0.18); color: #7a5410; }
 .kchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .kchip[aria-pressed="true"] { background: var(--ink) !important; color: #fff !important; border-color: var(--ink) !important; }
 .klobby .kclose { color: var(--bad); }
@@ -436,16 +437,16 @@ details > summary { cursor: pointer; }
   function renderKotm() {
     const el = $('kotm'); if (!el || !kot) return;
     const start = localInput(nextHalfHour());
-    const create = `<section class="card"><h2>New lobby</h2><p class="note">Players see it under King of the Mountain on the title screen and can join until it starts. It starts on the hour or half hour (later times are rounded up), with a new game day every 30 minutes.</p>
+    const create = `<section class="card"><h2>New lobby</h2><p class="note">Players see it under King of the Mountain on the title screen and can join until it starts. It starts on the hour or half hour (later times are rounded up). Lobbies made here are the official tournaments: the top three players get badges on their profiles. Matches players make themselves show below too, marked Player match.</p>
       <form class="kform" id="kNew">
         <label>Name<input name="name" maxlength="60" required placeholder="Winter Cup"></label>
         <label>Starts<input name="starts" type="datetime-local" value="${start}" required></label>
         <label>Resorts<select name="slots"><option value="3">3 (every slice of Crown Peak)</option><option value="2">2 (one slice stays empty)</option></select></label>
+        <label>A new day every<select name="turn"><option value="30">30 minutes</option><option value="15">15 minutes</option><option value="10">10 minutes</option></select></label>
         <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(l)}</option>`).join('')}</select></label>
         <label>Prize badge<input name="prize" maxlength="60" placeholder="Winter Cup champion (the default)"></label>
         <label>Late joining until day<input name="late" type="number" min="0" max="400" placeholder="a quarter of the match"></label>
-        <label class="kcheck"><input type="checkbox" name="computers" checked> Computer resorts run the empty slices <small>Off: empty slices stay untouched until someone joins</small></label>
-        <label class="kcheck"><input type="checkbox" name="keep" checked> A late joiner keeps the computer’s profit <small>Off: their profit starts at $0 the day they join</small></label>
+        <label class="kcheck"><input type="checkbox" name="latejoin" checked> Late joining <small>Off: nobody can join once it has started</small></label>
         <label class="kcheck"><input type="checkbox" name="flag" checked> Flag it on the game’s title screen <small>An orange “Name · 3 spots left” flag for everyone, until it’s full or starts</small></label>
         <div><button type="submit"${kotBusy ? ' disabled' : ''}>${kotBusy ? 'Making it…' : 'Make the lobby'}</button> <span class="note" id="kMsg"></span></div>
       </form></section>`;
@@ -454,9 +455,10 @@ details > summary { cursor: pointer; }
     const onoff = (l, key, label) => `<button class="kchip" data-kset="${key}" data-id="${l.id}" aria-pressed="${l[key] !== false}">${label}: ${l[key] !== false ? 'on' : 'off'}</button>`;
     const lobbies = `<section class="card"><h2>Lobbies</h2><p class="note">Newest first. Closed lobbies leave this list and the game.</p>${kot.lobbies.length ? `<div class="klist">${kot.lobbies.map((l) => {
       const ps = who(l);
-      return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b><span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.slots} resorts · ${l.days} days</span></div>
+      const kind = l.kind === 'custom' ? `<span class="kkind">Player match${l.locked ? ' · password' : ''}</span>` : '<span class="kkind official">Official</span>';
+      return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b>${kind}<span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.slots} resorts · ${l.days} days · ${l.day_minutes}-minute days</span></div>
         <div class="note">${ps.length ? ps.map((p) => `${esc(p.resort_name)}${p.user_id ? '' : ' (computer)'}${p.joined_day ? ` · joined day ${p.joined_day}` : ''}`).join(' · ') : 'Nobody has joined yet.'}</div>
-        ${'computers' in l ? `<div class="kchips">${onoff(l, 'computers', 'Computer resorts')}${onoff(l, 'keep_profit', 'Keep computer’s profit')}${'flag' in l && l.status === 'open' ? `<button class="kchip" data-kflag="${l.id}" aria-pressed="${!!l.flag}">Title screen flag: ${l.flag ? 'on' : 'off'}</button>` : ''}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
+        ${'computers' in l ? `<div class="kchips">${'late' in l && l.status !== 'finished' ? onoff(l, 'late', 'Late joining') : ''}${'flag' in l && l.status === 'open' ? `<button class="kchip" data-kflag="${l.id}" aria-pressed="${!!l.flag}">Title screen flag: ${l.flag ? 'on' : 'off'}</button>` : ''}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
         ${l.status === 'finished' ? '' : `<div><button class="kclose" data-kclose="${l.id}">Close this lobby</button></div>`}</div>`;
     }).join('')}</div>` : '<p class="note">No lobbies yet. Make one above.</p>'}</section>`;
     const reps = kot.reports;
@@ -480,8 +482,11 @@ details > summary { cursor: pointer; }
     let err = error;
     if (!err) {
       const late = String(f.get('late') || '').trim();
-      const s = await sb.rpc('admin_match_settings', { lid: id, pcomputers: f.get('computers') === 'on', pkeep: f.get('keep') === 'on', plate_days: late === '' ? null : +late });
+      const s = await sb.rpc('admin_match_settings', { lid: id, pcomputers: false, plate_days: late === '' ? null : +late });
       if (s.error && !/admin_match_settings/.test(s.error.message)) err = s.error;
+      // Shorter turns need supabase/match-custom.sql; without it the lobby is still made, with 30-minute days.
+      if (!err && f.get('latejoin') !== 'on') { const t = await sb.rpc('admin_match_late', { lid: id, plate: false }); if (t.error) err = { message: `Made it, but late joining is still on: ${/admin_match_late/.test(t.error.message) ? 'run supabase/match-options.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
+      if (!err && +f.get('turn') !== 30) { const t = await sb.rpc('admin_match_turn', { lid: id, pminutes: +f.get('turn') }); if (t.error) err = { message: `Made it, but with 30-minute days: ${/admin_match_turn/.test(t.error.message) ? 'run supabase/match-custom.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
       // The title screen flag needs supabase/match-flag.sql; without it the lobby is still made, unflagged.
       if (!err && f.get('flag') === 'on') { const r = await sb.rpc('admin_match_flag', { lid: id, pflag: true }); if (r.error) err = { message: `Made it, but couldn’t flag it: ${/admin_match_flag/.test(r.error.message) ? 'run supabase/match-flag.sql in the Supabase SQL Editor first' : r.error.message}.` }; }
     }
@@ -494,7 +499,7 @@ details > summary { cursor: pointer; }
     if (!set && !close && !hide && !ban && !flag) return;
     let r;
     if (flag) { const l = kot.lobbies.find((x) => x.id === flag.dataset.kflag); r = await sb.rpc('admin_match_flag', { lid: l.id, pflag: !l.flag }); }
-    if (set) { const l = kot.lobbies.find((x) => x.id === set.dataset.id); r = await sb.rpc('admin_match_settings', { lid: l.id, [set.dataset.kset === 'computers' ? 'pcomputers' : 'pkeep']: l[set.dataset.kset] === false }); }
+    if (set) { const l = kot.lobbies.find((x) => x.id === set.dataset.id), k = set.dataset.kset; r = k === 'late' ? await sb.rpc('admin_match_late', { lid: l.id, plate: l.late === false }) : await sb.rpc('admin_match_settings', { lid: l.id, [k === 'computers' ? 'pcomputers' : 'pkeep']: l[k] === false }); }
     if (close) { if (!confirm('Close this lobby? It leaves the game for everyone, and a running match stops.')) return; r = await sb.rpc('admin_match_close', { lid: close.dataset.kclose }); }
     if (hide) r = await sb.rpc('admin_chat_hide', { mid: +hide.dataset.khide, hide: hide.dataset.v === 'true' });
     if (ban) { if (!confirm('Stop this account posting in match chat for 7 days?')) return; r = await sb.rpc('admin_chat_ban', { uid: ban.dataset.kban, days: 7, why: 'reported in match chat' }); }

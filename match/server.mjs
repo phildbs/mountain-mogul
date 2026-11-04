@@ -2,12 +2,13 @@
 //   SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_KEY=... node match/server.mjs
 // The service key lives only on the server (in /etc/mm-match.env there), never in this repo or the game.
 // Each minute it checks the lobbies:
-//   - an open lobby whose start time has passed starts: empty slices get computer-run resorts and every
-//     resort is created on the match map (Crown Peak). A lobby nobody joined is closed instead.
+//   - an open lobby whose start time has passed starts: every player's resort is created on the match map
+//     (Crown Peak) and empty slices stay empty. A lobby nobody joined is closed instead.
 //   - a running lobby plays the days that are due: day N at the start time plus N day lengths, so players
 //     have the first day length to build before opening day. Each day it loads every resort, applies the
 //     players' orders overnight, shares the town's skiers, plays the day for all resorts at once and saves.
-//   - after the last day it ranks the resorts by season profit and gives badges to the top three players.
+//   - after the last day it ranks the resorts by season profit, notes each place, and gives badges to the top
+//     three players of an official lobby.
 // The games run in an invisible browser on the match map, which never saves anything itself.
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -18,6 +19,10 @@ import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY } 
 import { restDb } from './db.mjs';
 
 const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest'], COMPUTER_PRICE = 65;
+// No computer players in multiplayer (Phil, Nov 4): new matches leave empty slices empty, whatever the lobby says.
+// Matches already running keep the computer resorts they started with, and late joiners can still take them over.
+// The test turns them on to keep checking that older code path.
+export const SETTINGS = { computers: false };
 const MAX_DAYS_PER_TICK = 3; // catching up after the server was down: a few days a minute, not all at once
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const dollars = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
@@ -48,7 +53,7 @@ async function startLobby(db, game, lobby) {
   if (!players.some((p) => p.user_id)) { await db.update('match_lobbies', { id: lobby.id }, { status: 'closed' }); log(`${lobby.name}: nobody joined, closed`); return; }
   const taken = new Set(players.map((p) => p.slot)), extra = [];
   // Empty slices get computer resorts, unless the lobby keeps them empty until someone joins.
-  if (lobby.computers !== false) for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
+  if (SETTINGS.computers && lobby.computers !== false) for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
   if (extra.length) await db.insert('match_players', extra);
   const all = [...players, ...extra].sort((a, b) => a.slot - b.slot), rows = [];
   let wx = null;
@@ -140,15 +145,18 @@ async function playDay(db, game, lobby) {
 // The league table decides the badges: most season profit wins. Season profit is what the resort made running each
 // day (tickets, food, passes, less running costs); what a player spends building comes out of cash, not profit,
 // so building a bigger resort is never a loss in the table. Places count every resort, computers included;
-// only players get badges.
+// only players get badges, and only in official lobbies (Phil's); matches players make count as played and won.
 async function finish(db, lobby, rows) {
   const players = await db.select('match_players', { lobby_id: lobby.id });
   const ranked = [...rows].sort((a, b) => b.summary.profit - a.summary.profit), badges = [];
   ranked.forEach((r, i) => {
     const p = players.find((q) => q.slot === r.slot);
-    if (p && p.user_id && i < 3) badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
+    if (p && p.user_id && i < 3 && lobby.kind !== 'custom') badges.push({ user_id: p.user_id, lobby_id: lobby.id, place: i + 1, title: i === 0 ? lobby.prize || `${lobby.name} champion` : `${['', '1st', '2nd', '3rd'][i + 1]} in ${lobby.name}` });
   });
   if (badges.length) await db.upsert('match_badges', badges);
+  // Every resort's place, for players' played and won counts (match-custom.sql). Skipped until that's run.
+  try { for (const [i, r] of ranked.entries()) await db.update('match_players', { lobby_id: lobby.id, slot: r.slot }, { place: i + 1 }); }
+  catch (e) { log(`${lobby.name}: places skipped (${e.message.slice(0, 80)})`); }
   await db.update('match_lobbies', { id: lobby.id }, { status: 'finished' });
   await news(db, lobby, lobby.days, [`Final standings: ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${dollars(r.summary.profit)}`).join(', ')}. Congratulations!`]);
   log(`${lobby.name}: finished. ${ranked.map((r, i) => `${i + 1}. ${r.summary.name} ${r.summary.profit}`).join(', ')}`);
@@ -205,6 +213,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       try { const there = git('ls-remote', 'origin', branch).split(/\s/)[0]; if (there && there !== here) { log(`update found (${there.slice(0, 7)}), restarting`); await game.close(); process.exit(0); } }
       catch (e) { log('update check failed:', e.message); }
     }
-    await new Promise((r) => setTimeout(r, 60000));
+    // Wake just after the next whole minute: days start on whole minutes, and a 10-minute turn can't wait long.
+    await new Promise((r) => setTimeout(r, 60000 - (Date.now() % 60000) + 2000));
   }
 }

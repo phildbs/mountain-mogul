@@ -41,6 +41,13 @@ export default async function ({ browser, url }) {
     // 2b. The nearest placed rack is full too: the next free one, never the snow.
     rackUse.set(R.id, 40);
     const b2 = guest(); startVisit(b2, L, 'warm', { k: 'base' }); go(b2); out.nextFree = b2.rack === R2.id;
+    // 2c. A placed rack about 40 m from the door still serves it (Silver Lake's were 30 to 50 m away); one 60 m away doesn't.
+    const keep = { x: R2.x, z: R2.z }; R2.x = L.door.x + 4; R2.z = L.door.z;
+    const b3 = guest(); startVisit(b3, L, 'warm', { k: 'base' }); out.reach40 = b3.then.rid === R2.id;
+    R2.x = L.door.x + 6;
+    const b4 = guest(); startVisit(b4, L, 'warm', { k: 'base' }); out.reach60 = b4.then.rid === undefined;
+    out.checks = [/Close enough/.test(rackChecks({ x: L.door.x + 4, z: L.door.z })), /Too far/.test(rackChecks({ x: L.door.x + 6, z: L.door.z }))];
+    Object.assign(R2, keep);
     rackUse.set(R2.id, 40);
     // 3. Every rack full: skis in the snow by the door. It stings once, and only once a day.
     const c = guest(), csat = c.sat, n0 = today.complaints.rack || 0; startVisit(c, L, 'warm', { k: 'base' });
@@ -61,17 +68,17 @@ export default async function ({ browser, url }) {
     // 6. Gift kiosks are ski-in, ski-out.
     const f = guest(); startVisit(f, K, 'shop', { k: 'base' }); out.giftDoor = f.then.rid === undefined && f.tx === K.door.x; go(f); out.giftSkis = [f.rack === undefined, f.onSkis];
     K.q.seat = K.q.seat.filter((x) => x !== f);
-    for (const k of [a, b, b2, c, d, e, f]) { k.gone = true; gById.delete(k.id); }
+    for (const k of [a, b, b2, b3, b4, c, d, e, f]) { k.gone = true; gById.delete(k.id); }
     guests = guests.filter((k) => !k.gone); rackMin = -1;
     // The cards say what the racks hold.
     select({ kind: 'bld', obj: L }); renderSheet(); out.lodgeCard = /ski rack by the door holds 126 pairs/.test($('sheet').textContent) && /pairs on its ski rack/.test($('sheet').textContent);
-    select({ kind: 'bld', obj: R }); renderSheet(); out.rackCard = /of 40 pairs of skis on the rack/.test($('sheet').textContent);
+    select({ kind: 'bld', obj: R }); renderSheet(); out.rackCard = /of 40 pairs of skis on the rack/.test($('sheet').textContent) && /Close enough/.test($('sheet').textContent);
     select(null);
     return out;
   })()`);
   eq(steps, {
     toOwnRack: true, dropped: [true, false, 'bld'], inLine: 'bq', backForSkis: true, pickedUp: [null, true, true],
-    toPlaced: true, onPlaced: true, nextFree: true,
+    toPlaced: true, onPlaced: true, nextFree: true, reach40: true, reach60: true, checks: [true, true],
     toDoor: true, snow: [true, 3, 1, 1], snowPickup: true, once: [1, 2],
     easy: [true, true, 1, true], noSkis: true, giftDoor: true, giftSkis: [true, true], lodgeCard: true, rackCard: true,
   }, 'skis go on the nearest free rack, then in the snow; the first-days grace and once-a-day sting hold');
