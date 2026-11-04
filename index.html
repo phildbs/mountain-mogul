@@ -2425,7 +2425,7 @@ MATCH_MAPS.match = {
 // The faces are evenly pitched, gentler and smoother along each valley's sides than down its middle, so a green can
 // wind down from every summit, turning on the gentle sides, and a blue can come more directly; the viewer lays an
 // example of each (`runTurns`) and rates it.
-const RIDGE = { b: [-0.5, 0, 0.5, 1, 1.5], crest: 1.1, top: 1.04, base: 0.05,
+const RIDGE = { b: [-0.5, 0, 0.5, 1, 1.5], crest: 1.1, top: 1.04, base: 0.065, // base: where each base road ends, high enough for a first row of parking on the slice's own land
   // each valley's steep ground (see slope): 1 a short steep pitch low down; 2 a headwall under the summit;
   // 3 a band of chutes halfway; 4 a steep pitch above its bench
   // (each off towards one side, steep ground under the spurs, as real resorts' black runs often are)
@@ -2460,9 +2460,9 @@ MATCH_MAPS.ridge = {
   viewCentre: [0.5, 0.55], viewSpan: 360, viewAz: 0.2, farE: 100, // more ground past the map, for the ends of the ridge
   get area() { return this.sliceAreas[1]; }, // in a player's game, the strip that sits in the usual square
   // the valley road from town (off the east end), and a spur up to each base
-  road: catmull([[1.85, -0.15], [1.3, -0.11], [0.75, -0.1], [0.3, -0.09], [0.25, -0.02], [0.25, 0.04]], 10),
-  roads: [catmull([[0.3, -0.09], [-0.2, -0.1], [-0.75, -0.12]], 10), catmull([[-0.25, -0.1], [-0.25, 0.04]], 4),
-    catmull([[0.75, -0.1], [0.75, 0.04]], 4), catmull([[1.25, -0.11], [1.25, 0.04]], 4)],
+  road: catmull([[1.85, -0.15], [1.3, -0.11], [0.75, -0.1], [0.3, -0.09], [0.25, -0.02], [0.25, RIDGE.base]], 10),
+  roads: [catmull([[0.3, -0.09], [-0.2, -0.1], [-0.75, -0.12]], 10), catmull([[-0.25, -0.1], [-0.25, RIDGE.base]], 4),
+    catmull([[0.75, -0.1], [0.75, RIDGE.base]], 4), catmull([[1.25, -0.11], [1.25, RIDGE.base]], 4)],
   creek: catmull([[-0.75, -0.2], [0, -0.2], [0.6, -0.21], [1.2, -0.19], [1.85, -0.22]], 12),
   // Each face levels off into a broad, smooth flat top below the crest: every slice's summit, room for lift
   // stations and a lodge, with nothing dug or filled, so the runs leave it without a lip.
@@ -21644,6 +21644,32 @@ function viewParcels() {
   grp.visible = out.length > 0; scene.add(grp);
   return { grp, out };
 }
+// Each slice's main parking, laid out as the game lays a main lot (slotOrigin: sections east from where the base
+// road ends, rows growing downhill): the first row where it fits on the slice's own land, and a second row below it
+// where the land for sale would take it. Dark: no land needed; light: needs that land bought.
+function viewLots() {
+  const grp = new THREE.Group(), out = [], dark = new THREE.MeshBasicMaterial({ color: 0x4c515b, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, fog: false });
+  const light = dark.clone(); light.opacity = 0.4;
+  const inLand = (x, z, k) => sliceAt(x + HALF, z + HALF) === k;
+  const onSale = (x, z, k) => ((MOUNTAIN.parcels || [])[k] || []).some((P) => { const a = uvWorld([P.u0, P.v1]), b = uvWorld([P.u1, P.v0]); return x >= a.x - 0.01 && x <= b.x + 0.01 && z >= a.z - 0.01 && z <= b.z + 0.01; });
+  if (MOUNTAIN.sliceAreas) for (let k = 0; k < MOUNTAIN.slices; k++) {
+    const e = viewBase(k), n = [0, 0];
+    for (let row = 0; row < 2; row++) for (let col = 0; col < 8; col++) {
+      const x0 = e.x + 0.9 + col * (LOT.w + 0.7), z0 = e.z - 1.2 + row * (LOT.d + 0.7), C = [[x0, z0], [x0 + LOT.w, z0], [x0, z0 + LOT.d], [x0 + LOT.w, z0 + LOT.d]];
+      const own = C.every(([x, z]) => inLand(x, z, k)), buy = !own && C.every(([x, z]) => inLand(x, z, k) || onSale(x, z, k));
+      if (!own && !buy) break;
+      if (row === 0 && !own) break; // the first row has to be on your own land, as in the game
+      n[row]++;
+      const pos = [], idx = [], N = 4;
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const x = x0 + LOT.w * i / N, z = z0 + LOT.d * j / N; pos.push(x, heightAt(x, z) + 0.2, z); if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); } }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+      const m = new THREE.Mesh(geo, own ? dark : light); m.renderOrder = 5.5; grp.add(m);
+    }
+    out.push({ free: n[0], bought: n[1] });
+  }
+  scene.add(grp);
+  return { grp, out };
+}
 function viewTags() {
   const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
   const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
@@ -21695,7 +21721,7 @@ function viewSummer(on) {
   if (on) weatherFall = 0;
 }
 function viewPanel() {
-  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out, land = mapViewer.parcels.out;
+  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out, land = mapViewer.parcels.out, lots = mapViewer.lots.out;
   const runLine = (r, kind) => { const x = r[kind], want = { green: 0, blue: 1, black: 2 }[kind], ok = (kind === 'black' ? x.rating >= 2 : x.rating <= want) && !x.uphill;
     return `${ratingSymbol(x.rating, 11)} ${kind[0].toUpperCase() + kind.slice(1)} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : kind === 'black' ? ' <b class="warn">not steep enough</b>' : ' <b class="warn">too steep</b>'}`; };
   const maps = Object.values(MATCH_MAPS);
@@ -21703,6 +21729,7 @@ function viewPanel() {
       <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)}</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
+      ${lots[k] ? `<small>Parking: first row ${lots[k].free} sections (${lots[k].free * SPACES_PER_SECTION} spaces) on your own land; a second row of ${lots[k].bought} on the land for sale</small>` : ''}
       ${land[k] ? `<small>Land for sale below: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
       ${runs[k] ? `<small class="vrun">${Object.keys(runs[k]).map((kind) => runLine(runs[k], kind)).join('<br>')}</small>` : ''}</div>`).join('');
   const el = document.createElement('div');
@@ -21733,7 +21760,7 @@ function viewPanel() {
   tog('vTags', (on) => { $('viewTags').hidden = !on; });
   tog('vSummer', viewSummer);
   if ($('vRuns')) tog('vRuns', (on) => { mapViewer.runs.grp.visible = on; });
-  if ($('vLand')) tog('vLand', (on) => { mapViewer.parcels.grp.visible = on; });
+  if ($('vLand')) tog('vLand', (on) => { mapViewer.parcels.grp.visible = on; mapViewer.lots.grp.visible = on; });
   $('vTilt').oninput = (e) => { EL = +e.target.value * Math.PI / 180; $('vTiltV').textContent = `${e.target.value}°`; updateCamera(); hover.dirty = true; };
   $('vFold').onclick = () => { const open = $('vBody').hidden; $('vBody').hidden = !open; $('vFold').textContent = open ? '–' : '+'; $('vFold').setAttribute('aria-expanded', open); };
   if ($('vMap')) $('vMap').onchange = (e) => { location.search = `?mapView=${e.target.value}`; };
@@ -21747,7 +21774,7 @@ function mapViewStart() {
   if (!MOUNTAIN.sliceAreas) matchView = { demo: true, view: true, slot: 0, me: false, lobby: { name: 'Map viewer' }, players: [], resorts: Array.from({ length: MOUNTAIN.slices - 1 }, (_, k) => ({ slot: k + 1, save: empty, summary: {} })) };
   if (matchView) drawRivals(); // a map that lists its slices has its roads in the ground
   if (boundaryLine) boundaryLine.visible = false;
-  mapViewer.lines = viewLines(); mapViewer.runs = viewRuns(); mapViewer.parcels = viewParcels();
+  mapViewer.lines = viewLines(); mapViewer.runs = viewRuns(); mapViewer.parcels = viewParcels(); mapViewer.lots = viewLots();
   viewTags(); viewPanel();
   winterView = true; styleSnowVisuals();
   const to = viewWhole(MOUNTAIN.viewAz ?? 0.35);

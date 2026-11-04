@@ -407,6 +407,11 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Nov 4, Phil asked about land to buy. `parcels` on the map: per slice, two 40 × 16 parcels (west and east of the
   base road) from the foot of the slopes down to the valley road, ~16 acres each, ~2% grade. Viewer only
   (`viewParcels`, "Land for sale" toggle); the game's parcel code (`PARCELS`, Crown-only angle test) doesn't use it yet.
+- Nov 4, Phil: the first row of parking must not need bought land. `lotLandBlock` wants every corner of a section in
+  your property; row 0 spans `roadEnd` −1.2 to +7.2 (z), so with the base road ending at v 0.04 it stuck 0.8 out.
+  `RIDGE.base` is now 0.065 (all base roads end there). `viewLots` draws the main lot as `slotOrigin` lays it: 4
+  sections a slice in row 0 on own land (east of the road, up to the slice edge), 4 more in row 1 on the parcels.
+  Crown Peak, for comparison: row 0 grows to 9 sections on own land (1 + 8 in `lotReserve`).
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 
