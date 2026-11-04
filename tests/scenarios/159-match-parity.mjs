@@ -40,9 +40,20 @@ export default async function ({ browser, url }) {
   assert(up, 'with at least one choice');
   const cash = await g.ev('state.cash');
   eq(await press(`[data-action=liftUp][data-v=${up}]`), true, 'and it can be pressed');
-  eq(await g.ev(`[liftById(${lift}).type, state.cash < ${cash}]`), [up, true], 'the lift is upgraded on screen and paid for');
+  const was = await g.ev(`liftById(${lift}).type`);
+  eq(await g.ev(`[liftById(${lift}).type !== ${JSON.stringify(up)}, state.cash < ${cash}, /tonight/.test($('sheet').textContent)]`), [true, true, true], 'the upgrade is paid for, the old lift stays until tonight, and the panel says so');
   let o = await last();
   eq([o.kind, o.payload.ds.action, o.payload.ds.v, o.payload.sel.id], ['other', 'liftUp', up, lift], 'the upgrade is sent as an action on that lift');
+  // Opening the match again before the night: still the old lift, still paid for.
+  const paid = await g.ev('state.cash');
+  await g.ev(`(() => { applySave(matchView.resorts.find((r) => r.slot === matchView.slot).save); afterLoad(); })()`);
+  await g.ev('matchApplyPending()'); await g.wait(500);
+  eq(await g.ev(`[liftById(${lift}).type, Math.round(state.cash) === Math.round(${paid}), !!matchUp(liftById(${lift}))]`), [was, true, true], 'after a reload the old lift still runs, paid for, upgrading tonight');
+  // The server re-rigs it overnight (the order is marked done for the next day): now it's the new lift.
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const x of d.match.orders) if (x.payload.ds && x.payload.ds.action === 'liftUp') x.applied_day = 3; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.ev(`(() => { applySave(matchView.resorts.find((r) => r.slot === matchView.slot).save); afterLoad(); })()`);
+  await g.ev('matchApplyPending()'); await g.wait(500);
+  eq(await g.ev(`liftById(${lift}).type`), up, 'once the server has done it, the new lift shows');
 
   // Mid-station: the tool opens, and Build sends the spot along the line.
   await g.ev(`select({ kind: 'lift', obj: liftById(${lift}) })`); await g.wait(200);
@@ -96,7 +107,7 @@ export default async function ({ browser, url }) {
   eq([again.type, again.mid], [up, canMid], 'the upgrade and the mid-station come back on screen from the orders');
   eq(again.offsite, lots + 1, 'and the off-site parking');
 
-  // The live day: these overnight jobs pause it, like shrinking the lot, then go through.
+  // The live day: lift upgrades wait for tonight without pausing it.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - 65 * 60000).toISOString(); matchView.nothing = null`);
   await g.ev('startReplay(true)');
   await g.page.waitForFunction(() => window.__dbg("state.phase === 'open' && !!matchView.replay"), null, { timeout: 30000 });
@@ -109,10 +120,9 @@ export default async function ({ browser, url }) {
     assert(v, 'with a choice to pick');
     {
       const k = (await orders()).length;
-      await press(`[data-action=liftUp][data-v=${v}]`);
-      await g.page.waitForFunction(() => window.__dbg("state.phase === 'closed' && !matchView.replay"), null, { timeout: 30000 });
-      await g.wait(500);
-      eq(await g.ev(`liftById(${L1}).type`), v, 'during the live day, an upgrade pauses it and then goes through');
+      const t0 = await g.ev(`liftById(${L1}).type`);
+      await press(`[data-action=liftUp][data-v=${v}]`); await g.wait(500);
+      eq(await g.ev(`[!!matchView.replay, liftById(${L1}).type, /tonight/.test($('sheet').textContent)]`), [true, t0, true], 'during the live day, an upgrade doesn’t pause it: the old lift runs until tonight');
       eq((await orders()).length, k + 1, 'and is sent once');
     }
   }

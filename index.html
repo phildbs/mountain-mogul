@@ -8056,6 +8056,7 @@ function liftUpgradeSection(L) {
   const ups = liftUpgrades(L);
   if (!ups.length) return '';
   if (!overnightOk()) return '<p class="help">Lifts are upgraded overnight, while the resort is closed.</p>';
+  if (matchUp(L)) return `<div class="field-label">Upgrade</div><p class="help">Becomes a <b>${LIFT_TYPES[matchUp(L)].long.toLowerCase()}</b> tonight. It runs as it is until then.</p>`;
   const ok = ups.filter((u) => !u.problems.length), from = ok.length ? Math.min(...ok.map((u) => u.cost)) : 0;
   if (liftUpFor !== L.id) return ok.length ? `<button class="btn" data-action="liftUpOpen">Upgrade lift · from ${money(from)}</button>` : '';
   const s = L.stats, row = (u) => {
@@ -21868,7 +21869,7 @@ async function matchApplyPending() {
   const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
   const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
-  matchView.quiet = true; matchView.soon = []; matchView.pend = null; matchView.going = null; matchView.lotNew = null; // what's built here opens tomorrow: closed if you watch today
+  matchView.quiet = true; matchView.soon = []; matchView.pend = null; matchView.going = null; matchView.lotNew = null; matchView.ups = null; // what's built here opens tomorrow: closed if you watch today
   let short = 0;
   // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
   const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
@@ -21885,6 +21886,10 @@ async function matchApplyPending() {
         else if (p.what === 'trail') { const pts = p.pts.map((q) => ({ x: q.x, z: q.z, y: heightAt(q.x, q.z) })), i = evalTrail(pts, p.width || 'medium'); if (!i.an.problems.length && fits(i)) commitTrail(i, pts, p.width || 'medium'); }
         else if (p.what === 'building') { const i = evalBuilding(p.type, p.x, p.z, p.rot || 0, false, null, null, p.tier || 0); if (i && !i.problems.length && fits(i)) commitBuilding(i, p.type, p.x, p.z, p.rot || 0, p.style || undefined); }
         else if (p.what === 'lot') { if (state.cash < LOT_EXPAND_COST) short++; else growLot(p.row ?? null, p.lot || 0); }
+        else if (o.applied_day == null && p.ds && p.ds.action === 'liftUp') { // re-rigged tonight: paid for, the old lift runs until then
+          const L = matchFind(p.sel), up = L && !matchUp(L) && liftUpgrades(L).find((u) => u.type === p.ds.v);
+          if (up && !up.problems.length && fits(up)) { state.cash -= up.cost; (matchView.ups || (matchView.ups = new Map())).set(L.id, up.type); }
+        }
         else if (p.what === 'trees') { const set = new Set((p.ks || []).filter((k) => trees.alive[k]).slice(0, Math.max(0, Math.floor(state.cash / TREE_COST)))); state.cash -= set.size * TREE_COST; clearTreeSet(set); }
         else if (o.kind !== 'build' && matchDo(o.kind, p) && o.kind === 'other') short++;
       } catch (e) { /* one that no longer fits is skipped here; the server says why overnight */ }
@@ -21911,7 +21916,7 @@ const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall
 // Painting areas: the draft goes with the action, so the server paints the same ground.
 const MATCH_LAND = ['areaBuild', 'hubLevel', 'areaErase', 'areaClear', 'editArea', 'hubUndo', 'gladeThin', 'trailMode']; // trailMode: the Trail tool's tabs
 // The lot (cars may be parked on it), off-site parking, and lifts guests are riding: the live day pauses for these.
-const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'liftUp', 'midOpen', 'midRemove', 'moveLift', 'moveTrail', 'shapeTrail', 'moveBld', 'turnBld'];
+const MATCH_PAUSE = ['shrinkLot', 'offsiteBuy', 'offsiteClose', 'midOpen', 'midRemove', 'moveLift', 'moveTrail', 'shapeTrail', 'moveBld', 'turnBld'];
 const isKnob = (a) => MATCH_KNOBS.includes(a) || a.startsWith('ops') || a.startsWith('pk');
 function matchGate(b) {
   const a = b.dataset.action;
@@ -21920,6 +21925,7 @@ function matchGate(b) {
     toast('That isn’t part of King of the Mountain.', true); return true;
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
+  if (a === 'liftUp' && selected && selected.kind === 'lift' && selected.obj) { matchUpTonight(selected.obj, b); return true; }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
   if (a === 'removeYes' && matchLive() && selected && selected.obj && matchListOf(selected.kind)) { matchRemoveTonight(b); return true; }
   return false;
@@ -21939,6 +21945,19 @@ function matchRemoveTonight(b) {
   matchView.going.add(kind + ':' + obj.id);
   sheetConfirm = false; renderSheet();
   toast(`${obj.name} stays open for the rest of today and is removed tonight.`);
+}
+// Upgrading a lift: the server re-rigs it overnight, so the old lift keeps running (and is drawn) until then.
+// It's paid for now, like a build; matchApplyPending pays again after a reload and notes it in matchView.ups.
+const matchUp = (L) => (matchView && matchView.ups && L && matchView.ups.get(L.id)) || null;
+function matchUpTonight(L, b) {
+  const type = b.dataset.v, up = liftUpgrades(L).find((u) => u.type === type);
+  if (!up || up.problems.length || matchUp(L)) return;
+  if (up.cost > state.cash) { toast(`You need ${money(up.cost - state.cash)} more for this upgrade.`, true); return; }
+  matchOrder('other', { ds: { ...b.dataset }, sel: matchRef('lift', L), on: 'lift' });
+  (matchView.ups || (matchView.ups = new Map())).set(L.id, type);
+  state.cash -= up.cost; liftUpFor = null; updateCash(true);
+  toast(`${L.name} becomes a ${LIFT_TYPES[type].long.toLowerCase()} tonight · −${money(up.cost)}. ${matchLive() ? 'It runs as it is for the rest of today.' : 'It’s re-rigged when the next day is played.'}`);
+  renderSheet();
 }
 // Tools that aren't in matches yet (shaping, terrain parks, mid-stations) pause the live day.
 function matchHold() {
@@ -22708,6 +22727,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.97.5', date: 'Nov 4, 2026', title: 'Lift upgrades overnight', kotm: true, small: true, items: ['King of the Mountain: upgrading a lift no longer pauses the live day or swaps the lift straight away. You pay now, the old lift keeps running for the rest of the day, and its panel says it becomes the new lift tonight.'] },
   { v: '2.97.4', date: 'Nov 4, 2026', title: 'Ski racks that get used', small: true, items: ['Thanks for the feedback! Skiers now walk up to about 50 m to a ski rack you’ve placed, instead of 30 m, so racks set a little way from a busy door get used.', 'While you place a ski rack, and on its card, a tick shows which buildings it serves, or a note says it’s too far from any door.', 'A ski rack’s card shows how many pairs were left on it today. Skiers use the rack by a building’s door first, so a placed rack only fills once that one is full.'] },
   { v: '2.97.3', date: 'Nov 4, 2026', title: 'Your matches from the crown', kotm: true, small: true, items: ['King of the Mountain: Your matches and lobbies is in the crown’s menu too, so you can switch matches from there. Watching a match, it’s under the eye.'] },
   { v: '2.97.2', date: 'Nov 4, 2026', title: 'A match menu', kotm: true, small: true, items: ['King of the Mountain: the menu in a match is simpler. Goals, the leaderboard, profile and sign-in, and the help bulb are gone, and two new buttons take their place: Your matches and lobbies, to switch to another match or join one, and Your player page.'] },
