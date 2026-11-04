@@ -51,6 +51,12 @@ export default async function ({ browser, url }) {
   await g.ev(`document.querySelector('#sheet [data-action=matchSlot][data-slot="2"]').click()`); await g.wait(500);
   eq(await g.ev(`[matchView.slot, state.ticket]`), [2, 70], 'Follow in the standings switches to Valley View');
   eq(await g.ev(`[getComputedStyle($('tipsBtn')).display, !!matchPlay]`), ['none', false], 'watching a match: no What next? button');
+  // Watching: the buildings list can be sorted and the profit map shown (both only change the view).
+  const pv = await g.ev(`(() => { select({ kind: 'manage', obj: 'blds' }); renderSheet(); const s0 = listView.blds.sort;
+    document.querySelector('#sheet [data-action=bldSort]').click(); const s1 = listView.blds.sort;
+    document.querySelector('#sheet [data-action=profitMap]').click(); const m = overlay.profit; setProfitMap('off'); select(null);
+    return [s1 !== s0, m]; })()`);
+  eq(pv, [true, 'all'], 'watching a match, building sort and the profit map work');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
   // A match with an empty first slice (one player, in slot 1): watching follows the resort that's there.

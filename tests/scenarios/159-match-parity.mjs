@@ -126,6 +126,13 @@ export default async function ({ browser, url }) {
       eq((await orders()).length, k + 1, 'and is sent once');
     }
   }
+  // The live day: sorted by profit, each building shows last day's profit beside today's numbers.
+  {
+    const r = await g.ev(`(() => { listView.blds.sort = 'profit'; select({ kind: 'manage', obj: 'blds' }); renderSheet();
+      const rows = [...document.querySelectorAll('#sheet .lrow[data-k=bld] .l2')].map((e) => e.textContent); select(null); listView.blds.sort = 'built';
+      return [state.phase, rows.length > 0, rows.filter((t) => /Last day [+−-]?[$]/.test(t)).length === realBlds().filter((B) => !NO_PROFIT.includes(B.type) && B.yday).length]; })()`);
+    eq(r, ['open', true, true], 'during the live day, sorting by profit shows each building’s last-day profit');
+  }
   // Not part of matches: says so and sends nothing.
   const k2 = (await orders()).length;
   await g.ev(`select({ kind: 'lift', obj: liftById(${L1}) })`); await g.wait(200);
