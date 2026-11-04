@@ -21,7 +21,7 @@ export default async function ({ browser, url }) {
   await g.page.evaluate(() => localStorage.removeItem('mm.seen.kotm'));
   eq(await flag(), null, 'with no lobby to flag, nothing extra on the card');
   const card = await g.page.evaluate(() => { const c = document.getElementById('mpCard'), s = document.getElementById('titleSlots'); return { above: !!(c.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING), text: c.innerText.replace(/\s+/g, ' '), pic: c.querySelector('img').getAttribute('src'), visible: c.getBoundingClientRect().height > 100 }; });
-  assert(card.above && /New · Beta/i.test(card.text) && /King of the Mountain/i.test(card.text) && card.pic === 'img/crown.jpg' && card.visible, `the big King of the Mountain card sits above your mountains, with Crown Peak (${JSON.stringify(card)})`);
+  assert(card.above && /New 4-player mountain/i.test(card.text) && /King of the Mountain/i.test(card.text) && card.pic === 'img/crown.jpg' && card.visible, `the big King of the Mountain card sits above your mountains, with Crown Peak and Ridgeline, tagged new (${JSON.stringify(card)})`);
   await g.click('#mpCard'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
   eq(g.errors, [], 'no page errors');
   await g.page.close();
