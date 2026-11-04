@@ -1925,7 +1925,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 // when that script fails.
 window.mmBootTrouble = function (why) {
   var L = document.getElementById('loading');
-  if (!L || L.getAttribute('data-trouble') || L.hasAttribute('data-match')) return; // heading into a match: the game is up, it's the match still loading
+  if (!L || L.getAttribute('data-trouble') || L.hasAttribute('data-hold')) return; // kept up on purpose: the game is up, it's the resort or match still loading
   L.setAttribute('data-trouble', why);
   var low = false; try { low = localStorage.getItem('mm.gfx') === 'low'; } catch (e) { /* ignore */ }
   var box = document.createElement('div');
@@ -3598,7 +3598,14 @@ function renameResort(raw) {
   saveNow(); CLOUD.lastUp = 0; cloudSave(false);
 }
 // Reload the page onto the active mountain's terrain, then carry on with `then`.
-function dropCover() { const L = $('loading'); if (L) L.remove(); } // the loading screen kept up while a match loads
+// The loading screen kept up after a reload onto another mountain, until the resort, visit or match is on screen,
+// so the title doesn't show in between. It fades out over the game, with the title already gone underneath.
+function dropCover() {
+  const L = $('loading'); if (!L || L.dataset.going) return;
+  if (state.started) $('title').hidden = true;
+  L.dataset.going = '1'; L.style.transition = 'opacity 0.35s ease'; L.style.opacity = '0'; L.style.pointerEvents = 'none';
+  setTimeout(() => L.remove(), 380);
+}
 function reloadInto(then, mt) {
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then, mt })); } catch (e) { /* ignore */ }
   location.reload();
@@ -20748,7 +20755,7 @@ async function visitResort(id, opts = {}) {
   const fromTitle0 = visiting ? visiting.fromTitle : !state.started;
   if (m && (m.mt || 'juniper') !== MOUNTAIN.id) {
     if (!visiting && onThisMountain()) saveNow();
-    reloadInto({ visit: id, fromTitle: fromTitle0, link: !!opts.link }, m.mt || 'juniper');
+    reloadInto({ visit: id, fromTitle: fromTitle0, link: !!opts.link, name: m.name }, m.mt || 'juniper');
     return;
   }
   toast(`Heading to ${m ? m.name : 'their resort'}…`);
@@ -20902,7 +20909,7 @@ async function initCloud() {
     await settleAccount();
     offerCloudSave();
     if (BOOT.then && typeof BOOT.then.match === 'string') openMatch(BOOT.then.match).finally(dropCover); // BOOT.then can be a word like 'start', whose .match is a string method
-    else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); visitResort(BOOT.then.visit); }
+    else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); await visitResort(BOOT.then.visit); dropCover(); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
     else loadPeek(true);
     refreshCommunity();
@@ -22658,6 +22665,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.96.2', date: 'Nov 4, 2026', title: 'Straight into the game', small: true, items: ['Thanks Phil! Opening another of your mountains, the tutorial, or a resort you visit from Browse or the leaderboards now keeps the loading screen up until you’re there, instead of showing the title screen for a moment in between.'] },
   { v: '2.96.1', date: 'Nov 4, 2026', title: 'Watching any match', kotm: true, small: true, items: ['King of the Mountain: you can now watch a match whose first slice of the mountain is empty, such as one with a single player. It opens on the resort that’s there.', 'Pressing Watch keeps the loading screen up until the match is on screen, instead of showing the title screen for a few seconds in between.'] },
   { v: '2.96', date: 'Nov 4, 2026', title: 'Stations beside a trail', items: ['Thanks for the feedback! A lift station no longer has to sit at the very end of a trail. If a trail runs right past a bottom station, skiers can leave it and join the line. Riders getting off at a top station beside a trail ski straight onto it.', 'When moving a lift costs more than you have, its panel now says so, and suggests drawing a short trail to the station instead.'] },
   { v: '2.95.6', date: 'Nov 4, 2026', title: 'Easier to spot Join now', kotm: true, small: true, items: ['King of the Mountain: on matches being played now, Join now is a proper button instead of a small link, so it’s easier to see when you can still jump in.'] },
@@ -24325,9 +24333,12 @@ function start(hot) {
 
   resize();
   renderer.shadowMap.needsUpdate = true;
-  // Heading into a match from the title: the loading screen stays up, as "Heading to the match…", until the match
-  // is on screen, rather than showing the title for the few seconds the match takes to load.
-  if (BOOT.then && typeof BOOT.then.match === 'string' && !NO_SAVE) { const L = $('loading'); L.setAttribute('data-match', ''); L.querySelector('span').textContent = 'Heading to the match…'; setTimeout(dropCover, 20000); }
+  // Reloading onto another mountain (your own, the tutorial, a visit or a match): the loading screen stays up until
+  // you're there, rather than showing the title for the moment it takes. BOOT.then can be a word like 'start', whose
+  // .match is a string method.
+  const to = BOOT.then, hold = typeof (to && to.match) === 'string' ? (NO_SAVE ? null : 'Heading to the match…') : to && to.visit ? (NO_SAVE ? null : `Heading to ${to.name || 'their resort'}…`)
+    : (to === 'start' && activeSlot()) || to === 'tutorial' ? '' : null;
+  if (hold != null) { const L = $('loading'); L.setAttribute('data-hold', ''); if (hold) L.querySelector('span').textContent = hold; setTimeout(dropCover, 20000); }
   else $('loading').remove();
   try { localStorage.removeItem(BOOT_MARK); } catch (e) { /* ignore */ }
   if (readJSON('mm.gfxAuto')) {
@@ -24355,6 +24366,7 @@ function start(hot) {
     if (BOOT.then === 'start' && activeSlot()) startGame();
     else if (BOOT.then === 'tutorial') startTutorial();
   }
+  if (hold === '') requestAnimationFrame(dropCover); // your own mountain or the tutorial: there once the first frame is drawn
   window.claude?.hot?.snapshot?.(() => ({
     started: state.started, tool: state.tool, slope: overlay.slope,
     cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
