@@ -398,6 +398,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   target grade (green 12%, blue 30%), looking a few units ahead; `viewRuns` rates them with `analyzeTrail`
   ("Example runs" toggle). Now every slice: green 9,100–10,600 ft (steepest 17–22%), blue 5,600–6,800 ft
   (31–33%). Vertical ~1,180 ft. Trade-off: almost no advanced ground left (0–6%).
+- Nov 4, Phil: a few blacks, and look more real (less like a wedge). `RIDGE.pitches`: one steep pitch per valley,
+  off to one side under a spur (ground below it lowered, eased in near the base). Ribs and gullies down the faces
+  (stretched `ridged`), a rocky skyline of peaks behind the summits (outside the slices), a wandering foot of the
+  slopes and crest, knolls near the bases. Example runs keep to a lane away from the pitch (`runLanes`); a black
+  example goes through it (`blackRuns`). Now every slice: green 10,100–11,100 ft (18–25%), blue 5,300–5,800 ft
+  (30–34%), black ~5,000 ft (49–64%; slice 3 rates expert). Advanced+expert ground 3–15%.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

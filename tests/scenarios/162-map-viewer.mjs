@@ -48,15 +48,15 @@ export default async function ({ browser, url }) {
     const S = viewStats();
     return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, picker: $('vMap').options.length,
       bases: [0, 1, 2, 3].map((k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
-      runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.green.uphill || r.blue.uphill, Math.round(r.green.len * FT_PER_UNIT)]),
+      runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill, Math.round(r.green.len * FT_PER_UNIT)]),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
   eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
   assert(Math.max(...q.acres) - Math.min(...q.acres) <= 2, `the strips are the same size (${q.acres})`);
   assert(Math.max(...q.vert) / Math.min(...q.vert) < 1.2, `no slice has much more vertical than another (${q.vert})`);
   assert(q.top.every((a) => a >= 15), `every slice has a flat summit to build on (${q.top} acres)`);
-  eq(q.runs.map((x) => x.slice(0, 3)), [0, 1, 2, 3].map(() => [0, 1, false]), 'a green and a blue from every summit, rated by the game');
-  assert(q.runs.every((x) => x[3] > 7000), `the greens are long (${q.runs.map((x) => x[3])} ft)`);
+  eq(q.runs.map((x) => x.slice(0, 4)), [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every summit, rated by the game');
+  assert(q.runs.every((x) => x[4] > 7000), `the greens are long (${q.runs.map((x) => x[4])} ft)`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
 }
