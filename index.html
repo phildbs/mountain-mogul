@@ -21548,6 +21548,15 @@ $('mpModal').addEventListener('click', async (e) => {
 let matchView = null;
 const rivalGroup = new THREE.Group();
 scene.add(rivalGroup);
+// Your slice before the server has made your resort: as the server will make it tonight (an empty resort with the
+// starting cash and the catch-up investment, on the match's day and snow).
+function matchFresh(lob, me, resorts) {
+  const ref = (resorts.find((r) => r.save && r.save.clock) || {}).save, c = (ref && ref.clock) || {};
+  const bonus = Math.min(lob.late_bonus_cap ?? 1000000, (lob.late_bonus ?? 15000) * (me.joined_day || 0));
+  const save = { v: 3, mt: MOUNTAIN.id, n: trees.n, cash: START_CASH + bonus, cleared: 0, world: null, snow: ref && ref.snow,
+    clock: { day: c.day ?? lob.day, phase: c.phase, time: c.time, season: c.season, summer: c.summer, wx: c.wx } };
+  return { lobby_id: lob.id, slot: me.slot, day: lob.day, save, fresh: true, summary: { name: me.resort_name, profit: 0, guests: 0, bonus } };
+}
 async function openMatch(lid) {
   if (!CLOUD.sb) return;
   if (mpNeedsName()) { toast('Pick your player name first.', true); if (MOUNTAIN.id === 'match') reloadInto('title'); else openMp(); return; }
@@ -21556,20 +21565,23 @@ async function openMatch(lid) {
   let lob, players, resorts;
   try {
     const [a, b, c] = await Promise.all([CLOUD.sb.from('match_lobbies').select('*').eq('id', lid).maybeSingle(),
-      CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name').eq('lobby_id', lid),
+      CLOUD.sb.from('match_players').select('lobby_id,slot,user_id,resort_name,joined_day').eq('lobby_id', lid),
       CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', lid)]);
     if (a.error || b.error || c.error || !a.data) throw new Error('load');
     lob = a.data; players = b.data || []; resorts = c.data || [];
   } catch (e) { toast('Couldn’t load that match. Try again in a moment.', true); return; }
   // Spectators follow the first resort that's there: a slice can be empty (New Player's Cup has only slot 1).
-  const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : (resorts.filter((r) => r.save).map((r) => r.slot).sort((x, y) => x - y)[0] ?? 0), mine = resorts.find((r) => r.slot === slot);
-  // Joined late on an empty slice: the server sets up your resort as it plays the next day.
-  const soon = Math.max(1, Math.ceil((matchNext(lob) - Date.now()) / 60000)), wait = soon > 1 ? `in about ${soon} minutes` : 'in a minute or so';
-  if (!mine || !mine.save) { toast(lob.status === 'open' ? 'That match hasn’t started yet.' : me ? `You’re in! Your resort is set up when day ${lob.day + 1} starts, ${wait}. Come back then to build.` : 'That match’s resorts aren’t ready yet.', true); return; }
+  const me = players.find((p) => p.user_id && p.user_id === CLOUD.uid), slot = me ? me.slot : (resorts.filter((r) => r.save).map((r) => r.slot).sort((x, y) => x - y)[0] ?? 0);
+  // Joined late on an empty slice: the server sets up your resort as it plays the next day. Until then you plan on
+  // the same empty slice it will make, and what you build goes overnight as usual.
+  const waiting = !!me && lob.status === 'running' && !resorts.some((r) => r.slot === slot && r.save);
+  if (waiting) resorts.push(matchFresh(lob, me, resorts));
+  const mine = resorts.find((r) => r.slot === slot);
+  if (!mine || !mine.save) { toast(lob.status === 'open' ? 'That match hasn’t started yet.' : 'That match’s resorts aren’t ready yet.', true); return; }
   closeMp(); $('community').hidden = true; setTool('explore');
   const name = (me || players.find((p) => p.slot === slot) || {}).resort_name || 'A resort', play = !!me && lob.status === 'running';
   if (matchView) clearInterval(matchView.timer);
-  matchView = { lobby: lob, players, resorts, slot, me: !!me, pending: 0 };
+  matchView = { lobby: lob, players, resorts, slot, me: !!me, pending: 0, waiting };
   if (play) { visiting = null; matchPlay = { lobby: lid, slot }; document.body.classList.add('matchplay'); if (!['trees', 'doze'].includes(state.landMode)) state.landMode = 'trees'; }
   else { visiting = { id: `match:${lid}`, match: lid, name, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
   select(null);
@@ -21588,7 +21600,8 @@ async function openMatch(lid) {
   $('visitReports').hidden = false; $('visitSwitch').hidden = !!me;
   if (!me) matchOverview();
   await matchApplyPending();
-  startReplay();
+  if (waiting) toast(`Welcome to ${lob.name}! Your resort opens when day ${lob.day + 1} starts, in ${mpIn(matchNext(lob) - Date.now())}. Start building now: it’s all ready that morning.`);
+  else startReplay();
   // Every 20 seconds, or every 10 once the next day is due, so it starts soon after the server has played it.
   let n = 0; matchView.timer = setInterval(() => { if (matchView && !matchView.ticking && (++n % 2 === 0 || Date.now() >= matchNext(matchView.lobby) + 15000)) { matchView.ticking = true; matchTick().finally(() => { if (matchView) matchView.ticking = false; }); } }, 10000);
 }
@@ -21801,6 +21814,10 @@ async function matchTick() {
   if (!data || !matchView || data.day === matchView.lobby.day) return;
   const { data: rs } = await CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary,save').eq('lobby_id', data.id).then((r) => r, () => ({}));
   if (!rs || !matchView) return;
+  // Joined late and the server hasn't made your resort yet: keep planning on the empty slice, as of today.
+  const pl = matchPlay && matchView.players.find((p) => p.slot === matchView.slot);
+  matchView.waiting = !!pl && !rs.some((r) => r.slot === matchView.slot && r.save);
+  if (matchView.waiting) rs.push(matchFresh(data, pl, rs));
   matchView.lobby = data; matchView.resorts = rs;
   matchView.paused = false; // a new day plays live, even if you paused the last one
   const mine = rs.find((r) => r.slot === matchView.slot);
@@ -22362,7 +22379,7 @@ async function startReplay(manual) {
   const byId = { lift: liftById, trail: trailById, bld: bldById, area: areaById };
   for (const [kind, id] of matchView.soon || []) { const o = byId[kind](id); if (o) try { matchSoon(kind, o); } catch (e) { /* only how it looks today */ } }
   const soldLine = sold ? ` Sold ${sold.sold === 1 ? 'a condo home' : `${sold.sold} condo homes`} for ${money(sold.sales || 0)} this morning.` : '';
-  toast(shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.${soldLine}` : `Day ${l.day}, live from ${clockText(replayClock(l))}.${soldLine} Pick a build tool any time to build.`);
+  toast(matchView.waiting ? `Day ${l.day}: your resort opens tomorrow morning. Watching your rivals live from ${clockText(replayClock(l))}. Build any time.` : shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.${soldLine}` : `Day ${l.day}, live from ${clockText(replayClock(l))}.${soldLine} Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
 }
@@ -22667,7 +22684,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '2.96.3', date: 'Nov 4, 2026', title: 'Joining a match late', kotm: true, small: true, items: ['King of the Mountain: if you join a match on an empty slice, opening it before the next day starts now says when your resort will be ready, instead of saying the match isn’t ready.'] },
+  { v: '2.97', date: 'Nov 4, 2026', title: 'Plan straight after joining', kotm: true, items: ['King of the Mountain: join a match late on an empty slice and you can open it straight away. You see your slice and your rivals, with your starting cash and catch-up investment, and can start building before the next day begins. Everything you build is ready when your resort opens that morning.'] },
   { v: '2.96.2', date: 'Nov 4, 2026', title: 'Straight into the game', small: true, items: ['Thanks Phil! Opening another of your mountains, the tutorial, or a resort you visit from Browse or the leaderboards now keeps the loading screen up until you’re there, instead of showing the title screen for a moment in between.'] },
   { v: '2.96.1', date: 'Nov 4, 2026', title: 'Watching any match', kotm: true, small: true, items: ['King of the Mountain: you can now watch a match whose first slice of the mountain is empty, such as one with a single player. It opens on the resort that’s there.', 'Pressing Watch keeps the loading screen up until the match is on screen, instead of showing the title screen for a few seconds in between.'] },
   { v: '2.96', date: 'Nov 4, 2026', title: 'Stations beside a trail', items: ['Thanks for the feedback! A lift station no longer has to sit at the very end of a trail. If a trail runs right past a bottom station, skiers can leave it and join the line. Riders getting off at a top station beside a trail ski straight onto it.', 'When moving a lift costs more than you have, its panel now says so, and suggests drawing a short trail to the station instead.'] },
