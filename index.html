@@ -12443,7 +12443,7 @@ const BTYPES = {
   picnic: { name: 'Picnic table', where: 'any', cost: 3500, accent: 0x9a6b3c, seats: 6, w: 1.0, d: 1.0, upkeep: 10, decor: true, plop: true, noPad: true,
     desc: 'Room for a group to sit down and rest. Guests get a little energy back; families love them.' },
   rack: { name: 'Ski rack', where: 'any', cost: 800, accent: 0x3d6f9e, racks: 40, w: 0.9, d: 0.4, upkeep: 2, decor: true, plop: true, noPad: true,
-    desc: 'Room for 40 pairs of skis. Skiers leave their skis on a rack while they eat, shop or use the restroom. Each building has a rack by its door with a space for each seat; on busy days, put extra racks close to the door so nobody has to stick their skis in the snow.' },
+    desc: 'Room for 40 pairs of skis. Skiers leave their skis on a rack while they eat, shop or use the restroom. Each building has a rack by its door with a space for each seat; on busy days, put extra racks within about 50 m of the door so nobody has to stick their skis in the snow.' },
   // More decor (2.81). String lights and holiday trees take a bulb colour (B.hue, see BULB_SETS), changed only by the player.
   tmap: { name: 'Trail map board', where: 'any', cost: 2500, accent: 0x2f6fa8, w: 1.4, d: 0.4, upkeep: 5, decor: true, plop: true, noPad: true,
     desc: 'A big painted map of your own trails and lifts, kept up to date as you build. Put one by a lift or at the base so guests can plan their day.' },
@@ -15136,7 +15136,7 @@ function startVisit(g, B, svc, resume) {
    in the snow by the door: a small letdown, and now and then someone grabs the wrong pair. */
 const RACK_TYPES = ['lodge', 'cafe', 'restaurant', 'fine', 'bar', 'store', 'restroom', 'hrest']; // gift kiosks are ski-in, ski-out
 const ownRack = (B) => RACK_TYPES.includes(B.type) || hotelDines(B); // a hotel restaurant's rack, by the door
-const RACK_R = 3, RACK_GRACE = 5, RACK_SHARE = 1; // a placed rack's reach (30 m); a new resort's first days go easy
+const RACK_R = 5, RACK_GRACE = 5, RACK_SHARE = 1; // a placed rack's reach from a door (50 m); a new resort's first days go easy
 const rackCap = (B) => { const s = bspec(B); return B.type === 'rack' ? s.racks : ownRack(B) ? Math.round(((s.seats || 0) + (s.stalls || 0)) * RACK_SHARE) : 0; };
 const needsRack = (g, B) => ownRack(B) && g.rack == null && !g.sight && !g.local && !g.needsRental;
 const rackGrace = () => state.season <= 1 && ((state.seasonStats && state.seasonStats.days) || 0) < RACK_GRACE;
@@ -15152,13 +15152,22 @@ function rackCount() {
 const rackRoom = (R) => rackCap(R) - (rackCount().get(R.id) || 0) * AGENT;
 function pickRack(B) {
   if (rackRoom(B) > 0) return B; // the rack by the door comes first
-  let best = null, bd = RACK_R;
+  let best = null, bd = Infinity;
   for (const R of world.buildings) {
     if (R.type !== 'rack' || rackRoom(R) <= 0) continue;
     const d = distXZ(R, B.door);
-    if (d < bd) { bd = d; best = R; }
+    if (d <= RACK_R && d < bd) { bd = d; best = R; }
   }
   return best;
+}
+// The doors a placed rack at this spot serves, nearest first (shown while placing one and on its card).
+const rackServes = (at) => world.buildings.filter((B) => ownRack(B) && B.door && distXZ(at, B.door) <= RACK_R).sort((a, b) => distXZ(at, a.door) - distXZ(at, b.door));
+function rackChecks(at) {
+  const list = rackServes(at), names = list.slice(0, 3).map((B) => `<b>${esc(B.name)}</b>`), more = list.length - names.length;
+  const txt = names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] + (more ? ` and ${more} more` : '') : names[0];
+  return `<ul class="checks"><li class="${list.length ? 'ok' : ''}">${CHECK_ICON(list.length)}<span>${list.length
+    ? `<b>Close enough:</b> skiers going into ${txt} use it once the rack by the door is full.`
+    : `<b>Too far from a door to be used.</b> Skiers only walk about 50 m in boots, so put it closer to a lodge, café, restaurant, bar, ski store or restroom.`}</span></li></ul>`;
 }
 // On arrival: leave the skis (on a rack, or in the snow), then walk to the door. True while still on the way.
 function rackStop(g, B, t) {
@@ -15180,6 +15189,7 @@ function rackReport() {
 function dropSkis(g, B, R) {
   g.onSkis = false; g.rack = R ? R.id : -B.id;
   rackCount().set(g.rack, (rackUse.get(g.rack) || 0) + 1); rackVer++;
+  if (R && R !== B && R.today) R.today.visits += AGENT; // pairs left on a placed rack today
   if (R) return;
   const at = today.rackAt || (today.rackAt = {});
   at[B.id] = (at[B.id] || 0) + AGENT;
@@ -16229,7 +16239,7 @@ function capOf(type, s) {
     case 'firepit': return `${s.seats} seats around the fire · free`;
     case 'tree': return 'Just for looks';
     case 'bench': case 'picnic': return `${s.seats} seats · a free rest`;
-    case 'rack': return `Holds ${s.racks} pairs of skis for guests visiting buildings close by`;
+    case 'rack': return `Holds ${s.racks} pairs of skis for guests visiting buildings within about 50 m`;
     case 'bar': return `${s.seats} seats and a deck · ${s.counter} a minute at the bar · ${s.stalls} restroom stalls`;
     case 'truck': return `Serves about ${s.counter} a minute from the window`;
     case 'tuning': return `${s.stations} fitting stations · ${s.inventory} pairs · ski tuning`;
@@ -16379,6 +16389,7 @@ function bldDraftSheet() {
     ${chain && chain.length ? `<button class="btn secondary" data-action="chainUndo">Remove the last pole</button>` : ''}
     ${rotationControls()}
     <div class="b-preview-result">
+    ${draft.btype === 'rack' && draft.bpos ? rackChecks(draft.bpos) : ''}
     ${body}
     ${draft.btype === 'condo' && info && !info.problems.length ? condoPreview() : ''}
     ${draft.btype === 'hotel' && info && !info.problems.length ? hotelPreview() : ''}
@@ -16562,7 +16573,7 @@ function bldServiceBreakdown(B, data, open) {
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
   const mode = B.type === 'patrol' ? bldModeIn(patrolPlan() || blankPlan(), B) : bldMode(B);
-  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : B.type === 'hotel' ? 'Hotel guests today' : B.type === 'condo' ? 'Owners and renters today' : 'Served today';
+  const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : B.type === 'hotel' ? 'Hotel guests today' : B.type === 'condo' ? 'Owners and renters today' : B.type === 'rack' ? 'Pairs left today' : 'Served today';
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
   const staffing = B.type === 'patrol' ? `<div class="field-label">This hut’s manual staffing</div>
@@ -16585,6 +16596,7 @@ function bldSheet(B) {
     </dl>
     ${bldServiceBreakdown(B, open ? B.today : y, open)}
     ${B.type === 'hotel' ? hotelNote(B, open, y) : ''}
+    ${B.type === 'rack' ? `<div class="field-label">Serves</div>${rackChecks(B)}<p class="help">Skiers use the rack by a building’s door first, so a ski rack only fills on days that rack runs out of room.</p>` : ''}
     ${B.type === 'condo' ? condoNote(B, open, y) : ''}
     ${assetPlans('bld', B)}
     ${PRICE_KEY[B.type] ? priceStepper(PRICE_KEY[B.type]) : ''}
@@ -17284,7 +17296,7 @@ function advice() {
     if ((c.noRental || 0) > 0 && !world.buildings.some((B) => RENTS.includes(B.type))) add(false, `${c.noRental} guests wanted to rent skis. A rental shop at the base pays for itself.`, 'Build a rental shop', () => pickBuilding('rental'));
     if ((c.food || 0) > 20) hungerAdvice(r, add);
     parkAdvice(r, add);
-    if (r.racks && !r.racks.easy && r.racks.n >= 15) add(false, `${r.racks.n} guests found the ski racks full and left their skis in the snow, mostly at ${esc(r.racks.at[0].name)}. Put a ski rack or two close to its door.`, 'Build a ski rack', () => pickBuilding('rack'));
+    if (r.racks && !r.racks.easy && r.racks.n >= 15) add(false, `${r.racks.n} guests found the ski racks full and left their skis in the snow, mostly at ${esc(r.racks.at[0].name)}. Put a ski rack or two within 50 m of its door.`, 'Build a ski rack', () => pickBuilding('rack'));
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
   if (!state.summer && lotCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
@@ -19147,7 +19159,7 @@ function bldsList() {
     }
     return `${head}<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
-      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
+      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
       <div class="l3"><span>${B.type === 'patrol' ? 'Hut and patrol pay' : 'Upkeep'} ${money(s.upkeep)}/day</span>${next ? `<span class="pill on">Upgrade available</span>` : ''}</div>
     </li>`;
   }).join('');
@@ -19469,7 +19481,7 @@ function opsReportHtml(r) {
   }
   for (const B of o.blds) {
     if (many[B.type]) continue;
-    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} ${B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : 'served'} · ${signedMoney(B.profit)}`;
+    const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} ${B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'} · ${signedMoney(B.profit)}`;
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
   rows.push(`<span>Parking <em>${o.lots.open} of ${o.lots.total} open</em></span><span>peak ${o.lots.peak} of ${o.lots.open * SPACES_PER_SECTION}</span>`);
@@ -22696,6 +22708,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.97.4', date: 'Nov 4, 2026', title: 'Ski racks that get used', small: true, items: ['Thanks for the feedback! Skiers now walk up to about 50 m to a ski rack you’ve placed, instead of 30 m, so racks set a little way from a busy door get used.', 'While you place a ski rack, and on its card, a tick shows which buildings it serves, or a note says it’s too far from any door.', 'A ski rack’s card shows how many pairs were left on it today. Skiers use the rack by a building’s door first, so a placed rack only fills once that one is full.'] },
   { v: '2.97.3', date: 'Nov 4, 2026', title: 'Your matches from the crown', kotm: true, small: true, items: ['King of the Mountain: Your matches and lobbies is in the crown’s menu too, so you can switch matches from there. Watching a match, it’s under the eye.'] },
   { v: '2.97.2', date: 'Nov 4, 2026', title: 'A match menu', kotm: true, small: true, items: ['King of the Mountain: the menu in a match is simpler. Goals, the leaderboard, profile and sign-in, and the help bulb are gone, and two new buttons take their place: Your matches and lobbies, to switch to another match or join one, and Your player page.'] },
   { v: '2.97.1', date: 'Nov 4, 2026', title: 'Plans and parking in matches', kotm: true, small: true, items: ['King of the Mountain: the Plans button is back in the menu once you save a blueprint, so you can reorder, pause and remove your blueprints in a match.', 'Parking added during a match’s live day now shows as a blue blueprint until it’s built that night, and stays shut for the rest of the day, even if you pause and go back to the live day.'] },
