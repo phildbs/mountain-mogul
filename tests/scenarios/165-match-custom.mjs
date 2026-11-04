@@ -59,6 +59,8 @@ export default async function ({ browser, url }) {
   await g.page.click('[data-mp=make]');
   assert(await g.page.isVisible('#mpMake'), 'Make a match opens the form');
   await g.page.click('[data-mk=turn][data-v="10"]'); await g.page.click('[data-mk=days][data-v="7"]'); await g.page.click('[data-mk=start][data-v="30"]'); await g.page.click('[data-mk=slots][data-v="2"]'); await g.page.click('[data-mk=late][data-v="0"]');
+  eq(await g.ev(`MP.mk.computers`), 1, 'computer players are on unless you turn them off');
+  await g.page.click('[data-mk=computers][data-v="0"]');
   t = await body();
   assert(/7 days\s*1 h 10 min/.test(t) && /168 days\s*a season · 1.2 days/.test(t), `lengths show how long they take in real time (${JSON.stringify(t.match(/Length[\s\S]{0,200}/i))})`);
   await g.page.fill('#mkName', 'Friday   Fun'); await g.page.fill('#mkResort', 'Phil’s Peak'); await g.page.fill('#mkPw', 'abc');
