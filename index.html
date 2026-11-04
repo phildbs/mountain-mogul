@@ -2459,6 +2459,24 @@ MATCH_MAPS.ridge = {
   runLanes: RIDGE.pitches.map(([k, pu]) => { const c = (RIDGE.b[k] + RIDGE.b[k + 1]) / 2; return c - Math.sign(pu - c) * 0.04; }),
   viewCentre: [0.5, 0.55], viewSpan: 360, viewAz: 0.2, farE: 100, // more ground past the map, for the ends of the ridge
   get area() { return this.sliceAreas[1]; }, // in a player's game, the strip that sits in the usual square
+  // Each slice keeps its own woods and clearings, but its forest is thinned or thickened so every slice has about
+  // the same number of trees to clear: each slice's share of the forest the game would seed (its patches and the
+  // treeline and no trees on cliffs, on a coarse grid), evened out, blended across the spurs like the slopes.
+  treeK(u, v) {
+    if (!this.treeBal) {
+      const E = [0, 1, 2, 3].map((k) => { let e = 0;
+        for (let x = RIDGE.b[k] + 0.006; x < RIDGE.b[k + 1]; x += 0.0125) for (let y = 0.006; y < RIDGE.crest + 0.03; y += 0.0125) {
+          const tl = this.treeline + 3 * fbm(x * 8, y * 8, this.seed + 23, 3);
+          const h = this.height(x, y), g = Math.hypot(this.height(x + 1 / PN, y) - h, this.height(x, y + 1 / PN) - h); // and none on cliffs
+          e += (0.04 + 0.96 * sstep(-0.22, 0.28, fbm(x * 4.5, y * 4.5, this.seed + 21, 4))) * (1 - sstep(tl - 3, tl + 1.5, h)) * (1 - sstep(0.55, 0.85, g));
+        }
+        return e; });
+      const mean = E.reduce((a, b) => a + b, 0) / 4;
+      this.treeBal = E.map((e) => mean / e);
+    }
+    const B = RIDGE.b, w = [0, 1, 2, 3].map((k) => (k ? sstep(B[k] - 0.03, B[k] + 0.03, u) : 1) * (k < 3 ? 1 - sstep(B[k + 1] - 0.03, B[k + 1] + 0.03, u) : 1));
+    return w.reduce((a, x, k) => a + x * this.treeBal[k], 0);
+  },
   // the valley road from town (off the east end), and a spur up to each base
   road: catmull([[1.85, -0.15], [1.3, -0.11], [0.75, -0.1], [0.3, -0.09], [0.25, -0.02], [0.25, RIDGE.base]], 10),
   roads: [catmull([[0.3, -0.09], [-0.2, -0.1], [-0.75, -0.12]], 10), catmull([[-0.25, -0.1], [-0.25, RIDGE.base]], 4),
@@ -2785,7 +2803,8 @@ function generate(M) {
     for (let ci = 0; ci < WN; ci++) {
       const c = cj * WN + ci;
       cellStart[c] = X.length;
-      const play = AREA ? inArea(ci + 0.5, cj + 0.5) : ci >= PLAY0 && ci < PLAY1 && cj >= PLAY0 && cj < PLAY1;
+      // (the map viewer gives every slice of a match map the full forest a player has on their own)
+      const play = MAP_VIEW && SLICES.length ? sliceAt(ci + 0.5, cj + 0.5) >= 0 : AREA ? inArea(ci + 0.5, cj + 0.5) : ci >= PLAY0 && ci < PLAY1 && cj >= PLAY0 && cj < PLAY1;
       const tries = play ? 2 : 1;
       for (let t = 0; t < tries; t++) {
         const gx = ci + rng(), gz = cj + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
@@ -2800,6 +2819,7 @@ function generate(M) {
         if (M.town && Math.hypot(u - M.town[0], v - M.town[1]) < 0.12) p *= 0.15 + 0.85 * sstep(7, 11, rd); // yards round the town
         p *= 0.3 + 0.7 * sstep(2, 10, cd);
         if (!play) p *= 0.8;
+        if (M.treeK) p *= M.treeK(u, v); // a match map evening out its slices' forests
         if (r1 < p * 0.86) {
           X.push(gx - HALF); Z.push(gz - HALF); Y.push(h * VEX - 0.06);
           S.push((0.72 + 0.56 * r2) * (1 - 0.42 * sstep(tl - 8, tl, h)));
@@ -2846,6 +2866,8 @@ function generateFar(M) {
     cellStart[c] = X.length;
     const gx0 = ci - FAR_E, gz0 = cj - FAR_E;
     if (gx0 >= 0 && gz0 >= 0 && gx0 < WN && gz0 < WN) continue; // the map has its own trees
+    const full = MAP_VIEW && sliceAt(gx0 + 0.5, gz0 + 0.5) >= 0; // the map viewer: a slice out here gets the full forest
+    for (let tr = 0; tr < (full ? 2 : 1); tr++) {
     const gx = gx0 + rng(), gz = gz0 + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
     const u = vu(gx), v = vv(gz), h = farAt(gx, gz), k = cj * FNV + ci;
     const g = Math.hypot(FAR[k + 1] - FAR[k], FAR[k + FNV] - FAR[k]);
@@ -2854,11 +2876,12 @@ function generateFar(M) {
     p *= 1 - sstep(tl - 3, tl + 1.5, h);
     p *= 1 - sstep(0.55, 0.85, g);
     if (FARRD[k] < 2.6 || FARCD[k] < 2.2) p = 0;
-    p *= (0.3 + 0.7 * sstep(2, 10, FARCD[k])) * 0.8 * thin;
+    p *= (0.3 + 0.7 * sstep(2, 10, FARCD[k])) * (full ? 1 : 0.8 * thin) * (M.treeK ? M.treeK(u, v) : 1);
     if (r1 < p * 0.86) {
       X.push(gx - HALF); Z.push(gz - HALF); Y.push(h * VEX - 0.06);
       S.push((0.72 + 0.56 * r2) * (1 - 0.42 * sstep(tl - 8, tl, h))); SY.push(0.88 + 0.28 * r5);
       R.push(r3 * Math.PI * 2); T.push(r4); CELL.push(c); cellCount[c]++;
+    }
     }
   }
   Object.assign(farTrees, { n: X.length, x: Float32Array.from(X), z: Float32Array.from(Z), y: Float32Array.from(Y), s: Float32Array.from(S), sy: Float32Array.from(SY),
@@ -21526,6 +21549,8 @@ function viewStats() {
     S.cells++; S.lo = Math.min(S.lo, h); S.hi = Math.max(S.hi, h); S.mix[difficulty(g)]++;
     if (g < 0.1) S.top.push(h);
   }
+  // and its trees (the viewer draws every slice's full forest, as each player has on their own)
+  for (const T of [trees, farTrees]) for (let i = 0; i < T.n; i++) { const k = sliceAt(T.x[i] + HALF, T.z[i] + HALF); if (k >= 0) out[k].trees = (out[k].trees || 0) + 1; }
   // flat ground (under a 10% grade) in the top fifth of each slice: its summit's room to build
   for (const S of out) S.flatTop = S.top.filter((h) => h > S.hi - (S.hi - S.lo) * 0.2).length;
   return out;
@@ -21726,7 +21751,7 @@ function viewPanel() {
     return `${ratingSymbol(x.rating, 11)} ${kind[0].toUpperCase() + kind.slice(1)} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : kind === 'black' ? ' <b class="warn">not steep enough</b>' : ' <b class="warn">too steep</b>'}`; };
   const maps = Object.values(MATCH_MAPS);
   const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
-      <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)}</span>
+      <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)} · ${(Math.round((s.trees || 0) / 100) * 100).toLocaleString('en-US')} trees</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
       ${lots[k] ? `<small>Parking: first row ${lots[k].free} sections (${lots[k].free * SPACES_PER_SECTION} spaces) on your own land; a second row of ${lots[k].bought} on the land for sale</small>` : ''}

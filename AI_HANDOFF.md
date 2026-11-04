@@ -412,6 +412,12 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   `RIDGE.base` is now 0.065 (all base roads end there). `viewLots` draws the main lot as `slotOrigin` lays it: 4
   sections a slice in row 0 on own land (east of the road, up to the slice edge), 4 more in row 1 on the parcels.
   Crown Peak, for comparison: row 0 grows to 9 sections on own land (1 + 8 in `lotReserve`).
+- Nov 4, Phil: are the trees fair? Two things. The viewer drew only the PLAY strip at full density (the ring's
+  scenery forest is thinner): now in `MAP_VIEW` every slice cell gets the full forest (2 tries, no 0.8 or `thin`),
+  in `generate` and `generateFar`. And the real forest differed 8,300–9,900 trees a slice (20%) from the forest
+  noise. New optional map hook `treeK(u, v)` multiplies the tree chance (both generators); Long Ridge's evens out
+  each slice's expected forest (coarse sample: patches, treeline, cliffs), blended across the spurs. Now
+  8,980–9,130 (under 2%), 96 ms once. Panel shows trees per slice. Viewer draws ~59k trees (was ~42k): watch phones.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

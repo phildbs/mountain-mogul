@@ -51,6 +51,7 @@ export default async function ({ browser, url }) {
       runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill, Math.round(r.green.len * FT_PER_UNIT)]),
       lots: mapViewer.lots.out.map((l) => [l.free, l.bought]),
       land: mapViewer.parcels.out.map((l) => l.map((P) => [Math.round(P.acres), P.grade < 0.1])),
+      trees: S.map((x) => x.trees || 0),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
   eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
@@ -61,6 +62,7 @@ export default async function ({ browser, url }) {
   assert(q.runs.every((x) => x[4] > 7000), `the greens are long (${q.runs.map((x) => x[4])} ft)`);
   eq(q.land, [0, 1, 2, 3].map(() => [[16, true], [16, true]]), 'two flat parcels of valley land for sale below every slice');
   assert(q.lots.every(([a, b]) => a >= 4 && b >= 4), `a first row of parking on every slice's own land, a second on the land for sale (${JSON.stringify(q.lots)})`);
+  assert(Math.min(...q.trees) > 5000 && Math.max(...q.trees) / Math.min(...q.trees) < 1.05, `every slice has about as many trees to clear (${q.trees})`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
 }
