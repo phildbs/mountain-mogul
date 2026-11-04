@@ -2,11 +2,12 @@
 // sends orders, two computer resorts, three days, then the league table and badges.
 //   cd tests && npm install && cd .. && node match/server-test.mjs
 import { memoryDb } from './db.mjs';
-import { startGame, tick } from './server.mjs';
+import { startGame, tick, SETTINGS } from './server.mjs';
 
 const fail = (m) => { console.log('FAIL ' + m); process.exitCode = 1; };
 const ok = (c, m) => (c ? console.log('ok   ' + m) : fail(m));
 const db = memoryDb(), game = await startGame(), H = 3600000, T0 = Date.parse('2026-12-01T18:00:00Z'), U1 = 'u-1', U2 = 'u-2';
+SETTINGS.computers = true; // the older matches' computer resorts, still played and taken over (new ones get none)
 try {
   await db.insert('match_lobbies', [
     { id: 'L1', name: 'Test Cup', map: 'match', slots: 3, starts_at: new Date(T0).toISOString(), days: 3, day_minutes: 60, status: 'open', day: 0, prize: 'Test Cup champion' },
@@ -124,6 +125,13 @@ try {
   await tick(db, game, T1 + 4 * H + 60000);
   ok(db.tables.match_lobbies.find((l) => l.id === 'L3').status === 'finished' && !(db.tables.match_badges || []).some((x) => x.lobby_id === 'L3'), 'a player match gives no badges');
   ok(db.tables.match_players.filter((p) => p.lobby_id === 'L3').every((p) => p.place >= 1), 'but notes every place');
+  // Since Nov 4, new matches get no computer players, even when the lobby asks for them.
+  SETTINGS.computers = false;
+  const T2 = T1 + 10 * H;
+  await db.insert('match_lobbies', [{ id: 'L5', name: 'People Cup', map: 'match', slots: 3, starts_at: new Date(T2).toISOString(), days: 2, day_minutes: 60, status: 'open', day: 0, prize: null, computers: true, keep_profit: true, late_bonus: 15000, late_bonus_cap: 1000000 }]);
+  await db.insert('match_players', [{ lobby_id: 'L5', slot: 0, user_id: U1, resort_name: 'Human Hill' }, { lobby_id: 'L5', slot: 2, user_id: U2, resort_name: 'Person Peak' }]);
+  await tick(db, game, T2 + 60000);
+  ok(db.tables.match_players.filter((p) => p.lobby_id === 'L5').every((p) => p.user_id) && rows('L5').length === 2, 'no computer players in a new match: just the two players');
 } finally {
   await game.close();
 }

@@ -21245,7 +21245,7 @@ const mpIn = (ms) => {
 };
 const mpAt = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const mpLength = (l) => { const d = l.days * l.day_minutes / 1440; return d >= 1 ? `${+d.toFixed(1)} days` : mpIn(l.days * l.day_minutes * 60000); };
-const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: 28, start: 15, slots: 3, computers: 1, late: 1, pw: '' }; };
+const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: 28, start: 15, slots: 3, late: 1, pw: '' }; };
 function makeForm() {
   const k = MP.mk, seg = (key, list, label) => `<div class="seg${list.length > 4 ? ' wrap' : ''}" role="group" aria-label="${label}">${list.map(([v, t, sm]) => `<button type="button" data-mk="${key}" data-v="${v}" aria-pressed="${k[key] === v}">${t}${sm ? `<small>${sm}</small>` : ''}</button>`).join('')}</div>`;
   return `<form class="mp-join mp-make" id="mpMake"><b>Make a match</b>
@@ -21255,7 +21255,6 @@ function makeForm() {
     <span class="field-label">Length</span>${seg('days', MP_DAYS.map((d) => [d, `${d} days`, d === 168 ? `a season · ${mpLength({ days: d, day_minutes: k.turn })}` : mpLength({ days: d, day_minutes: k.turn })]), 'Match length')}
     <span class="field-label">Starts in</span>${seg('start', MP_STARTS.map((m) => [m, mpIn(m * 60000)]), 'Starts in')}
     <span class="field-label">Resorts</span>${seg('slots', [[2, '2', 'one slice stays empty'], [3, '3', 'the whole mountain']], 'Resorts')}
-    <span class="field-label">Computer players</span>${seg('computers', [[0, 'Off', 'empty slices stay empty'], [1, 'On', 'computers run empty slices']], 'Computer players')}
     <span class="field-label">Late joining</span>${seg('late', [[1, 'On', `until day ${Math.floor(k.days / 4)}`], [0, 'Off', 'only before it starts']], 'Late joining')}
     <span class="field-label">Password (optional)</span><input id="mkPw" maxlength="30" autocomplete="off" value="${esc(k.pw)}" placeholder="Leave empty for a public match" aria-label="Password">
     <span class="help">With a password, only friends you tell it to can join. Anyone can still watch. Player matches don’t give badges, but they count on your profile as played and won.</span>
@@ -21314,8 +21313,8 @@ function renderMp() {
   const table = (l) => MP.resorts.filter((r) => r.lobby_id === l.id).sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0));
   const pill = (l) => (l.status === 'open' ? '<span class="pill on">Open</span>' : l.status === 'running' ? '<span class="pill slow">Live</span>' : '<span class="pill done">Finished</span>');
   const pic = (l) => (MP_PHOTO[l.map] ? `<img class="mp-pic" src="${MP_PHOTO[l.map]}" alt="" loading="lazy">` : '');
-  // The match's switches: computer players, and joining after the start (until the cut-off) or not at all.
-  const opts = (l) => `<div class="mp-sub mp-opts">Computer players ${l.computers === false ? 'off' : 'on'} · ${l.late === false ? 'No late joining' : `Late joining until day ${l.late_days ?? Math.floor(l.days / 4)}`}</div>`;
+  // Whether players can join after the start (until the cut-off). No computer players in new matches (Nov 4).
+  const opts = (l) => `<div class="mp-sub mp-opts">${l.late === false ? 'No late joining' : `Late joining until day ${l.late_days ?? Math.floor(l.days / 4)}`}</div>`;
   const by = (l) => (mpOfficial(l) ? '' : `<div class="mp-sub">Player match${l.created_by === me ? ', made by you' : MP.makers[l.created_by] ? ` by ${esc(MP.makers[l.created_by])}` : ''}${l.locked ? ` · <span class="mp-lock">${MP_ICON.lock}Password</span>` : ''}</div>`);
   const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>${l.status === 'finished' ? '' : opts(l)}`;
   const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
@@ -22409,7 +22408,7 @@ $('mpModal').addEventListener('submit', async (e) => {
     if (MP.makeErr) { renderMp(); return; }
     MP.busy = true; renderMp();
     const { data: id, error } = await CLOUD.sb.rpc('match_create', { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: k.days,
-      pslots: k.slots, pcomputers: !!k.computers, ppassword: k.pw || null, rname: k.resort });
+      pslots: k.slots, pcomputers: false, ppassword: k.pw || null, rname: k.resort });
     // Late joining off is a second step (supabase/match-options.sql); the match is made either way.
     const late = !error && !k.late ? await CLOUD.sb.rpc('match_options', { lid: id, plate: false }) : null;
     MP.busy = false;
@@ -22555,7 +22554,8 @@ const CHANGES = [
   { v: '2.95', date: 'Nov 3, 2026', title: 'Make your own match', kotm: true, items: [
     'King of the Mountain: any signed-in player can now press Make a match. Pick a name, a new day every 10, 15 or 30 minutes, a length from 7 days to a whole season, when it starts, and 2 or 3 resorts.',
     'Add a password to keep it to friends: they type it when they join. Without one, anyone can join.',
-    'Choose whether computer players run the empty slices, and whether players can join after it starts.',
+    'Choose whether players can join after it starts.',
+    'No more computer players: in new matches, an empty slice stays empty until a player joins. Matches already being played keep theirs.',
     'The King of the Mountain window now shows Crown Peak, and every match has a picture of its mountain.',
     'The live day speeds up in shorter turns, so the whole day and evening always fit.',
     'Matches marked Official are the tournaments, listed first. They give badges to the top three, now shown on players’ profile pages.',

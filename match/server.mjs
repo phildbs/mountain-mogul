@@ -2,8 +2,8 @@
 //   SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_KEY=... node match/server.mjs
 // The service key lives only on the server (in /etc/mm-match.env there), never in this repo or the game.
 // Each minute it checks the lobbies:
-//   - an open lobby whose start time has passed starts: empty slices get computer-run resorts and every
-//     resort is created on the match map (Crown Peak). A lobby nobody joined is closed instead.
+//   - an open lobby whose start time has passed starts: every player's resort is created on the match map
+//     (Crown Peak) and empty slices stay empty. A lobby nobody joined is closed instead.
 //   - a running lobby plays the days that are due: day N at the start time plus N day lengths, so players
 //     have the first day length to build before opening day. Each day it loads every resort, applies the
 //     players' orders overnight, shares the town's skiers, plays the day for all resorts at once and saves.
@@ -19,6 +19,10 @@ import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY } 
 import { restDb } from './db.mjs';
 
 const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest'], COMPUTER_PRICE = 65;
+// No computer players in multiplayer (Phil, Nov 4): new matches leave empty slices empty, whatever the lobby says.
+// Matches already running keep the computer resorts they started with, and late joiners can still take them over.
+// The test turns them on to keep checking that older code path.
+export const SETTINGS = { computers: false };
 const MAX_DAYS_PER_TICK = 3; // catching up after the server was down: a few days a minute, not all at once
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const dollars = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
@@ -49,7 +53,7 @@ async function startLobby(db, game, lobby) {
   if (!players.some((p) => p.user_id)) { await db.update('match_lobbies', { id: lobby.id }, { status: 'closed' }); log(`${lobby.name}: nobody joined, closed`); return; }
   const taken = new Set(players.map((p) => p.slot)), extra = [];
   // Empty slices get computer resorts, unless the lobby keeps them empty until someone joins.
-  if (lobby.computers !== false) for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
+  if (SETTINGS.computers && lobby.computers !== false) for (let s = 0; s < lobby.slots; s++) if (!taken.has(s)) extra.push({ lobby_id: lobby.id, slot: s, user_id: null, resort_name: COMPUTER_NAMES[s % COMPUTER_NAMES.length] });
   if (extra.length) await db.insert('match_players', extra);
   const all = [...players, ...extra].sort((a, b) => a.slot - b.slot), rows = [];
   let wx = null;

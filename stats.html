@@ -446,9 +446,7 @@ details > summary { cursor: pointer; }
         <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(l)}</option>`).join('')}</select></label>
         <label>Prize badge<input name="prize" maxlength="60" placeholder="Winter Cup champion (the default)"></label>
         <label>Late joining until day<input name="late" type="number" min="0" max="400" placeholder="a quarter of the match"></label>
-        <label class="kcheck"><input type="checkbox" name="computers" checked> Computer resorts run the empty slices <small>Off: empty slices stay untouched until someone joins</small></label>
-        <label class="kcheck"><input type="checkbox" name="late" checked> Late joining <small>Off: nobody can join once it has started</small></label>
-        <label class="kcheck"><input type="checkbox" name="keep" checked> A late joiner keeps the computer’s profit <small>Off: their profit starts at $0 the day they join</small></label>
+        <label class="kcheck"><input type="checkbox" name="latejoin" checked> Late joining <small>Off: nobody can join once it has started</small></label>
         <label class="kcheck"><input type="checkbox" name="flag" checked> Flag it on the game’s title screen <small>An orange “Name · 3 spots left” flag for everyone, until it’s full or starts</small></label>
         <div><button type="submit"${kotBusy ? ' disabled' : ''}>${kotBusy ? 'Making it…' : 'Make the lobby'}</button> <span class="note" id="kMsg"></span></div>
       </form></section>`;
@@ -460,7 +458,7 @@ details > summary { cursor: pointer; }
       const kind = l.kind === 'custom' ? `<span class="kkind">Player match${l.locked ? ' · password' : ''}</span>` : '<span class="kkind official">Official</span>';
       return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b>${kind}<span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.slots} resorts · ${l.days} days · ${l.day_minutes}-minute days</span></div>
         <div class="note">${ps.length ? ps.map((p) => `${esc(p.resort_name)}${p.user_id ? '' : ' (computer)'}${p.joined_day ? ` · joined day ${p.joined_day}` : ''}`).join(' · ') : 'Nobody has joined yet.'}</div>
-        ${'computers' in l ? `<div class="kchips">${onoff(l, 'computers', 'Computer resorts')}${'late' in l && l.status !== 'finished' ? onoff(l, 'late', 'Late joining') : ''}${onoff(l, 'keep_profit', 'Keep computer’s profit')}${'flag' in l && l.status === 'open' ? `<button class="kchip" data-kflag="${l.id}" aria-pressed="${!!l.flag}">Title screen flag: ${l.flag ? 'on' : 'off'}</button>` : ''}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
+        ${'computers' in l ? `<div class="kchips">${'late' in l && l.status !== 'finished' ? onoff(l, 'late', 'Late joining') : ''}${'flag' in l && l.status === 'open' ? `<button class="kchip" data-kflag="${l.id}" aria-pressed="${!!l.flag}">Title screen flag: ${l.flag ? 'on' : 'off'}</button>` : ''}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
         ${l.status === 'finished' ? '' : `<div><button class="kclose" data-kclose="${l.id}">Close this lobby</button></div>`}</div>`;
     }).join('')}</div>` : '<p class="note">No lobbies yet. Make one above.</p>'}</section>`;
     const reps = kot.reports;
@@ -484,10 +482,10 @@ details > summary { cursor: pointer; }
     let err = error;
     if (!err) {
       const late = String(f.get('late') || '').trim();
-      const s = await sb.rpc('admin_match_settings', { lid: id, pcomputers: f.get('computers') === 'on', pkeep: f.get('keep') === 'on', plate_days: late === '' ? null : +late });
+      const s = await sb.rpc('admin_match_settings', { lid: id, pcomputers: false, plate_days: late === '' ? null : +late });
       if (s.error && !/admin_match_settings/.test(s.error.message)) err = s.error;
       // Shorter turns need supabase/match-custom.sql; without it the lobby is still made, with 30-minute days.
-      if (!err && f.get('late') !== 'on') { const t = await sb.rpc('admin_match_late', { lid: id, plate: false }); if (t.error) err = { message: `Made it, but late joining is still on: ${/admin_match_late/.test(t.error.message) ? 'run supabase/match-options.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
+      if (!err && f.get('latejoin') !== 'on') { const t = await sb.rpc('admin_match_late', { lid: id, plate: false }); if (t.error) err = { message: `Made it, but late joining is still on: ${/admin_match_late/.test(t.error.message) ? 'run supabase/match-options.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
       if (!err && +f.get('turn') !== 30) { const t = await sb.rpc('admin_match_turn', { lid: id, pminutes: +f.get('turn') }); if (t.error) err = { message: `Made it, but with 30-minute days: ${/admin_match_turn/.test(t.error.message) ? 'run supabase/match-custom.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
       // The title screen flag needs supabase/match-flag.sql; without it the lobby is still made, unflagged.
       if (!err && f.get('flag') === 'on') { const r = await sb.rpc('admin_match_flag', { lid: id, pflag: true }); if (r.error) err = { message: `Made it, but couldn’t flag it: ${/admin_match_flag/.test(r.error.message) ? 'run supabase/match-flag.sql in the Supabase SQL Editor first' : r.error.message}.` }; }
