@@ -58,10 +58,10 @@ export default async function ({ browser, url }) {
   // Making a match of your own.
   await g.page.click('[data-mp=make]');
   assert(await g.page.isVisible('#mpMake'), 'Make a match opens the form');
-  await g.page.click('[data-mk=turn][data-v="10"]'); await g.page.click('[data-mk=days][data-v="7"]'); await g.page.click('[data-mk=start][data-v="30"]'); await g.page.click('[data-mk=slots][data-v="2"]'); await g.page.click('[data-mk=late][data-v="0"]');
+  await g.page.click('[data-mk=turn][data-v="10"]'); await g.page.click('[data-mk=start][data-v="30"]'); await g.page.click('[data-mk=slots][data-v="2"]'); await g.page.click('[data-mk=late][data-v="0"]');
   eq(await g.page.$('[data-mk=computers]'), null, 'no computer players to choose: there are none');
   t = await body();
-  assert(/7 days\s*1 h 10 min/.test(t) && /168 days\s*a season · 1.2 days/.test(t), `lengths show how long they take in real time (${JSON.stringify(t.match(/Length[\s\S]{0,200}/i))})`);
+  assert(/One whole season, 168 game days: 1.2 days with a new day every 10 minutes/.test(t) && !(await g.page.$('[data-mk=days]')), `always one season, with its real time (${JSON.stringify(t.match(/Length[\s\S]{0,200}/i))})`);
   await g.page.fill('#mkName', 'Friday   Fun'); await g.page.fill('#mkResort', 'Phil’s Peak'); await g.page.fill('#mkPw', 'abc');
   await g.page.click('#mpMake button[type=submit]'); await g.page.waitForSelector('#mpMake .mp-err');
   assert(/at least 4 characters/.test(await g.page.innerText('#mpMake .mp-err')), 'a too-short password is refused');
@@ -69,7 +69,7 @@ export default async function ({ browser, url }) {
   await g.page.fill('#mkPw', 'Pals2026'); await g.page.click('#mpMake button[type=submit]');
   await g.page.waitForFunction(() => !document.getElementById('mpMake') && /Friday Fun/.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 });
   const made = (await db()).lobbies.find((l) => l.name === 'Friday Fun');
-  eq([made.kind, made.created_by, made.day_minutes, made.days, made.slots, made.locked, made.status, made.computers, made.late], ['custom', 'user-B', 10, 7, 2, true, 'open', false, false], 'a 10-minute, 7-day, 2-resort match with a password, no late joining, and never computers');
+  eq([made.kind, made.created_by, made.day_minutes, made.days, made.slots, made.locked, made.status, made.computers, made.late], ['custom', 'user-B', 10, 168, 2, true, 'open', false, false], 'a 10-minute, one-season, 2-resort match with a password, no late joining, and never computers');
   const mins = (Date.parse(made.starts_at) - Date.now()) / 60000;
   assert(mins > 28 && mins < 32, `it starts in about 30 minutes (${mins.toFixed(1)})`);
   t = await body();

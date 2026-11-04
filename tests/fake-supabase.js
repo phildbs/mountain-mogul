@@ -266,6 +266,7 @@
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []), pw = String(args.ppassword || '').trim();
         if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
         if (/\bshit\b/i.test(args.pname || '')) return { data: null, error: { message: 'please pick a friendlier match name' } };
+        if (args.pdays !== 168) return { data: null, error: { message: 'a match lasts one whole season (168 days)' } };
         if (![10, 15, 30].includes(args.pminutes)) return { data: null, error: { message: 'a turn is 10, 15 or 30 minutes' } };
         if (pw && (pw.length < 4 || pw.length > 30)) return { data: null, error: { message: 'a password is 4 to 30 characters' } };
         if (L.some((l) => l.created_by === me && l.kind === 'custom' && ['open', 'running'].includes(l.status))) return { data: null, error: { message: 'you already have a match of your own on: wait for it to finish, or cancel it before it starts' } };

@@ -18,7 +18,7 @@ grant execute on all functions in schema pg_temp to anon, authenticated;
 
 set role authenticated;
 select pg_temp.as_user(1);
-insert into mo_ids select 'm', public.match_create('Switch Cup', now() + interval '1 hour', 10, 7, 3, true, null, 'One Hill');
+insert into mo_ids select 'm', public.match_create('Switch Cup', now() + interval '1 hour', 10, 168, 3, true, null, 'One Hill');
 select pg_temp.ok((select late and computers from public.match_lobbies where id = (select id from mo_ids)), 'late joining and computers on to begin with');
 select public.match_options((select id from mo_ids), false, false);
 select pg_temp.ok((select not late and not computers from public.match_lobbies where id = (select id from mo_ids)), 'the maker turns both off');

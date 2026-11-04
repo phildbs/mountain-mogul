@@ -21248,7 +21248,8 @@ const MP_ICON = { trophy: mpSvg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 
   lock: mpSvg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>') };
 const mpOfficial = (l) => l.kind !== 'custom'; // lobbies from before player matches are all official
 // What a player can pick when making a match: minutes a turn (one game day), days, and minutes until it starts.
-const MP_TURNS = [10, 15, 30], MP_DAYS = [7, 14, 28, 56, 84, 168], MP_STARTS = [5, 15, 30, 60, 180, 720];
+// Every player match is one whole season (Phil, Nov 4); two seasons waits for a server test of the summer.
+const MP_TURNS = [10, 15, 30], MP_SEASON = 168, MP_STARTS = [5, 15, 30, 60, 180, 720];
 const mpIn = (ms) => {
   const m = Math.max(0, Math.round(ms / 60000));
   if (m < 1) return 'under a minute';
@@ -21258,14 +21259,14 @@ const mpIn = (ms) => {
 };
 const mpAt = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const mpLength = (l) => { const d = l.days * l.day_minutes / 1440; return d >= 1 ? `${+d.toFixed(1)} days` : mpIn(l.days * l.day_minutes * 60000); };
-const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: 28, start: 15, slots: 3, late: 1, pw: '' }; };
+const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: MP_SEASON, start: 15, slots: 3, late: 1, pw: '' }; };
 function makeForm() {
   const k = MP.mk, seg = (key, list, label) => `<div class="seg${list.length > 4 ? ' wrap' : ''}" role="group" aria-label="${label}">${list.map(([v, t, sm]) => `<button type="button" data-mk="${key}" data-v="${v}" aria-pressed="${k[key] === v}">${t}${sm ? `<small>${sm}</small>` : ''}</button>`).join('')}</div>`;
   return `<form class="mp-join mp-make" id="mpMake"><b>Make a match</b>
     <span class="field-label">Match name</span><input id="mkName" maxlength="40" autocomplete="off" value="${esc(k.name)}" aria-label="Match name">
     <span class="field-label">Your resort’s name</span><input id="mkResort" maxlength="40" autocomplete="off" value="${esc(k.resort)}" aria-label="Your resort’s name">
     <span class="field-label">A new day every</span>${seg('turn', MP_TURNS.map((m) => [m, `${m} min`]), 'Turn length')}
-    <span class="field-label">Length</span>${seg('days', MP_DAYS.map((d) => [d, `${d} days`, d === 168 ? `a season · ${mpLength({ days: d, day_minutes: k.turn })}` : mpLength({ days: d, day_minutes: k.turn })]), 'Match length')}
+    <span class="field-label">Length</span><span class="help" id="mkLength">One whole season, ${MP_SEASON} game days: <b>${mpLength({ days: MP_SEASON, day_minutes: k.turn })}</b> with a new day every ${k.turn} minutes.</span>
     <span class="field-label">Starts in</span>${seg('start', MP_STARTS.map((m) => [m, mpIn(m * 60000)]), 'Starts in')}
     <span class="field-label">Resorts</span>${seg('slots', [[2, '2', 'one slice stays empty'], [3, '3', 'the whole mountain']], 'Resorts')}
     <span class="field-label">Late joining</span>${seg('late', [[1, 'On', `until day ${Math.floor(k.days / 4)}`], [0, 'Off', 'only before it starts']], 'Late joining')}
@@ -22420,7 +22421,7 @@ $('mpModal').addEventListener('submit', async (e) => {
     MP.makeErr = k.name.length < 3 ? 'Give your match a name of at least 3 letters.' : !k.resort ? 'Give your resort a name first.' : k.pw && k.pw.length < 4 ? 'Make the password at least 4 characters, or leave it empty.' : '';
     if (MP.makeErr) { renderMp(); return; }
     MP.busy = true; renderMp();
-    const { data: id, error } = await CLOUD.sb.rpc('match_create', { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: k.days,
+    const { data: id, error } = await CLOUD.sb.rpc('match_create', { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: MP_SEASON,
       pslots: k.slots, pcomputers: false, ppassword: k.pw || null, rname: k.resort });
     // Late joining off is a second step (supabase/match-options.sql); the match is made either way.
     const late = !error && !k.late ? await CLOUD.sb.rpc('match_options', { lid: id, plate: false }) : null;
@@ -22563,9 +22564,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.95.2', date: 'Nov 4, 2026', title: 'Every match is a whole season', kotm: true, small: true, items: ['King of the Mountain: matches players make now always last one whole season (168 game days). With a new day every 10 minutes that’s about 28 hours; every 15 minutes, about 42 hours; every 30 minutes, 3½ days.'] },
   { v: '2.95.1', date: 'Nov 4, 2026', title: 'King of the Mountain up top, fewer online saves', items: ['King of the Mountain, the new multiplayer mode, now has a big card with a picture of Crown Peak at the top of the title screen, above your mountains. Give it a try!', 'Signed-in resorts now save online every 5 minutes while you play, instead of every 2½, to keep the game’s database quick for everyone. Leaving the game, switching to another app or pressing Save now still saves online straight away, and your device always keeps the latest save.'] },
   { v: '2.95', date: 'Nov 3, 2026', title: 'Make your own match', kotm: true, items: [
-    'King of the Mountain: any signed-in player can now press Make a match. Pick a name, a new day every 10, 15 or 30 minutes, a length from 7 days to a whole season, when it starts, and 2 or 3 resorts.',
+    'King of the Mountain: any signed-in player can now press Make a match. Pick a name, a new day every 10, 15 or 30 minutes, when it starts, and 2 or 3 resorts.',
     'Add a password to keep it to friends: they type it when they join. Without one, anyone can join.',
     'Choose whether players can join after it starts.',
     'No more computer players: in new matches, an empty slice stays empty until a player joins. Matches already being played keep theirs.',
