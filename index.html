@@ -4432,7 +4432,42 @@ const trailGroup = new THREE.Group(), liftGroup = new THREE.Group(), draftGroup 
 scene.add(trailGroup, liftGroup, draftGroup);
 const distXZ = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const trueY = (x, z) => heightAt(x, z) / VEX;
-function isBase(p) { return inProperty(p.x, p.z) && trueY(p.x, p.z) < MOUNTAIN.baseH + 3.5; }
+function isBase(p) {
+  if (!inProperty(p.x, p.z) || trueY(p.x, p.z) >= MOUNTAIN.baseH + 3.5) return false;
+  // Low ground only counts where you can walk to it from a parking lot without going over the mountain. Behind
+  // Ridgeback's ridge the land is as low as the lots, but guests who finished there walked home over the summit.
+  const R = baseReach(); if (!R) return true;
+  const i = Math.floor(clamp(p.x + HALF, 0, WN - 1)), j = Math.floor(clamp(p.z + HALF, 0, WN - 1)), k = j * NV + i;
+  return !!(R[k] | R[k + 1] | R[k + NV] | R[k + NV + 1]);
+}
+// The low ground joined to a lot, worked out again when the land or the terrain changes.
+let baseReachMemo = null;
+function baseReach() {
+  const M = baseReachMemo;
+  if (M && M.rev === terrainRev && M.land === landRects) return M.R;
+  let sites;
+  try { sites = Array.from({ length: lotCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
+  const low = (k) => HT[k] < MOUNTAIN.baseH + 3.5 && inGridLand(k % NV, Math.floor(k / NV));
+  const R = new Uint8Array(NV * NV), stack = [];
+  for (const s of sites) {
+    // Start from the low ground round each lot (or the nearest, if the lot itself sits a little high).
+    const si = Math.round(s.x + HALF), sj = Math.round(s.z + HALF), n0 = stack.length;
+    let near = -1, nd = Infinity;
+    for (let j = Math.max(0, sj - 40); j <= Math.min(WN, sj + 40); j++) for (let i = Math.max(0, si - 40); i <= Math.min(WN, si + 40); i++) {
+      const k = j * NV + i; if (!low(k)) continue;
+      const d = (i - si) ** 2 + (j - sj) ** 2;
+      if (d <= 14 * 14) { R[k] = 1; stack.push(k); } else if (d < nd) { nd = d; near = k; }
+    }
+    if (near >= 0 && stack.length === n0) { R[near] = 1; stack.push(near); }
+  }
+  if (!stack.length) return null; // no lot on low ground: every low spot is base, as before
+  while (stack.length) {
+    const k = stack.pop(), i = k % NV;
+    for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = 1; stack.push(m); }
+  }
+  baseReachMemo = { rev: terrainRev, land: landRects, R };
+  return R;
+}
 
 /* ---------- Names: picked to fit what's built and where, at random so no two resorts read alike ---------- */
 // Trails by rating (green, blue, black, double black): mostly the kind real ski areas use, some fun.
@@ -23435,6 +23470,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.0.1', date: 'Nov 4, 2026', title: 'No more walking over the mountain', small: true, items: [
+    'Fixed: on Ridgeback, guests who finished their day at a lift on the far side of the ridge walked home straight up and over the summit. That low ground behind the ridge is as low as the parking lots, so the game counted it as part of the base.',
+    'The base is now only the low ground you can walk to from a parking lot. A lift that starts behind the ridge works like any lift partway down the mountain: guests ski down to it, ride it up and ski home the front way. Give its top a trail or lift back toward the lots.',
+    'Base-only buildings, like rental shops and ski schools, now go on the lots’ side of the ridge, where guests arrive.',
+  ] },
   { v: '3.0', date: 'Nov 4, 2026', title: 'Mesh fences', items: [
     'New in Build › Decor: a mesh fence. Tap where each post goes and plastic mesh is strung between them along the ground, like string lights. Use it to mark off a guest area, a race course or a corner of the base.',
     'Fences start orange; pick blue, red, green or black on the fence’s card, free, any time. Your next fence starts in the colour you picked last.',

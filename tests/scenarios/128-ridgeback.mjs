@@ -51,8 +51,26 @@ export default async function ({ browser, url }) {
   eq(built.signs, [0, 1, 3, 0], 'a green on the beginner peak, a blue and a double black off the expert peak, and a green along the ridge');
   assert(built.ridge, 'the ridge green counts as the ridge run');
   assert(built.lodges >= 2, 'lodges at the bases');
+  // A lift from the low ground behind the ridge up to the beginner peak's top. That ground is as low as the lots but
+  // over the mountain from both, so it isn't a base: guests ski down to that lift, ride it up and ski home the front way.
+  // They used to finish their day at its bottom and walk to the car straight over the ridge.
+  const back = await g.ev(`(() => {
+    const lift = (a, b) => { const i = evalLift(a, b, 'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i, 'double'); computeNetwork(); return world.lifts[world.lifts.length - 1]; };
+    const trail = (w) => { const pts = w.map(([x, z]) => ({ x, z, y: heightAt(x, z) })), t = evalTrail(pts, 'wide'); if (t.an.problems.length) throw new Error('trail: ' + t.an.problems); commitTrail(t, pts, 'wide'); computeNetwork(); return realTrails().at(-1); };
+    const LB = world.lifts[0], LN = lift({ x: -37, z: -71 }, { x: -35, z: -18 });
+    trail([[LN.b.x - 3, LN.b.z + 2], [-56, 0], [-58, 20], [-42, 44]]); // from its top down the front
+    trail([[LB.b.x - 2, LB.b.z - 3], [-50, -35], [-46, -55], [-39, -69]]); trail([[LN.b.x + 2, LN.b.z - 3], [-22, -40], [-28, -60], [-35, -70]]); // down the back
+    computeNetwork();
+    return { id: LN.id, fromBase: LN.fromBase, backBase: isBase({ x: 0, z: -74 }), frontBase: isBase({ x: -40, z: 60 }) && isBase({ x: 45, z: 35 }) };
+  })()`);
+  eq([back.fromBase, back.backBase, back.frontBase], [false, false, true], 'the low ground behind the ridge is not a base; the ground by both lots is');
   await g.ev(SETUPS.midwinter);
-  await g.ev(`openDay()`); await g.ev(SETUPS.finishDay);
+  await g.ev(`openDay()`);
+  const day = await g.ev(`(() => { let n = 0; const over = new Set(), rode = new Set();
+    while (state.phase === 'open' && n < 90000) { simStep(1.5); n++;
+      for (const g of guests) { if (g.L && g.L.id === ${back.id}) rode.add(g.id); if (g.st === 'walk' && g.z < -45 && g.tz > -10 && !/limp/.test(g.th.join())) over.add(g.id); } }
+    return { over: over.size, rode: rode.size }; })()`);
+  assert(day.rode > 50 && day.over === 0, `guests ride the back lift (${day.rode}) and none walk home over the ridge (${day.over})`);
   const r = await g.ev(`({ guests: state.lastReport.guests, lots: state.lastReport.bases && state.lastReport.bases.lots, goals: state.lastReport.goals })`);
   assert(r.guests > 150 && r.lots.every((n) => n > 0), `guests at both bases (${r.guests}: ${r.lots})`);
   for (const G of ['Two peaks', 'Ridge run', 'Two bases']) assert(r.goals.includes(G), `${G} on the first day (${r.goals})`);
