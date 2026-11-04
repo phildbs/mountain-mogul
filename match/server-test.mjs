@@ -132,6 +132,16 @@ try {
   await db.insert('match_players', [{ lobby_id: 'L5', slot: 0, user_id: U1, resort_name: 'Human Hill' }, { lobby_id: 'L5', slot: 2, user_id: U2, resort_name: 'Person Peak' }]);
   await tick(db, game, T2 + 60000);
   ok(db.tables.match_players.filter((p) => p.lobby_id === 'L5').every((p) => p.user_id) && rows('L5').length === 2, 'no computer players in a new match: just the two players');
+  // Ridgeline: four valleys side by side. Each resort's game is the ridge slid to its own valley.
+  const T3 = T2 + 10 * H;
+  await db.insert('match_lobbies', [{ id: 'L6', name: 'Ridge Cup', map: 'ridge', slots: 4, starts_at: new Date(T3).toISOString(), days: 1, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L6', slot: 0, user_id: U1, resort_name: 'West Valley' }, { lobby_id: 'L6', slot: 3, user_id: U2, resort_name: 'East Valley' }]);
+  await tick(db, game, T3 + 60000);
+  ok(rows('L6').map((r) => r.save.mt).sort().join() === 'ridge@0,ridge@3', `on Ridgeline each resort is on its own valley (${rows('L6').map((r) => r.save.mt)})`);
+  await db.insert('match_orders', [{ lobby_id: 'L6', slot: 3, user_id: U2, kind: 'build', payload: { what: 'lot', row: null, lot: 0 }, applied_day: null, error: null }]);
+  await tick(db, game, T3 + H + 60000);
+  const lot = db.tables.match_orders.find((o) => o.lobby_id === 'L6');
+  ok(db.tables.match_lobbies.find((l) => l.id === 'L6').status === 'finished' && lot.applied_day === 1 && !lot.error, `a Ridgeline match plays, orders and all (${lot.error || 'ok'})`);
 } finally {
   await game.close();
 }

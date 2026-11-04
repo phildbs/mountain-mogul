@@ -441,7 +441,8 @@ details > summary { cursor: pointer; }
       <form class="kform" id="kNew">
         <label>Name<input name="name" maxlength="60" required placeholder="Winter Cup"></label>
         <label>Starts<input name="starts" type="datetime-local" value="${start}" required></label>
-        <label>Resorts<select name="slots"><option value="3">3 (every slice of Crown Peak)</option><option value="2">2 (one slice stays empty)</option></select></label>
+        <label>Mountain<select name="map"><option value="match">Crown Peak (2 or 3 resorts)</option><option value="ridge">Ridgeline (2 to 4 resorts)</option></select></label>
+        <label>Resorts<select name="slots"><option value="3">3 (every slice of Crown Peak, or 3 of Ridgeline’s 4 valleys)</option><option value="2">2 (the rest stay empty)</option><option value="4">4 (Ridgeline only: every valley)</option></select></label>
         <label>A new day every<select name="turn"><option value="30">30 minutes</option><option value="15">15 minutes</option><option value="10">10 minutes</option></select></label>
         <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(l)}</option>`).join('')}</select></label>
         <label>Prize badge<input name="prize" maxlength="60" placeholder="Winter Cup champion (the default)"></label>
@@ -456,7 +457,7 @@ details > summary { cursor: pointer; }
     const lobbies = `<section class="card"><h2>Lobbies</h2><p class="note">Newest first. Closed lobbies leave this list and the game.</p>${kot.lobbies.length ? `<div class="klist">${kot.lobbies.map((l) => {
       const ps = who(l);
       const kind = l.kind === 'custom' ? `<span class="kkind">Player match${l.locked ? ' · password' : ''}</span>` : '<span class="kkind official">Official</span>';
-      return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b>${kind}<span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.slots} resorts · ${l.days} days · ${l.day_minutes}-minute days</span></div>
+      return `<div class="klobby"><div class="khead"><b>${esc(l.name)}</b>${kind}<span class="kstat ${l.status}">${l.status}</span><span class="note">${esc(when(l))} · ${l.map === "ridge" ? "Ridgeline" : "Crown Peak"} · ${l.slots} resorts · ${l.days} days · ${l.day_minutes}-minute days</span></div>
         <div class="note">${ps.length ? ps.map((p) => `${esc(p.resort_name)}${p.user_id ? '' : ' (computer)'}${p.joined_day ? ` · joined day ${p.joined_day}` : ''}`).join(' · ') : 'Nobody has joined yet.'}</div>
         ${'computers' in l ? `<div class="kchips">${'late' in l && l.status !== 'finished' ? onoff(l, 'late', 'Late joining') : ''}${'flag' in l && l.status === 'open' ? `<button class="kchip" data-kflag="${l.id}" aria-pressed="${!!l.flag}">Title screen flag: ${l.flag ? 'on' : 'off'}</button>` : ''}<span class="note">Late joining until day ${l.late_days ?? Math.floor(l.days / 4)} · $${num(l.late_bonus ?? 15000)} a missed day</span></div>` : ''}
         ${l.status === 'finished' ? '' : `<div><button class="kclose" data-kclose="${l.id}">Close this lobby</button></div>`}</div>`;
@@ -477,8 +478,9 @@ details > summary { cursor: pointer; }
     const name = String(f.get('name') || '').trim(), starts = new Date(String(f.get('starts')));
     if (name.length < 3) return msg('<span class="err">Give it a name of at least 3 letters.</span>');
     if (!(starts > new Date())) return msg('<span class="err">Pick a start time in the future.</span>');
+    if (f.get('map') !== 'ridge' && +f.get('slots') > 3) return msg('<span class="err">Crown Peak has three slices: pick 2 or 3 resorts, or Ridgeline for 4.</span>');
     kotBusy = true; renderKotm();
-    const { data: id, error } = await sb.rpc('admin_match_lobby', { pname: name, pstarts: starts.toISOString(), pslots: +f.get('slots'), pdays: +f.get('days'), pprize: String(f.get('prize') || '').trim() || null });
+    const { data: id, error } = await sb.rpc('admin_match_lobby', { pname: name, pstarts: starts.toISOString(), pslots: +f.get('slots'), pdays: +f.get('days'), pprize: String(f.get('prize') || '').trim() || null, pmap: String(f.get('map') || 'match') });
     let err = error;
     if (!err) {
       const late = String(f.get('late') || '').trim();

@@ -210,7 +210,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-73d146cf-ia6tiz` | Claude | **Map viewer for a new multiplayer mountain** (`?mapView=1`, Phil's ask Nov 3). Step 1 is the viewer; the new map comes next, shaped with Phil through it. Not for release yet. | Nov 3, 2026 |
+| `ccr-73d146cf-ia6tiz` | Claude | **2.98 Ridgeline (map `ridge`), a 4-player match map**, from the map viewer (`?mapView=1`). In preview; needs `supabase/match-maps.sql` run on publish. | Nov 3, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
@@ -432,6 +432,28 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   noise. New optional map hook `treeK(u, v)` multiplies the tree chance (both generators); Long Ridge's evens out
   each slice's expected forest (coarse sample: patches, treeline, cliffs), blended across the spurs. Now
   8,980–9,130 (under 2%), 96 ms once. Panel shows trees per slice. Viewer draws ~59k trees (was ~42k): watch phones.
+- Nov 4, Phil: **Ridgeline in multiplayer (2.98, preview)**. Map id `ridge` (name Ridgeline, `strip: RIDGE.b`).
+  A match always uses `ridge@<slot>`: `mountainDef` → `stripFrame(M, slot)`, the ridge slid by `du` so that slot's
+  valley is at u 0.25–0.75 (heights, `treeK`, forest noise via `M.du` in both generators, all shapes), its own road
+  from `roadFor(slot)` (valley road from the east, a tight turn, straight up; the rest of the valley road and the
+  other bases' roads are `roads`, drawn as real roads in `buildRoad`, `mapRoadMeshes`), and its own two parcels
+  (`PARCELS` = `V0`/`V1`). Rivals slide: `stripDx(slot)` in `drawRivals` (no rotation; `rivalLot` skips their road on
+  strip maps), `rivalLand` gets `dx`, `hazeAt` uses `SLICES` + `polyDist`. `matchMt(lob, slot)`; `openMatch(lid, want)`
+  loads the lobby first and reloads onto `matchMt` when the page isn't on it (BOOT carries `slot`); spectators'
+  `matchSwitch` reloads onto the other valley. In slot 0's game the far east valley is past the ring, so not drawn.
+  `?matchMap=ridge` / `?matchDemo=ridge` (3 pretend rivals) preview it. Server: `openResort(..., lobby, slot)` opens
+  `?matchMap=${mapQuery(lobby, slot)}`; a late fresh joiner on a strip map gets evenly spread snow;
+  `match/server-test.mjs` plays a 4-slot Ridgeline lobby (passes). SQL: `supabase/match-maps.sql` adds
+  `match_create_on(pmap, …)` (Crown 2–3, Ridgeline 2–4; `match_create` untouched); 15 checks in
+  `tests/sql/match-maps.sql` on a throwaway local Postgres 16 with Supabase stubs (auth schema and roles) after all
+  the other match files. The other match SQL tests still pass, except match-custom.sql's length check, which
+  already fails since match-season.sql. `admin_match_lobby` already took `pmap`: stats.html has a Mountain select.
+  Window: two half pictures (`.mp-heroes`, `img/ridgeline.jpg` from `tests/capture-ridgeline.mjs`), Ridgeline tagged
+  "New 4-player mountain"; tapping one opens Make a match on it (`data-mp="makeOn"`). Make a match: Mountain choice,
+  resorts from `MP_SLOTS[map]`. Title card: both pictures, the same orange tag. No What next? on any match map
+  (`body.matchmap`; the advice guard checks `MOUNTAIN.match`), so previews match real play. `ownedAcres` counts the
+  slice (Crown Peak 364, was 632). Scenario 171-ridgeline-match; 165 updated. Publish: run match-maps.sql on live
+  first (until then Make a match on Ridgeline says it isn't switched on); the server picks it up on restart.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

@@ -236,7 +236,7 @@
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []);
         if (fn === 'admin_match_lobby') {
           const t = new Date(args.pstarts); const r = new Date(Math.ceil(t.getTime() / 1800000) * 1800000);
-          const row = { id: 'L' + (L.length + 1), name: args.pname, map: 'match', slots: args.pslots, starts_at: r.toISOString(), days: args.pdays, day_minutes: 30, status: 'open', day: 0, prize: args.pprize || args.pname + ' champion', flag: false, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 };
+          const row = { id: 'L' + (L.length + 1), name: args.pname, map: args.pmap || 'match', slots: args.pslots, starts_at: r.toISOString(), days: args.pdays, day_minutes: 30, status: 'open', day: 0, prize: args.pprize || args.pname + ' champion', flag: false, computers: true, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000 };
           L.push(row); put(d); return { data: row.id, error: null };
         }
         if (fn === 'admin_match_settings') { const l = L.find((x) => x.id === args.lid); if (l) { if (args.pcomputers != null) l.computers = args.pcomputers; if (args.pkeep != null) l.keep_profit = args.pkeep; if (args.plate_days != null) l.late_days = args.plate_days; } put(d); return { data: null, error: null }; }
@@ -262,15 +262,22 @@
         list.push(row); put(d); return { data: row.id, error: null };
       }
       // Player matches and passwords (supabase/match-custom.sql). Passwords stay in m.keys, which no select reads.
-      if (fn === 'match_create') {
+      // match_create_on (supabase/match-maps.sql): the same, on a mountain, with its own number of resorts
+      if (fn === 'match_create_on') {
+        if (!['match', 'ridge'].includes(args.pmap)) return { data: null, error: { message: 'pick one of the mountains' } };
+        if (args.pmap === 'match' && ![2, 3].includes(args.pslots)) return { data: null, error: { message: 'a match on Crown Peak has 2 or 3 resorts' } };
+        if (args.pmap === 'ridge' && ![2, 3, 4].includes(args.pslots)) return { data: null, error: { message: 'a match on Ridgeline has 2 to 4 resorts' } };
+      }
+      if (fn === 'match_create' || fn === 'match_create_on') {
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []), pw = String(args.ppassword || '').trim();
+        if (fn === 'match_create' && ![2, 3].includes(args.pslots)) return { data: null, error: { message: 'a match has 2 or 3 resorts' } };
         if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign in to play multiplayer' } };
         if (/\bshit\b/i.test(args.pname || '')) return { data: null, error: { message: 'please pick a friendlier match name' } };
         if (args.pdays !== 168) return { data: null, error: { message: 'a match lasts one whole season (168 days)' } };
         if (![10, 15, 30].includes(args.pminutes)) return { data: null, error: { message: 'a turn is 10, 15 or 30 minutes' } };
         if (pw && (pw.length < 4 || pw.length > 30)) return { data: null, error: { message: 'a password is 4 to 30 characters' } };
         if (L.some((l) => l.created_by === me && l.kind === 'custom' && ['open', 'running'].includes(l.status))) return { data: null, error: { message: 'you already have a match of your own on: wait for it to finish, or cancel it before it starts' } };
-        const row = { id: 'C' + (L.length + 1), name: String(args.pname).replace(/\s+/g, ' ').trim(), map: 'match', slots: args.pslots, starts_at: new Date(Math.ceil(Date.parse(args.pstarts) / 60000) * 60000).toISOString(), days: args.pdays, day_minutes: args.pminutes, status: 'open', day: 0, prize: null, flag: false, computers: args.pcomputers !== false, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, kind: 'custom', created_by: me, locked: !!pw, late: true };
+        const row = { id: 'C' + (L.length + 1), name: String(args.pname).replace(/\s+/g, ' ').trim(), map: args.pmap || 'match', slots: args.pslots, starts_at: new Date(Math.ceil(Date.parse(args.pstarts) / 60000) * 60000).toISOString(), days: args.pdays, day_minutes: args.pminutes, status: 'open', day: 0, prize: null, flag: false, computers: args.pcomputers !== false, keep_profit: true, late_days: null, late_bonus: 15000, late_bonus_cap: 1000000, kind: 'custom', created_by: me, locked: !!pw, late: true };
         L.push(row); if (pw) (m.keys || (m.keys = {}))[row.id] = pw;
         (m.players || (m.players = [])).push({ lobby_id: row.id, slot: 0, user_id: me, resort_name: String(args.rname || 'My Resort').slice(0, 40) });
         put(d); return { data: row.id, error: null };

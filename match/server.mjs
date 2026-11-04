@@ -2,8 +2,8 @@
 //   SUPABASE_URL=https://<project>.supabase.co SUPABASE_SERVICE_KEY=... node match/server.mjs
 // The service key lives only on the server (in /etc/mm-match.env there), never in this repo or the game.
 // Each minute it checks the lobbies:
-//   - an open lobby whose start time has passed starts: every player's resort is created on the match map
-//     (Crown Peak) and empty slices stay empty. A lobby nobody joined is closed instead.
+//   - an open lobby whose start time has passed starts: every player's resort is created on the lobby's map
+//     (Crown Peak, or Ridgeline) and empty slices stay empty. A lobby nobody joined is closed instead.
 //   - a running lobby plays the days that are due: day N at the start time plus N day lengths, so players
 //     have the first day length to build before opening day. Each day it loads every resort, applies the
 //     players' orders overnight, shares the town's skiers, plays the day for all resorts at once and saves.
@@ -38,8 +38,11 @@ export async function startGame() {
   const server = await startServer(), browser = await launch();
   return { url: server.url, browser, close: async () => { await browser.close(); server.close(); } };
 }
-async function openResort(game, save, name) {
-  const g = await openGame(game.browser, game.url, { query: '?matchMap=1', mountain: 'fresh' });
+// Each resort plays on its lobby's map: Crown Peak is the same from every slice; a strip map (Ridgeline, 'ridge')
+// is slid so that resort's own valley is in front, as in that player's own game (stripFrame in the game).
+export const mapQuery = (lobby, slot) => (lobby.map && lobby.map !== 'match' ? `${lobby.map}@${slot}` : '1');
+async function openResort(game, save, name, lobby, slot) {
+  const g = await openGame(game.browser, game.url, { query: `?matchMap=${mapQuery(lobby, slot)}`, mountain: 'fresh' });
   if (save) await g.page.evaluate((s) => window.__dbg('applySave')(s), save);
   await g.ev(`state.resortName = ${JSON.stringify(name)}`);
   return g;
@@ -58,7 +61,7 @@ async function startLobby(db, game, lobby) {
   const all = [...players, ...extra].sort((a, b) => a.slot - b.slot), rows = [];
   let wx = null;
   for (const p of all) {
-    const g = await openResort(game, null, p.resort_name);
+    const g = await openResort(game, null, p.resort_name, lobby, p.slot);
     // Opening day of the season with a good early base. Computer resorts start with a lift, two trails and a lodge.
     await g.ev(`(() => { for (let k = 0; k < NV * NV; k++) NS[k] = 50; refreshSnowState(todayWx()); })()`);
     if (!p.user_id) { await g.ev(SETUPS.juniperStarter); await g.ev(`state.ticket = ${COMPUTER_PRICE}`); }
@@ -84,7 +87,7 @@ async function playDay(db, game, lobby) {
   resorts.sort((a, b) => a.slot - b.slot);
   const pages = [];
   try {
-    for (const r of resorts) pages.push(await openResort(game, r.save, r.summary.name));
+    for (const r of resorts) pages.push(await openResort(game, r.save, r.summary.name, lobby, r.slot));
     const ref = resorts.findIndex((r) => r.save);
     await setWeather(pages.filter((_, k) => k !== ref), await weatherOf(pages[ref]));
     // A player who joined late: they take over a computer resort (or the fresh one above) tonight, with a
@@ -92,7 +95,9 @@ async function playDay(db, game, lobby) {
     for (const [k, r] of resorts.entries()) {
       const p = players.find((q) => q.slot === r.slot);
       if (!p || !p.user_id || !r.summary.computer) continue;
-      if (r.summary.fresh) await pages[k].ev(`(() => { const ns = ${JSON.stringify(await pages[ref].ev('Array.from(NS)'))}; for (let i = 0; i < NS.length; i++) NS[i] = ns[i];
+      // (on a strip map the other resort's game is slid elsewhere along the ridge, so its snow is spread evenly instead)
+      if (r.summary.fresh) await pages[k].ev(`(() => { const ns = ${JSON.stringify(await pages[ref].ev('Array.from(NS)'))}, even = ${mapQuery(lobby, 0) !== '1'}, mean = ns.reduce((a, b) => a + b, 0) / ns.length;
+        for (let i = 0; i < NS.length; i++) NS[i] = even ? mean : ns[i];
         state.day = ${await pages[ref].ev('state.day')}; refreshSnowState(todayWx()); })()`);
       const bonus = Math.min(lobby.late_bonus_cap ?? 1000000, (lobby.late_bonus ?? 15000) * (p.joined_day || 0));
       if (bonus) await pages[k].ev(`state.cash += ${bonus}`);
