@@ -388,6 +388,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   `viewCentre`/`viewSpan`/`viewAz`, and `farE` (Long Ridge 84, for the ridge ends). Strips are ~265 acres (Crown
   slices 364). To make it playable, a strip map needs sliding, not turning, in every player's game (`drawRivals`,
   `hazeAt`, parcels all assume Crown's rotation), and a world wide enough to show the far strips.
+- Nov 4, Phil: a good flat summit on every slice. `height` wraps the old shape (`slope`): an oval (0.13 × 0.07 at
+  `RIDGE.top`) levelled to its average height, easing out inside its own strip. The viewer now shows "flat summit"
+  per slice (under 10% grade, top fifth): Long Ridge 22–26 acres, Crown Peak 11–12.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

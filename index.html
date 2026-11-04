@@ -2421,7 +2421,7 @@ MATCH_MAPS.match = {
 // Long Ridge (draft, only in the map viewer for now): four resorts side by side below one long ridge, each in its
 // own valley between two spur ridges. Not mirror images: each valley has its own character, kept about as good as
 // the others (the viewer's numbers). The slices are strips, so `sliceAreas` lists them all; `bases` are their bases.
-const RIDGE = { b: [-0.4, 0.05, 0.5, 0.95, 1.4], crest: 0.9 };
+const RIDGE = { b: [-0.4, 0.05, 0.5, 0.95, 1.4], crest: 0.9, top: 0.855 }; // top: the middle of each flat summit
 MATCH_MAPS.ridge = {
   id: 'ridge',
   name: 'Long Ridge',
@@ -2444,7 +2444,23 @@ MATCH_MAPS.ridge = {
   roads: [catmull([[0.32, -0.09], [-0.1, -0.1], [-0.62, -0.12]], 10), catmull([[-0.175, -0.1], [-0.175, 0.04]], 4),
     catmull([[0.725, -0.1], [0.725, 0.04]], 4), catmull([[1.175, -0.11], [1.175, 0.04]], 4)],
   creek: catmull([[-0.62, -0.2], [0, -0.2], [0.6, -0.21], [1.2, -0.19], [1.75, -0.22]], 12),
+  // A flat summit at the top of each slice, room for lift stations and a lodge: an oval just below the crest is
+  // levelled to the ground's average height there (as much dug as filled), easing back into the slopes round it.
+  // The easing stays inside the slice, so neighbours don't change each other's ground.
   height(u, v) {
+    const h = this.slope(u, v);
+    let k = Math.floor((u - RIDGE.b[0]) / (RIDGE.b[1] - RIDGE.b[0]));
+    if (k < 0 || k > 3 || v < 0.7) return h;
+    const cu = (RIDGE.b[k] + RIDGE.b[k + 1]) / 2, d = Math.hypot((u - cu) / 0.13, (v - RIDGE.top) / 0.07);
+    if (d >= 1.65) return h;
+    this.flat = this.flat || [0, 1, 2, 3].map((j) => { // the average over the oval
+      const c = (RIDGE.b[j] + RIDGE.b[j + 1]) / 2; let a = 0, n = 0;
+      for (let x = -1; x <= 1; x += 0.1) for (let y = -1; y <= 1; y += 0.1) if (x * x + y * y <= 1) { a += this.slope(c + x * 0.13, RIDGE.top + y * 0.07); n++; }
+      return a / n;
+    });
+    return lerp(h, this.flat[k], 1 - sstep(1, 1.65, d));
+  },
+  slope(u, v) {
     const s = this.seed, B = RIDGE.b, cv = RIDGE.crest + 0.025 * Math.sin(u * 4.3);
     // How much each valley's character applies here: blended across its spur ridges, so there are no seams.
     const w = [0, 1, 2, 3].map((k) => (k ? sstep(B[k] - 0.06, B[k] + 0.06, u) : 1) * (k < 3 ? 1 - sstep(B[k + 1] - 0.06, B[k + 1] + 0.06, u) : 1));
@@ -2459,7 +2475,7 @@ MATCH_MAPS.ridge = {
     const ends = 1 - 0.65 * sstep(0, 0.16, Math.max(B[0] - u, u - B[4], 0)); // the ridge drops away past both ends
     h += H * rise * ends;
     const g = (cu, cvv, r, a) => a * Math.exp(-((u - cu) ** 2 + (v - cvv) ** 2) / (r * r));
-    h += g(0.275, 0.93, 0.13, 10) - g(0.275, 0.72, 0.1, 5) * w[1]; // valley 2's peak and bowl
+    h += g(0.275, 0.9, 0.2, 6) - g(0.275, 0.7, 0.1, 5) * w[1]; // valley 2's peak and bowl
     h += w[3] * 4 * (sstep(0.36, 0.44, v) - sstep(0.5, 0.58, v)); // valley 4's bench
     // A spur ridge down each line between valleys, fading out into the valley floor.
     // Each valley is hollowed out between them, deepest in its middle.
@@ -21474,14 +21490,17 @@ function viewTurn(k) { // a spot on slice 0 (world x, z) turned onto slice k, as
 }
 // Each slice's acres, base and summit, and how much of it is each steepness, from the ground itself (ring included).
 function viewStats() {
-  const out = Array.from({ length: MOUNTAIN.slices }, () => ({ cells: 0, lo: Infinity, hi: -Infinity, mix: [0, 0, 0, 0, 0] }));
+  const out = Array.from({ length: MOUNTAIN.slices }, () => ({ cells: 0, lo: Infinity, hi: -Infinity, mix: [0, 0, 0, 0, 0], top: [] }));
   for (let fj = 0; fj < FN; fj++) for (let fi = 0; fi < FN; fi++) {
     const k = sliceAt(fi - FAR_E + 0.5, fj - FAR_E + 0.5);
     if (k < 0) continue;
     const a = FAR[fj * FNV + fi], b = FAR[fj * FNV + fi + 1], c = FAR[(fj + 1) * FNV + fi], d = FAR[(fj + 1) * FNV + fi + 1];
     const h = (a + b + c + d) / 4, g = Math.hypot((b - a + d - c) / 2, (c - a + d - b) / 2), S = out[k];
     S.cells++; S.lo = Math.min(S.lo, h); S.hi = Math.max(S.hi, h); S.mix[difficulty(g)]++;
+    if (g < 0.1) S.top.push(h);
   }
+  // flat ground (under a 10% grade) in the top fifth of each slice: its summit's room to build
+  for (const S of out) S.flatTop = S.top.filter((h) => h > S.hi - (S.hi - S.lo) * 0.2).length;
   return out;
 }
 // Each slice's edge as a coloured band just inside it, so where two slices meet both colours show side by side.
@@ -21562,7 +21581,7 @@ function viewPanel() {
   const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100);
   const maps = Object.values(MATCH_MAPS);
   const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
-      <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical</span>
+      <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)}</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small></div>`).join('');
   const el = document.createElement('div');
