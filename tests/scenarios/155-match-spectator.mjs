@@ -64,6 +64,11 @@ export default async function ({ browser, url }) {
   await h.reloaded();
   await h.page.waitForFunction(() => window.__dbg('!!(visiting && matchView)'), null, { timeout: 20000 });
   eq(await h.ev(`[matchView.slot, state.ticket, document.getElementById('resortName').textContent]`), [1, 61, 'Lone Peak'], 'a match with an empty first slice opens on the resort that is there');
+  // You joined late on that empty first slice: until the server plays the next day there's no resort yet, so it says when.
+  await h.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.match.players.push({ lobby_id: 'M2', slot: 0, user_id: 'user-B', resort_name: 'Phil Peak' }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await h.ev(`openMatch('M2')`); await h.wait(800);
+  const said = await h.ev(`document.getElementById('toast').textContent`);
+  assert(/You’re in! Your resort is set up when day 14 starts/.test(said), `a late joiner is told when their resort is ready (${said})`);
   eq(h.errors, [], 'no page errors (one-resort match)');
   await h.page.close();
 }
