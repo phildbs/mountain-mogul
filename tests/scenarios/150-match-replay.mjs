@@ -83,7 +83,7 @@ export default async function ({ browser, url }) {
     const top = { x: L.b.x, z: L.b.z }, bot = { x: L.a.x, z: L.a.z }, out = {};
     for (const w of [0, 6, -6, 10, -10]) { const mid = { x: (top.x + bot.x) / 2 + w, z: (top.z + bot.z) / 2 }, pts = [top, mid, bot].map((q) => ({ ...q, y: heightAt(q.x, q.z) })), i = evalTrail(pts, 'medium', planning());
       if (!i.an.problems.length && i.cost <= state.cash) { draft.kind = 'trail'; draft.width = 'medium'; draft.pts = pts; draft.info = i; buildDraft(); out.trail = world.trails.length - T; break; } }
-    const t = world.trails[world.trails.length - 1]; out.open = t.open;
+    const t = realTrails().at(-1); out.open = t.open;
     setTool('bld'); const B0 = world.buildings.length;
     for (let k = 0; k < 40 && world.buildings.length === B0; k++) { const x = bot.x + (k % 8 - 4) * 4, z = bot.z + 6 + Math.floor(k / 8) * 4, v = evalBuilding('restroom', x, z, 0);
       if (v && !v.problems.length) { draft.btype = 'restroom'; draft.bpos = { x, z }; draft.rot = 0; buildBuildingDraft(); } }
@@ -100,7 +100,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev('!!matchView.replay'), true, 'back to Explore, still watching');
   await g.ev('state.cash = Math.max(state.cash, 3e6)'); await g.wait(100);
   let c = await g.ev('state.cash'), n0 = (await orders()).length;
-  const nt = await g.ev('world.trails[world.trails.length - 1].id');
+  const nt = await g.ev('realTrails().at(-1).id');
   await g.ev(`select({ kind: 'trail', obj: trailById(${nt}) })`); await press('[data-action=smInstall]');
   eq(await g.ev(`[!!matchView.replay, !!(trailById(${nt}).sm && trailById(${nt}).sm.on), state.cash < ${c}]`), [true, true, true], 'snowmaking goes in while the day plays, and is paid for');
   eq((await orders()).length, n0 + 1, 'and it is ordered for tonight');

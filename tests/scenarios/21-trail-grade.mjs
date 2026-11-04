@@ -21,14 +21,14 @@ export default async function ({ browser, url }) {
 
   const cash0 = await g.ev(`state.cash`), h0 = await g.ev(`Array.from(HT).reduce((a, b) => a + b, 0)`);
   await g.click('[data-action=build]'); await g.wait(200);
-  const built = await g.ev(`(() => { const t = world.trails[world.trails.length - 1]; return { n: world.trails.length, problems: t.an.problems, cash: state.cash }; })()`);
+  const built = await g.ev(`(() => { const t = realTrails().at(-1); return { n: world.trails.length, problems: t.an.problems, cash: state.cash }; })()`);
   eq(built.n, 3, 'the trail was built');
   eq(built.problems.filter((p) => /uphill/.test(p)), [], 'and it really runs downhill now');
   assert(Math.abs(cash0 - built.cash - after.cost) < 1, 'it cost what the panel said');
   assert(Math.abs((await g.ev(`Array.from(HT).reduce((a, b) => a + b, 0)`)) - h0) > 0.5, 'the ground was reshaped');
   // the reshaped ground is saved
   await g.ev(`saveNow()`); await g.page.reload(); await g.reloaded();
-  eq(await g.ev(`world.trails[world.trails.length - 1].an.problems.filter((p) => /uphill/.test(p)).length`), 0, 'still downhill after a reload');
+  eq(await g.ev(`realTrails().at(-1).an.problems.filter((p) => /uphill/.test(p)).length`), 0, 'still downhill after a reload');
   // a switchback that doubles back over itself can't be graded, and the panel says so
   await g.ev(`(() => { setTool('trail'); const L = world.lifts[0]; draft.grade = true;
     draft.pts = [[L.b.x + 3, L.b.z + 2], [24, 30], [26, 18], [22, 58]].map(([x, z]) => ({ x, z })); draft.dirty = true; recomputeDraft(); })()`);
