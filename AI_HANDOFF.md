@@ -392,7 +392,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Panel: whole mountain or fly to a base, tilt slider (`EL` is now `let`, 20–85°, only the viewer changes it),
   steepness colours (`setSlope`, which in the viewer reaches rivals' slices and the ring), slice edges, labels, summer
   (stashes `NS`), and `viewStats` per slice (acres, base to summit, vertical, share by `difficulty`) so an unfair slice
-  shows. `VIEW_MAX` is 560 in the viewer. Scenario 162-map-viewer.
+  shows. `VIEW_MAX` is 560 in the viewer. Scenario 170-map-viewer.
 - Spotted, left alone: the game badge on Crown Peak says 632 acres (`ownedAcres` uses the whole square, `PN²`);
   a slice is really 364.
 - Phil's picks for the new map (Nov 3): 4 resorts, a long ridge with bases below, slices equally good rather than
