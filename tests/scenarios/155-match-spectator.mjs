@@ -50,6 +50,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`document.querySelectorAll('#sheet [data-action=matchSlot]').length`), 2, 'Follow beside the other two resorts');
   await g.ev(`document.querySelector('#sheet [data-action=matchSlot][data-slot="2"]').click()`); await g.wait(500);
   eq(await g.ev(`[matchView.slot, state.ticket]`), [2, 70], 'Follow in the standings switches to Valley View');
+  eq(await g.ev(`[getComputedStyle($('tipsBtn')).display, !!matchPlay]`), ['none', false], 'watching a match: no What next? button');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
   // A match with an empty first slice (one player, in slot 1): watching follows the resort that's there.

@@ -29,6 +29,9 @@ export default async function ({ browser, url }) {
   eq([a.waiting, a.slot, a.lifts, a.cash, a.name, a.rivals], [true, 0, 0, cash0 + 45000, 'Phil Peak', [1]], 'you open your empty slice at once, with the catch-up investment, beside your rival');
   eq(a.day, rival.clock.day, 'on the match’s day');
   assert(/Your resort opens when day 4 starts/.test(a.toast), `it says when your resort opens (${a.toast})`);
+  // No What next? in King of the Mountain: no button, no welcome card on an empty slice, and it won't open.
+  await g.wait(2200);
+  eq(await g.ev(`[getComputedStyle($('tipsBtn')).display, selected && selected.kind, (select({ kind: 'advice', obj: null }), selected && selected.kind)]`), ['none', null, null], 'no What next? button, welcome card or panel in a match');
 
   // Build a lift: it goes to the server as an order.
   await g.ev(`(() => { setTool('lift'); const i = evalLift({ x: ${spot[0]}, z: ${spot[1]} }, { x: ${spot[2]}, z: ${spot[3]} }, 'double'); commitLift(i, 'double'); computeNetwork(); setTool('explore'); })()`);
