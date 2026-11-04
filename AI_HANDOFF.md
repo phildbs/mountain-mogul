@@ -391,6 +391,13 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Nov 4, Phil: a good flat summit on every slice. `height` wraps the old shape (`slope`): an oval (0.13 × 0.07 at
   `RIDGE.top`) levelled to its average height, easing out inside its own strip. The viewer now shows "flat summit"
   per slice (under 10% grade, top fifth): Long Ridge 22–26 acres, Crown Peak 11–12.
+- Nov 4, Phil: long winding greens and blues from every top; less space behind the mountain. Ridge moved back
+  (crest v 1.1), strips 0.5 wide (358 acres each), `farE` 100. Faces now an even pitch that levels into a natural
+  flat top (no levelled oval any more: its fill made a cliff lip), gentle smooth sides and rougher middles, low
+  broad spurs (their flanks were 40–60%). `viewRoute` lays example runs by walking down a step at a time at a
+  target grade (green 12%, blue 30%), looking a few units ahead; `viewRuns` rates them with `analyzeTrail`
+  ("Example runs" toggle). Now every slice: green 9,100–10,600 ft (steepest 17–22%), blue 5,600–6,800 ft
+  (31–33%). Vertical ~1,180 ft. Trade-off: almost no advanced ground left (0–6%).
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

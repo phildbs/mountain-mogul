@@ -574,6 +574,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mapview .vrow { padding: 7px 0; border-top: 1px solid rgba(20, 36, 58, 0.08); display: grid; gap: 3px; }
 .mapview .vrow b { display: flex; align-items: center; gap: 6px; }
 .mapview .vrow span, .mapview .vrow small { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.mapview .vrun svg { vertical-align: -1px; }
 .mapview .vmix { display: flex; height: 9px; border-radius: 5px; overflow: hidden; background: #e3e7ed; }
 .mapview .vhelp { margin: 8px 0 0; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
 .vtag { position: absolute; left: 0; top: 0; pointer-events: none; background: rgba(20, 36, 58, 0.88); color: #fff; border-radius: 999px; padding: 4px 10px; font: 700 12px var(--ui); white-space: nowrap; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(20, 36, 58, 0.25); }
@@ -2421,7 +2422,10 @@ MATCH_MAPS.match = {
 // Long Ridge (draft, only in the map viewer for now): four resorts side by side below one long ridge, each in its
 // own valley between two spur ridges. Not mirror images: each valley has its own character, kept about as good as
 // the others (the viewer's numbers). The slices are strips, so `sliceAreas` lists them all; `bases` are their bases.
-const RIDGE = { b: [-0.4, 0.05, 0.5, 0.95, 1.4], crest: 0.9, top: 0.855 }; // top: the middle of each flat summit
+// The faces are evenly pitched, gentler and smoother along each valley's sides than down its middle, so a green can
+// wind down from every summit, turning on the gentle sides, and a blue can come more directly; the viewer lays an
+// example of each (`runTurns`) and rates it.
+const RIDGE = { b: [-0.5, 0, 0.5, 1, 1.5], crest: 1.1, top: 1.04, base: 0.05 }; // top: the middle of each flat summit
 MATCH_MAPS.ridge = {
   id: 'ridge',
   name: 'Long Ridge',
@@ -2434,57 +2438,52 @@ MATCH_MAPS.ridge = {
   draw: 1, costs: 1,
   seed: 7713,
   baseFt: 3200,
-  treeline: 30,
+  treeline: 31,
   sliceAreas: [0, 1, 2, 3].map((k) => [[RIDGE.b[k], 0], [RIDGE.b[k + 1], 0], [RIDGE.b[k + 1], RIDGE.crest + 0.03], [RIDGE.b[k], RIDGE.crest + 0.03]]),
-  bases: [0, 1, 2, 3].map((k) => [(RIDGE.b[k] + RIDGE.b[k + 1]) / 2, 0.05]),
-  viewCentre: [0.5, 0.45], viewSpan: 330, viewAz: 0.2, farE: 84, // more ground past the map, for the ends of the ridge
+  bases: [0, 1, 2, 3].map((k) => [(RIDGE.b[k] + RIDGE.b[k + 1]) / 2, RIDGE.base]),
+  summits: [0, 1, 2, 3].map((k) => [(RIDGE.b[k] + RIDGE.b[k + 1]) / 2, RIDGE.top]),
+  // The example runs the viewer lays from each summit: turns this far either side of the middle (u).
+  runTurns: 0.13,
+  viewCentre: [0.5, 0.55], viewSpan: 360, viewAz: 0.2, farE: 100, // more ground past the map, for the ends of the ridge
   get area() { return this.sliceAreas[1]; }, // in a player's game, the strip that sits in the usual square
   // the valley road from town (off the east end), and a spur up to each base
-  road: catmull([[1.75, -0.15], [1.2, -0.11], [0.7, -0.1], [0.32, -0.09], [0.275, -0.02], [0.275, 0.04]], 10),
-  roads: [catmull([[0.32, -0.09], [-0.1, -0.1], [-0.62, -0.12]], 10), catmull([[-0.175, -0.1], [-0.175, 0.04]], 4),
-    catmull([[0.725, -0.1], [0.725, 0.04]], 4), catmull([[1.175, -0.11], [1.175, 0.04]], 4)],
-  creek: catmull([[-0.62, -0.2], [0, -0.2], [0.6, -0.21], [1.2, -0.19], [1.75, -0.22]], 12),
-  // A flat summit at the top of each slice, room for lift stations and a lodge: an oval just below the crest is
-  // levelled to the ground's average height there (as much dug as filled), easing back into the slopes round it.
-  // The easing stays inside the slice, so neighbours don't change each other's ground.
-  height(u, v) {
-    const h = this.slope(u, v);
-    let k = Math.floor((u - RIDGE.b[0]) / (RIDGE.b[1] - RIDGE.b[0]));
-    if (k < 0 || k > 3 || v < 0.7) return h;
-    const cu = (RIDGE.b[k] + RIDGE.b[k + 1]) / 2, d = Math.hypot((u - cu) / 0.13, (v - RIDGE.top) / 0.07);
-    if (d >= 1.65) return h;
-    this.flat = this.flat || [0, 1, 2, 3].map((j) => { // the average over the oval
-      const c = (RIDGE.b[j] + RIDGE.b[j + 1]) / 2; let a = 0, n = 0;
-      for (let x = -1; x <= 1; x += 0.1) for (let y = -1; y <= 1; y += 0.1) if (x * x + y * y <= 1) { a += this.slope(c + x * 0.13, RIDGE.top + y * 0.07); n++; }
-      return a / n;
-    });
-    return lerp(h, this.flat[k], 1 - sstep(1, 1.65, d));
-  },
+  road: catmull([[1.85, -0.15], [1.3, -0.11], [0.75, -0.1], [0.3, -0.09], [0.25, -0.02], [0.25, 0.04]], 10),
+  roads: [catmull([[0.3, -0.09], [-0.2, -0.1], [-0.75, -0.12]], 10), catmull([[-0.25, -0.1], [-0.25, 0.04]], 4),
+    catmull([[0.75, -0.1], [0.75, 0.04]], 4), catmull([[1.25, -0.11], [1.25, 0.04]], 4)],
+  creek: catmull([[-0.75, -0.2], [0, -0.2], [0.6, -0.21], [1.2, -0.19], [1.85, -0.22]], 12),
+  // Each face levels off into a broad, smooth flat top below the crest: every slice's summit, room for lift
+  // stations and a lodge, with nothing dug or filled, so the runs leave it without a lip.
+  height(u, v) { return this.slope(u, v); },
   slope(u, v) {
-    const s = this.seed, B = RIDGE.b, cv = RIDGE.crest + 0.025 * Math.sin(u * 4.3);
+    const s = this.seed, B = RIDGE.b, cv = RIDGE.crest + 0.02 * Math.sin(u * 4.3);
     // How much each valley's character applies here: blended across its spur ridges, so there are no seams.
     const w = [0, 1, 2, 3].map((k) => (k ? sstep(B[k] - 0.06, B[k] + 0.06, u) : 1) * (k < 3 ? 1 - sstep(B[k + 1] - 0.06, B[k + 1] + 0.06, u) : 1));
     const mix = (a) => a[0] * w[0] + a[1] * w[1] + a[2] * w[2] + a[3] * w[3];
-    // 1 West: lower and gentle, a long easy runout. 2: the big peak, with a steep bowl under it. 3: rugged, gullies
-    // and rock. 4 East: a flat mid-mountain bench, steep above and below it.
-    const H = mix([33, 34, 37, 36]) + 3 * fbm(u * 3, 7.7, s + 3, 3), p = mix([1.45, 1.1, 1.0, 1.25]), rough = mix([0.7, 1, 1.9, 1]);
+    // 1 West: gentlest, a long easy runout. 2: a steeper bowl halfway down. 3: rugged, gullies and
+    // rock. 4 East: a flat mid-mountain bench.
+    const H = mix([31, 33, 34, 33]) + 2 * fbm(u * 3, 7.7, s + 3, 3), rough = mix([0.4, 0.75, 1.05, 0.75]);
+    // 0 at a valley's sides, 1 down its middle
+    const mid = [0, 1, 2, 3].reduce((a, k) => a + Math.sin(Math.PI * clamp((u - B[k]) / (B[k + 1] - B[k]), 0, 1)), 0);
     let h = 2 + 0.6 * fbm(u * 3, v * 3, s + 1, 3);
     // Each valley floor reaches back into the mountain, deepest in its middle, so the spurs between stand out.
-    const bay = [0, 1, 2, 3].reduce((a, k) => a + Math.pow(Math.sin(Math.PI * clamp((u - B[k]) / (B[k + 1] - B[k]), 0, 1)), 1.4) * (k === 0 && u < B[0] ? 0 : 1), 0);
-    const t = sstep(0.03 + 0.15 * bay, cv, v), rise = v < cv ? Math.pow(t, p) : 1 - 0.55 * sstep(cv, cv + 0.32, v);
+    const bay = [0, 1, 2, 3].reduce((a, k) => a + Math.pow(Math.sin(Math.PI * clamp((u - B[k]) / (B[k + 1] - B[k]), 0, 1)), 1.4), 0);
+    // The fall line: mostly an even pitch, rounded off at the top and the bottom (not steepest in the middle).
+    // The valley floor reaching further back down the middle also makes the middle steeper than the sides.
+    // The face levels off into a broad flat top just below the crest (the summits), then falls away behind.
+    const ce = cv - 0.12, v0 = 0.03 + 0.1 * bay, t = clamp((v - v0) / (ce - v0), 0, 1), even = 0.8 * t + 0.2 * t * t * (3 - 2 * t);
+    const rise = v < ce ? even : v < cv ? 1 : 1 - 0.55 * sstep(cv, cv + 0.25, v);
     const ends = 1 - 0.65 * sstep(0, 0.16, Math.max(B[0] - u, u - B[4], 0)); // the ridge drops away past both ends
     h += H * rise * ends;
     const g = (cu, cvv, r, a) => a * Math.exp(-((u - cu) ** 2 + (v - cvv) ** 2) / (r * r));
-    h += g(0.275, 0.9, 0.2, 6) - g(0.275, 0.7, 0.1, 5) * w[1]; // valley 2's peak and bowl
-    h += w[3] * 4 * (sstep(0.36, 0.44, v) - sstep(0.5, 0.58, v)); // valley 4's bench
-    // A spur ridge down each line between valleys, fading out into the valley floor.
-    // Each valley is hollowed out between them, deepest in its middle.
-    for (let k = 0; k < 4; k++) h -= 2.5 * Math.pow(Math.sin(Math.PI * clamp((u - B[k]) / (B[k + 1] - B[k]), 0, 1)), 1.5) * sstep(0.12, 0.35, v) * (1 - sstep(0.62, cv, v));
-    for (const b of B.slice(1, 4)) h += 4 * Math.exp(-(((u - b) / 0.06) ** 2)) * sstep(0.12, 0.4, v) * (v < cv ? 1 : 1 - sstep(cv, cv + 0.15, v));
+    h -= g(0.25, 0.6, 0.1, 3) * w[1]; // valley 2's bowl, halfway down
+    h += w[3] * 2 * (sstep(0.38, 0.55, v) - sstep(0.58, 0.75, v)); // valley 4's bench
+    // Each valley hollowed out a little between the spur ridges, and a spur down each line between valleys.
+    for (let k = 0; k < 4; k++) h -= 1.2 * Math.pow(Math.sin(Math.PI * clamp((u - B[k]) / (B[k + 1] - B[k]), 0, 1)), 1.5) * sstep(0.12, 0.35, v) * (1 - sstep(0.75, cv, v));
+    for (const b of B.slice(1, 4)) h += 2.2 * Math.exp(-(((u - b) / 0.09) ** 2)) * sstep(0.12, 0.4, v) * (v < cv ? 1 : 1 - sstep(cv, cv + 0.15, v));
     // Folds and ledges on the slopes; the valley floor stays smooth.
-    const relief = sstep(0.08, 0.2, v) * (1 - sstep(cv + 0.05, cv + 0.25, v)) * rough;
-    h += relief * (1.6 * fbm(u * 6, v * 6, s + 5, 4) + 1.1 * ridged(u * 8, v * 8, s + 9, 3) - 0.6);
-    // Wooded hills south of the valley, and the back of the ridge.
+    const relief = sstep(0.08, 0.2, v) * (1 - sstep(ce - 0.08, ce, v)) * rough * (0.25 + 1.1 * mid * mid); // smooth sides, rougher (steeper chutes and ledges) down the middle
+    h += relief * (1.6 * fbm(u * 6, v * 6, s + 5, 4) + 0.8 * ridged(u * 8, v * 8, s + 9, 3) - 0.45);
+    // Wooded hills south of the valley.
     h += 7 * sstep(-0.28, -0.55, v) * (0.6 + 0.6 * fbm(u * 4, v * 4, s + 13, 3));
     return h;
   },
@@ -21528,6 +21527,57 @@ function viewLines() {
   scene.add(grp);
   return grp;
 }
+// An example run from slice k's summit to its base, found the way you'd ski a cat track: a yard or so at a time,
+// each step taking the heading (from straight across the slope to straight down it) whose drop is closest to
+// `grade`, crossing to `a` either side of the middle and turning back. So the pitch stays even over bumps and
+// tilted ground alike. Returns points in world x, z, one every few units.
+function viewRoute(k, grade, a) {
+  const [c, top] = MOUNTAIN.summits[k], [, base] = MOUNTAIN.bases[k], p0 = uvWorld([c, top]), end = uvWorld([c, base + 0.04]);
+  const xL = uvWorld([c - a, 0]).x, xR = uvWorld([c + a, 0]).x, step = 1;
+  let x = p0.x, z = p0.z, side = k % 2 ? -1 : 1;
+  const pts = [{ x, z }];
+  for (let i = 0; i < 2000 && z < end.z; i++) {
+    if ((side > 0 && x >= xR) || (side < 0 && x <= xL)) side = -side; // turn back across
+    const y = trueY(x, z);
+    let best = null;
+    for (let t = -8; t <= 16; t++) { // from 45 degrees up the map (where the ground tilts across), through straight across (0), to straight down it
+      const ang = t / 16 * Math.PI / 2, dx = side * Math.cos(ang), dz = Math.sin(ang);
+      // judged over the next few units, so it sees a knob or a dip coming; worst of the near and far drops
+      const err = Math.max(Math.abs((y - trueY(x + dx * 1.5, z + dz * 1.5)) / 1.5 - grade), Math.abs((y - trueY(x + dx * 4, z + dz * 4)) / 4 - grade))
+        + (t < 2 ? 0.02 : 0); // keep heading down the map, so it never stalls
+      if (!best || err < best.err) best = { err, nx: x + dx * step, nz: z + dz * step };
+    }
+    x = best.nx; z = best.nz;
+    if (i % 4 === 3) pts.push({ x, z });
+  }
+  pts.push(end);
+  return pts;
+}
+// Each slice's example runs: laid as real trails and rated by the game's own rules, so the colour drawn is what a
+// player would get on that line.
+function viewRuns() {
+  const grp = new THREE.Group(), out = [];
+  if (MOUNTAIN.summits) for (let k = 0; k < MOUNTAIN.slices; k++) {
+    const res = {};
+    for (const kind of ['green', 'blue']) {
+      const route = kind === 'green' ? viewRoute(k, 0.12, MOUNTAIN.runTurns) : viewRoute(k, 0.3, MOUNTAIN.runTurns * 0.8);
+      const sm = trailSamples(route, 2), an = analyzeTrail(sm), pos = [], idx = [];
+      res[kind] = { len: an.len, rating: an.rating, max: an.maxGrade, uphill: an.problems.some((p) => /uphill/.test(p)) };
+      for (let i = 0; i < sm.length; i++) {
+        const a = sm[Math.max(0, i - 1)], b = sm[Math.min(sm.length - 1, i + 1)], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+        for (const w of [-0.9, 0.9]) { const x = sm[i].x + nx * w, z = sm[i].z + nz * w; pos.push(x, heightAt(x, z) + 0.35, z); }
+        if (i) { const r = i * 2 - 2; idx.push(r, r + 2, r + 1, r + 1, r + 2, r + 3); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+      const col = RATINGS[an.rating].col, m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: new THREE.Color(col[0], col[1], col[2]), transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false, side: THREE.DoubleSide }));
+      m.renderOrder = 6; m.frustumCulled = false; grp.add(m);
+    }
+    out.push(res);
+  }
+  grp.visible = false; scene.add(grp);
+  return { grp, out };
+}
 function viewTags() {
   const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
   const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
@@ -21578,12 +21628,15 @@ function viewSummer(on) {
   if (on) weatherFall = 0;
 }
 function viewPanel() {
-  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100);
+  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out;
+  const runLine = (r, kind) => { const x = r[kind], ok = x.rating <= (kind === 'green' ? 0 : 1) && !x.uphill;
+    return `${ratingSymbol(x.rating, 11)} ${kind === 'green' ? 'Green' : 'Blue'} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : ' <b class="warn">too steep</b>'}`; };
   const maps = Object.values(MATCH_MAPS);
   const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
       <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)}</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
-      <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small></div>`).join('');
+      <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
+      ${runs[k] ? `<small class="vrun">${runLine(runs[k], 'green')}<br>${runLine(runs[k], 'blue')}</small>` : ''}</div>`).join('');
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'mapView';
   el.innerHTML = `<div class="vhead"><div><h2>${MOUNTAIN.name}</h2><p>Map viewer · ${n} resorts · nothing here is saved</p></div>
@@ -21597,6 +21650,7 @@ function viewPanel() {
         <button id="vLines" aria-pressed="true">Slice edges</button>
         <button id="vTags" aria-pressed="true">Labels</button>
         <button id="vSummer" aria-pressed="false">Summer</button>
+        ${mapViewer.runs.out.length ? '<button id="vRuns" aria-pressed="false">Example runs</button>' : ''}
       </div>
       <h3>Each slice</h3>${rows}
       <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
@@ -21609,6 +21663,7 @@ function viewPanel() {
   tog('vLines', (on) => { mapViewer.lines.visible = on; });
   tog('vTags', (on) => { $('viewTags').hidden = !on; });
   tog('vSummer', viewSummer);
+  if ($('vRuns')) tog('vRuns', (on) => { mapViewer.runs.grp.visible = on; });
   $('vTilt').oninput = (e) => { EL = +e.target.value * Math.PI / 180; $('vTiltV').textContent = `${e.target.value}°`; updateCamera(); hover.dirty = true; };
   $('vFold').onclick = () => { const open = $('vBody').hidden; $('vBody').hidden = !open; $('vFold').textContent = open ? '–' : '+'; $('vFold').setAttribute('aria-expanded', open); };
   if ($('vMap')) $('vMap').onchange = (e) => { location.search = `?mapView=${e.target.value}`; };
@@ -21622,7 +21677,7 @@ function mapViewStart() {
   if (!MOUNTAIN.sliceAreas) matchView = { demo: true, view: true, slot: 0, me: false, lobby: { name: 'Map viewer' }, players: [], resorts: Array.from({ length: MOUNTAIN.slices - 1 }, (_, k) => ({ slot: k + 1, save: empty, summary: {} })) };
   if (matchView) drawRivals(); // a map that lists its slices has its roads in the ground
   if (boundaryLine) boundaryLine.visible = false;
-  mapViewer.lines = viewLines();
+  mapViewer.lines = viewLines(); mapViewer.runs = viewRuns();
   viewTags(); viewPanel();
   winterView = true; styleSnowVisuals();
   const to = viewWhole(MOUNTAIN.viewAz ?? 0.35);
