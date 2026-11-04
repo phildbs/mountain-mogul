@@ -16,7 +16,7 @@ export default async function ({ browser, url }) {
     players: [{ lobby_id: 'M1', slot: 0, user_id: 'user-B', resort_name: 'Sinking Peak' }, { lobby_id: 'M1', slot: 1, user_id: 'u-x', resort_name: 'Lone Peak' }],
     resorts: [{ lobby_id: 'M1', slot: 0, day: 3, save: broke, summary: { name: 'Sinking Peak', profit: -90000, guests: 300, cash: 1000, debt: 800000, lifts: 1, trails: 2 } },
       { lobby_id: 'M1', slot: 1, day: 3, save: sv, summary: { name: 'Lone Peak', profit: 5000, guests: 400 } }], orders: [] };
-  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Bea', public: true }, 'user-C': { name: 'Cal', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
+  await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Bea', public: true }, 'user-C': { name: 'Cal', public: true }, 'u-x': { name: 'Lou', public: true } }; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, match);
   const db = () => g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match);
   const openWindow = async () => { await g.click('#mpCard'); await g.page.waitForSelector('#mpBody .mp-card', { timeout: 10000, state: 'attached' }); await g.wait(600); };
 
@@ -61,6 +61,13 @@ export default async function ({ browser, url }) {
   const took = (await db()).players.find((p) => p.slot === 0);
   eq([took.user_id, took.resort_name, took.joined_day, took.rescue_due, took.abandoned], ['user-C', 'Rescue Ridge', 3, true, false], 'Cal claims it, with a fresh start due tonight');
 
+  // One name per player (supabase/profile-names.sql): Cal can't be called bea.
+  eq(await g.ev(`saveProfile(' BEA ', true).then((e) => nameTaken(e))`), true, 'another player’s name is refused, whatever its capitals');
+  // Tapping a name in the standings opens that player's profile, even with no public resorts.
+  await g.ev(`document.querySelector('.mp-table [data-mp=who][data-uid="u-x"]').click()`); await g.wait(1500);
+  const lou = await g.ev(`[$('community').hidden, $('cmCreatorTab').hidden, document.querySelector('#cmCreatorTab h3') && document.querySelector('#cmCreatorTab h3').textContent]`);
+  eq(lou, [false, false, 'Lou'], 'tapping Lone Peak in the standings opens Lou’s profile');
+  await g.ev(`$('community').hidden = true`);
   // Opening it: the fresh start is shown at once, as the server will give it tonight.
   await openWindow();
   await g.page.evaluate(() => document.querySelector('[data-mp=open][data-id=M1]').click());
@@ -69,6 +76,8 @@ export default async function ({ browser, url }) {
   await g.wait(800);
   const c = await g.ev(`({ debt: state.debt || 0, cash: Math.round(state.cash), rep: state.reputation, slot: matchPlay.slot, toast: document.getElementById('toast').textContent })`);
   eq([c.debt, c.cash, c.rep, c.slot], [0, 500000, 1, 0], 'no debt, $500,000 and a fresh reputation');
+  await g.ev(`select({ kind: 'match', obj: null })`); await g.wait(300);
+  eq(await g.ev(`!!document.querySelector('.mp-table [data-action=matchWho][data-uid="u-x"]')`), true, 'in the match’s own standings, names open profiles too');
   assert(/fresh start comes tonight/.test(c.toast), `it says so (${c.toast})`);
   // Profiles: Cal's own page says he has rescued one resort; Bea's record says she left one match.
   await g.ev(`closeMp()`).catch(() => {});

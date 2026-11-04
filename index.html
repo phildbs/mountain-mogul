@@ -781,6 +781,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mp-table li.me { font-weight: 700; }
 .mp-table li.me em { color: var(--ink); }
 /* A resort its player left: tagged in the standings, and offered to claim on the live match's card. */
+.mp-table .mp-who { font: inherit; color: inherit; text-align: left; text-decoration: underline; text-decoration-color: rgba(20, 36, 58, 0.25); text-underline-offset: 2px; padding: 0; } /* a name opens that player's profile */
 .mp-left { font-size: 11px; font-weight: 600; color: var(--ink-2); }
 .mp-claims { display: grid; gap: 6px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .mp-claim { display: grid; gap: 2px; padding: 9px 10px; border-radius: 10px; background: var(--accent-soft); min-width: 0; }
@@ -8341,7 +8342,7 @@ sheet.addEventListener('click', (e) => {
 // A panel button's action. The match server calls this too, with a stand-in button, to do a player's action overnight.
 function sheetAct(b) {
   const a = b.dataset.action;
-  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'bldSort', 'profitMap', ...(matchView ? ['pastReport', 'matchSlot'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read, and a spectator picks whose resort to follow)
+  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'bldSort', 'profitMap', ...(matchView ? ['pastReport', 'matchSlot', 'matchWho'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read, and a spectator picks whose resort to follow)
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -8546,6 +8547,7 @@ function sheetAct(b) {
   else if (a === 'bulkGroom') { for (const t of realTrails()) { t.groomed = b.dataset.v === '1'; updateTrailSnow(t, todayWx()); } renderSheet(); scheduleSave(); toast(b.dataset.v === '1' ? 'Every trail will be groomed tonight.' : 'Grooming stopped on every trail.'); }
   else if (a === 'bulkSm') { let n = 0; for (const t of realTrails()) if (t.sm && t.sm.on) { t.sm.mode = b.dataset.v; n++; } renderSheet(); scheduleSave(); toast(`Snow guns on ${n} ${n === 1 ? 'trail' : 'trails'}: ${SM_WORD[b.dataset.v]}`); }
   else if (a === 'matchSlot') matchSwitch(+b.dataset.slot);
+  else if (a === 'matchWho') openCreator(b.dataset.uid); // a rival's profile, from the standings
   else if (a === 'pastReport') { const h = (state.history || [])[+b.dataset.i]; if (h) showReport(h, true); } else if (a === 'sign' && obj) {
     const v = +b.dataset.v;
     obj.sign = v === obj.an.rating ? null : v;
@@ -20383,6 +20385,8 @@ async function loadProfile() {
   const old = state.creator || (CLOUD.own || []).map((m) => m.creator).find(Boolean);
   if (old) await saveProfile(old, true);
 }
+// Player names are one each (supabase/profile-names.sql): another player's, whatever its capitals, comes back as name_taken.
+const nameTaken = (err) => /name_taken|profiles_name_unique/.test((err && err.message) || '');
 async function saveProfile(name, pub) {
   const { data, error } = await CLOUD.sb.rpc('set_profile', { pname: name, ppublic: pub });
   if (error) return error;
@@ -21354,7 +21358,7 @@ function creatorHtml(id) {
   const mine = id === CLOUD.uid;
   const list = mine ? (CLOUD.own || []).filter((m) => m.public).map((m) => ({ ...m, owner: id, me: true }))
     : CLOUD.mountains.filter((m) => m.owner === id);
-  const name = mine ? (CLOUD.profile && CLOUD.profile.name) || 'You' : (list.find((m) => m.creator) || {}).creator;
+  const name = mine ? (CLOUD.profile && CLOUD.profile.name) || 'You' : (list.find((m) => m.creator) || {}).creator || (KOTM_REC[id] || {}).name;
   const back = `<button class="link back" data-action="cmBack">‹ Back</button>`;
   if (!name) return `${back}<p class="help">This creator keeps their profile private.</p>`;
   const best = Math.max(0, ...list.map((m) => m.bestGuests || 0)), stars = list.reduce((a, m) => a + (m.stars || 0), 0);
@@ -21378,11 +21382,11 @@ function kotmRecordHtml(id) {
 async function loadKotmRecord(id) {
   if (!CLOUD.sb || !id) return;
   try {
-    const [rec, b, x] = await Promise.all([CLOUD.sb.rpc('match_record', { uid: id }), CLOUD.sb.from('match_badges').select('lobby_id,place,title,created_at').eq('user_id', id),
-      CLOUD.sb.rpc('match_record_more', { uid: id }).then((r) => r, () => ({}))]);
+    const [rec, b, x, pr] = await Promise.all([CLOUD.sb.rpc('match_record', { uid: id }), CLOUD.sb.from('match_badges').select('lobby_id,place,title,created_at').eq('user_id', id),
+      CLOUD.sb.rpc('match_record_more', { uid: id }).then((r) => r, () => ({})), CLOUD.sb.from('profiles').select('name').eq('id', id).maybeSingle().then((r) => r, () => ({}))]);
     const row = Array.isArray(rec.data) ? rec.data[0] : rec.data; // without supabase/match-custom.sql: badges only
     const more = Array.isArray(x.data) ? x.data[0] : x.data; // resorts rescued and matches left (supabase/match-abandon.sql); none before it
-    KOTM_REC[id] = { played: (row && row.played) || 0, won: (row && row.won) || 0, badges: b.data || [], more: more && !x.error ? { rescued: more.rescued || 0, abandoned: more.abandoned || 0 } : null };
+    KOTM_REC[id] = { played: (row && row.played) || 0, won: (row && row.won) || 0, badges: b.data || [], more: more && !x.error ? { rescued: more.rescued || 0, abandoned: more.abandoned || 0 } : null, name: (pr && pr.data && pr.data.name) || '' }; // a public profile's name, for players with no public resorts (opened from a match)
     if (CLOUD.viewCreator === id && !$('community').hidden) refreshCommunity();
   } catch (e) { /* the page shows without it */ }
 }
@@ -21598,6 +21602,8 @@ const mpSvg = (d) => `<svg class="mp-ico" viewBox="0 0 24 24" fill="none" stroke
 const MP_ICON = { trophy: mpSvg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8.5 20h7M10 17h4v3h-4z"/>'),
   lock: mpSvg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>') };
 const mpOfficial = (l) => l.kind !== 'custom';
+// A resort's name in the standings: tap it to open its player's profile (computer and left resorts have none).
+const mpWho = (uid, name, on) => (uid ? `<button class="link mp-who" type="button" ${on === 'mp' ? 'data-mp="who"' : 'data-action="matchWho"'} data-uid="${esc(uid)}" title="See this player’s profile">${esc(name)}</button>` : esc(name));
 // Claiming a left resort (supabase/match-abandon.sql): until three-quarters of the season, and the first claim's fresh start
 // tops the cash up to this (RESCUE_CASH in match/server.mjs).
 const mpClaimEnd = (l) => Math.floor(l.days * 3 / 4), MATCH_RESCUE = 500000; // lobbies from before player matches are all official
@@ -21694,7 +21700,8 @@ function renderMp() {
   const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>${l.status === 'finished' ? '' : opts(l)}`;
   const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
   const left = (l, slot) => inL(l).some((p) => p.slot === slot && !p.user_id && p.abandoned); // its player left it (supabase/match-abandon.sql)
-  const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${left(l, r.slot) ? ' <small class="mp-left">left</small>' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
+  const who = (l, r) => mpWho((inL(l).find((p) => p.slot === r.slot) || {}).user_id, r.summary.name || 'Resort', 'mp');
+  const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${who(l, r)}${left(l, r.slot) ? ' <small class="mp-left">left</small>' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
   const when = (l) => {
     if (l.status === 'open') return `Starts in <b>${mpIn(Date.parse(l.starts_at) - now)}</b> (${esc(mpAt(l.starts_at))}) · ${inL(l).length} of ${l.slots} joined`;
     if (l.status === 'running') return l.day ? `Day <b>${l.day}</b> of ${l.days} · next day in <b>${mpIn(next(l) - now)}</b>` : `Opening day in <b>${mpIn(next(l) - now)}</b>: time to build`;
@@ -21829,7 +21836,8 @@ $('mpModal').addEventListener('click', async (e) => {
   if (what === 'intro-ok') { try { localStorage.setItem('mm.kotm.intro', '1'); } catch (er) { /* fine */ } MP.intro = false; renderMp(); return; }
   if (what === 'intro') { MP.intro = true; renderMp(); $('mpBody').scrollTop = 0; return; }
   if (what === 'bug') { closeMp(); openFeedback('fb'); return; }
-  if (what === 'profile') { closeMp(); openCommunity('profile'); return; } // your name, badges and record: see and edit it there
+  if (what === 'profile') { closeMp(); openCommunity('profile'); return; }
+  if (what === 'who') { closeMp(); openCreator(b.dataset.uid); return; } // your name, badges and record: see and edit it there
   if (what === 'pick') {
     MP.joinFor = b.dataset.id; MP.joinErr = ''; MP.make = false;
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
@@ -22403,7 +22411,7 @@ function matchSheet() {
   const l = matchView.lobby, t = matchTable(), mine = (t.find((r) => r.slot === matchView.slot) || { summary: {} }).summary;
   return `<div class="sheet-title"><h3>Standings</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${esc(l.name)} on Crown Peak. The most season profit wins${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
-    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${esc(r.summary.name || 'Resort')}${matchView.players.some((p) => p.slot === r.slot && !p.user_id && p.abandoned) ? ' <small class="mp-left">left · free to claim</small>' : r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
+    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${mpWho((matchView.players.find((p) => p.slot === r.slot) || {}).user_id, r.summary.name || 'Resort')}${matchView.players.some((p) => p.slot === r.slot && !p.user_id && p.abandoned) ? ' <small class="mp-left">left · free to claim</small>' : r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
     ${matchView.me ? '' : '<p class="help">Watching: the guests, ticket, reports and live day are for the resort you follow. Tap Follow to switch.</p>'}
     <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
@@ -23181,7 +23189,7 @@ $('mpModal').addEventListener('submit', async (e) => {
     MP.pname = n;
     if (!n) { MP.nameErr = 'Type a name first.'; renderMp(); return; }
     const err = await saveProfile(n, true);
-    MP.nameErr = err ? 'Couldn’t save that name. Try again in a moment.' : '';
+    MP.nameErr = !err ? '' : nameTaken(err) ? `Another player is already called ${n}. Pick a different name.` : 'Couldn’t save that name. Try again in a moment.';
     if (!err) toast(`Hello, ${n}! Now pick a match.`);
     renderMp(); return;
   }
@@ -23225,7 +23233,7 @@ $('cmMe').addEventListener('submit', async (e) => {
   const name = $('cmCreator').value.replace(/\s+/g, ' ').trim().slice(0, 24);
   if (!name) { toast('Type a creator name first.', true); return; }
   const err = await saveProfile(name, $('cmProfPublic').checked);
-  if (err) { toast(/sign_in/.test(err.message) ? 'Sign in to make a creator profile.' : `Couldn’t save your profile: ${err.message}`, true); return; }
+  if (err) { toast(/sign_in/.test(err.message) ? 'Sign in to make a creator profile.' : nameTaken(err) ? `Another player is already called ${name}. Pick a different name.` : `Couldn’t save your profile: ${err.message}`, true); return; }
   toast(CLOUD.profile.public ? `Saved. ${CLOUD.profile.name} now shows on all your public resorts.` : 'Saved. Your profile is private.');
   refreshCommunity();
 });
@@ -23342,7 +23350,9 @@ const CHANGES = [
     'Running matches show any resort someone left as free to claim, with its cash, debt, season profit and guests, until three-quarters of the way through the season.',
     'The first player to claim a left resort gets a fresh start from the bank: its debt written off, its cash topped up to at least $500,000, a season loss back to $0 and its reputation restored. It reopens the next morning.',
     'A left resort is shut until someone claims it, with no skiers and no costs. A badge or a win only counts for a player who ran their resort for at least half the season.',
-    'Profiles now show how many resorts a player has rescued, and how many matches they’ve abandoned.'] },
+    'Profiles now show how many resorts a player has rescued, and how many matches they’ve abandoned.',
+    'Tap a resort’s name in the standings, in a match or in the Multiplayer window, to see its player’s profile. The window also has a Profile link, and How it works is rewritten.',
+    'Every player name is now one of a kind: if someone already has the name you pick, you’re asked for another.'] },
   { v: '2.98.1', date: 'Nov 4, 2026', title: 'King of the Mountain card fix', small: true, items: ['The King of the Mountain card on the title screen no longer lets its pictures spill over the heading on some phones, and its New 4-player mountain tag now sits on Ridgeline’s picture.'] },
   { v: '2.98', date: 'Nov 4, 2026', title: 'Ridgeline: a 4-player mountain', kotm: true, items: [
     'King of the Mountain has a second mountain, Ridgeline: up to four resorts side by side, each in its own valley below one long ridge.',

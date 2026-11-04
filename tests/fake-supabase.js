@@ -357,6 +357,7 @@
       if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
       const n = String(args.pname || '').replace(/\s+/g, ' ').trim().slice(0, 24);
       if (!n) return { data: null, error: { code: '22023', message: 'name_needed' } };
+      if (Object.entries(d.profiles || {}).some(([id, p]) => id !== me && p.name.trim().toLowerCase() === n.toLowerCase())) return { data: null, error: { code: '23505', message: 'name_taken' } }; // supabase/profile-names.sql
       (d.profiles || (d.profiles = {}))[me] = { name: n, public: !!args.ppublic };
       for (const r of d.rows) if (r.owner === me) r.summary = { ...r.summary, creator: args.ppublic ? n : '' };
       put(d); return { data: { name: n, public: !!args.ppublic }, error: null };
