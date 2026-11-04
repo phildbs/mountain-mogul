@@ -6233,7 +6233,7 @@ function syncAreaLines() {
     + (glades.length ? `#${glades.map((A) => `${A.id}:${A.cells.length}`).join(',')}#${realTrails().map((t) => `${t.id}:${t.samples.length}`).join(',')}#${world.lifts.map((L) => `${L.id}:${L.a.x},${L.b.x}`).join(',')}` : '');
   if (sig === areaSig) return;
   areaSig = sig;
-  for (const t of world.trails.filter((o) => o.virtual)) removeTrail(t);
+  for (const t of world.trails.filter((o) => o.virtual && !o.link)) removeTrail(t);
   for (const [A, L] of want) for (let k = 0; k < AREA_LINES; k++) {
     addTrail({ id: -(A.id * 1000 + L.id * 10 + k), name: A.name, pts: areaLinePts(A, L, k), width: 'medium', open: true, sign: 0, virtual: true, area: A.id, lift: L.id });
   }
@@ -6244,11 +6244,62 @@ function syncAreaLines() {
     if (corridor.size) clearTreeSet(corridor);
   }
 }
+// A trail that runs right past a lift station, instead of starting or ending there, still meets the lift.
+// A short hidden link joins them: skiers can leave the trail for the lift line, and riders getting off at
+// the top can drop onto the trail. Links take their name, rating, snow and open state from the trail.
+let linkSig = null;
+const LINK_KEYS = ['name', 'open', 'snowOk', 'lit', 'groomed', 'surface', 'base', 'icy', 'sm', 'snowClosed'];
+function linkWants() {
+  const out = [];
+  for (const L of world.lifts) {
+    if (isVillage(L) || L.type === 'carpet') continue;
+    const ya = trueY(L.a.x, L.a.z), yb = trueY(L.b.x, L.b.z);
+    for (const T of realTrails()) {
+      const S = T.samples, n = S.length;
+      if (n < 16) continue;
+      const near = (p) => { let bi = -1, bd = STATION_R; for (let i = 0; i < n; i++) { const d = distXZ(S[i], p); if (d < bd) { bd = d; bi = i; } } return bi; };
+      // Bottom station beside the trail (not where it already ends or starts): ski off into the line.
+      let i = distXZ(S[n - 1], L.a) < STATION_R || distXZ(S[0], L.a) < STATION_R ? -1 : near(L.a);
+      if (i >= 4 && i <= n - 4) {
+        while (i > 0 && distXZ(S[i], L.a) < 2) i--;
+        if (S[i].y > ya - 1.5) out.push({ T, L, top: false, i });
+      }
+      // Top station beside the trail (not where it already starts): riders get off onto it.
+      let j = distXZ(S[0], L.b) < STATION_R ? -1 : near(L.b);
+      if (j >= 1 && j <= n - 8) {
+        while (j < n - 6 && distXZ(S[j], L.b) < 2) j++;
+        if (S[j].y < yb + 1.5) out.push({ T, L, top: true, i: j });
+      }
+    }
+  }
+  return out;
+}
+function syncLinks() {
+  const want = linkWants();
+  const sig = want.map((w) => `${w.top ? 'u' : 'd'}${w.T.id}:${w.L.id}:${w.i}:${w.T.samples[w.i].x.toFixed(2)},${w.T.samples[w.i].z.toFixed(2)}:${w.L.a.x},${w.L.a.z},${w.L.b.x},${w.L.b.z}`).join('|');
+  const have = world.trails.filter((t) => t.link);
+  if (sig === linkSig && have.length === want.length) { // keep them (guests may be on one); just point at today's trail and lift objects
+    for (const t of have) { const w = want.find((o) => o.T.id === t.pid && o.L.id === t.lid && (o.top ? 'top' : 'load') === t.link); if (w) { t.parent = w.T; t.L = w.L; } }
+    return;
+  }
+  linkSig = sig;
+  for (const t of have) removeTrail(t);
+  for (const w of want) {
+    const p = w.T.samples[w.i], st = w.top ? w.L.b : w.L.a;
+    const t = { id: -(1e9 + w.T.id * 1e5 + w.L.id * 2 + (w.top ? 1 : 0)), pts: w.top ? [{ x: st.x, z: st.z }, { x: p.x, z: p.z }] : [{ x: p.x, z: p.z }, { x: st.x, z: st.z }],
+      width: 'narrow', virtual: true, link: w.top ? 'top' : 'load', parent: w.T, L: w.L, pid: w.T.id, lid: w.L.id };
+    for (const k of LINK_KEYS) Object.defineProperty(t, k, { get: () => t.parent[k], set() {}, enumerable: true });
+    Object.defineProperty(t, 'sign', { get: () => trailSign(t.parent), set() {}, enumerable: true });
+    addTrail(t);
+  }
+}
 function computeNetwork() {
   syncAreaLines();
+  syncLinks();
   refreshHubEdges();
   cacheHubs();
   for (const t of world.trails) {
+    if (t.link) { t.from = t.link === 'top' ? { kind: 'lift', obj: t.L } : { kind: 'trail', obj: t.parent }; t.to = t.link === 'top' ? { kind: 'trail', obj: t.parent } : { kind: 'lift', obj: t.L }; continue; }
     if (t.virtual && !t.glade) { const L = liftById(t.lift); t.from = t.to = L ? { kind: 'lift', obj: L } : null; continue; }
     if (t.glade) { const A = areaById(t.glade), G = GLADE_THIN[A ? gladeLevel(A) : 'classic']; t.sign = Math.min(3, Math.max(t.an.rating + G.bump, G.floor)); t.gladeRisk = G.risk; t.gladeSevere = G.severe; t.open = !(A && A.closed); }
     t.from = connAt(t.samples[0], t, 'start');
@@ -6320,6 +6371,7 @@ function computeNetwork() {
     }
     for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
     for (const t of trailR) {
+      if (t.link === 'top' && !trailR.has(t.parent)) { trailR.add(t.parent); changed = true; }
       if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
       if (t.to && t.to.kind === 'top') {
         for (const D of t.to.obj.departing) if (!trailR.has(D)) { trailR.add(D); changed = true; }
@@ -8037,7 +8089,7 @@ function liftSheet(L) {
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${liftMidSection(L)}
     ${liftUpgradeSection(L)}
-    ${!overnightOk() || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>`}
+    ${!overnightOk() || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>${state.cash < liftMoveFee(L) ? `<p class="help">Moving costs at least ${money(liftMoveFee(L))} and you have ${money(state.cash)}. Short of cash? Draw a short trail from the station to the trail instead.</p>` : ''}`}
     ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
 }
 
@@ -9807,12 +9859,13 @@ function surfacePref(T, g) {
 // A learning area that has a lift serving it, so first-timers can use it.
 let learnCache = { at: -1, v: false }; // checked once per sim step: it's asked for every trail a guest weighs
 const learningOpen = () => {
-  if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && !t.glade && runnable(t) && t.reachable) };
+  if (learnCache.at !== state.time) learnCache = { at: state.time, v: world.trails.some((t) => t.virtual && !t.glade && !t.link && runnable(t) && t.reachable) };
   return learnCache.v;
 };
 function trailFit(T, g, idx = 0) {
   const r = trailSign(T);
   // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
+  if (T.link) return 0; // a few metres between a trail and a station: what counts is where it leads
   if (T.virtual && !T.glade) {
     if (g.ab >= 2) return -14;
     if (g.ab === 1) return -6;
@@ -10242,8 +10295,8 @@ function startSki(g, T, s) {
   g.ns = 0;
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 < s) g.ns++;
 }
-function endOfTrail(g) {
-  const T = g.T, r = trailSign(T);
+function runDone(g, T) {
+  const r = trailSign(T);
   g.seen[T.id] = (g.seen[T.id] || 0) + 1;
   g.fat += T.an.vert * PACE * FATIGUE; g.vert += T.an.vert;
   today.trailRuns[T.id] = (today.trailRuns[T.id] || 0) + 1;
@@ -10278,6 +10331,11 @@ function endOfTrail(g) {
     else if (Math.random() < 0.25) thought(g, r === g.pref ? `Loved ${T.name}!` : `${T.name} was nice.`);
   }
   g.sat = clamp(g.sat, 0, 100);
+}
+function endOfTrail(g) {
+  const T = g.T;
+  // A link between a trail and a station isn't a run of its own. Skiing off a trail into a lift line counts that trail's run.
+  if (!T.link) runDone(g, T); else if (T.link === 'load' && T.parent) runDone(g, T.parent);
   const to = T.to;
   const end = T.samples[T.samples.length - 1];
   g.x = end.x; g.z = end.z; g.T = null;
@@ -16956,7 +17014,7 @@ function finishNight() {
   for (const t of realTrails()) if (runnable(t)) park += parkUpkeep(t);
   groom += park;
   for (const a of world.areas) if (!isGlade(a) && !isHub(a)) groom += a.cells.length * AREA_GROOM_CELL; // learning areas are groomed every night (glades never)
-  for (const t of world.trails) if (t.virtual && !t.glade) t.icy = false;
+  for (const t of world.trails) if (t.virtual && !t.glade && !t.link) t.icy = false;
   state.cash -= groom;
   state.nightCost = { ...(state.nightCost || {}), grooming: groom, park };
   refreshSnowState(w);
@@ -22597,6 +22655,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.96', date: 'Nov 4, 2026', title: 'Stations beside a trail', items: ['Thanks for the feedback! A lift station no longer has to sit at the very end of a trail. If a trail runs right past a bottom station, skiers can leave it and join the line. Riders getting off at a top station beside a trail ski straight onto it.', 'When moving a lift costs more than you have, its panel now says so, and suggests drawing a short trail to the station instead.'] },
   { v: '2.95.6', date: 'Nov 4, 2026', title: 'Easier to spot Join now', kotm: true, small: true, items: ['King of the Mountain: on matches being played now, Join now is a proper button instead of a small link, so it’s easier to see when you can still jump in.'] },
   { v: '2.95.5', date: 'Nov 4, 2026', title: 'No more 10:30 gift rush', small: true, items: ['Thanks Snowy! Souvenir shoppers no longer all head to the gift kiosks at 10:30 on the dot. Each one now shops at their own time between 10:30 and 3, so the lines stay short.'] },
   { v: '2.95.4', date: 'Nov 4, 2026', title: 'A tidier match window', kotm: true, small: true, items: ['King of the Mountain: Make a match has its own card, and your finished matches are folded away under Past matches at the bottom. Tap it to look back.'] },
