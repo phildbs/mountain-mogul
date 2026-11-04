@@ -1,4 +1,4 @@
-// Guest areas lost their boundary fence in 2.100 (placed mesh fences replaced it): an old save's fence draws
+// Guest areas lost their boundary fence in 3.0 (placed mesh fences replaced it): an old save's fence draws
 // nothing and the bulldozer finds no sections. Bulldoze still hides one snow gun model without disabling snowmaking.
 import {openGame,eq,assert,SETUPS} from '../harness.mjs';
 export default async function({browser,url}) {

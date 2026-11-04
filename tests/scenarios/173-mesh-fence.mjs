@@ -1,4 +1,4 @@
-// Mesh fence (2.100): a decor chain of tapped posts like string lights, with see-through mesh between, a cost per post
+// Mesh fence (3.0): a decor chain of tapped posts like string lights, with see-through mesh between, a cost per post
 // and per length, upkeep per post, a colour picked on its card (saved, remembered for the next fence), blueprints,
 // the bulldozer, and match orders that carry the posts and colour (the server builds the same fence).
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';

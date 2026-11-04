@@ -31,7 +31,7 @@ export default async function({browser,url}) {
     eq(await g.ev(`({height:HT.every((v,i)=>v===__hubGround.height[i]),snow:NS.every((v,i)=>v===__hubGround.snow[i]),trees:trees.alive.every((v,i)=>v===__hubGround.trees[i]),surface:!world.areas[0].mesh.isMesh,fence:world.areas[0].fence.children.length})`),{height:true,snow:true,trees:true,surface:true,fence:0},'painting preserves terrain, snow and trees, with no filled overlay or default fence');
     const extended=await g.ev(`(() => {const A=world.areas[0],n=A.cells.length;openHubTool();areaPaintAt({x:__S.x,z:__S.z});areaPaintAt({x:__S.x+3,z:__S.z});const info=areaDraftInfo();if(info.problems.length)throw Error(info.problems.join('; '));commitArea();return world.areas.length===1&&world.areas[0]===A&&A.cells.length>n;})()`);
     eq(extended,true,'starting on an existing guest area extends it without overlap errors');
-    // 2.100: no boundary fence switch; an old save's fence setting draws nothing (mesh fences are placed as decor).
+    // 3.0: no boundary fence switch; an old save's fence setting draws nothing (mesh fences are placed as decor).
     eq(await g.ev(`!document.querySelector('#sheet [data-action=hubFence]') && /mesh fence/.test($('sheet').textContent)`),true,'no fence switch; the card points to the mesh fence');
     eq(await g.ev(`(() => {const A=world.areas[0];A.fenced=true;refreshAreaMesh(A);return A.fence.children.length+A.fenceSections.length;})()`),0,'an old fence setting draws no fence');
     await g.ev('saveNow()');await g.page.reload();await g.reloaded();await g.click('#startBtn');
