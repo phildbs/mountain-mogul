@@ -24,15 +24,15 @@ export default async function ({ browser, url }) {
 
   // A guest: sees what's on, is asked to sign in, and can't join.
   assert(await g.page.isVisible('#mpCard') && /King of the Mountain/i.test(await g.page.innerText('#mpCard')) && /Multiplayer/i.test(await g.page.innerText('#mpCard')), 'the King of the Mountain card, marked Multiplayer, is on the title screen');
-  // The orange flag names the open lobby with room (the full one starting sooner is skipped), and stays after a look.
-  const flag = () => g.ev(`$('newMtn').hidden ? null : $('newMtn').innerText.replace(/\\s+/g, ' ').trim()`);
+  // The card names the open lobby with room (the full one starting sooner is skipped), and keeps it after a look.
+  const flag = () => g.ev(`$('mpFlag').hidden ? null : $('mpFlag').innerText.replace(/\\s+/g, ' ').trim()`);
   await g.ev('LOBBY_FLAG.at = 0; loadLobbyFlag()'); // the lobbies above were added after the page loaded
-  await g.page.waitForFunction(() => /Winter Cup/.test(document.getElementById('newMtn').innerText), null, { timeout: 10000 });
-  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'an orange flag names the open lobby and its spots left');
-  await g.click('#newMtn'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
-  eq(await g.ev(`$('newMtn').hidden`), true, 'the flag opens King of the Mountain (and hides behind it)');
+  await g.page.waitForFunction(() => /Winter Cup/.test(document.getElementById('mpFlag').innerText), null, { timeout: 10000 });
+  eq(await flag(), 'Join Winter Cup · 2 spots left', 'the card names the open lobby and its spots left');
+  eq(await g.ev(`$('newMtn').hidden`), true, 'no orange pill: the card is enough');
+  await g.click('#mpCard'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
   await g.click('#mpClose'); await g.ev('renderSlots()'); await g.wait(600);
-  eq(await flag(), 'JOIN Winter Cup · 2 spots left ›', 'and is back after closing it, while the lobby has room');
+  eq(await flag(), 'Join Winter Cup · 2 spots left', 'and still after closing it, while the lobby has room');
   await open();
   let t = await body();
   assert(/Sign in to play/.test(t) && !/Your matches/i.test(t), 'a guest is asked to sign in');
