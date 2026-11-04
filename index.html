@@ -9122,10 +9122,11 @@ function growLot(row, lot = 0) {
   const n = row == null ? nextLotSlot() : { row, col: rowLen(row, lot), bb: slotBox(row, rowLen(row, lot), lot) }, bb = n.bb;
   if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
   state.lotLayout.push(lot ? [n.row, n.col, lot] : [n.row, n.col]);
+  if (matchPlay) matchView.lotNew = matchView.lotNew ?? state.lotSections; // the first section the server hasn't built yet: it opens tomorrow
   state.cash -= LOT_EXPAND_COST; state.lotSections++;
   if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'lot', row, lot });
   gradeAndRefresh(levelRect(bb, padHeight(bb), 1.5, false)); // levelled flat, included in the price
-  buildLot(); updateCash(true);
+  buildLot(); styleLot(); updateCash(true);
   toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
   if (selected && selected.obj === 'lotgrow') setTimeout(fitLotView, 60); // keep the next spots in view
 }
@@ -11039,7 +11040,8 @@ let lotClosedMat = null;
 function styleLot() {
   if (!lotClosedMat) { lotClosedMat = LOT_MAT.clone(); lotClosedMat.color.setRGB(0.55, 0.57, 0.6); }
   const n = lotsOpen();
-  lotGroup.children.forEach((m, k) => { m.material = k < n ? LOT_MAT : lotClosedMat; });
+  const soon = matchView && matchView.replay && matchView.lotNew != null ? matchView.lotNew : Infinity; // built during the live day: a blueprint until tonight
+  lotGroup.children.forEach((m, k) => { m.material = k >= soon ? BLUEPRINT : k < n ? LOT_MAT : lotClosedMat; });
   renderer.shadowMap.needsUpdate = true;
 }
 
@@ -21845,7 +21847,7 @@ async function matchApplyPending() {
   const [a, b] = await Promise.all([q().is('applied_day', null).order('id', { ascending: true }), q().in('applied_day', [shown + 1, shown + 2]).order('id', { ascending: true })].map((p) => p.then((r) => r, () => ({}))));
   const list = [...new Map([...(b.data || []).filter((o) => !o.error), ...(a.data || [])].map((o) => [o.id, o])).values()].sort((x, y) => x.id - y.id);
   if (!matchView) return;
-  matchView.quiet = true; matchView.soon = []; matchView.pend = null; matchView.going = null; // what's built here opens tomorrow: closed if you watch today
+  matchView.quiet = true; matchView.soon = []; matchView.pend = null; matchView.going = null; matchView.lotNew = null; // what's built here opens tomorrow: closed if you watch today
   let short = 0;
   // Like the server: each one in turn, paid from your cash; one that costs more than you have left is skipped.
   const fits = (i) => { if (i.cost > state.cash) { short++; return false; } return true; };
@@ -22366,6 +22368,7 @@ async function startReplay(manual) {
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n || 1; passBuyers = () => 0;
   try { replayKeep(openDay); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
+  if (runOps && matchView.lotNew != null) { runOps.lots = Math.min(runOps.lots, matchView.lotNew); styleLot(); } // parking added since last night opens tomorrow
   if (shut && state.phase === 'open') { schedule = []; today.closeAt = DAY_OPEN; for (const B of world.buildings) if (runOps && runOps.bld) runOps.bld[B.id] = 'closed'; } // nobody comes and nothing opens
   if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
   matchView.replay.end = sharedEnd(dayHardEnd()); // today's plans, yours and your rivals': how long the evening runs
@@ -22684,7 +22687,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '2.97.1', date: 'Nov 4, 2026', title: 'Plans button in matches', kotm: true, small: true, items: ['Thanks Phil! King of the Mountain: the Plans button is back in the menu once you save a blueprint, so you can reorder, pause and remove your blueprints in a match.'] },
+  { v: '2.97.1', date: 'Nov 4, 2026', title: 'Plans and parking in matches', kotm: true, small: true, items: ['Thanks Phil! King of the Mountain: the Plans button is back in the menu once you save a blueprint, so you can reorder, pause and remove your blueprints in a match.', 'Parking added during a match’s live day now shows as a blue blueprint until it’s built that night, and stays shut for the rest of the day, even if you pause and go back to the live day.'] },
   { v: '2.97', date: 'Nov 4, 2026', title: 'Plan straight after joining', kotm: true, items: ['King of the Mountain: join a match late on an empty slice and you can open it straight away. You see your slice and your rivals, with your starting cash and catch-up investment, and can start building before the next day begins. Everything you build is ready when your resort opens that morning.'] },
   { v: '2.96.2', date: 'Nov 4, 2026', title: 'Straight into the game', small: true, items: ['Thanks Phil! Opening another of your mountains, the tutorial, or a resort you visit from Browse or the leaderboards now keeps the loading screen up until you’re there, instead of showing the title screen for a moment in between.'] },
   { v: '2.96.1', date: 'Nov 4, 2026', title: 'Watching any match', kotm: true, small: true, items: ['King of the Mountain: you can now watch a match whose first slice of the mountain is empty, such as one with a single player. It opens on the resort that’s there.', 'Pressing Watch keeps the loading screen up until the match is on screen, instead of showing the title screen for a few seconds in between.'] },
