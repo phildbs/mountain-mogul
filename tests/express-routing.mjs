@@ -16,7 +16,7 @@ const ctx={world,state,STATION_R:6,TRANSFER_R:22,PACE:4,SLOW:{speed:0.65},
  offers:()=>[],liftById:id=>world.lifts.find(L=>L.id===id),
  canLoad:L=>L.open&&!L.windHold,runnable:t=>t.open!==false,
  liftWait:L=>(L.queue.length+L.incoming)/10,liftMode:L=>L.mode||'normal',
- todayWx:()=>({hi:35}),trailFit:t=>t.fit,lotCount:()=>1,baseOf:()=>0,crossCost:()=>Infinity,cars:[],stalls:[],
+ todayWx:()=>({hi:35}),trailFit:t=>t.fit,lotCount:()=>1,baseOf:()=>0,crossCost:()=>Infinity,crossSites:()=>({base:world.lifts.filter(L=>L.fromBase).map(L=>({L,z:0}))}),cars:[],stalls:[],
 };
 const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','computeNetwork','vTrail','vRest','vEnd','vLift','vBase','cacheHubs','refreshHubEdges','hubFlood','hubDistance','hubChoices','vHub','midParts','exitsV'];
 // Expressions shared with the game (the prior build has no ride-time helper).

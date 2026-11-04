@@ -10250,8 +10250,8 @@ function vBase(g, depth, memo, here = g) {
     return cost === Infinity ? -40 : 25 - cost;
   }
   let b = -20;
-  for (const L of world.lifts) if (L.fromBase && !isVillage(L) && canLoad(L)) {
-    const cost = lotCount() > 1 && baseOf(L.a) !== zone ? crossCost(zone, baseOf(L.a)) : 0;
+  for (const { L, z } of crossSites().base) if (canLoad(L)) {
+    const cost = lotCount() > 1 && z !== zone ? crossCost(zone, z) : 0;
     if (cost !== Infinity) b = Math.max(b, vLift(L, g, depth, memo) - 0.5 - cost);
   }
   return b;
@@ -10309,8 +10309,23 @@ function goCar(g) {
    back to their car at closing: stranded, unhappy, and on the day report. */
 // Bases side by side along a valley go by how far east or west; bases on different sides of a hill by plain distance.
 const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } } return best; };
-const villageLifts = (za, zb) => world.lifts.filter((L) => isVillage(L) && L.open && !L.windHold && new Set([baseOf(L.a), baseOf(L.b)]).size === 2 && [za, zb].every((z) => baseOf(L.a) === z || baseOf(L.b) === z));
-const zoneStations = (z) => stations().filter((B) => baseOf(B.door) === z);
+// Guests weigh crossing to the other base thousands of times a game minute, so which village lifts join which
+// bases, which base each base lift and shuttle station is at are worked out once a sim step (nothing is built mid-step);
+// whether they're open is still checked every time. Outside a step they're worked out fresh.
+let xBases = null, xStep = false;
+function crossSites() {
+  if (xBases) return xBases;
+  const r = { lifts: [], stns: [], base: [] };
+  for (const L of world.lifts) {
+    if (L.fromBase && !isVillage(L)) r.base.push({ L, z: baseOf(L.a) });
+    if (isVillage(L)) { const a = baseOf(L.a), b = baseOf(L.b); if (a !== b) r.lifts.push({ L, a, b }); }
+  }
+  for (const B of world.buildings) if (isStation(B)) { const z = baseOf(B.door); (r.stns[z] = r.stns[z] || []).push(B); }
+  if (xStep) xBases = r;
+  return r;
+}
+const villageLifts = (za, zb) => { const out = []; for (const e of crossSites().lifts) if (e.L.open && !e.L.windHold && (e.a === za || e.b === za) && (e.a === zb || e.b === zb)) out.push(e.L); return out; };
+const zoneStations = (z) => (crossSites().stns[z] || []).filter(bldOpenNow);
 const baseShuttle = (za, zb) => zoneStations(za).length > 0 && zoneStations(zb).length > 0;
 const LOOP_SEATS = 40, LOOP_WAIT = 8, LOOP_MAX = 6; // a base shuttle bus, about how long a wait for one feels, and the most on the road
 let loopWait = {}; // guests waiting for the base shuttle at each base, counted each step
@@ -11283,6 +11298,10 @@ function styleLot() {
 
 /* ---------- The day ---------- */
 function simStep(dt) {
+  xBases = null; xStep = true;
+  try { simRun(dt); } finally { xBases = null; xStep = false; }
+}
+function simRun(dt) {
   state.time += dt / 60;
   while (schedule.length && schedule[schedule.length - 1].t <= state.time && (state.time < closeTime() || (schedule[schedule.length - 1].night && state.time < nightEnd() - 45) || (schedule[schedule.length - 1].evening && state.time < apresEnd() - 60))) {
     const e = schedule.pop();
@@ -23345,6 +23364,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '2.99.1', date: 'Nov 4, 2026', title: 'Faster days at resorts with two bases', small: true, items: ['Busy resorts with two bases play their days about twice as fast, at 4× and when you skip to the day report. Nothing about the day itself changes, only how long you wait for it. Thanks Papasfritas!'] },
   { v: '2.99', date: 'Nov 4, 2026', title: 'Leave a match, or rescue a resort', kotm: true, items: [
     'In King of the Mountain, the menu’s Start this mountain over is now Leave this match. Your resort stays on the mountain, shut, for another player to claim.',
     'Running matches show any resort someone left as free to claim, with its cash, debt, season profit and guests, until three-quarters of the way through the season.',
