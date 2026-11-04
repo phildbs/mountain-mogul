@@ -38,6 +38,11 @@ export default async function ({ browser, url }) {
   await g.ev(`closeMp()`); await g.click('#badge'); await g.wait(200); await g.click('#mMyPage'); await g.wait(500);
   eq(await g.ev(`[document.getElementById('community').hidden, CLOUD.viewCreator === CLOUD.uid]`), [false, true], 'Your player page opens your page');
   await g.ev(`$('community').hidden = true`);
+  await g.click('#mpFab'); await g.wait(200);
+  eq(await g.ev(`getComputedStyle(document.getElementById('visitMatches')).display !== 'none'`), true, 'the crown’s menu has Your matches and lobbies too');
+  await g.click('#visitMatches'); await g.wait(500);
+  eq(await g.ev(`[document.getElementById('mpModal').hidden, !!matchPlay, document.getElementById('visitBar').classList.contains('open')]`), [false, true, false], 'it opens the match list and tucks the menu away');
+  await g.ev(`closeMp()`);
   // Build a lift: it's on your screen at once, and the order goes to the server.
   const built = await g.ev(`(() => { setTool('lift'); const i = evalLift({ x: ${spot[0]}, z: ${spot[1]} }, { x: ${spot[2]}, z: ${spot[3]} }, 'double'); commitLift(i, 'double'); computeNetwork(); setTool('explore'); return world.lifts.length; })()`);
   eq(built, 2, 'the new lift shows straight away');
