@@ -58,7 +58,12 @@ export default async function ({ browser, url }) {
   t = await body();
   assert(!/Sign in to play/.test(t), 'no sign-in note once signed in');
   assert(/Your matches[\s\S]*Test Cup[\s\S]*now 2nd of 3[\s\S]*Day 13 of 168[\s\S]*next day in/i.test(t), `a running match shows your place and the day (${t.slice(0, 300)})`);
-  assert(/Old Cup[\s\S]*you came 2nd of 2/.test(t), 'a finished match shows where you came');
+  assert(!/Old Cup/.test(t.split(/Past matches/i)[0]) && /Past matches\s*1/i.test(t) && !/you came/.test(t), 'a finished match is folded away under Past matches, at the bottom');
+  assert(await g.page.$('.mp-makecard[data-mp=make]'), 'with a Make a match card');
+  await g.page.click('#mpPast summary'); await g.wait(200);
+  t = await body();
+  assert(/Past matches[\s\S]*Old Cup[\s\S]*you came 2nd of 2/i.test(t), 'opened, it shows where you came');
+  await g.ev('renderMp()'); eq(await g.ev(`$('mpPast').open`), true, 'and stays open when the list refreshes');
   assert(/1st · Summit Ridge\s*\$45,315/.test(t), 'with its league table');
   assert(/Full Cup[\s\S]*Full/.test(t), 'a full lobby says so');
   const gotSave = await g.ev(`MP.resorts.some((r) => r.save)`);
