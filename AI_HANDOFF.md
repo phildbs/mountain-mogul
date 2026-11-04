@@ -267,6 +267,7 @@ Work through this on your branch. Report each item to Phil as done, skipped (and
 2. **Changelog.** Add a new entry at the top of `CHANGES` in `index.html`; its `v` is the new version.
    - Format: `{ v: '2.49.1', date: 'Oct 29, 2026', title: 'Short title', items: ['Plain sentence for players.', …] }`.
    - Version: minor (2.50) for a new feature, patch (2.49.1) for fixes. Add `small: true` for a fix-only release.
+   - Thank players by name when a change came from their feedback ("Thanks Snowy!"), but never Phil: he's the developer. In a `kotm: true` entry, start with "King of the Mountain: " so its tab can drop the label.
    - Players see this in What's new and in the update banner. The banner reads the top entry's `v` and `title` with a
      regex, so keep that exact shape and keep `CHANGES` inside `index.html`.
 3. **Guide.** If gameplay or building options change, update `guide.html` (Buildings list, Themes line, etc.).
