@@ -404,6 +404,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   slopes and crest, knolls near the bases. Example runs keep to a lane away from the pitch (`runLanes`); a black
   example goes through it (`blackRuns`). Now every slice: green 10,100–11,100 ft (18–25%), blue 5,300–5,800 ft
   (30–34%), black ~5,000 ft (49–64%; slice 3 rates expert). Advanced+expert ground 3–15%.
+- Nov 4, Phil asked about land to buy. `parcels` on the map: per slice, two 40 × 16 parcels (west and east of the
+  base road) from the foot of the slopes down to the valley road, ~16 acres each, ~2% grade. Viewer only
+  (`viewParcels`, "Land for sale" toggle); the game's parcel code (`PARCELS`, Crown-only angle test) doesn't use it yet.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 

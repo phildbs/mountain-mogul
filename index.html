@@ -2445,6 +2445,10 @@ MATCH_MAPS.ridge = {
   treeline: 31,
   sliceAreas: [0, 1, 2, 3].map((k) => [[RIDGE.b[k], 0], [RIDGE.b[k + 1], 0], [RIDGE.b[k + 1], RIDGE.crest + 0.03], [RIDGE.b[k], RIDGE.crest + 0.03]]),
   bases: [0, 1, 2, 3].map((k) => [(RIDGE.b[k] + RIDGE.b[k + 1]) / 2, RIDGE.base]),
+  // Land each player can buy: the valley floor below their own slice, down to the valley road (16 deep, like the
+  // game's usual parcels), in two parcels either side of the road up to their base. In u, v.
+  parcels: [0, 1, 2, 3].map((k) => { const a = RIDGE.b[k], b = RIDGE.b[k + 1], c = (a + b) / 2;
+    return [[a, c], [c, b]].map(([u0, u1], i) => ({ name: i ? 'East' : 'West', u0, u1, v0: -0.1, v1: 0 })); }),
   summits: [0, 1, 2, 3].map((k) => [(RIDGE.b[k] + RIDGE.b[k + 1]) / 2, RIDGE.top]),
   // The example runs the viewer lays from each summit: zig-zagging this far (u) either side of a line beside the
   // middle, on the side away from that valley's steep pitch.
@@ -21606,12 +21610,47 @@ function viewRuns() {
   grp.visible = false; scene.add(grp);
   return { grp, out };
 }
+// The land for sale below each slice (MOUNTAIN.parcels): shaded in the slice's colour with a dashed edge, and
+// its size and how flat it is.
+function viewParcels() {
+  const grp = new THREE.Group(), out = [];
+  (MOUNTAIN.parcels || []).forEach((list, k) => {
+    const col = new THREE.Color(VIEW_COLS[k % VIEW_COLS.length]);
+    out.push(list.map((P) => {
+      const a = uvWorld([P.u0, P.v1]), b = uvWorld([P.u1, P.v0]), N = 24, pos = [], idx = [], edge = [];
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+        const x = lerp(a.x, b.x, i / N), z = lerp(a.z, b.z, j / N);
+        pos.push(x, heightAt(x, z) + 0.15, z);
+        if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, fog: false }));
+      m.renderOrder = 5; grp.add(m);
+      const corners = [[a.x, a.z], [b.x, a.z], [b.x, b.z], [a.x, b.z], [a.x, a.z]];
+      for (let c = 0; c < 4; c++) { const [x0, z0] = corners[c], [x1, z1] = corners[c + 1], L = Math.hypot(x1 - x0, z1 - z0);
+        for (let t = 0; t < L; t += 0.5) { const x = x0 + (x1 - x0) * t / L, z = z0 + (z1 - z0) * t / L, x2 = x0 + (x1 - x0) * Math.min(L, t + 0.5) / L, z2 = z0 + (z1 - z0) * Math.min(L, t + 0.5) / L;
+          edge.push(new THREE.Vector3(x, heightAt(x, z) + 0.3, z), new THREE.Vector3(x2, heightAt(x2, z2) + 0.3, z2)); } }
+      const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edge), new THREE.LineDashedMaterial({ color: col, dashSize: 1.2, gapSize: 0.9, fog: false }));
+      line.computeLineDistances(); grp.add(line);
+      // its size, and its average grade (a flat parcel takes a lot, a hotel or a village)
+      let n = 0, g = 0;
+      for (let x = Math.min(a.x, b.x) + 0.5; x < Math.max(a.x, b.x); x += 1) for (let z = Math.min(a.z, b.z) + 0.5; z < Math.max(a.z, b.z); z += 1) {
+        n++; g += Math.hypot(heightAt(x + 0.5, z) - heightAt(x - 0.5, z), heightAt(x, z + 0.5) - heightAt(x, z - 0.5)) / VEX;
+      }
+      return { name: P.name, acres: n * ACRES_PER_CELL, grade: g / Math.max(1, n), at: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } };
+    }));
+  });
+  grp.visible = out.length > 0; scene.add(grp);
+  return { grp, out };
+}
 function viewTags() {
   const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
   const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
   const C = viewCentre();
   if (!MOUNTAIN.sliceAreas) add(C, 'Summit · shared');
   for (let k = 0; k < MOUNTAIN.slices; k++) add(viewBase(k), `<i></i>Base ${k + 1}`, VIEW_COLS[k % VIEW_COLS.length]);
+  mapViewer.parcels.out.forEach((list, k) => list.forEach((P) => add(P.at, `For sale · ${fmtAcres(P.acres)}`, VIEW_COLS[k % VIEW_COLS.length])));
 }
 const _vt = new THREE.Vector3();
 function viewTagsTick() {
@@ -21656,7 +21695,7 @@ function viewSummer(on) {
   if (on) weatherFall = 0;
 }
 function viewPanel() {
-  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out;
+  const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out, land = mapViewer.parcels.out;
   const runLine = (r, kind) => { const x = r[kind], want = { green: 0, blue: 1, black: 2 }[kind], ok = (kind === 'black' ? x.rating >= 2 : x.rating <= want) && !x.uphill;
     return `${ratingSymbol(x.rating, 11)} ${kind[0].toUpperCase() + kind.slice(1)} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : kind === 'black' ? ' <b class="warn">not steep enough</b>' : ' <b class="warn">too steep</b>'}`; };
   const maps = Object.values(MATCH_MAPS);
@@ -21664,6 +21703,7 @@ function viewPanel() {
       <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)}</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
+      ${land[k] ? `<small>Land for sale below: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
       ${runs[k] ? `<small class="vrun">${Object.keys(runs[k]).map((kind) => runLine(runs[k], kind)).join('<br>')}</small>` : ''}</div>`).join('');
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'mapView';
@@ -21679,6 +21719,7 @@ function viewPanel() {
         <button id="vTags" aria-pressed="true">Labels</button>
         <button id="vSummer" aria-pressed="false">Summer</button>
         ${mapViewer.runs.out.length ? '<button id="vRuns" aria-pressed="false">Example runs</button>' : ''}
+        ${mapViewer.parcels.out.length ? '<button id="vLand" aria-pressed="true">Land for sale</button>' : ''}
       </div>
       <h3>Each slice</h3>${rows}
       <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
@@ -21692,6 +21733,7 @@ function viewPanel() {
   tog('vTags', (on) => { $('viewTags').hidden = !on; });
   tog('vSummer', viewSummer);
   if ($('vRuns')) tog('vRuns', (on) => { mapViewer.runs.grp.visible = on; });
+  if ($('vLand')) tog('vLand', (on) => { mapViewer.parcels.grp.visible = on; });
   $('vTilt').oninput = (e) => { EL = +e.target.value * Math.PI / 180; $('vTiltV').textContent = `${e.target.value}°`; updateCamera(); hover.dirty = true; };
   $('vFold').onclick = () => { const open = $('vBody').hidden; $('vBody').hidden = !open; $('vFold').textContent = open ? '–' : '+'; $('vFold').setAttribute('aria-expanded', open); };
   if ($('vMap')) $('vMap').onchange = (e) => { location.search = `?mapView=${e.target.value}`; };
@@ -21705,7 +21747,7 @@ function mapViewStart() {
   if (!MOUNTAIN.sliceAreas) matchView = { demo: true, view: true, slot: 0, me: false, lobby: { name: 'Map viewer' }, players: [], resorts: Array.from({ length: MOUNTAIN.slices - 1 }, (_, k) => ({ slot: k + 1, save: empty, summary: {} })) };
   if (matchView) drawRivals(); // a map that lists its slices has its roads in the ground
   if (boundaryLine) boundaryLine.visible = false;
-  mapViewer.lines = viewLines(); mapViewer.runs = viewRuns();
+  mapViewer.lines = viewLines(); mapViewer.runs = viewRuns(); mapViewer.parcels = viewParcels();
   viewTags(); viewPanel();
   winterView = true; styleSnowVisuals();
   const to = viewWhole(MOUNTAIN.viewAz ?? 0.35);
