@@ -1,6 +1,7 @@
 // What guests will pay grows with the resort: a starter hill stays at $65, a giant resort can charge about $120.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 import { bigBuild } from '../big-resort.mjs';
+import { splitSkiers } from '../../match/market.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(400);
@@ -21,6 +22,10 @@ export default async function ({ browser, url }) {
   const big = await g.ev(`[${demandAt}(65), ${demandAt}(120)]`);
   if (process.env.SHOW) console.log(`fair ${fair}, starter demand $65/$120: ${small}, giant: ${big}`);
   assert(big[1] > big[0] * 0.7 && big[1] * 120 > big[0] * 65, `a giant resort keeps most guests at $120 and earns more (${big})`);
+  // In a match each resort is judged against its own usual price: a giant at $120 still wins most of the
+  // town's skiers from a starter hill at $65, and the starter hill keeps a fair share of its own.
+  const [hill, giant] = splitSkiers([small[0], big[1]]);
+  assert(giant > hill && hill > small[0] * 0.2, `match market: starter $65 gets ${hill}, giant $120 gets ${giant}`);
   await g.ev(`(() => { state.reputation = 0.5; })()`);
   assert(await g.ev(`fairTicket()`) < fair, 'a poor reputation lowers what guests will pay');
   // The parking tip says where to close sections, not just that they should be closed.
