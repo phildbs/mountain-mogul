@@ -3,6 +3,7 @@
 //   cd tests && npm install && cd .. && node match/server-test.mjs
 import { memoryDb } from './db.mjs';
 import { startGame, tick, SETTINGS } from './server.mjs';
+import { matchDays, seasonOf } from './market.mjs';
 
 const fail = (m) => { console.log('FAIL ' + m); process.exitCode = 1; };
 const ok = (c, m) => (c ? console.log('ok   ' + m) : fail(m));
@@ -198,6 +199,48 @@ try {
   await tick(db, game, T6 + H + 60000);
   const o9 = db.tables.match_orders.find((o) => o.lobby_id === 'L9'), s9 = rows('L9')[0];
   ok(o9.applied_day === 1 && !o9.error && s9.save.clock.phase === 'season' && s9.summary.last.guests === 0, `ending the season shuts it from that morning (${o9.error || s9.save.clock.phase}, ${s9.summary.last.guests} guests)`);
+
+  // Two seasons (Phil, Nov 5): jump to just before the end of season 1, then play into season 2. Day 168 is the last
+  // of season 1, 169 the summer turn (everyone shuts; players build), 170 the summer night (Nov 15 of season 2).
+  ok(matchDays(1) === 168 && matchDays(2) === 363 && matchDays(3) === 558, `match lengths: ${[1, 2, 3].map(matchDays)}`);
+  const cal = (d) => seasonOf({ seasons: 3, days: 558 }, d);
+  ok(cal(168).end && !cal(168).last && cal(169).summer && cal(169).season === 2 && cal(170).newSeason && !cal(171).newSeason && !cal(171).summer && cal(363).end && cal(364).summer && cal(365).newSeason && cal(365).season === 3 && cal(558).last && !cal(1).end,
+    'the season calendar: day 168 ends season 1, 169 is summer, 170 starts season 2, 363 ends it, 364 and 365 start season 3, 558 is the last');
+  ok(!seasonOf({ days: 168 }, 168).summer && seasonOf({ days: 168 }, 168).last, 'a one-season match is as before');
+  const T7 = T6 + 10 * H;
+  await db.insert('match_lobbies', [{ id: 'L10', name: 'Two Winters Cup', kind: 'custom', map: 'match', slots: 2, seasons: 2, starts_at: new Date(T7).toISOString(), days: matchDays(2), day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L10', slot: 0, user_id: U1, resort_name: 'Winter One' }, { lobby_id: 'L10', slot: 1, user_id: U2, resort_name: 'Winter Two' }]);
+  await tick(db, game, T7 + 60000);
+  const L10 = () => db.tables.match_lobbies.find((l) => l.id === 'L10'), R10 = (s) => rows('L10').find((r) => r.slot === s);
+  L10().day = 166; for (const r of rows('L10')) { r.save.clock.day = 175; r.summary.profit = 1000 * (r.slot + 1); }
+  await tick(db, game, T7 + 168 * H + 60000); // days 167 and 168
+  const sum = R10(0).summary;
+  ok(L10().day === 168 && [0, 1].every((s) => !R10(s).save.clock.summer && R10(s).save.clock.season === 1), `day 168 is played as usual, so it can be watched (${[0, 1].map((s) => [R10(s).save.clock.phase, R10(s).save.clock.day])})`);
+  ok(sum.seasons && sum.seasons.length === 1 && sum.seasons[0] === sum.profit, `season 1's profit is noted (${sum.seasons}, ${sum.profit})`);
+  await db.insert('match_orders', [{ lobby_id: 'L10', slot: 0, user_id: U1, kind: 'build', payload: { what: 'lift', type: 'double', a: { x: 14, z: 56 }, b: { x: 12, z: -10 } }, applied_day: null, error: null }]);
+  const profit168 = R10(0).summary.profit;
+  await tick(db, game, T7 + 169 * H + 60000); // day 169, the summer turn
+  const d169 = db.tables.match_days.find((d) => d.lobby_id === 'L10' && d.day === 169);
+  ok([0, 1].every((s) => R10(s).save.clock.summer && R10(s).summary.summer && R10(s).save.clock.season === 1), `on the summer turn every resort is in summer (${[0, 1].map((s) => [R10(s).save.clock.phase, R10(s).save.clock.summer])})`);
+  ok(d169 && d169.results.summer && d169.results.share.every((x) => x === 0) && R10(0).summary.profit === profit168, `nobody skis and it costs nothing (${d169 && d169.results.share}, ${R10(0).summary.profit - profit168})`);
+  ok(R10(0).summary.lifts === 1, 'an order sent after the last day is built that night');
+  await db.insert('match_orders', [{ lobby_id: 'L10', slot: 1, user_id: U2, kind: 'build', payload: { what: 'lift', type: 'double', a: { x: 14, z: 56 }, b: { x: 12, z: -10 } }, applied_day: null, error: null }]);
+  const cashSummer = Math.round(R10(1).save.cash);
+  await tick(db, game, T7 + 171 * H + 60000); // day 170, the summer night, and 171, Nov 15
+  const o10 = db.tables.match_orders.filter((o) => o.lobby_id === 'L10').at(-1), d170 = db.tables.match_days.find((d) => d.lobby_id === 'L10' && d.day === 170);
+  ok(o10.applied_day === 170 && !o10.error && R10(1).summary.lifts === 1, `a lift built in summer (${o10.error || 'ok'})`);
+  ok(d170 && d170.results.newSeason && d170.results.season === 2 && d170.results.share.every((x) => x === 0) && d170.results.resorts.every((r) => r.profit < 0), `the summer night: nobody skis and summer upkeep is paid (${d170 && d170.results.resorts.map((r) => r.profit)})`);
+  ok([0, 1].every((s) => R10(s).save.clock.season === 2 && !R10(s).save.clock.summer && R10(s).save.clock.day === -15 && R10(s).summary.season === 2), `season 2 began on Nov 15 for everyone (${[0, 1].map((s) => [R10(s).save.clock.season, R10(s).save.clock.day])})`);
+  ok(JSON.stringify(R10(0).save.clock.wx) === JSON.stringify(R10(1).save.clock.wx), 'with one shared forecast');
+  ok(Math.round(R10(1).save.cash) < cashSummer, `the summer cost money (${cashSummer} then ${Math.round(R10(1).save.cash)})`);
+  const said10 = db.tables.match_messages.filter((m) => m.lobby_id === 'L10').map((m) => m.body);
+  ok(said10.some((b) => /^Season 1 is over\. .*season 2 starts on Nov 15/.test(b)) && said10.some((b) => /^It's summer/.test(b)) && said10.some((b) => /^Season 2 has begun/.test(b)), 'the chat says when a season ends, summer comes and the next begins');
+  // The end of the match: day 363 ends season 2. The total of both seasons wins.
+  L10().day = 361; for (const r of rows('L10')) r.save.clock.day = 174;
+  await tick(db, game, T7 + 363 * H + 60000);
+  const f10 = [0, 1].map((s) => R10(s).summary);
+  ok(L10().status === 'finished' && f10.every((x) => x.seasons.length === 2 && x.seasons[0] + x.seasons[1] === x.profit), `the match finishes with both seasons' profits adding up to the total (${f10.map((x) => x.seasons)})`);
+  ok([0, 1].every((s) => !R10(s).save.clock.summer), 'the last season isn\'t followed by a summer');
 } finally {
   await game.close();
 }

@@ -85,6 +85,34 @@ export const pageOrders = (orders) => `(() => {
   }
   return out;
 })()`;
+// Seasons (Phil, Nov 5). A match is 1, 2 or 3 seasons. The first is 168 match days (Dec 10 to May 26). Each later one
+// starts with a summer turn (every resort shuts together, whatever its snow, and players have one turn to build), then
+// the summer night (upkeep is paid and the new season starts on Nov 15, pre-season as in a game of your own), then 193
+// days to May 26 again: 195 match days. The last day of a season is played and watched as usual; summer is its own
+// turn so a day being watched never turns into summer under the player.
+export const SEASON_ONE = 168, SEASON_MORE = 195;
+export const matchDays = (seasons) => SEASON_ONE + (Math.max(1, seasons || 1) - 1) * SEASON_MORE;
+// Where a match day falls: which season, whether it's that season's summer turn or summer night, and whether it ends one.
+export function seasonOf(lobby, day) {
+  const last = day >= lobby.days;
+  if ((lobby.seasons || 1) < 2 || day <= SEASON_ONE) return { season: 1, summer: false, newSeason: false, end: day === SEASON_ONE || last, last };
+  const k = day - SEASON_ONE - 1, n = k % SEASON_MORE;
+  return { season: 2 + Math.floor(k / SEASON_MORE), summer: n === 0, newSeason: n === 1, end: n === SEASON_MORE - 1 || last, last };
+}
+// The summer turn: the season ends and the resort shuts for the summer (one whose spring already ended was waiting in
+// its season report). Nobody skis and it costs nothing; summer upkeep is paid on the summer night.
+export const PAGE_SUMMER = `(() => {
+  const cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);
+  if (!state.summer) { if (state.phase !== 'season') endSeason(); enterSummer(); }
+  return { ms: 0, guests: 0, turnedAway: 0, passes: 0, sat: null, profit: 0, cash0, debt0, wx: 'summer', summer: true };
+})()`;
+// The summer night: summer upkeep and loan interest are paid, and the new season begins. Counts in season profit.
+export const PAGE_NEW_SEASON = `(() => {
+  const before = state.cash - (state.debt || 0), cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);
+  if (!state.summer) { if (state.phase !== 'season') endSeason(); enterSummer(); }
+  newSeason();
+  return { ms: 0, guests: 0, turnedAway: 0, passes: 0, sat: null, profit: Math.round(state.cash - (state.debt || 0) - before), cash0, debt0, wx: 'summer', summer: true };
+})()`;
 // A small summary for the league table.
 export const PAGE_SUMMARY = `({ cash: Math.round(state.cash), debt: Math.round(state.debt || 0), rep: +state.reputation.toFixed(3), ticket: state.ticket, pass: state.passPrice,
-  lifts: world.lifts.length, trails: realTrails().length, buildings: world.buildings.length, day: state.day })`;
+  lifts: world.lifts.length, trails: realTrails().length, buildings: world.buildings.length, day: state.day, season: state.season || 1, summer: !!state.summer })`;

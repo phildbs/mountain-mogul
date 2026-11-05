@@ -788,6 +788,8 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mp-acts .btn.join { font-size: 13.5px; background: var(--green); color: #fff; box-shadow: 0 3px 10px rgba(44, 154, 85, 0.3); } /* joining a live match: solid green beside the orange Watch, so it stands out without a second orange */
 .mp-table { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .mp-table li { display: flex; gap: 8px; }
+.mp-table li { flex-wrap: wrap; }
+.mp-table .mp-seasons { flex-basis: 100%; font-size: 11px; font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-nums; } /* each season's profit, under the total */
 .mp-table li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-table li em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .mp-table li.me { font-weight: 700; }
@@ -18565,10 +18567,12 @@ function matchCountdown() {
   if (!l || l.status !== 'running' || state.phase === 'open') return null;
   if (l.day >= 1 && canWatch()) return { clock: 'Live', sub: `Day ${l.day} is playing now`, btn: '<button class="tb-plan" data-watch="1">Back to the live day</button>' };
   if (l.day >= l.days) return null;
-  const left = Math.ceil((matchNext(l) - Date.now()) / 1000), next = l.day + 1;
-  if (left <= 0) return { clock: '…', sub: `Day ${next} is starting: the match server is playing it` };
+  const left = Math.ceil((matchNext(l) - Date.now()) / 1000), next = l.day + 1, c = mpSeasonOf(l, next);
+  // In a match of more seasons the next turn may be the summer, or the summer night that starts the next season.
+  const what = c.summer ? `Summer` : c.newSeason ? `Season ${c.season}` : next === 1 ? 'Opening day' : `Day ${next}`, verb = c.summer ? 'comes' : c.newSeason ? 'starts' : 'opens';
+  if (left <= 0) return { clock: '…', sub: `${what} is starting: the match server is ${c.summer || c.newSeason ? 'getting it ready' : 'playing it'}` };
   const h = Math.floor(left / 3600), m = Math.floor(left / 60) % 60, sec = String(left % 60).padStart(2, '0');
-  return { clock: h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`, sub: `${next === 1 ? 'Opening day' : `Day ${next}`} opens in <b>${h ? `${h} h ${m} min` : m ? `${m} min ${sec} s` : `${left} s`}</b>` };
+  return { clock: h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`, sub: `${what} ${verb} in <b>${h ? `${h} h ${m} min` : m ? `${m} min ${sec} s` : `${left} s`}</b>` };
 }
 function refreshTimebar(force) {
   const d = dateOf(state.day), hol = holidayOf(d);
@@ -21815,6 +21819,23 @@ const mpClaimEnd = (l) => Math.floor(l.days * 3 / 4), MATCH_RESCUE = 500000; // 
 // What a player can pick when making a match: minutes a turn (one game day), days, and minutes until it starts.
 // Every player match is one whole season (Phil, Nov 4); two seasons waits for a server test of the summer.
 const MP_TURNS = [10, 15, 30], MP_SEASON = 168, MP_STARTS = [5, 15, 30, 60, 180, 720];
+// Matches of 1, 2 or 3 seasons (the same calendar as match/market.mjs): the first season is 168 days; each later one
+// is 195: a summer turn (everyone shuts, build for next season), the summer night (upkeep paid, it's Nov 15), then 193.
+const MP_MORE = 195, mpDays = (n) => MP_SEASON + (Math.max(1, n || 1) - 1) * MP_MORE, mpSeasons = (l) => l.seasons || 1;
+function mpSeasonOf(l, day) {
+  if (mpSeasons(l) < 2 || day <= MP_SEASON) return { season: 1, summer: false, newSeason: false };
+  const k = day - MP_SEASON - 1, n = k % MP_MORE;
+  return { season: 2 + Math.floor(k / MP_MORE), summer: n === 0, newSeason: n === 1 };
+}
+const mpQuiet = (l, day) => { const c = mpSeasonOf(l, day); return c.summer || c.newSeason; }; // nobody skis: nothing to watch
+// Where a match is: "Day 40 of 168", or with more seasons "Season 2 of 3 · day 200 of 558", or the summer between.
+function mpDayText(l, bold = true) {
+  const b = (v) => (bold ? `<b>${v}</b>` : v), c = mpSeasonOf(l, l.day), all = mpSeasons(l);
+  if (c.summer) return `Summer before season ${b(c.season)}`;
+  if (c.newSeason) return `Season ${b(c.season)} of ${all} starts`;
+  return all > 1 ? `Season ${b(c.season)} of ${all} · day ${b(l.day)} of ${l.days}` : `Day ${b(l.day)} of ${l.days}`;
+}
+const mpSeasonsText = (n) => (n > 1 ? `${n} seasons` : 'one season');
 const mpIn = (ms) => {
   const m = Math.max(0, Math.round(ms / 60000));
   if (m < 1) return 'under a minute';
@@ -21824,14 +21845,15 @@ const mpIn = (ms) => {
 };
 const mpAt = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 const mpLength = (l) => { const d = l.days * l.day_minutes / 1440; return d >= 1 ? `${+d.toFixed(1)} days` : mpIn(l.days * l.day_minutes * 60000); };
-const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, days: MP_SEASON, start: 15, map: 'match', slots: 3, late: 1, pw: '' }; };
+const mpMakeStart = () => { const n = (CLOUD.profile && CLOUD.profile.name) || ''; return { name: n ? `${n}’s Cup`.slice(0, 40) : 'Friendly Cup', resort: n ? `${n}’s Peak`.slice(0, 40) : resortNameIdea(''), turn: 15, seasons: 1, days: MP_SEASON, start: 15, map: 'match', slots: 3, late: 1, pw: '' }; };
 function makeForm() {
   const k = MP.mk, seg = (key, list, label) => `<div class="seg${list.length > 4 ? ' wrap' : ''}" role="group" aria-label="${label}">${list.map(([v, t, sm]) => `<button type="button" data-mk="${key}" data-v="${v}" aria-pressed="${k[key] === v}">${t}${sm ? `<small>${sm}</small>` : ''}</button>`).join('')}</div>`;
   return `<form class="mp-join mp-make" id="mpMake"><b>Make a match</b>
     <span class="field-label">Match name</span><input id="mkName" maxlength="40" autocomplete="off" value="${esc(k.name)}" aria-label="Match name">
     <span class="field-label">Your resort’s name</span><input id="mkResort" maxlength="40" autocomplete="off" value="${esc(k.resort)}" aria-label="Your resort’s name">
     <span class="field-label">A new day every</span>${seg('turn', MP_TURNS.map((m) => [m, `${m} min`]), 'Turn length')}
-    <span class="field-label">Length</span><span class="help" id="mkLength">One whole season, ${MP_SEASON} game days: <b>${mpLength({ days: MP_SEASON, day_minutes: k.turn })}</b> with a new day every ${k.turn} minutes.</span>
+    <span class="field-label">Length</span>${seg('seasons', [[1, '1 season'], [2, '2 seasons'], [3, '3 seasons']], 'Length')}
+    <span class="help" id="mkLength">${k.seasons > 1 ? `${k.seasons} seasons with a summer between each, ${mpDays(k.seasons)} game days` : `One whole season, ${MP_SEASON} game days`}: <b>${mpLength({ days: mpDays(k.seasons), day_minutes: k.turn })}</b> with a new day every ${k.turn} minutes.${k.seasons > 1 ? ' Profit from every season adds up: the most in total wins.' : ''}</span>
     <span class="field-label">Starts in</span>${seg('start', MP_STARTS.map((m) => [m, mpIn(m * 60000)]), 'Starts in')}
     <span class="field-label">Mountain</span>${seg('map', [['match', 'Crown Peak', '2 or 3 resorts'], ['ridge', 'Ridgeline', 'New: 2 to 4 resorts']], 'Mountain')}
     <span class="field-label">Resorts</span>${seg('slots', MP_SLOTS[k.map] || MP_SLOTS.match, 'Resorts')}
@@ -21902,15 +21924,15 @@ function renderMp() {
   // Whether players can join after the start (until the cut-off). No computer players in new matches (Nov 4).
   const opts = (l) => `<div class="mp-sub mp-opts">${l.late === false ? 'No late joining' : `Late joining until day ${l.late_days ?? Math.floor(l.days / 4)}`}</div>`;
   const by = (l) => (mpOfficial(l) ? '' : `<div class="mp-sub">Player match${l.created_by === me ? ', made by you' : MP.makers[l.created_by] ? ` by ${esc(MP.makers[l.created_by])}` : ''}${l.locked ? ` · <span class="mp-lock">${MP_ICON.lock}Password</span>` : ''}</div>`);
-  const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpLength(l)} · a new day every ${l.day_minutes} min</div>${l.status === 'finished' ? '' : opts(l)}`;
+  const head = (l) => `<div class="mp-top"><b>${esc(l.name)}</b>${mpOfficial(l) ? `<span class="pill gold">${MP_ICON.trophy}Official</span>` : ''}${pill(l)}</div>${by(l)}<div class="mp-sub">${esc(MP_MAPS[l.map] || 'Match map')} · ${l.slots} resorts · ${mpSeasons(l) > 1 ? `${mpSeasons(l)} seasons, ` : ''}${mpLength(l)} · a new day every ${l.day_minutes} min</div>${l.status === 'finished' ? '' : opts(l)}`;
   const next = (l) => Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000;
   const left = (l, slot) => inL(l).some((p) => p.slot === slot && !p.user_id && p.abandoned); // its player left it (supabase/match-abandon.sql)
   const who = (l, r) => mpWho((inL(l).find((p) => p.slot === r.slot) || {}).user_id, r.summary.name || 'Resort', 'mp');
   const league = (l, mySlot) => `<ol class="mp-table">${table(l).map((r, i) => `<li class="${r.slot === mySlot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${who(l, r)}${left(l, r.slot) ? ' <small class="mp-left">left</small>' : ''}</span><em>${money(r.summary.profit || 0)}</em></li>`).join('')}</ol>`;
   const when = (l) => {
     if (l.status === 'open') return `Starts in <b>${mpIn(Date.parse(l.starts_at) - now)}</b> (${esc(mpAt(l.starts_at))}) · ${inL(l).length} of ${l.slots} joined`;
-    if (l.status === 'running') return l.day ? `Day <b>${l.day}</b> of ${l.days} · next day in <b>${mpIn(next(l) - now)}</b>` : `Opening day in <b>${mpIn(next(l) - now)}</b>: time to build`;
-    return `Finished after ${l.days} days`;
+    if (l.status === 'running') return l.day ? `${mpDayText(l)} · next day in <b>${mpIn(next(l) - now)}</b>` : `Opening day in <b>${mpIn(next(l) - now)}</b>: time to build`;
+    return `Finished after ${mpSeasons(l) > 1 ? `${mpSeasons(l)} seasons` : `${l.days} days`}`;
   };
   // Yours: being played and waiting to start up here; finished ones go to Past matches at the bottom, folded away.
   const myCard = (l) => {
@@ -22021,6 +22043,7 @@ $('mpModal').addEventListener('click', async (e) => {
   const k = e.target.closest('[data-mk]'); // a choice in the make-a-match form
   if (k && MP.mk) {
     const v = k.dataset.v; MP.mk[k.dataset.mk] = isNaN(+v) ? v : +v; MP.makeErr = '';
+    MP.mk.days = mpDays(MP.mk.seasons); // late joining is open for a quarter of it
     const ok = (MP_SLOTS[MP.mk.map] || MP_SLOTS.match).map(([n]) => n); // a mountain's own number of resorts
     if (!ok.includes(MP.mk.slots)) MP.mk.slots = ok[ok.length - 1];
     renderMp(); return;
@@ -22621,7 +22644,7 @@ const matchTable = () => [...matchView.resorts].sort((a, b) => (b.summary.profit
 function matchBar() {
   if (!matchView) return;
   const l = matchView.lobby, t = matchTable(), place = t.findIndex((r) => r.slot === matchView.slot) + 1;
-  const when = l.status === 'finished' ? `finished after ${l.days} days` : l.day ? `day ${l.day} of ${l.days} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
+  const when = l.status === 'finished' ? `finished after ${mpSeasons(l) > 1 ? `${mpSeasons(l)} seasons` : `${l.days} days`}` : l.day ? `${mpDayText(l, false).replace(/^./, (c) => c.toLowerCase())} · next day in ${mpIn(matchNext(l) - Date.now())}` : `opening day in ${mpIn(matchNext(l) - Date.now())}`;
   const who = matchView.me ? `${mpPlace(place)} of ${t.length}` : `following <b>${esc((visiting && visiting.name) || '')}</b>, ${mpPlace(place)} of ${t.length}`;
   const live = matchView.replay ? ` · <b>watching day ${matchView.replay.day} live</b>` : '';
   const pend = matchPlay && matchView.pending ? ` · <b>${matchView.pending} ${matchView.pending === 1 ? 'change opens' : 'changes open'}</b> tomorrow` : '';
@@ -22631,10 +22654,10 @@ function matchBar() {
 function matchSheet() {
   const l = matchView.lobby, t = matchTable(), mine = (t.find((r) => r.slot === matchView.slot) || { summary: {} }).summary;
   return `<div class="sheet-title"><h3>Standings</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">${esc(l.name)} on Crown Peak. The most season profit wins${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
-    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${mpWho((matchView.players.find((p) => p.slot === r.slot) || {}).user_id, r.summary.name || 'Resort')}${matchView.players.some((p) => p.slot === r.slot && !p.user_id && p.abandoned) ? ' <small class="mp-left">left · free to claim</small>' : r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
+    <p class="help">${esc(l.name)} on ${esc(MP_MAPS[l.map] || 'Crown Peak')}. ${mpSeasons(l) > 1 ? `${mpSeasons(l)} seasons: the most profit from them all, summers included, wins` : 'The most season profit wins'}${l.prize ? ` the “${esc(l.prize)}” badge` : ''}. Your rivals’ lifts and trails are on the slices either side of yours.</p>
+    <ol class="mp-table">${t.map((r, i) => `<li class="${r.slot === matchView.slot ? 'me' : ''}"><span>${mpPlace(i + 1)} · ${mpWho((matchView.players.find((p) => p.slot === r.slot) || {}).user_id, r.summary.name || 'Resort')}${matchView.players.some((p) => p.slot === r.slot && !p.user_id && p.abandoned) ? ' <small class="mp-left">left · free to claim</small>' : r.summary.computer ? ' (computer)' : ''}</span><em>${money(r.summary.profit || 0)}</em>${mpSeasons(l) > 1 && (r.summary.seasons || []).length ? `<small class="mp-seasons">${r.summary.seasons.map((v, k) => `Season ${k + 1}: ${money(v)}`).join(' · ')}</small>` : ''}${!matchView.me && r.slot !== matchView.slot && r.save ? `<button class="link" data-action="matchSlot" data-slot="${r.slot}">Follow</button>` : ''}</li>`).join('')}</ol>
     ${matchView.me ? '' : '<p class="help">Watching: the guests, ticket, reports and live day are for the resort you follow. Tap Follow to switch.</p>'}
-    <dl class="kv"><div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
+    <dl class="kv">${mpSeasons(l) > 1 ? `<div><dt>Season</dt><dd>${mpSeasonOf(l, l.day).summer ? 'Summer before ' : ''}${mpSeasonOf(l, l.day).season} of ${mpSeasons(l)}</dd></div>` : ''}<div><dt>Day</dt><dd>${l.day} of ${l.days}</dd></div><div><dt>Next day</dt><dd>${l.status === 'running' ? `in ${mpIn(matchNext(l) - Date.now())}` : 'None'}</dd></div>
       <div><dt>${matchView.me ? 'Your guests' : 'Guests'}</dt><dd>${(mine.guests || 0).toLocaleString('en-US')}</dd></div><div><dt>Lift ticket</dt><dd>${money(state.ticket)}</dd></div></dl>
     <p class="help">${matchPlay ? 'Build, run your resort and set your prices any time. Everything you change is sent to the match server and takes effect the next morning.' : 'You’re looking around: only the resort’s owner can build here.'}</p>`;
 }
@@ -23230,14 +23253,14 @@ function replayClock(l, at = replayWindow(l).e, end = replayEnd()) {
   if (f <= DAY_PART) return DAY_OPEN + f * day;
   return Math.min(end, DAY_CLOSE + (f - DAY_PART) * Math.max(day, (end - DAY_CLOSE) / (EVE_PART - DAY_PART)));
 }
-const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && matchView.lobby.day >= 1 && replayWindow(matchView.lobby).e >= 0 && replayClock(matchView.lobby) < replayEnd() - 1);
+const canWatch = () => !!(matchView && matchView.lobby.status === 'running' && matchView.lobby.day >= 1 && !mpQuiet(matchView.lobby, matchView.lobby.day) && replayWindow(matchView.lobby).e >= 0 && replayClock(matchView.lobby) < replayEnd() - 1);
 function watchButton() {
   const b = $('visitWatch'); if (!b) return;
   b.hidden = !matchView || (!matchView.replay && !canWatch());
   b.textContent = matchView && matchView.replay ? 'Pause the day' : 'Back to the live day';
 }
 async function startReplay(manual) {
-  if (!matchView || matchView.replay || matchView.starting || !canWatch()) return;
+  if (!matchView || matchView.replay || matchView.starting || !canWatch() || state.summer) return; // summer: no day to watch (and openDay would start a season)
   const l = matchView.lobby, slot = matchView.slot;
   if (!manual && matchView.nothing === l.day) return; // nobody came today: don't keep trying
   matchView.starting = true;
@@ -23284,7 +23307,7 @@ async function startReplay(manual) {
 function replayRewind() {
   const was = { day: state.day, days: state.wx && state.wx.days && [...state.wx.days], event: state.event }, r = state.lastReport;
   const undo = () => { state.day = was.day; if (was.days) state.wx.days = was.days; state.event = was.event; };
-  if (!(state.day > 0)) return undo;
+  if (!(state.day > PRESEASON_DAY)) return undo; // later seasons in a match start on Nov 15, before day 0
   state.day--;
   if (!r || r.day !== state.day || (r.season || state.season) !== state.season) return undo; // shut that day: no report of it
   if (r.wx && was.days) state.wx.days.unshift({ ...r.wx });
@@ -23483,12 +23506,12 @@ $('mpModal').addEventListener('submit', async (e) => {
     if (MP.makeErr) { renderMp(); return; }
     MP.busy = true; renderMp();
     // Crown Peak: match_create as before; another mountain: match_create_on (supabase/match-maps.sql), with the map
-    const args = { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: MP_SEASON, pslots: k.slots, pcomputers: false, ppassword: k.pw || null, rname: k.resort };
+    const args = { pname: k.name, pstarts: new Date(Date.now() + k.start * 60000).toISOString(), pminutes: k.turn, pdays: mpDays(k.seasons), pslots: k.slots, pcomputers: false, ppassword: k.pw || null, rname: k.resort };
     const { data: id, error } = await (k.map && k.map !== 'match' ? CLOUD.sb.rpc('match_create_on', { pmap: k.map, ...args }) : CLOUD.sb.rpc('match_create', args));
     // Late joining off is a second step (supabase/match-options.sql); the match is made either way.
     const late = !error && !k.late ? await CLOUD.sb.rpc('match_options', { lid: id, plate: false }) : null;
     MP.busy = false;
-    if (error) { MP.makeErr = /match_create/.test(error.message || '') ? `Making matches${k.map === 'ridge' ? ' on Ridgeline' : ''} isn’t switched on yet. Check back soon.` : mpErr(error); renderMp(); return; }
+    if (error) { MP.makeErr = /match_create/.test(error.message || '') ? `Making matches${k.map === 'ridge' ? ' on Ridgeline' : ''} isn’t switched on yet. Check back soon.` : k.seasons > 1 && /one whole season/.test(error.message || '') ? 'Matches of more than one season aren’t switched on yet. Check back soon, or make a one-season match.' : mpErr(error); renderMp(); return; }
     if (late && late.error) toast('Your match is made, but late joining couldn’t be turned off. Try again in a moment.', true);
     MP.make = false; MP.mk = null; MP.makeErr = '';
     toast(`${k.name} is made! It starts in ${mpIn(k.start * 60000)}.${k.pw ? ' Tell your friends the password.' : ' Anyone can join until then.'}`);
@@ -23627,6 +23650,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.4', date: 'Nov 5, 2026', title: 'Matches of two or three seasons', kotm: true, items: [
+    'King of the Mountain: when you make a match, pick 1, 2 or 3 seasons. Your resort carries on from one winter to the next, and the most profit from every season added up wins.',
+    'After the last day of a season every resort shuts for the summer together. You get one turn of summer to build, then the summer upkeep is paid and the next season starts on November 15, with thin snow and snowmaking to plan.',
+    'The standings show each season’s profit under the total.'] },
   { v: '3.3', date: 'Nov 5, 2026', title: 'Cars in your rivals’ lots', kotm: true, items: [
     'King of the Mountain: while the day plays, your rivals’ parking lots fill with their guests’ cars, about one car for every two or three skiers they drew that day. Cars arrive through the morning and leave in the afternoon, and only night skiers’ cars stay after the lifts close.'] },
   { v: '3.2', date: 'Nov 5, 2026', title: 'Bigger resorts can charge more', items: [

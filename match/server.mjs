@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
-import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY } from './market.mjs';
+import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY, seasonOf, PAGE_SUMMER, PAGE_NEW_SEASON } from './market.mjs';
 import { restDb } from './db.mjs';
 
 const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest'], COMPUTER_PRICE = 65;
@@ -132,7 +132,8 @@ async function playDay(db, game, lobby) {
       // (on a strip map the other resort's game is slid elsewhere along the ridge, so its snow is spread evenly instead)
       if (r.summary.fresh) await pages[k].ev(`(() => { const ns = ${JSON.stringify(await pages[ref].ev('Array.from(NS)'))}, even = ${mapQuery(lobby, 0) !== '1'}, mean = ns.reduce((a, b) => a + b, 0) / ns.length;
         for (let i = 0; i < NS.length; i++) NS[i] = even ? mean : ns[i];
-        state.day = ${await pages[ref].ev('state.day')}; refreshSnowState(todayWx()); })()`);
+        state.day = ${await pages[ref].ev('state.day')}; state.season = ${await pages[ref].ev('state.season || 1')};
+        if (${await pages[ref].ev('!!state.summer')}) enterSummer(); refreshSnowState(todayWx()); })()`);
       const bonus = Math.min(lobby.late_bonus_cap ?? 1000000, (lobby.late_bonus ?? 15000) * (p.joined_day || 0));
       if (bonus) await pages[k].ev(`state.cash += ${bonus}`);
       const was = r.summary.name, fresh = r.summary.fresh;
@@ -159,10 +160,13 @@ async function playDay(db, game, lobby) {
       if (o.kind === 'price' && o.payload.ticket != null) said.push(`${who} set its lift ticket at ${dollars(o.payload.ticket)}.`);
     }
     // The town's skiers and pass buyers, shared; then every resort plays its day at once.
-    const alone = await Promise.all(pages.map((g, k) => (shut[k] ? { day: 0, passes: 0 } : g.ev(PAGE_ALONE))));
+    // In a match of more seasons, nobody skis on the summer turn (every resort shuts for the summer together) or on the
+    // summer night (each pays its summer upkeep and the new season starts on Nov 15 for everyone).
+    const cal = seasonOf(lobby, day), quiet = cal.summer || cal.newSeason, none = pages.map(() => 0);
+    const alone = await Promise.all(pages.map((g, k) => (shut[k] || quiet ? { day: 0, passes: 0 } : g.ev(PAGE_ALONE))));
     const held = await Promise.all(pages.map((g, k) => (shut[k] ? g.ev(MOTHBALL) : null))); // put back after the day: shut costs nothing
-    const share = splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = splitSkiers(alone.map((a) => a.passes));
-    const results = await Promise.all(pages.map((g, k) => g.ev(pagePlay(share[k], passShare[k]))));
+    const share = quiet ? none : splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = quiet ? none : splitSkiers(alone.map((a) => a.passes));
+    const results = await Promise.all(pages.map((g, k) => g.ev(cal.summer ? PAGE_SUMMER : cal.newSeason ? PAGE_NEW_SEASON : pagePlay(share[k], passShare[k]))));
     for (const [k, h] of held.entries()) if (h) {
       await pages[k].ev(UNMOTHBALL(h));
       Object.assign(results[k], { profit: 0, guests: 0, passes: 0, turnedAway: 0, cash0: Math.round(h.cash), debt0: Math.round(h.debt || 0), shut: true });
@@ -171,16 +175,22 @@ async function playDay(db, game, lobby) {
     const rows = [];
     for (const [k, r] of resorts.entries()) {
       const res = results[k], s = r.summary, now = await pages[k].ev(PAGE_SUMMARY);
+      const profit = s.profit + res.profit, more = (lobby.seasons || 1) > 1;
+      // Each season's profit, for the table, in a match of more than one; the total is what wins.
+      const seasons = more && cal.end ? [...(s.seasons || []), profit - (s.seasons || []).reduce((a, b) => a + b, 0)] : s.seasons;
       rows.push({ lobby_id: lobby.id, slot: r.slot, day, save: await saveOf(pages[k]), updated_at: new Date().toISOString(),
-        summary: { ...s, ...now, profit: s.profit + res.profit, guests: s.guests + res.guests, passes: s.passes + res.passes, turnedAway: s.turnedAway + res.turnedAway, cap: nextCap(s.cap, res), last: res } });
+        summary: { ...s, ...now, profit, guests: s.guests + res.guests, passes: s.passes + res.passes, turnedAway: s.turnedAway + res.turnedAway, cap: quiet ? null : nextCap(s.cap, res), last: res, ...(seasons ? { seasons } : {}) } });
     }
     await db.upsert('match_resorts', rows);
-    await db.upsert('match_days', [{ lobby_id: lobby.id, day, results: { wx: results[0].wx, alone, share, passShare, resorts: results.map((x, k) => ({ slot: resorts[k].slot, ...x })) } }]);
+    await db.upsert('match_days', [{ lobby_id: lobby.id, day, results: { wx: results[0].wx, alone, share, passShare, season: cal.season, ...(quiet ? { summer: true } : {}), ...(cal.newSeason ? { newSeason: true } : {}), resorts: results.map((x, k) => ({ slot: resorts[k].slot, ...x })) } }]);
     await db.update('match_lobbies', { id: lobby.id }, { day });
     // Fresh starts given: noted once the resorts are saved, so a day that fails gives it again next time.
     for (const p of rescued) await db.update('match_players', { lobby_id: lobby.id, slot: p.slot }, { rescue_due: false });
     const snow = +(String(results[0].wx).match(/([\d.]+)in/) || [])[1] || 0;
     if (snow >= 6) said.unshift(`Powder day! ${snow} inches of new snow overnight.`);
+    if (cal.newSeason) said.unshift(`Season ${cal.season} has begun: it's Nov 15, and the snow is thin. Watch the forecast and make snow.`);
+    if (cal.summer) said.unshift(`It's summer: the snow is gone. Build for next season; season ${cal.season} starts on Nov 15 next turn.`);
+    if (cal.end && !cal.last) said.push(`Season ${cal.season} is over. ${[...rows].sort((a, b) => b.summary.profit - a.summary.profit).map((r, i) => `${i + 1}. ${r.summary.name} ${dollars(r.summary.profit)}`).join(', ')} so far. Summer is next turn, then season ${cal.season + 1} starts on Nov 15.`);
     await news(db, lobby, day, [...new Set(said)]);
     log(`${lobby.name}: day ${day} of ${lobby.days} in ${((Date.now() - t0) / 1000).toFixed(1)} s, ${results.map((x, k) => `${resorts[k].summary.name} ${x.guests}`).join(', ')}`);
     if (day >= lobby.days) await finish(db, lobby, rows);
