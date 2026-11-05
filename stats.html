@@ -107,6 +107,7 @@ th.num .sortb { justify-content: flex-end; width: 100%; }
 .fold[open] > summary { margin-bottom: 8px; }
 details > summary { cursor: pointer; }
 .small { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
+.kmh { margin: 14px 0 4px; font-size: 15px; } .kmh .note { font-weight: 500; font-size: 12.5px; }
 
 /* Feedback */
 .fbbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
@@ -430,8 +431,10 @@ details > summary { cursor: pointer; }
     if (!kot) el.innerHTML = '<section class="card"><h2>King of the Mountain</h2><p class="note">Loading…</p></section>';
     const [lb, pl, rp] = await Promise.all([sb.from('match_lobbies').select('*').order('starts_at', { ascending: false }).limit(40),
       sb.from('match_players').select('lobby_id,slot,user_id,resort_name,joined_day'), sb.rpc('admin_chat_reports')]);
+    const st = await sb.rpc('admin_match_stats', { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }).then((r) => r, (e) => ({ error: e }));
     if (lb.error) { el.innerHTML = `<section class="card"><h2>King of the Mountain</h2><p class="note">${/match_lobbies/.test(lb.error.message) ? 'Not set up yet. Run <b>supabase/multiplayer.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(lb.error.message)}</span>`}</p></section>`; return; }
-    kot = { lobbies: lb.data || [], players: pl.data || [], reports: rp.error ? null : rp.data || [], reportErr: rp.error ? rp.error.message : '' };
+    kot = { lobbies: lb.data || [], players: pl.data || [], reports: rp.error ? null : rp.data || [], reportErr: rp.error ? rp.error.message : '',
+      stats: st.error ? null : st.data, statsErr: st.error ? String(st.error.message || st.error) : '' };
     renderKotm();
   }
   function renderKotm() {
@@ -469,7 +472,42 @@ details > summary { cursor: pointer; }
           <div>${esc(r.body)}</div>${r.reasons && r.reasons.length ? `<div class="note">${r.reasons.map(esc).join(' · ')}</div>` : ''}
           <div><button data-khide="${r.message}" data-v="${!r.hidden}">${r.hidden ? 'Show it again' : 'Hide it'}</button>${r.author ? ` <button data-kban="${esc(r.author)}">Ban from chat for 7 days</button>` : ''}</div></div>`).join('')}</div>`
       : '<p class="note">No reports. ✓</p>'}</section>`;
-    el.innerHTML = create + lobbies + chat;
+    el.innerHTML = kotmStats() + create + lobbies + chat;
+  }
+  // How multiplayer is doing: who tries it, who keeps playing, and each match's players. From admin_match_stats
+  // (supabase/match-stats.sql). Active = sent a change or wrote in the chat; watching isn't recorded.
+  function kotmStats() {
+    const s = kot.stats, head = '<h2>How multiplayer is doing</h2>';
+    if (!s) return `<section class="card">${head}<p class="note">${/admin_match_stats/.test(kot.statsErr) ? 'Not set up yet. Run <b>supabase/match-stats.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(kot.statsErr)}</span>`}</p></section>`;
+    const money = (n) => (n == null ? '–' : `${n < 0 ? '−' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-US')}`);
+    const lob = s.lobbies || {}, seats = s.seats || {};
+    const tiles = `<dl class="grid">
+      <div class="card tile"><dt>Tried it</dt><dd>${num(s.players)}</dd><small>joined a match · ${pct(s.players, s.signed_in)} of ${num(s.signed_in)} signed-in players</small></div>
+      <div class="card tile"><dt>Active today</dt><dd>${num(s.active_24h)}</dd><small>sent a change or chatted · 24 h · ${num(s.active_7d)} this week</small></div>
+      <div class="card tile"><dt>New this week</dt><dd>${num(s.new_7d)}</dd><small>joined their first match</small></div>
+      <div class="card tile"><dt>Came back</dt><dd>${pct(s.two_days, s.players)}</dd><small>${num(s.two_days)} played on 2+ different days</small></div>
+      <div class="card tile"><dt>Seats filled</dt><dd>${pct(seats.filled, seats.total)}</dd><small>${num(seats.filled)} of ${num(seats.total)} seats in started matches</small></div>
+      <div class="card tile"><dt>Matches</dt><dd>${num(lob.running)}</dd><small>running · ${num(lob.open)} open · ${num(lob.finished)} finished</small></div>
+    </dl>`;
+    const days = (s.per_day || []).map((d, i) => { const t = new Date(d.day + 'T12:00'); return { ...d, label: t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), short: String(t.getDate()), first: i === 0 || t.getDate() === 1 }; });
+    const max = Math.max(1, ...days.map((d) => d.active));
+    const chart = `<section class="card"><h2>Active players per day</h2><p class="note">Players who sent a change or chatted in a match, the last 14 days, in your time zone.</p>
+      <div class="cols" role="img" aria-label="Active multiplayer players per day">${days.map((d) => `<div class="col" title="${d.label}: ${d.active} active · ${d.joined} joined a match${d.new ? ` (${d.new} for the first time)` : ''}"><b>${d.active || ''}</b><i style="height:${(d.active / max) * 82}%"></i></div>`).join('')}</div>
+      <div class="days">${days.map((d) => `<span>${d.first ? d.label : d.short}</span>`).join('')}</div></section>`;
+    const steps = [['Signed in', s.signed_in], ['Joined a match', s.players], ['Sent a change', s.sent_order], ['Played on 2+ days', s.two_days], ['Played on 5+ days', s.five_days], ['Played 2+ matches', s.two_matches]];
+    const top = Math.max(1, s.signed_in || 0);
+    const funnel = `<section class="card"><h2>How far players get</h2><p class="note">Share of signed-in players, since multiplayer began.</p><div class="bars">${steps.map(([l, n]) => { const w = (n / top) * 100;
+      return `<div class="bar"><span class="lbl">${esc(l)}</span><span class="track"><span class="fill" style="width:${w}%"></span>${w > 60 ? `<span class="val in" style="right:calc(${100 - w}% + 8px)">` : `<span class="val" style="left:calc(${w}% + 6px)">`}${num(n)} · ${pct(n, top)}</span></span></div>`; }).join('')}</div>
+      <p class="small">Made by players: ${num(lob.custom)} ${lob.custom === 1 ? 'match' : 'matches'} from ${num(lob.makers)} ${lob.makers === 1 ? 'player' : 'players'} · official: ${num(lob.official)} · Crown Peak ${num(lob.crown)}, Ridgeline ${num(lob.ridge)}.
+      Resorts left: ${num(s.left)}, rescued: ${num(s.rescued)}. Chat this week: ${num(s.chat_7d)} ${s.chat_7d === 1 ? 'message' : 'messages'} from ${num(s.chatters_7d)} ${s.chatters_7d === 1 ? 'player' : 'players'}.</p></section>`;
+    const ms = (s.matches || []).filter((m) => m.status !== 'open' || m.players.length);
+    const table = ms.length ? `<section class="card"><h2>Matches, player by player</h2><p class="note">Running matches first, then ones from the last 14 days. Changes: what each player sent the server (all · last 24 h). Profit is the season so far.</p>
+      ${ms.map((m) => `<h3 class="kmh">${esc(m.name)} <span class="note">${m.status === 'running' ? `day ${m.day} of ${m.days}` : m.status} · ${m.map === 'ridge' ? 'Ridgeline' : 'Crown Peak'}${m.kind === 'custom' ? ' · player match' : ''}</span></h3>
+      <div class="scroll"><table><thead><tr><th>Resort</th><th>Player</th><th class="num">Changes</th><th class="num">Chats</th><th>Last active</th><th class="num">Profit</th><th class="num">Guests</th><th class="num">Lifts · trails</th></tr></thead><tbody>
+      ${m.players.map((p) => `<tr><td><b>${esc(p.resort)}</b>${p.left ? ' <span class="priv">left</span>' : ''}</td><td>${p.real ? esc(p.player || '–') : '<span class="note">empty</span>'}${p.joined_day ? `<small class="note"> · joined day ${p.joined_day}</small>` : ''}</td>
+        <td class="num">${num(p.orders)} · ${num(p.orders_24h)}</td><td class="num">${num(p.chats)}</td><td>${p.last_seen ? ago(p.last_seen) : '–'}</td>
+        <td class="num">${money(p.profit)}</td><td class="num">${p.guests == null ? '–' : num(p.guests)}</td><td class="num">${p.lifts == null ? '–' : `${p.lifts} · ${p.trails}`}</td></tr>`).join('')}</tbody></table></div>`).join('')}</section>` : '';
+    return tiles + `<div class="two">${chart}${funnel}</div>` + table;
   }
   document.addEventListener('submit', async (e) => {
     if (e.target.id !== 'kNew') return;

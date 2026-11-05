@@ -243,6 +243,7 @@
         if (fn === 'admin_match_flag') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.flag = !!args.pflag; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_late') { const l = L.find((x) => x.id === args.lid); if (!l) return { data: null, error: { message: 'no such lobby' } }; l.late = args.plate !== false; put(d); return { data: null, error: null }; }
         if (fn === 'admin_match_turn') { const l = L.find((x) => x.id === args.lid && x.status === 'open'); if (!l) return { data: null, error: { message: 'only a lobby that hasn\'t started' } }; l.day_minutes = args.pminutes; put(d); return { data: null, error: null }; }
+        if (fn === 'admin_match_stats') return m.stats ? { data: m.stats, error: null } : { data: null, error: { message: 'Could not find the function public.admin_match_stats(tz)' } };
         if (fn === 'admin_match_close') { const l = L.find((x) => x.id === args.lid); if (l) l.status = 'closed'; put(d); return { data: null, error: null }; }
         const msgs = m.messages || [], reps = m.reports || [];
         if (fn === 'admin_chat_reports') return { data: msgs.filter((x) => reps.some((r) => r.message_id === x.id)).map((x) => ({ message: x.id, lobby: (L.find((l) => l.id === x.lobby_id) || {}).name, name: x.name, author: x.user_id, body: x.body, hidden: !!x.hidden, reports: reps.filter((r) => r.message_id === x.id).length, reasons: [] })), error: null };
