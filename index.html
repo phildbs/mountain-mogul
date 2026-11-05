@@ -4498,6 +4498,7 @@ function isBase(p) {
 }
 // The low ground joined to a lot, worked out again when the land or the terrain changes.
 let baseReachMemo = null;
+const BASE_HILL = 10; // more of a climb than this between a lot and a spot (in height units) puts the spot over the hill
 function baseReach() {
   const M = baseReachMemo;
   if (M && M.rev === terrainRev && M.land === landRects) return M.R;
@@ -4521,6 +4522,17 @@ function baseReach() {
     const k = stack.pop(), i = k % NV;
     for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = 1; stack.push(m); }
   }
+  // Guests walk straight across the base, so low ground only counts where the way from a lot doesn't climb a hill
+  // on the way. With the land behind the mountain bought, the low ground joins up all the way round, and guests
+  // walked from the front lots over the top to lifts and buses on the backside (Snowy Summit, Ridgeback).
+  const hill = (k, s) => {
+    const x = k % NV - HALF, z = Math.floor(k / NV) - HALF, d = Math.hypot(s.x - x, s.z - z);
+    if (d < 20) return false;
+    const top = Math.max(MOUNTAIN.baseH, trueY(s.x, s.z)) + BASE_HILL, n = Math.ceil(d / 1.5);
+    for (let i = 1; i < n; i++) { const f = i / n; if (trueY(x + (s.x - x) * f, z + (s.z - z) * f) > top) return true; }
+    return false;
+  };
+  for (let k = 0; k < R.length; k++) if (R[k] && sites.every((s) => hill(k, s))) R[k] = 0;
   baseReachMemo = { rev: terrainRev, land: landRects, R };
   return R;
 }
@@ -6280,6 +6292,10 @@ function cacheHubs() {
     }
     const open = A.baseCells.find((k) => A.walk.has(k)) ?? A.baseCells[0]; // not under a building
     A.basePoint = open != null ? { x: keyX(open), z: keyZ(open) } : null;
+    // Ways out to the base, spread along the edge (one per 6 squares): an area painted over the base used to send
+    // everyone to one corner of it before they turned round for the lift or shop they wanted.
+    const ex = new Map(); for (const k of A.baseCells) { const b = `${Math.floor(keyX(k) / 6)},${Math.floor(keyZ(k) / 6)}`; if (A.walk.has(k) && !ex.has(b)) ex.set(b, { x: keyX(k), z: keyZ(k) }); }
+    A.exits = ex.size ? [...ex.values()] : A.basePoint ? [A.basePoint] : [];
     const pts = [...A.loads.map((L) => L.a), ...A.tops.map((L) => L.b), ...A.starts.map((T) => T.samples[0]), ...A.buildings.map((B) => B.door), ...(A.basePoint ? [A.basePoint] : [])];
     A.routes = new Map(); A.routesAll = new Map();
     for (const p of pts) { const k = cellKey(Math.round(p.x), Math.round(p.z)); if (!A.routes.has(k)) A.routes.set(k, hubFlood(A.walk, k)); }
@@ -6316,6 +6332,14 @@ function hubSees(A, a, b) {
 // keeps a lane of their own, drifts on longer stretches and walks at their own pace, so crowds spread out
 // instead of marching single file from square to square.
 // The cell where an area meets the natural base that is closest to p.
+// Where a guest at p steps out to the base: right here on a base square, else the nearest way out along the area.
+function hubExit(A, p) {
+  const k = cellKey(Math.round(p.x), Math.round(p.z));
+  if (A.baseSet && A.baseSet.has(k) && (A.walk || A.set).has(k)) return { x: p.x, z: p.z, here: true };
+  let best = A.basePoint, bd = Infinity;
+  for (const e of A.exits || []) { const d = hubDistance(A, p, e); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
 function hubBaseCell(A, p) {
   let best = null, bd = Infinity;
   for (const k of A.baseCells || []) { const d = (keyX(k) - p.x) ** 2 + (keyZ(k) - p.z) ** 2 + (A.walk && !A.walk.has(k) ? 1e6 : 0); if (d < bd) { bd = d; best = { x: keyX(k), z: keyZ(k) }; } }
@@ -10310,7 +10334,8 @@ const midSaved = (L) => L.midUp ? liftRideMinutes(L.midUp) : 0;
 // A shared junction is scored like other routes, with a short walk charged for each choice.
 function hubChoices(A, g, depth, memo, here) {
   const out = [], cost = (p) => 0.5 + hubDistance(A, here, p) * 0.04;
-  if (A.basePoint) out.push({ k: 'base', p: A.basePoint, v: vBase(g, depth + 1, memo, A.basePoint) - cost(A.basePoint) });
+  const e = A.basePoint && hubExit(A, here);
+  if (e) out.push({ k: 'base', p: e, v: vBase(g, depth + 1, memo, e) - (e.here ? 0.5 : cost(e)) });
   if (depth < 4) {
     for (const T of A.starts) if (runnable(T)) { const p = T.samples[0]; out.push({ k: 'ski', T, p, v: vTrail(T, 0, g, depth + 1, memo) - cost(p) }); }
     for (const L of A.loads) if (canLoad(L)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) - cost(L.a) });
@@ -10352,7 +10377,7 @@ function hubDecision(g, A, skipVisit = false) {
   let best = null, value = -Infinity;
   for (const c of choices) { const v = noisy(c.v); if (v > value) { value = v; best = c; } }
   if (!best) return hikeOut(g);
-  if (best.k === 'base') return walkHub(g, A, best.p, { k: 'hubBase' });
+  if (best.k === 'base') return best.p.here ? baseDecision(g, true) : walkHub(g, A, best.p, { k: 'hubBase' });
   if (best.k === 'ski') return walkHub(g, A, best.p, { k: 'ski', tid: best.T.id, s: 0 });
   if (best.k === 'top') return walkHub(g, A, best.p, { k: 'hubTop', lid: best.L.id });
   return walkHub(g, A, best.p, { k: 'hubQueue', lid: best.L.id, aid: A.id });
@@ -10406,16 +10431,21 @@ function goCar(g) {
   if (g.hotel) { const H = bldById(g.hotel); if (H) return toHotel(g, H); }
   if (g.homeAt === undefined) g.homeAt = state.time; // set off before lunch time: they'll eat at home, not "leave hungry"
   const car = cars.find((c) => c.id === g.car) || offCars.find((c) => c.id === g.car);
+  let st = null;
   if (g.bus || (car && car.offsite)) {
-    // Town bus riders and guests parked off-site walk to the nearest station.
-    const st = nearestStation(g);
-    if (st) { g.stn = st.id; return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' }); }
-    if (car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
+    // Town bus riders and guests parked off-site go home from a station: one at this base if there is one. Going by
+    // straight-line distance, guests walked over the mountain to a station on its other side.
+    const zg = lotCount() > 1 ? baseOf(g) : 0, S = stations();
+    st = nearestStation(g, S.filter((B) => (lotCount() > 1 ? baseOf(B.door) : 0) === zg)) || nearestStation(g, S);
+    if (!st && car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
+    if (st) g.stn = st.id;
   }
-  const s = car ? stalls[car.stall] : roadEnd();
+  const s = st ? st.door : car ? stalls[car.stall] : roadEnd();
   // Up in a guest area that touches the base: walk inside it down to the base edge first.
   const A = hubAt(g); if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
-  if (car && lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' }); // parked at the other base
+  // Parked at the other base, or the only open station is there. With no way across, a bus rider just walks.
+  if ((car || st) && lotCount() > 1 && baseOf(g) !== baseOf(s) && (!st || crossCost(baseOf(g), baseOf(s)) < Infinity)) return crossTo(g, baseOf(s), { k: 'car' });
+  if (st) return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' });
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
 }
 /* ---------- Two bases: getting between them ----------
@@ -15249,7 +15279,8 @@ function mealRoute(g, start) {
       for (const B of A.buildings) consider(B, walk(B.door));
       for (const T of A.starts) add({ k: 'trail', T, s: 0 }, n.cost + walk(T.samples[0]), n.first || { k: 'ski', tid: T.id, aid: A.id });
       for (const L of A.loads) if (canLoad(L)) add({ k: 'lift', L }, n.cost + walk(L.a), n.first || { k: 'queue', lid: L.id, aid: A.id });
-      if (A.basePoint) add({ k: 'base', p: A.basePoint }, n.cost + walk(A.basePoint), n.first || { k: 'hubBase', aid: A.id });
+      const e = A.basePoint && hubExit(A, n.p);
+      if (e) add({ k: 'base', p: e }, n.cost + (e.here ? 0 : walk(e)), e.here ? n.first : n.first || { k: 'hubBase', aid: A.id, x: e.x, z: e.z }); // already on the base: no walk out first
       for (const L of A.tops) add({ k: 'top', L, outside: true }, n.cost + walk(L.b), n.first || { k: 'hubTop', lid: L.id, aid: A.id });
     } else if (n.k === 'base') {
       const A = hubAt(n.p); if (A) add({ k: 'hub', A, p: n.p }, n.cost, n.first);
@@ -15280,7 +15311,7 @@ function seekMeal(g, start, resume) {
     const A = areaById(step.aid); let p, then;
     if (step.k === 'ski') { const T = trailById(step.tid); p = T.samples[0]; then = { k: 'ski', tid: T.id, s: 0 }; }
     else if (step.k === 'queue') { const L = liftById(step.lid); p = L.a; then = { k: 'hubQueue', lid: L.id, aid: A.id }; }
-    else if (step.k === 'hubBase') { p = A.basePoint; then = { k: 'hubBase' }; }
+    else if (step.k === 'hubBase') { p = step.x != null ? { x: step.x, z: step.z } : A.basePoint; then = { k: 'hubBase' }; }
     else if (step.k === 'hubTop') { p = liftById(step.lid).b; then = { k: 'hubTop', lid: step.lid }; }
     if (p) return walkHub(g, A, p, then);
   }
@@ -16191,9 +16222,9 @@ const PARK_SEATS = 40, SHUTTLE_PATIENCE = 15;
 const offsiteSpec = () => (state.offsite >= 0 ? OFFSITE[state.offsite] : null);
 const offsiteRunning = () => !!(runOps && runOps.shuttles !== 'off' && offsiteSpec() && stations().length);
 // The station nearest a spot, among those open today.
-function nearestStation(p) {
+function nearestStation(p, S = stations()) {
   let best = null, bd = Infinity;
-  for (const B of stations()) { const d = distXZ(p, B.door); if (d < bd) { bd = d; best = B; } }
+  for (const B of S) { const d = distXZ(p, B.door); if (d < bd) { bd = d; best = B; } }
   return best;
 }
 // Arrivals spread across the stations in turn.
@@ -16968,7 +16999,7 @@ function bldLive(B) {
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
-    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle`;
+    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle${lotCount() > 1 ? ` · <b>${waitingAt(B, 'xbq') * AGENT}</b> for the base shuttle` : ''}`;
   }
 }
 // Prices in sections, each with what guests consider normal.
@@ -20045,6 +20076,7 @@ function guestActivity(g) {
   if (g.st === 'tow') return 'Being brought down by ski patrol';
   if (g.st === 'busq') return 'Waiting for the town bus';
   if (g.st === 'pq') return 'Waiting for the parking shuttle';
+  if (g.st === 'xbq') return 'Waiting for the base shuttle to the other base';
   if (g.st === 'watch') return 'Watching the torchlight parade';
   if (t && t.k === 'pq') return 'Walking to the parking shuttle';
   if (t && t.k === 'bld' && B) return `Heading to ${B.name}`;
@@ -23787,6 +23819,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.7.1', date: 'Nov 5, 2026', title: 'Guests stop hiking over the mountain', small: true, items: [
+    'Fixed: once you bought the land behind the mountain, guests walked straight over the top to lifts and bus stations on the other side. Low ground behind a hill from your parking lots is no longer part of the base: guests get there by skiing. Thanks Snowy!',
+    'Fixed: town bus riders and off-site parkers head home from a station at the base they’re at, and take the base shuttle or gondola if the only open station is at the other base.',
+    'Fixed: in a guest area painted over the base, guests walked to one corner of it before turning round for the lift or shop they wanted.',
+    'Station cards now also count guests waiting for the base shuttle, so a crowd left at the stop after a town bus has gone shows up in the numbers.'] },
   { v: '3.7', date: 'Nov 5, 2026', title: 'Weekends only in spring', kotm: true, items: [
     'King of the Mountain: when a spring day loses money, a short message offers to open on weekends and holidays only, end your season, or keep going. It comes up at most once a week.',
     'Weekends only keeps your resort closed on spring weekdays, when few skiers come, and goes back to normal when the next season starts.'] },
