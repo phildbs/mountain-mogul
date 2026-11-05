@@ -42,6 +42,11 @@ export default async function ({ browser, url }) {
   await g.ev(`replayKeep(() => { for (let k = 0; k < 60 && state.phase === 'open'; k++) simStep(1.5); })`); await g.wait(200); // as the live day does: its takings were counted by the server
   const c2 = await corner();
   assert(c2.sim !== c1.sim && Math.abs(c2.shown - c2.want) < 1 && c2.text && Math.abs(await g.ev('state.cash') - save.cash) < 1, `and moves with the sales as the day plays, real cash unchanged (${Math.round(c1.shown)} → ${Math.round(c2.shown)})`);
+  // With the server's money through the day (results from 3.5.1), the corner shows that instead: the same each visit.
+  const sm = await g.ev(`(() => { const R = matchView.replay, t = state.time; R.official.money = [[t - 10, 1000], [t + 10, 3000]];
+    const a = cashNow(); R.official.money = [[t - 30, 500], [t - 20, 900]]; const b = cashNow(); delete R.official.money;
+    return { a: a - (state.cash - 5000), b: b - (state.cash - 5000) }; })()`);
+  assert(Math.abs(sm.a - 2000) < 1 && Math.abs(sm.b - 900) < 1, `with the server's money for the day, the corner shows the morning's money plus the server's takings at this moment (${JSON.stringify(sm)})`);
   const rv = await g.ev(`(() => { cam.viewH = 60; cam.viewGoal = null; rivalSkiersTick(0.05); drawPeople(); const own = world.lifts[0].a, G = RIVAL_SKI.ghosts, far = G.map((x) => Math.hypot(x.x - own.x, x.z - own.z));
     const drawn = guests.filter((x) => x.px != null).length;
     return { n: G.length, shown: figMeshes.jacket.count - drawn, on: RIVAL_SKI.on, minFar: Math.min(...far), riding: G.filter((x) => x.mode === 'lift').length, skiing: G.filter((x) => x.mode === 'ski').length,

@@ -30,12 +30,20 @@ export const pagePlay = (share, passShare) => `(() => {
   const t0 = performance.now(), before = state.cash - (state.debt || 0), own = demandForDay, ownPass = passBuyers, cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);
   let played = false;
   if (${+share} > 0) { demandForDay = () => ${+share}; passBuyers = () => ${+passShare}; try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; } played = state.phase === 'open'; }
-  state.speed = 0; let n = 0;
-  while (state.phase === 'open' && n++ < 200000) simStep(1.5);
+  state.speed = 0; let n = 0, next = 0, last = null;
+  // How the money moved through the day: [game minute, cash less the morning's] every 5 minutes, and the last moment
+  // before the day's wages and upkeep come off. Players watching the day see these, so everyone sees the same figures.
+  const money = [];
+  while (state.phase === 'open' && n++ < 200000) {
+    last = [Math.round(state.time * 10) / 10, Math.round(state.cash - cash0)];
+    if (state.time >= next) { money.push(last); next = state.time + 5; }
+    simStep(1.5);
+  }
+  if (last && money[money.length - 1] !== last) money.push(last);
   const r = played ? state.lastReport : null;
   if (played) nextDay(); else waitDay();
   return { ms: Math.round(performance.now() - t0), guests: r ? r.guests : 0, turnedAway: r ? r.turnedAway || 0 : 0, passes: r ? r.rev.passes || 0 : 0, sat: r ? r.sat : null,
-    profit: Math.round(state.cash - (state.debt || 0) - before), cash0, debt0, wx: r ? r.wx.type + (r.wx.snow ? ' ' + r.wx.snow + 'in' : '') : 'closed' };
+    profit: Math.round(state.cash - (state.debt || 0) - before), cash0, debt0, ...(played ? { money } : {}), wx: r ? r.wx.type + (r.wx.snow ? ' ' + r.wx.snow + 'in' : '') : 'closed' };
 })()`;
 // A player's orders, applied overnight in the order sent. Each comes back ok, or with the reason it failed.
 // Prices: ticket, peak ticket (null for none) and season pass. Builds: a lift, a trail or a building, checked by

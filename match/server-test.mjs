@@ -54,6 +54,9 @@ try {
   // The morning's cash and loan, so the game can show the money moving while the day is watched.
   ok(d1.results.resorts.every((r, k) => Number.isFinite(r.cash0) && Number.isFinite(r.debt0) && Math.abs(Math.round(R(r.slot).save.cash) - Math.round(r.cash0) - (R(r.slot).save.clock.debt || 0) + r.debt0 - r.profit) <= 1),
     `each result has the morning's cash and loan, and they add up to the day's profit (${d1.results.resorts.map((r) => [r.cash0, r.profit, Math.round(R(r.slot).save.cash)].join('/'))})`);
+  // And the money through the day, every 5 game minutes, so everyone watching sees the server's own figures.
+  ok(d1.results.resorts.every((r) => !r.guests || Array.isArray(r.money) && r.money.length > 50 && r.money.every((p, k) => !k || p[0] > r.money[k - 1][0]) && r.money[r.money.length - 1][1] >= r.profit),
+    `each played day has its money through the day, ending above the day's profit before wages and upkeep come off (${d1.results.resorts.map((r) => r.money && [r.money.length, r.money[r.money.length - 1].join('@'), r.profit].join('/'))})`);
   const wx = [0, 1, 2].map((s) => JSON.stringify(R(s).save.clock.wx));
   ok(wx[0] === wx[1] && wx[1] === wx[2], 'all three resorts share one forecast');
 

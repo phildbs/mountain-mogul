@@ -4149,13 +4149,23 @@ const SANDBOX_CASH = 1e12;
 let sandboxNext = false; // the next new mountain starts as a sandbox
 try { sandboxNext = sessionStorage.getItem('mm.sandboxNext') === '1'; } catch (e) { /* storage blocked */ }
 // Watching a match day, the resort is already at the server's end-of-day figures (the server plays the day first).
-// So the money shown starts at this morning's figures and moves with what the day you watch takes in and spends
-// (tickets as guests arrive, meals at lunch, lift power), as in a day of your own; the day's wages and upkeep come
-// off as it ends, when the server's own figures take over. The real figures (what building is checked against) don't change.
+// So the money shown starts at this morning's figures and moves with what the day takes in and spends (tickets as
+// guests arrive, meals at lunch, lift power), as in a day of your own; the day's wages and upkeep come off as it ends,
+// when the server's own figures take over. The real figures (what building is checked against) don't change.
+// What the day has taken comes from the server's own day (its money every 5 minutes), so it's the real figure and the
+// same each time you come back to the match; older results without it use what the day you watch takes in.
 function matchLag() {
   let R = null; try { R = matchView && matchView.replay; } catch (e) { return null; } // not set up yet while the page loads
   if (!R || !R.gap || state.phase !== 'open') return null;
-  return { cash: R.gap.cash - (R.sim || 0), debt: R.gap.debt };
+  const took = matchTook(R.official && R.official.money, state.time);
+  return { cash: R.gap.cash - (took ?? (R.sim || 0)), debt: R.gap.debt };
+}
+// The server's money at game minute t: between its 5-minute marks, part of the way from one to the next.
+function matchTook(m, t) {
+  if (!Array.isArray(m) || !m.length) return null;
+  if (t <= m[0][0]) return m[0][1];
+  for (let k = 1; k < m.length; k++) if (t < m[k][0]) { const [a, x] = m[k - 1], [b, y] = m[k]; return x + (y - x) * (t - a) / Math.max(0.1, b - a); }
+  return m[m.length - 1][1];
 }
 // Runs part of the watched day, keeping its takings out of your real cash (the server counted them) but in the figure shown.
 function replayKeep(run) {
@@ -23650,6 +23660,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.5.1', date: 'Nov 5, 2026', title: 'Match money you can trust', kotm: true, small: true, items: [
+    'King of the Mountain: while you watch the day, the money in the corner now follows the server’s own day, so it’s the real figure and stays the same if you leave the match and come back. Before, your game played the day again with its own luck and came up with a slightly different figure each time.'] },
   { v: '3.5', date: 'Nov 5, 2026', title: '5-minute turns', kotm: true, items: [
     'King of the Mountain: when you make a match, a new day can now start every 5 minutes, as well as every 10, 15 or 30. One season takes about 14 hours.',
     'The match server now plays matches side by side, so a match with a very big resort no longer makes other matches’ days start late.'] },
