@@ -789,6 +789,18 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mp-table { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .mp-table li { display: flex; gap: 8px; }
 .mp-table li { flex-wrap: wrap; }
+/* a finished match's results, shown once on the title screen */
+.mpd-head { display: grid; gap: 4px; text-align: center; }
+.mpd-head b { font: 800 24px var(--display); }
+.mpd-head.won b { color: #8a5f00; }
+.mpd-head svg { width: 34px; height: 34px; margin: 0 auto; color: #c48a0c; }
+.mpd-badge { display: flex; gap: 8px; align-items: center; padding: 9px 11px; border-radius: 12px; background: #fff6dc; border: 1px solid rgba(217, 154, 20, 0.45); font-size: 13px; }
+.mpd-badge svg { flex: none; width: 20px; height: 20px; color: #c48a0c; }
+#mpdBody { display: grid; gap: 16px; }
+.mpd .podium { margin-bottom: 0; }
+.mpd section > .help { margin: 6px 0 0; }
+.mpd h4 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.mpd .mp-acts { flex-wrap: wrap; }
 .mp-table .mp-seasons { flex-basis: 100%; font-size: 11px; font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-nums; } /* each season's profit, under the total */
 .mp-table li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-table li em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-2); }
@@ -1936,6 +1948,13 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button id="versionTag" type="button"></button>
       <a id="statsLink" href="stats.html" hidden>Stats</a>
       <a id="titlePrivacy" href="privacy.html" target="_blank" rel="noopener" title="Privacy policy (opens a new tab)">Privacy policy</a>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="mpDone" hidden>
+    <div class="panel modal mp mpd" role="dialog" aria-modal="true" aria-labelledby="mpdTitle">
+      <div class="cm-head"><div><div class="eyebrow">King of the Mountain · Match over</div><h2 id="mpdTitle">Match results</h2></div><button class="x" id="mpdClose" aria-label="Close">✕</button></div>
+      <div id="mpdBody"></div>
     </div>
   </div>
 
@@ -22044,6 +22063,80 @@ function mpToCommunity(open) { MP.scroll = mpScrollers().map((el) => el.scrollTo
 function mpBack() { cmReturn = null; openMp(); const at = MP.scroll || []; mpScrollers().forEach((el, i) => { el.scrollTop = at[i] || 0; }); }
 $('mpCard').onclick = openMp;
 $('mpClose').onclick = closeMp;
+// A match you played in has finished: its results come up on the title screen, once (remembered on this device):
+// where you came, the podium and standings, your resort's figures, any badge, and a way to look at the mountain.
+// Matches that ended in the last two weeks, newest first, one at a time. Players who left a match aren't in it any
+// more, so they don't get one.
+const MP_DONE = { at: 0, queue: [], showing: null };
+const mpDoneSeen = () => { try { return JSON.parse(localStorage.getItem('mm.kotm.done') || '[]'); } catch (e) { return []; } };
+function mpDoneMark(id) { try { localStorage.setItem('mm.kotm.done', JSON.stringify([id, ...mpDoneSeen().filter((x) => x !== id)].slice(0, 80))); } catch (e) { /* storage blocked: it may come up again */ } }
+const mpEndsAt = (l) => Date.parse(l.starts_at) + l.days * l.day_minutes * 60000;
+async function loadMatchDone() {
+  if (!CLOUD.sb || CLOUD.status === 'offline' || CLOUD.guest || !CLOUD.uid || Date.now() - MP_DONE.at < 60000) return;
+  MP_DONE.at = Date.now();
+  try {
+    const { data: mine, error } = await CLOUD.sb.from('match_players').select('lobby_id,slot,place,user_id,resort_name').eq('user_id', CLOUD.uid);
+    if (error) return;
+    const seen = mpDoneSeen(), ids = (mine || []).map((p) => p.lobby_id).filter((id) => !seen.includes(id) && !MP_DONE.queue.some((q) => q.lobby.id === id));
+    if (!ids.length) return;
+    const { data: lob } = await CLOUD.sb.from('match_lobbies').select('*').in('id', ids).eq('status', 'finished');
+    for (const l of lob || []) {
+      if (Date.now() - mpEndsAt(l) > 14 * 86400000) mpDoneMark(l.id); // long over: never shown, and not looked up again
+      else MP_DONE.queue.push({ lobby: l, me: mine.find((p) => p.lobby_id === l.id) });
+    }
+    MP_DONE.queue.sort((a, b) => mpEndsAt(b.lobby) - mpEndsAt(a.lobby));
+  } catch (e) { return; }
+  showMatchDone();
+}
+// Only on the title screen with nothing else open; otherwise it waits for the next look.
+async function showMatchDone() {
+  if (MP_DONE.showing || !MP_DONE.queue.length || $('title').hidden || $('loading') || [...document.querySelectorAll('.modal-bg')].some((m) => !m.hidden)) return;
+  const q = MP_DONE.queue.shift(), l = q.lobby;
+  MP_DONE.showing = l.id;
+  try {
+    const [r, p, b] = await Promise.all([CLOUD.sb.from('match_resorts').select('lobby_id,slot,day,summary').eq('lobby_id', l.id),
+      CLOUD.sb.from('match_players').select('*').eq('lobby_id', l.id), CLOUD.sb.from('match_badges').select('place,title,user_id').eq('lobby_id', l.id).then((x) => x, () => ({}))]);
+    if (r.error || !(r.data || []).length) throw new Error('load');
+    const uids = [...new Set((p.data || []).map((x) => x.user_id).filter(Boolean))];
+    const { data: pr } = uids.length ? await CLOUD.sb.from('profiles').select('id,name').in('id', uids).then((x) => x, () => ({})) : {};
+    const names = Object.fromEntries((pr || []).map((x) => [x.id, x.name]));
+    if ($('title').hidden || [...document.querySelectorAll('.modal-bg')].some((m) => !m.hidden)) { MP_DONE.queue.unshift(q); MP_DONE.showing = null; return; } // something opened meanwhile
+    $('mpdBody').innerHTML = matchDoneHtml(l, q.me, r.data, p.data || [], ((b && b.data) || []).find((x) => x.user_id === CLOUD.uid), names);
+    $('mpdTitle').textContent = l.name;
+    $('mpDone').hidden = false;
+    mpDoneMark(l.id);
+  } catch (e) { MP_DONE.showing = null; } // tried again next time the title screen looks
+}
+function matchDoneHtml(l, me, resorts, players, badge, names) {
+  const t = [...resorts].sort((a, b) => (b.summary.profit || 0) - (a.summary.profit || 0)), at = t.findIndex((r) => r.slot === me.slot);
+  const place = me.place || at + 1, mine = (t[at] || { summary: {} }).summary, many = mpSeasons(l) > 1;
+  const who = (r) => { const u = (players.find((x) => x.slot === r.slot) || {}).user_id; return u ? names[u] || 'A player' : r.summary.computer ? 'Computer' : 'Left'; };
+  const you = (r) => (r.slot === me.slot ? ' <span class="youtag">You</span>' : '');
+  const podium = t.slice(0, 3).map((r, i) => `<li class="pod p${i + 1}${r.slot === me.slot ? ' me' : ''}"><span class="medal">${i + 1}</span>
+    <b class="nm">${esc(r.summary.name || 'Resort')}</b><span class="tg">${you(r)}</span><span class="sub">${esc(who(r))}</span><span class="pv">${money(r.summary.profit || 0)}</span></li>`).join('');
+  const rest = t.slice(3).map((r, i) => `<li class="${r.slot === me.slot ? 'me' : ''}"><span>${mpPlace(i + 4)} · ${esc(r.summary.name || 'Resort')} <small class="mp-left">${esc(who(r))}</small></span><em>${money(r.summary.profit || 0)}</em></li>`).join('');
+  const won = place === 1, n = (v) => Math.round(v || 0).toLocaleString('en-US');
+  const kv = [[many ? 'Profit, all seasons' : 'Season profit', money(mine.profit || 0)], ['Guests', n(mine.guests)], ['Season passes sold', n(mine.passes)],
+    ...(mine.turnedAway ? [['Turned away', n(mine.turnedAway)]] : []), ['Lift ticket', mine.ticket != null ? money(mine.ticket) : '–'], ['Reputation', mine.rep != null ? repWordOf(mine.rep) : '–'],
+    ['Lifts · trails', `${mine.lifts || 0} · ${mine.trails || 0}`], ['Buildings', n(mine.buildings)], ['Cash at the end', money(mine.cash || 0)], ...(mine.debt ? [['Debt', money(mine.debt)]] : [])];
+  const seasons = many && (mine.seasons || []).length ? `<p class="help">${mine.seasons.map((v, k) => `Season ${k + 1}: ${money(v)}`).join(' · ')}</p>` : '';
+  return `<div class="mpd-head${won ? ' won' : ''}">${won ? MP_ICON.trophy : ''}<b>${won ? 'You won!' : `You came ${mpPlace(place)} of ${t.length}`}</b>
+      <span class="help">${esc(mine.name || me.resort_name || 'Your resort')} on ${esc(MP_MAPS[l.map] || 'Crown Peak')} · finished after ${many ? `${mpSeasons(l)} seasons` : `${l.days} days`}</span></div>
+    ${badge ? `<p class="mpd-badge">${MP_ICON.trophy}<span>You earned the <b>“${esc(badge.title)}”</b> badge. It’s on your profile.</span></p>` : ''}
+    <section><h4>Final standings</h4><ol class="podium">${podium}</ol>${rest ? `<ol class="mp-table">${rest}</ol>` : ''}<p class="help">The most ${many ? 'profit over all the seasons' : 'season profit'} wins.</p></section>
+    <section><h4>Your resort</h4><dl class="kv">${kv.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>${seasons}</section>
+    <div class="mp-acts"><button class="btn go" type="button" data-mpd="look" data-id="${l.id}">Look at the mountain</button><button class="btn secondary" type="button" data-mpd="all">All my matches</button></div>`;
+}
+function closeMatchDone() { $('mpDone').hidden = true; MP_DONE.showing = null; }
+$('mpdClose').onclick = () => { closeMatchDone(); showMatchDone(); }; // the next one, if more than one finished
+$('mpDone').addEventListener('click', (e) => {
+  if (e.target.id === 'mpDone') { closeMatchDone(); return; }
+  const b = e.target.closest('[data-mpd]');
+  if (!b) return;
+  closeMatchDone();
+  if (b.dataset.mpd === 'look') openMatch(b.dataset.id);
+  else { MP.pastOpen = true; openMp(); }
+});
 $('mpModal').addEventListener('toggle', (e) => { if (e.target.id === 'mpPast') MP.pastOpen = e.target.open; }, true);
 $('mpModal').addEventListener('input', (e) => {
   const f = { mkName: 'name', mkResort: 'resort', mkPw: 'pw' }[e.target.id];
@@ -23661,6 +23754,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.6', date: 'Nov 5, 2026', title: 'Match results', kotm: true, items: [
+    'King of the Mountain: when a match you played in ends, its results come up on the title screen: where you came, the podium and final standings, your resort’s guests, passes, profit and more, and any badge you earned.',
+    'Tap Look at the mountain to walk around the finished match. Your finished matches are still under Past matches.',
+  ] },
   { v: '3.5.2', date: 'Nov 5, 2026', title: 'Blueprints stay blueprints', kotm: true, small: true, items: [
     'King of the Mountain: placing a building right next to one you ordered for tonight no longer makes the first one look built. It stays blue until the server builds it overnight.',
   ] },
@@ -24835,7 +24932,7 @@ async function loadLobbyFlag() {
   } catch (e) { LOBBY_FLAG.text = ''; }
   if (!$('title').hidden) lobbyFlag();
 }
-setInterval(() => { if (!$('title').hidden && CLOUD.ready) loadLobbyFlag(); }, 60000);
+setInterval(() => { if (!$('title').hidden && CLOUD.ready) { loadLobbyFlag(); loadMatchDone(); showMatchDone(); } }, 60000);
 function renderSlots() {
   const rows = slotRows(), used = ownIds().size, left = MAX_MOUNTAINS - used;
   const box = $('titleSlots');
@@ -24875,7 +24972,7 @@ function renderSlots() {
   if (CLOUD.ready) loadPeek(false);
   refreshNewBar();
   lobbyFlag();
-  if (CLOUD.ready) loadLobbyFlag();
+  if (CLOUD.ready) { loadLobbyFlag(); loadMatchDone(); showMatchDone(); }
   if (left > 0) cards.push(`<button class="scard empty" data-slot="new"><b>+ New mountain</b><span>${left} of ${MAX_MOUNTAINS} ${left === 1 ? 'slot' : 'slots'} free</span></button>`);
   else cards.push(`<div class="scard empty full"><b>All ${MAX_MOUNTAINS} slots used</b><span>Delete a mountain to start another.</span></div>`);
   box.innerHTML = cards.join('');
