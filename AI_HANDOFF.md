@@ -223,6 +223,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-4b2e5649-fhluwa` | Claude | Map viewer for single-player mountains (`?mapView=juniper` etc.), then work on a single-player mountain. Not published. | Nov 5, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
@@ -394,6 +395,17 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-05 · Claude · Map viewer for single-player mountains (`?mapView=juniper`, not published)
+
+- `?mapView=<id>` now also takes a single-player mountain (`MOUNTAINS`): maple, juniper, raven, twin, lonepine,
+  ridgeback. `VIEW_SOLO` marks it. Still `MATCH_PREVIEW`, so nothing saves. The picker lists every mountain and match map.
+- Solo mode keeps the normal property haze but clears all of `PARCELS` too (`hazeAt`); steepness colours cover the
+  property and the land for sale (`inViewLand`); the hover readout says your property / for sale / not for sale.
+- Panel (`soloPanel`): property and land-for-sale numbers from `soloStats` (acres, low to high, vertical, flat summit,
+  trees, steepness mix), the flattest parcels, and the mountain's cash, crowds, costs and skier mix. Fly to each base
+  (`lotSite`), the summit (highest point on the property) and the town. Parcel sizes are off at first.
+- `viewPlot` is the old parcel drawing from `viewParcels`, shared. Scenario 180-solo-map-viewer.
 
 ### 2026-11-03 · Claude · Map viewer for a new multiplayer mountain (`?mapView=1`, not published)
 

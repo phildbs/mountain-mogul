@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
       trees: S.map((x) => x.trees || 0),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
-  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
+  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 8, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
   assert(Math.max(...q.acres) - Math.min(...q.acres) <= 2, `the strips are the same size (${q.acres})`);
   assert(Math.max(...q.vert) / Math.min(...q.vert) < 1.2, `no slice has much more vertical than another (${q.vert})`);
   assert(q.top.every((a) => a >= 15), `every slice has a flat summit to build on (${q.top} acres)`);

@@ -2046,7 +2046,7 @@ const REFERRAL_PREVIEW = new URLSearchParams(location.search).get('referralPrevi
 const MATCH_Q = (k) => { const v = new URLSearchParams(location.search).get(k); return !v ? null : v === '1' ? 'match' : v; };
 const MATCH_DEMO = !!MATCH_Q('matchDemo');
 // ?mapView=1 is a viewer for shaping match maps: the whole mountain and every slice, nothing to build, never saves.
-// ?mapView=<id> opens another map in MATCH_MAPS (a draft, say).
+// ?mapView=<id> opens another map in MATCH_MAPS (a draft, say), or a single-player mountain (?mapView=juniper).
 const MAP_VIEW = (() => { const v = new URLSearchParams(location.search).get('mapView'); return v ? (v === '1' ? 'match' : v) : null; })();
 const MATCH_PREVIEW = !!MATCH_Q('matchMap') || MATCH_DEMO || !!MAP_VIEW;
 const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
@@ -2126,7 +2126,7 @@ const BOOT_KEY = SAVE_KEY + '.boot';
 const BOOT = (() => { try { return JSON.parse(sessionStorage.getItem(BOOT_KEY)) || {}; } catch (e) { return {}; } })();
 try { sessionStorage.removeItem(BOOT_KEY); } catch (e) { /* ignore */ }
 function bootMountainId() {
-  if (MAP_VIEW) return MATCH_MAPS[MAP_VIEW] ? MAP_VIEW : 'match';
+  if (MAP_VIEW) return MATCH_MAPS[MAP_VIEW] || MOUNTAINS[MAP_VIEW] ? MAP_VIEW : 'match';
   if (MATCH_PREVIEW) { const id = MATCH_Q('matchMap') || MATCH_Q('matchDemo'); return id === 'ridge' ? 'ridge@1' : mountainDef(id).match ? id : 'match'; }
   if (BOOT.mt) return BOOT.mt;
   try {
@@ -2760,6 +2760,7 @@ function stripFrame(M, slot) {
 // Leaderboards: one per built-in mountain, and one for every custom mountain together.
 const boardOf = (mt) => (isCustomId(mt) ? 'custom' : mt || 'juniper');
 const MOUNTAIN = mountainDef(bootMountainId());
+const VIEW_SOLO = !!MAP_VIEW && !MOUNTAIN.match; // the viewer on a single-player mountain: one resort, and the land for sale round it
 const START_CASH = MOUNTAIN.cash;
 
 /* =====================================================================
@@ -2854,6 +2855,7 @@ function polyDist(P, gx, gz) {
 const inPlay = (gx, gz) => (AREA ? inArea(gx, gz) : gx >= PLAY0 && gx <= PLAY1 && gz >= PLAY0 && gz <= PLAY1);
 const inGridLand = (gx, gz) => inPlay(gx, gz) || landRects.some((p) => inRect(p, gx, gz));
 function inProperty(x, z) { return inGridLand(x + HALF, z + HALF); }
+const inViewLand = (gx, gz) => inPlay(gx, gz) || PARCELS.some((p) => inRect(p, gx, gz)); // the viewer: your property and all the land for sale
 // How far a grid point is from land you hold.
 function landDist(gx, gz) {
   let d = AREA ? areaDist(gx, gz) : Math.hypot(Math.max(PLAY0 - gx, gx - PLAY1, 0), Math.max(PLAY0 - gz, gz - PLAY1, 0));
@@ -2863,8 +2865,9 @@ function landDist(gx, gz) {
 
 let rivalLand = []; // [{ c, s, rects }]: each rival's held parcels and the turn onto their slice
 function hazeAt(gx, gz) {
-  if (MAP_VIEW) return sstep(18, 1, Math.min(gx, WN - gx, gz, WN - gz) + FAR_E); // the map viewer: every slice in full, only the far edge fades
+  if (MAP_VIEW && !VIEW_SOLO) return sstep(18, 1, Math.min(gx, WN - gx, gz, WN - gz) + FAR_E); // the map viewer: every slice in full, only the far edge fades
   let d = landDist(gx, gz);
+  if (VIEW_SOLO) for (const p of PARCELS) d = Math.min(d, Math.hypot(Math.max(p.i0 - gx, gx - p.i1, 0), Math.max(p.j0 - gz, gz - p.j1, 0))); // and the land for sale, clear too
   // Crown Peak: every slice is someone's resort, so the rivals' slices (yours turned round the summit) aren't faded either.
   if (MOUNTAIN.strip && AREA) { // a strip map: every valley, and the land your rivals have bought, slid onto theirs
     for (const P of SLICES) d = Math.min(d, polyDist(P, gx, gz));
@@ -3219,7 +3222,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
-    if (overlay.slope && (MAP_VIEW ? sliceAt(i, j) >= 0 : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
+    if (overlay.slope && (VIEW_SOLO ? inViewLand(i, j) : MAP_VIEW ? sliceAt(i, j) >= 0 : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
   }
@@ -4304,7 +4307,8 @@ function showReadout(p, px, py, pinned) {
     : sampleGrid(GR, p.x + HALF, p.z + HALF);
   const dif = DIFF[difficulty(g)];
   let html = `<b>${fmtFt(ftVis(p.y))}</b> <span class="muted">·</span> ${Math.round(g * 100)}% grade <span class="muted">·</span> <span style="color:${dif.css}">${dif.name}</span>`;
-  if (MAP_VIEW) { const k = sliceAt(p.x + HALF, p.z + HALF); html += k < 0 ? '<br><span class="muted">Nobody’s land</span>' : `<br><span style="color:${VIEW_COLS[k % VIEW_COLS.length]};filter:brightness(1.6)">●</span> Slice ${k + 1}`; }
+  if (VIEW_SOLO) { const gx = p.x + HALF, gz = p.z + HALF, P = PARCELS.find((q) => inRect(q, gx, gz)); html += `<br><span class="muted">${inPlay(gx, gz) ? 'Your property' : P ? `For sale: ${P.name}` : 'Not for sale'}</span>`; }
+  else if (MAP_VIEW) { const k = sliceAt(p.x + HALF, p.z + HALF); html += k < 0 ? '<br><span class="muted">Nobody’s land</span>' : `<br><span style="color:${VIEW_COLS[k % VIEW_COLS.length]};filter:brightness(1.6)">●</span> Slice ${k + 1}`; }
   else if (!owned) html += `<br><span class="muted">Outside your property</span>`;
   else if (state.tool === 'clear' && state.landMode === 'area') {
     const why = cellProblem(Math.round(p.x), Math.round(p.z), areaDraft && areaDraft.blocks);
@@ -22187,7 +22191,7 @@ function matchDemo() {
 const VIEW_COLS = ['#df562c', '#2f7de1', '#1f9d63', '#a65fd6', '#d9a21b', '#e0457b'];
 const mapViewer = { lines: null, tags: [], summer: false, ns: null };
 const uvWorld = ([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF });
-const viewCentre = () => uvWorld(MOUNTAIN.viewCentre || CROWN.c);
+const viewCentre = () => uvWorld(MOUNTAIN.viewCentre || (VIEW_SOLO ? [0.5, 0.5] : CROWN.c));
 const viewBase = (k) => (MOUNTAIN.bases ? uvWorld(MOUNTAIN.bases[k]) : viewTurn(k)(roadEnd()));
 function viewTurn(k) { // a spot on slice 0 (world x, z) turned onto slice k, as drawRivals turns a rival's resort
   const C = viewCentre(), a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
@@ -22290,36 +22294,38 @@ function viewRuns() {
   grp.visible = false; scene.add(grp);
   return { grp, out };
 }
+// A plot of land shaded in `col` with a dashed edge (a and b are its corners, in world x, z), and its size and how flat it is.
+function viewPlot(grp, a, b, col, name) {
+  const N = 24, pos = [], idx = [], edge = [];
+  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+    const x = lerp(a.x, b.x, i / N), z = lerp(a.z, b.z, j / N);
+    pos.push(x, heightAt(x, z) + 0.15, z);
+    if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, fog: false }));
+  m.renderOrder = 5; grp.add(m);
+  const corners = [[a.x, a.z], [b.x, a.z], [b.x, b.z], [a.x, b.z], [a.x, a.z]];
+  for (let c = 0; c < 4; c++) { const [x0, z0] = corners[c], [x1, z1] = corners[c + 1], L = Math.hypot(x1 - x0, z1 - z0);
+    for (let t = 0; t < L; t += 0.5) { const x = x0 + (x1 - x0) * t / L, z = z0 + (z1 - z0) * t / L, x2 = x0 + (x1 - x0) * Math.min(L, t + 0.5) / L, z2 = z0 + (z1 - z0) * Math.min(L, t + 0.5) / L;
+      edge.push(new THREE.Vector3(x, heightAt(x, z) + 0.3, z), new THREE.Vector3(x2, heightAt(x2, z2) + 0.3, z2)); } }
+  const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edge), new THREE.LineDashedMaterial({ color: col, dashSize: 1.2, gapSize: 0.9, fog: false }));
+  line.computeLineDistances(); grp.add(line);
+  // its size, and its average grade (a flat parcel takes a lot, a hotel or a village)
+  let n = 0, g = 0;
+  for (let x = Math.min(a.x, b.x) + 0.5; x < Math.max(a.x, b.x); x += 1) for (let z = Math.min(a.z, b.z) + 0.5; z < Math.max(a.z, b.z); z += 1) {
+    n++; g += Math.hypot(heightAt(x + 0.5, z) - heightAt(x - 0.5, z), heightAt(x, z + 0.5) - heightAt(x, z - 0.5)) / VEX;
+  }
+  return { name, acres: n * ACRES_PER_CELL, grade: g / Math.max(1, n), at: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } };
+}
 // The land for sale below each slice (MOUNTAIN.parcels): shaded in the slice's colour with a dashed edge, and
 // its size and how flat it is.
 function viewParcels() {
   const grp = new THREE.Group(), out = [];
   (MOUNTAIN.parcels || []).forEach((list, k) => {
     const col = new THREE.Color(VIEW_COLS[k % VIEW_COLS.length]);
-    out.push(list.map((P) => {
-      const a = uvWorld([P.u0, P.v1]), b = uvWorld([P.u1, P.v0]), N = 24, pos = [], idx = [], edge = [];
-      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
-        const x = lerp(a.x, b.x, i / N), z = lerp(a.z, b.z, j / N);
-        pos.push(x, heightAt(x, z) + 0.15, z);
-        if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); }
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
-      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, fog: false }));
-      m.renderOrder = 5; grp.add(m);
-      const corners = [[a.x, a.z], [b.x, a.z], [b.x, b.z], [a.x, b.z], [a.x, a.z]];
-      for (let c = 0; c < 4; c++) { const [x0, z0] = corners[c], [x1, z1] = corners[c + 1], L = Math.hypot(x1 - x0, z1 - z0);
-        for (let t = 0; t < L; t += 0.5) { const x = x0 + (x1 - x0) * t / L, z = z0 + (z1 - z0) * t / L, x2 = x0 + (x1 - x0) * Math.min(L, t + 0.5) / L, z2 = z0 + (z1 - z0) * Math.min(L, t + 0.5) / L;
-          edge.push(new THREE.Vector3(x, heightAt(x, z) + 0.3, z), new THREE.Vector3(x2, heightAt(x2, z2) + 0.3, z2)); } }
-      const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edge), new THREE.LineDashedMaterial({ color: col, dashSize: 1.2, gapSize: 0.9, fog: false }));
-      line.computeLineDistances(); grp.add(line);
-      // its size, and its average grade (a flat parcel takes a lot, a hotel or a village)
-      let n = 0, g = 0;
-      for (let x = Math.min(a.x, b.x) + 0.5; x < Math.max(a.x, b.x); x += 1) for (let z = Math.min(a.z, b.z) + 0.5; z < Math.max(a.z, b.z); z += 1) {
-        n++; g += Math.hypot(heightAt(x + 0.5, z) - heightAt(x - 0.5, z), heightAt(x, z + 0.5) - heightAt(x, z - 0.5)) / VEX;
-      }
-      return { name: P.name, acres: n * ACRES_PER_CELL, grade: g / Math.max(1, n), at: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } };
-    }));
+    out.push(list.map((P) => viewPlot(grp, uvWorld([P.u0, P.v1]), uvWorld([P.u1, P.v0]), col, P.name)));
   });
   grp.visible = out.length > 0; scene.add(grp);
   return { grp, out };
@@ -22364,14 +22370,14 @@ function viewTagsTick() {
   for (const T of mapViewer.tags) {
     if (!on) continue;
     _vt.set(T.p.x, T.p.y, T.p.z).project(camera);
-    const off = _vt.z > 1 || Math.abs(_vt.x) > 1.1 || Math.abs(_vt.y) > 1.1;
+    const off = T.hide || _vt.z > 1 || Math.abs(_vt.x) > 1.1 || Math.abs(_vt.y) > 1.1;
     T.el.style.display = off ? 'none' : '';
     if (!off) T.el.style.transform = `translate(${Math.round((_vt.x + 1) / 2 * W)}px, ${Math.round((1 - _vt.y) / 2 * H)}px) translate(-50%, -100%)`;
   }
 }
 // The whole mountain in view, beside the panel when there's room for both.
 function viewWhole(az) {
-  const span = MOUNTAIN.viewSpan || 250, C = viewCentre(), viewH = clamp(Math.max(270, span / (W / H)), 270, VIEW_MAX), el = $('mapView');
+  const span = MOUNTAIN.viewSpan || (VIEW_SOLO ? 200 : 250), C = viewCentre(), viewH = clamp(Math.max(270, span / (W / H)), 270, VIEW_MAX), el = $('mapView');
   const px = el && !isPhone() ? (el.offsetWidth + 12) / 2 : 0, sh = px * viewH / H; // half the panel, in ground units
   return { x: C.x - Math.cos(az) * sh, z: C.z + 8 + Math.sin(az) * sh, az, viewH };
 }
@@ -22404,7 +22410,6 @@ function viewPanel() {
   const S = viewStats(), n = MOUNTAIN.slices, pct = (S0, i) => Math.round(S0.mix[i] / S0.cells * 100), runs = mapViewer.runs.out, land = mapViewer.parcels.out, lots = mapViewer.lots.out;
   const runLine = (r, kind) => { const x = r[kind], want = { green: 0, blue: 1, black: 2 }[kind], ok = (kind === 'black' ? x.rating >= 2 : x.rating <= want) && !x.uphill;
     return `${ratingSymbol(x.rating, 11)} ${kind[0].toUpperCase() + kind.slice(1)} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : kind === 'black' ? ' <b class="warn">not steep enough</b>' : ' <b class="warn">too steep</b>'}`; };
-  const maps = Object.values(MATCH_MAPS);
   const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
       <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)} · ${(Math.round((s.trees || 0) / 100) * 100).toLocaleString('en-US')} trees</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
@@ -22417,7 +22422,7 @@ function viewPanel() {
   el.innerHTML = `<div class="vhead"><div><h2>${MOUNTAIN.name}</h2><p>Map viewer · ${n} resorts · nothing here is saved</p></div>
       <button class="vfold" id="vFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
     <div id="vBody">
-      ${maps.length > 1 ? `<label class="vpick">Map <select id="vMap">${maps.map((M) => `<option value="${M.id}"${M.id === MOUNTAIN.id ? ' selected' : ''}>${M.name}${M.draft ? ' (draft)' : ''}</option>`).join('')}</select></label>` : ''}
+      ${viewPicker()}
       <div class="vgo"><button data-go="-1" aria-pressed="false">Whole mountain</button>${S.map((_, k) => `<button data-go="${k}" aria-pressed="false" style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>${k + 1}</button>`).join('')}</div>
       <label class="vtilt">Tilt <input type="range" id="vTilt" min="20" max="85" step="1" value="${Math.round(EL * 180 / Math.PI)}"><span id="vTiltV">${Math.round(EL * 180 / Math.PI)}°</span></label>
       <div class="vtog">
@@ -22447,8 +22452,112 @@ function viewPanel() {
   $('tSlope').addEventListener('click', () => $('vSlope').setAttribute('aria-pressed', overlay.slope));
   if (isPhone()) $('vFold').click(); // phones: start folded, so the mountain shows
 }
+// The viewer's map picker: every single-player mountain and every match map.
+function viewPicker() {
+  const opt = (M) => `<option value="${M.id}"${M.id === MOUNTAIN.id ? ' selected' : ''}>${esc(M.name)}${M.draft ? ' (draft)' : ''}</option>`;
+  return `<label class="vpick">Map <select id="vMap"><optgroup label="Single player">${Object.values(MOUNTAINS).map(opt).join('')}</optgroup>
+    <optgroup label="King of the Mountain">${Object.values(MATCH_MAPS).map(opt).join('')}</optgroup></select></label>`;
+}
+/* A single-player mountain in the viewer (?mapView=juniper, maple, raven, twin, lonepine, ridgeback): your property
+   and all the land for sale round it, a tag at each base, the summit and the town, and the numbers for each, so a
+   mountain can be shaped without playing it. Nothing to build and nothing saved. */
+// The ground where `test` (grid x, z) holds: its acres, lowest and highest points, steepness, flat summit and trees.
+function soloStats(test) {
+  const S = { cells: 0, lo: Infinity, hi: -Infinity, mix: [0, 0, 0, 0, 0], top: [], trees: 0, peak: null };
+  for (let j = 0; j < WN; j++) for (let i = 0; i < WN; i++) {
+    if (!test(i + 0.5, j + 0.5)) continue;
+    const a = HT[j * NV + i], b = HT[j * NV + i + 1], c = HT[(j + 1) * NV + i], d = HT[(j + 1) * NV + i + 1];
+    const h = (a + b + c + d) / 4, g = Math.hypot((b - a + d - c) / 2, (c - a + d - b) / 2);
+    S.cells++; S.lo = Math.min(S.lo, h); S.mix[difficulty(g)]++;
+    if (h > S.hi) { S.hi = h; S.peak = { x: i + 0.5 - HALF, z: j + 0.5 - HALF }; }
+    if (g < 0.1) S.top.push(h);
+  }
+  for (let i = 0; i < trees.n; i++) if (test(trees.x[i] + HALF, trees.z[i] + HALF)) S.trees++;
+  S.flatTop = S.top.filter((h) => h > S.hi - (S.hi - S.lo) * 0.2).length;
+  return S;
+}
+function soloViewStart() {
+  const own = soloStats(inPlay), sale = soloStats((gx, gz) => !inPlay(gx, gz) && PARCELS.some((p) => inRect(p, gx, gz)));
+  const grp = new THREE.Group(), col = new THREE.Color(VIEW_COLS[1]), w = (gx, gz) => ({ x: gx - HALF, z: gz - HALF });
+  const land = PARCELS.map((p) => viewPlot(grp, w(p.i0, p.j0), w(p.i1, p.j1), col, p.name));
+  scene.add(grp);
+  mapViewer.parcels = { grp, out: [] }; mapViewer.solo = { own, sale, land };
+  // the places to fly to and tag: each base, the summit and the town
+  const spots = Array.from({ length: lotCount() }, (_, k) => ({ name: lotCount() > 1 ? lotName(k) : 'Base', p: lotSite(k), col: VIEW_COLS[0] }));
+  spots.push({ name: 'Summit', p: own.peak, col: VIEW_COLS[2] });
+  if (MOUNTAIN.town) spots.push({ name: 'Town', p: uvWorld(MOUNTAIN.town), col: VIEW_COLS[4] });
+  mapViewer.spots = spots;
+  const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
+  const add = (p, html, c) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (c) el.style.setProperty('--c', c); layer.appendChild(el); mapViewer.tags.push({ el, p: { x: p.x, z: p.z, y: heightAt(p.x, p.z) + 3 } }); };
+  for (const S of spots) add(S.p, `<i></i>${S.name}`, S.col);
+  mapViewer.landTags = land.map((P) => { add(P.at, `${P.name} · ${fmtAcres(P.acres)}, ${Math.round(P.grade * 100)}%`); const T = mapViewer.tags[mapViewer.tags.length - 1]; T.hide = true; return T; }); // shown with Parcel sizes
+  soloPanel();
+  winterView = true; styleSnowVisuals();
+  const to = viewWhole(0.35);
+  camTween = null; cam.target.x = to.x; cam.target.z = to.z; cam.az = cam.azGoal = to.az; cam.viewH = to.viewH; cam.viewGoal = null; updateCamera();
+}
+function soloPanel() {
+  const M = MOUNTAIN, { own, sale, land } = mapViewer.solo, pct = (S, i) => Math.round(S.mix[i] / Math.max(1, S.cells) * 100);
+  const mixBar = (S) => `<div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(S, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${S.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
+      <small>${DIFF.map((D, i) => `${pct(S, i)}%`).join(' · ')}</small>`;
+  const vert = (S) => fmtFt(Math.round((S.hi - S.lo) * FT_PER_UNIT / 10) * 10), treesN = (S) => (Math.round(S.trees / 100) * 100).toLocaleString('en-US');
+  const flat = land.slice().sort((p, q) => p.grade - q.grade).slice(0, 3);
+  const el = document.createElement('div');
+  el.className = 'panel mapview'; el.id = 'mapView';
+  el.innerHTML = `<div class="vhead"><div><h2>${esc(M.name)}</h2><p>Map viewer · ${esc(M.level || 'Single player')} · nothing here is saved</p></div>
+      <button class="vfold" id="vFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
+    <div id="vBody">
+      ${viewPicker()}
+      <div class="vgo"><button data-go="-1" aria-pressed="false">Whole mountain</button>${mapViewer.spots.map((S, k) => `<button data-go="${k}" aria-pressed="false" style="--c:${S.col}"><i></i>${S.name}</button>`).join('')}</div>
+      <label class="vtilt">Tilt <input type="range" id="vTilt" min="20" max="85" step="1" value="${Math.round(EL * 180 / Math.PI)}"><span id="vTiltV">${Math.round(EL * 180 / Math.PI)}°</span></label>
+      <div class="vtog">
+        <button id="vSlope" aria-pressed="false">Steepness</button>
+        <button id="vLines" aria-pressed="true">Property line</button>
+        <button id="vTags" aria-pressed="true">Labels</button>
+        <button id="vLand" aria-pressed="true">Land for sale</button>
+        <button id="vSizes" aria-pressed="false">Parcel sizes</button>
+        <button id="vSummer" aria-pressed="false">Summer</button>
+      </div>
+      <h3>Your property</h3>
+      <div class="vrow"><b style="--c:${VIEW_COLS[0]}"><i></i>Starting land</b>
+        <span>${fmtAcres(own.cells * ACRES_PER_CELL)} · ${fmtFt(ft(own.lo))} to ${fmtFt(ft(own.hi))} · ${vert(own)} vertical · flat summit ${fmtAcres(own.flatTop * ACRES_PER_CELL)} · ${treesN(own)} trees</span>
+        ${mixBar(own)}</div>
+      <h3>Land for sale</h3>
+      <div class="vrow"><b style="--c:${VIEW_COLS[1]}"><i></i>${land.length} parcels</b>
+        <span>${fmtAcres(sale.cells * ACRES_PER_CELL)} · ${fmtFt(ft(sale.lo))} to ${fmtFt(ft(sale.hi))} · ${treesN(sale)} trees</span>
+        ${mixBar(sale)}
+        <small>Flattest: ${flat.map((P) => `${P.name.toLowerCase()} (${Math.round(P.grade * 100)}%)`).join(', ')}</small></div>
+      <h3>The mountain</h3>
+      <div class="vrow"><span>Starting cash ${money(M.cash || START_CASH)} · crowds ×${M.draw ?? 1} · running costs ×${M.costs ?? 1}${M.skiers ? ` · skiers ${M.skiers.map((x) => `${Math.round(x * 100)}%`).join(' / ')} beginner to expert` : ''}${M.treeline < 999 ? '' : ' · wooded to the top'}${lotCount() > 1 ? ` · ${lotCount()} bases` : ''}</span>
+        <small>${esc(unitBlurb(M.blurb || ''))}</small></div>
+      <p class="vhelp">The bars are the ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height, grade and whose land it is. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
+    </div>`;
+  $('hud').appendChild(el);
+  for (const b of el.querySelectorAll('[data-go]')) b.onclick = () => soloGo(+b.dataset.go);
+  const tog = (id, fn) => { const b = $(id); b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); fn(on); }; };
+  tog('vSlope', (on) => setSlope(on));
+  tog('vLines', (on) => { if (boundaryLine) boundaryLine.visible = on; });
+  tog('vTags', (on) => { $('viewTags').hidden = !on; });
+  const sizes = () => { for (const T of mapViewer.landTags) T.hide = !(mapViewer.parcels.grp.visible && $('vSizes').getAttribute('aria-pressed') === 'true'); };
+  tog('vLand', (on) => { mapViewer.parcels.grp.visible = on; sizes(); });
+  tog('vSizes', sizes);
+  tog('vSummer', viewSummer);
+  $('vTilt').oninput = (e) => { EL = +e.target.value * Math.PI / 180; $('vTiltV').textContent = `${e.target.value}°`; updateCamera(); hover.dirty = true; };
+  $('vFold').onclick = () => { const open = $('vBody').hidden; $('vBody').hidden = !open; $('vFold').textContent = open ? '–' : '+'; $('vFold').setAttribute('aria-expanded', open); };
+  $('vMap').onchange = (e) => { location.search = `?mapView=${e.target.value}`; };
+  $('tSlope').addEventListener('click', () => $('vSlope').setAttribute('aria-pressed', overlay.slope));
+  if (isPhone()) $('vFold').click();
+}
+// Fly to the whole mountain (k < 0), or close in on a base, the summit or the town.
+function soloGo(k) {
+  const to = k < 0 ? viewWhole(cam.az) : { ...mapViewer.spots[k].p, az: cam.az, viewH: clamp(Math.max(110, 90 / (W / H)), 110, VIEW_MAX) };
+  cam.azGoal = to.az; cam.viewGoal = null;
+  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to: { x: to.x, z: to.z, az: to.az, viewH: to.viewH } };
+  for (const b of document.querySelectorAll('#mapView [data-go]')) b.setAttribute('aria-pressed', +b.dataset.go === k);
+}
 function mapViewStart() {
   document.body.classList.add('mapview');
+  if (VIEW_SOLO) return soloViewStart();
   // Every other slice's road and parking lot, as a match draws a rival's: theirs is yours turned round the summit.
   const empty = { world: { lifts: [], trails: [], buildings: [] }, clock: {} };
   if (!MOUNTAIN.sliceAreas) matchView = { demo: true, view: true, slot: 0, me: false, lobby: { name: 'Map viewer' }, players: [], resorts: Array.from({ length: MOUNTAIN.slices - 1 }, (_, k) => ({ slot: k + 1, save: empty, summary: {} })) };
