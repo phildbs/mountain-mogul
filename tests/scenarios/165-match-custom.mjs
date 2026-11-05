@@ -96,8 +96,8 @@ export default async function ({ browser, url }) {
   const prof = await g.page.evaluate(() => document.getElementById('cmCreatorTab').innerText);
   assert(/King of the Mountain\s*Autumn Cup champion\s*Matches: 2 played · 1 won/i.test(prof), `the profile shows the badge and the record (${prof.slice(0, 300)})`);
   // Shorter turns: the live day fits the turn the same way. Lifts close (4 PM) 18/30 of the way in, the evening ends by 28/30.
-  const clock = await g.ev(`[10, 15, 30].map((m) => { const l = { day_minutes: m }; return [replayClock(l, m * 60000 * 0.3, 1320), replayClock(l, m * 60000 * 0.6, 1320), replayClock(l, m * 60000 * 28 / 30, 1320)].map(Math.round); })`);
-  eq(clock, [[720, 960, 1320], [720, 960, 1320], [720, 960, 1320]], 'noon, 4 PM and the end of the evening at the same share of a 10, 15 or 30-minute turn');
+  const clock = await g.ev(`[5, 10, 15, 30].map((m) => { const l = { day_minutes: m }; return [replayClock(l, m * 60000 * 0.3, 1320), replayClock(l, m * 60000 * 0.6, 1320), replayClock(l, m * 60000 * 28 / 30, 1320)].map(Math.round); })`);
+  eq(clock, [[720, 960, 1320], [720, 960, 1320], [720, 960, 1320], [720, 960, 1320]], 'noon, 4 PM and the end of the evening at the same share of a 5, 10, 15 or 30-minute turn');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

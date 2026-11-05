@@ -36,13 +36,16 @@ export default async function ({ browser, url }) {
   await g.page.click('#mpMake button[type=submit]'); await g.page.waitForSelector('#mpMake .mp-err');
   assert(/more than one season aren’t switched on yet/.test(await g.page.innerText('#mpMake .mp-err')), 'an older database: longer matches aren\'t switched on yet');
   // Once the SQL is run, it's made with its length and seasons.
-  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); delete d.oneSeason; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
-  await g.page.click('[data-mk=seasons][data-v="3"]');
-  assert(/3 seasons with a summer between each, 558 game days/.test(await body()), 'three seasons');
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); delete d.oneSeason; d.slowTurns = true; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
+  await g.page.click('[data-mk=seasons][data-v="3"]'); await g.page.click('[data-mk=turn][data-v="5"]');
+  assert(/3 seasons with a summer between each, 558 game days: 1.9 days with a new day every 5 minutes/.test(await body()), `three seasons of 5-minute turns (${JSON.stringify((await body()).match(/Length[\s\S]{0,200}/i))})`);
+  // 5-minute turns (3.5): before match-fast-turns.sql the database only takes 10, 15 or 30.
+  await g.page.click('#mpMake button[type=submit]'); await g.page.waitForFunction(() => /5-minute turns aren’t switched on yet/.test((document.querySelector('#mpMake .mp-err') || {}).innerText || ''), null, { timeout: 10000 });
+  await g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); delete d.slowTurns; localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
   await g.page.click('#mpMake button[type=submit]');
   await g.page.waitForFunction(() => !document.getElementById('mpMake') && /Long Cup/.test(document.getElementById('mpBody').innerText), null, { timeout: 10000 });
   const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Long Cup'));
-  eq([made.days, made.seasons, made.day_minutes], [558, 3, 10], 'a three-season match is made');
+  eq([made.days, made.seasons, made.day_minutes], [558, 3, 5], 'a three-season match of 5-minute turns is made');
 
   // The summer turn on the match screen.
   await g.page.click('[data-mp=open][data-id=S1]');

@@ -38,6 +38,8 @@ export default async function ({ browser, url }) {
   eq(await lengths(), ['One season · 168 days (28 hours)', 'Two seasons · 363 days (2½ days)', 'Three seasons · 558 days (4 days)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
   await g.page.selectOption('#kNew [name=turn]', '15');
   eq((await lengths())[0], 'One season · 168 days (42 hours)', 'and 15 minutes');
+  await g.page.selectOption('#kNew [name=turn]', '5');
+  eq((await lengths())[0], 'One season · 168 days (14 hours)', 'and 5 minutes');
   await g.page.selectOption('#kNew [name=turn]', '30');
   await g.page.fill('#kNew [name=name]', 'Winter Cup');
   const start = new Date(Date.now() + 3 * 3600000); start.setMinutes(10, 0, 0);

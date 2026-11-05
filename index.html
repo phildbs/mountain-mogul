@@ -21818,7 +21818,7 @@ const mpWho = (uid, name, on) => (uid ? `<button class="link mp-who" type="butto
 const mpClaimEnd = (l) => Math.floor(l.days * 3 / 4), MATCH_RESCUE = 500000; // lobbies from before player matches are all official
 // What a player can pick when making a match: minutes a turn (one game day), days, and minutes until it starts.
 // Every player match is one whole season (Phil, Nov 4); two seasons waits for a server test of the summer.
-const MP_TURNS = [10, 15, 30], MP_SEASON = 168, MP_STARTS = [5, 15, 30, 60, 180, 720];
+const MP_TURNS = [5, 10, 15, 30], MP_SEASON = 168, MP_STARTS = [5, 15, 30, 60, 180, 720];
 // Matches of 1, 2 or 3 seasons (the same calendar as match/market.mjs): the first season is 168 days; each later one
 // is 195: a summer turn (everyone shuts, build for next season), the summer night (upkeep paid, it's Nov 15), then 193.
 const MP_MORE = 195, mpDays = (n) => MP_SEASON + (Math.max(1, n || 1) - 1) * MP_MORE, mpSeasons = (l) => l.seasons || 1;
@@ -21893,7 +21893,7 @@ function joinForm(l, note, late, claim = null) { // claim: the slot of a left re
 const MP_INTRO = `<div class="mp-intro"><b>How King of the Mountain works</b>
   <p><b>One mountain, rival resorts.</b> On <b>Crown Peak</b>, two or three resorts each have a slice from their own base up to a shared summit. On <b>Ridgeline</b>, two to four resorts each have their own valley below one long ridge. Every slice or valley is about as good as the others.</p>
   <p><b>Joining.</b> Sign in and pick a player name, then join an open lobby or make your own match: public, or locked with a password for friends. Most matches let you join late, until a quarter of the way through, with a catch-up investment for the days you missed. You can be in up to three matches at once.</p>
-  <p><b>A match runs day and night.</b> A new game day starts every 10, 15 or 30 minutes, and a match is one whole season. Your resort keeps running while you’re away, so check in from your phone or computer whenever you like.</p>
+  <p><b>A match runs day and night.</b> A new game day starts every 5, 10, 15 or 30 minutes, and a match is one, two or three whole seasons. Your resort keeps running while you’re away, so check in from your phone or computer whenever you like.</p>
   <p><b>Build and run it any time.</b> Almost everything from your own resorts works here: lifts, trails, buildings, parking, prices, plans, events and more. Watch each day live, evenings included. What you build during the day shows as a blueprint and opens the next morning. On quiet days, an operations plan can keep you closed to save money.</p>
   <p><b>Winning.</b> Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins. Building never counts against you. <b>Official</b> tournaments give badges to the top three; every match you finish counts on your profile as played and won.</p>
   <p><b>Leaving and rescuing.</b> Can’t keep going? Leave this match, in the menu. Your resort stays shut for another player to claim, until three-quarters of the way through the season. The first to claim it gets a fresh start from the bank: no debt and at least $500,000. A win only counts if you run your resort for at least half the season.</p>
@@ -22010,7 +22010,7 @@ function renderMp() {
   }).join('')}</ul></section>`;
   // Past matches: folded away at the bottom, newest first; stays open or shut as you left it.
   if (past.length) h += `<details class="mp-past" id="mpPast"${MP.pastOpen ? ' open' : ''}><summary>Past matches <span>${past.length}</span></summary><ul class="mp-list">${past.map(myCard).join('')}</ul></details>`;
-  h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every 10, 15 or 30 minutes, day and night, and the resort with the most season profit wins. You can be in up to three matches at once.</p>';
+  h += '<p class="help">In King of the Mountain, each match is one mountain shared by several resorts. A new game day starts every 5, 10, 15 or 30 minutes, day and night, and the resort with the most profit wins. You can be in up to three matches at once.</p>';
   const typed = $('mpName') ? $('mpName').value : null, focused = document.activeElement && document.activeElement.id === 'mpName', key = $('mpKey') ? $('mpKey').value : null;
   $('mpBody').innerHTML = h;
   if ($('mpName') && typed != null) $('mpName').value = typed;
@@ -23511,7 +23511,7 @@ $('mpModal').addEventListener('submit', async (e) => {
     // Late joining off is a second step (supabase/match-options.sql); the match is made either way.
     const late = !error && !k.late ? await CLOUD.sb.rpc('match_options', { lid: id, plate: false }) : null;
     MP.busy = false;
-    if (error) { MP.makeErr = /match_create/.test(error.message || '') ? `Making matches${k.map === 'ridge' ? ' on Ridgeline' : ''} isn’t switched on yet. Check back soon.` : k.seasons > 1 && /one whole season/.test(error.message || '') ? 'Matches of more than one season aren’t switched on yet. Check back soon, or make a one-season match.' : mpErr(error); renderMp(); return; }
+    if (error) { MP.makeErr = /match_create/.test(error.message || '') ? `Making matches${k.map === 'ridge' ? ' on Ridgeline' : ''} isn’t switched on yet. Check back soon.` : k.seasons > 1 && /one whole season/.test(error.message || '') ? 'Matches of more than one season aren’t switched on yet. Check back soon, or make a one-season match.' : k.turn === 5 && /10, 15 or 30/.test(error.message || '') ? '5-minute turns aren’t switched on yet. Check back soon, or pick a longer turn.' : mpErr(error); renderMp(); return; }
     if (late && late.error) toast('Your match is made, but late joining couldn’t be turned off. Try again in a moment.', true);
     MP.make = false; MP.mk = null; MP.makeErr = '';
     toast(`${k.name} is made! It starts in ${mpIn(k.start * 60000)}.${k.pw ? ' Tell your friends the password.' : ' Anyone can join until then.'}`);
@@ -23650,6 +23650,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.5', date: 'Nov 5, 2026', title: '5-minute turns', kotm: true, items: [
+    'King of the Mountain: when you make a match, a new day can now start every 5 minutes, as well as every 10, 15 or 30. One season takes about 14 hours.',
+    'The match server now plays matches side by side, so a match with a very big resort no longer makes other matches’ days start late.'] },
   { v: '3.4.1', date: 'Nov 5, 2026', title: 'Easier to spot Join', kotm: true, small: true, items: ['King of the Mountain: the Join button on open lobbies is now solid green, like Join now on live matches, so it stands out.'] },
   { v: '3.4', date: 'Nov 5, 2026', title: 'Matches of two or three seasons', kotm: true, items: [
     'King of the Mountain: when you make a match, pick 1, 2 or 3 seasons. Your resort carries on from one winter to the next, and the most profit from every season added up wins.',
