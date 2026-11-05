@@ -31,6 +31,14 @@ export default async function ({ browser, url }) {
   assert(/reported 1 time[\s\S]*spam spam/.test(t), `chat reports are listed (${t.slice(-300)})`);
 
   // Make a lobby, without late joining.
+  // Each length says how long it takes in real time, for the day length picked.
+  const lengths = () => g.page.evaluate(() => [...document.querySelectorAll('#kNew [name=days] option')].map((o) => o.textContent));
+  eq(await lengths(), ['One season · 168 days (3½ days)', 'Two seasons · 336 days (7 days)', 'Short test · 12 days (6 hours)'], 'lengths with 30-minute days');
+  await g.page.selectOption('#kNew [name=turn]', '10');
+  eq(await lengths(), ['One season · 168 days (28 hours)', 'Two seasons · 336 days (2½ days)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
+  await g.page.selectOption('#kNew [name=turn]', '15');
+  eq((await lengths())[0], 'One season · 168 days (42 hours)', 'and 15 minutes');
+  await g.page.selectOption('#kNew [name=turn]', '30');
   await g.page.fill('#kNew [name=name]', 'Winter Cup');
   const start = new Date(Date.now() + 3 * 3600000); start.setMinutes(10, 0, 0);
   const p = (n) => String(n).padStart(2, '0');

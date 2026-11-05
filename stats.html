@@ -422,7 +422,10 @@ details > summary { cursor: pointer; }
   // King of the Mountain: make lobbies, change their settings, close them, and look after the match chat.
   // Everything goes through the owner-only admin_* functions in supabase/multiplayer.sql, match-chat.sql and
   // match-late.sql. Crown Peak has three slices, so a lobby has 2 or 3 resorts.
-  const K_LENGTHS = [[168, 'One season · 168 days (3½ days)'], [336, 'Two seasons · 336 days (7 days)'], [12, 'Short test · 12 days (6 hours)']];
+  const K_LENGTHS = [[168, 'One season'], [336, 'Two seasons'], [12, 'Short test']];
+  // How long a match lasts in real time, for the chosen day length: hours under two days, then days (halves as ½).
+  const kSpan = (days, minutes) => { const h = days * minutes / 60; if (h < 48) return `${+h.toFixed(1)} ${h === 1 ? 'hour' : 'hours'}`; const d = Math.round(h / 12) / 2; return `${Math.floor(d)}${d % 1 ? '½' : ''} days`; };
+  const kLengthLabel = (days, label, minutes) => `${label} · ${days} days (${kSpan(days, minutes)})`;
   let kot = null, kotBusy = false;
   const nextHalfHour = () => { const t = new Date(Date.now() + 60 * 60000); t.setSeconds(0, 0); t.setMinutes(t.getMinutes() < 30 ? 30 : 60); return t; };
   const localInput = (t) => { const p = (n) => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}T${p(t.getHours())}:${p(t.getMinutes())}`; };
@@ -447,7 +450,7 @@ details > summary { cursor: pointer; }
         <label>Mountain<select name="map"><option value="match">Crown Peak (2 or 3 resorts)</option><option value="ridge">Ridgeline (2 to 4 resorts)</option></select></label>
         <label>Resorts<select name="slots"><option value="3">3 (every slice of Crown Peak, or 3 of Ridgeline’s 4 valleys)</option><option value="2">2 (the rest stay empty)</option><option value="4">4 (Ridgeline only: every valley)</option></select></label>
         <label>A new day every<select name="turn"><option value="30">30 minutes</option><option value="15">15 minutes</option><option value="10">10 minutes</option></select></label>
-        <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(l)}</option>`).join('')}</select></label>
+        <label>Length<select name="days">${K_LENGTHS.map(([d, l]) => `<option value="${d}">${esc(kLengthLabel(d, l, 30))}</option>`).join('')}</select></label>
         <label>Prize badge<input name="prize" maxlength="60" placeholder="Winter Cup champion (the default)"></label>
         <label>Late joining until day<input name="late" type="number" min="0" max="400" placeholder="a quarter of the match"></label>
         <label class="kcheck"><input type="checkbox" name="latejoin" checked> Late joining <small>Off: nobody can join once it has started</small></label>
@@ -509,6 +512,11 @@ details > summary { cursor: pointer; }
         <td class="num">${money(p.profit)}</td><td class="num">${p.guests == null ? '–' : num(p.guests)}</td><td class="num">${p.lifts == null ? '–' : `${p.lifts} · ${p.trails}`}</td></tr>`).join('')}</tbody></table></div>`).join('')}</section>` : '';
     return tiles + `<div class="two">${chart}${funnel}</div>` + table;
   }
+  // Changing the day length updates how long each match length takes in real time.
+  document.addEventListener('change', (e) => {
+    if (e.target.name !== 'turn' || !e.target.closest('#kNew')) return;
+    for (const o of e.target.form.elements.days.options) { const k = K_LENGTHS.find(([d]) => d === +o.value); if (k) o.textContent = kLengthLabel(k[0], k[1], +e.target.value); }
+  });
   document.addEventListener('submit', async (e) => {
     if (e.target.id !== 'kNew') return;
     e.preventDefault();
