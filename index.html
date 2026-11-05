@@ -12661,6 +12661,7 @@ function drawPeople() {
       c++;
     }
   }
+  if (matchView) { try { c = drawRivalCars(c); } catch (e) { RIVAL_SKI.on = false; } }
   for (const k of ['body', 'cabin']) { carMeshes[k].count = c; carMeshes[k].instanceMatrix.needsUpdate = true; carMeshes[k].instanceColor.needsUpdate = true; }
 }
 function pickGuest(x, y) {
@@ -22478,7 +22479,7 @@ function drawRivals() {
     // Crown Peak turns a rival's resort round the summit; a strip map (Ridgeline) slides it along the ridge.
     const slide = MOUNTAIN.strip ? stripDx(r.slot) : null, phi = slide == null ? (r.slot - matchView.slot) * 2 * Math.PI / CROWN.n : 0, c = Math.cos(phi), sn = Math.sin(phi);
     const turn = slide != null ? (p) => ({ x: p.x + slide, z: p.z }) : (p) => ({ x: cx + (p.x - cx) * c - (p.z - cz) * sn, z: cz + (p.x - cx) * sn + (p.z - cz) * c });
-    const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [], lamps: [], blds: [], eve: rivalEvening(r.save.clock || {}, w) };
+    const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [], lamps: [], blds: [], stalls: [], phi, eve: rivalEvening(r.save.clock || {}, w) };
     RIVAL_SKI.slices.push(sl);
     for (const L of w.lifts || []) {
       try {
@@ -22516,7 +22517,7 @@ function drawRivals() {
     // A lift is lit if a lit trail starts at its top, as night skiers ride it.
     for (const R of sl.lifts) R.lit = sl.trails.some((T) => T.lit && Math.hypot(T.sm[0].x - R.b.x, T.sm[0].z - R.b.z) < 25);
     // Their road, parking lot and land: everyone's base is laid out alike, so it's yours turned onto their slice.
-    try { rivalLot(r.save.clock || {}, turn, cutAt); } catch (e) { /* skip */ }
+    try { rivalLot(r.save.clock || {}, turn, cutAt, sl); } catch (e) { /* skip */ }
     const held = ((r.save.clock && r.save.clock.land) || []).filter((l) => !l.wait).map((l) => PARCELS.find((p) => p.id === l.id)).filter(Boolean);
     if (held.length) land.push({ c, s: sn, dx: slide, rects: held.map(({ i0, i1, j0, j1 }) => ({ i0, i1, j0, j1 })) });
   }
@@ -22530,7 +22531,7 @@ function drawRivals() {
 // the ridge so its own valley is in front, so the same ridge, the same distance along.
 const stripDx = (slot) => (MOUNTAIN.strip[slot] - MOUNTAIN.strip[MOUNTAIN.slot ?? 1]) * PN;
 // A rival's access road and lot sections, laid on the ground of their slice. turn() takes a spot on your slice to theirs.
-function rivalLot(clock, turn, cutAt) {
+function rivalLot(clock, turn, cutAt, sl) {
   const strip = (P, hw, mat, lift) => { // a ribbon along P, `hw` either side, kept to the map
     const pos = [], uv = [], hz = [], idx = [];
     let along = 0, n = 0;
@@ -22580,6 +22581,16 @@ function rivalLot(clock, turn, cutAt) {
     quad(o.x, o.z, LOT.w, LOT.d, LOT_MAT, 10, true);
     if (col) { const a = slotOrigin(row, col - 1, lot).x, x0 = Math.min(a, o.x) + LOT.w - 0.05, x1 = Math.max(a, o.x) + 0.05; for (let b = 0; b < LOT.bays; b++) quad(x0, o.z + 1.4 + b * 2.8 - 0.45, x1 - x0, 0.9, LINK_MAT, 2); }
     for (let z = o.z; z <= o.z + LOT.d; z += 1.5) for (let x = o.x; x <= o.x + LOT.w; x += 1.5) { const p = turn({ x, z }); cutAt(p.x, p.z, 1.3); }
+    // their parking spaces, laid out like yours, for their guests' cars (drawRivalCars)
+    if (sl) for (let b = 0; b < LOT.bays; b++) for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
+      const p = turn({ x: o.x + 0.25 + c * 0.5, z: o.z + 1.4 + b * 2.8 + side * 0.95 });
+      sl.stalls.push({ x: p.x, z: p.z, yaw: (side < 0 ? Math.PI : 0) - (sl.phi || 0), color: pick(CARS) });
+    }
+  }
+  // Nearer spaces fill first, as at yours, with a little mixing so the lot doesn't fill in rows.
+  if (sl) {
+    const all = sl.stalls, mix = all.map((st, i) => [i / all.length * 0.6 + Math.random() * 0.4, st]).sort((a, b) => a[0] - b[0]);
+    mix.forEach(([, st], k) => { st.th = (k + 0.5) / all.length; }); // ranked, so a lot that's 70% full shows 70% of its spaces taken
   }
 }
 // Rivals' land isn't hazed like land nobody holds. Only redone when it changes: it re-shades the whole map.
@@ -23376,6 +23387,34 @@ function rivalSkiersTick(dt) {
     Object.assign(g, { x, z, y: surfaceAt(x, z, lerp(a.y, b.y, t)) + 0.14, yaw: Math.atan2(dx, dz) - Math.cos(g.d * g.tf + g.ph) * 0.5, sy: 1 });
   }
 }
+// Their guests' cars, parked in their lot while the day plays: about one car for every 2.4 skiers, arriving through
+// the morning as yours do, leaving through the afternoon, and after the lifts close only night skiers' cars stay.
+const RIVAL_PER_CAR = 2.4;
+function rivalLotFill(sl) {
+  const t = state.time, arrived = t < 490 ? 0 : t < 620 ? 0.72 * (t - 490) / 130 : Math.min(1, 0.72 + 0.28 * (t - 620) / 160);
+  if (t < DAY_CLOSE) return Math.max(0, arrived - (t < 780 ? 0 : t < 900 ? 0.3 * (t - 780) / 120 : 0.3 + 0.45 * (t - 900) / 60));
+  const mine = RIVAL_SKI.ghosts.filter((g) => g.sl === sl);
+  return mine.length ? 0.25 * mine.filter((g) => g.mode !== 'gone').length / mine.length : 0;
+}
+function drawRivalCars(c) {
+  if (!RIVAL_SKI.on || !rivalLive()) return c;
+  for (const sl of RIVAL_SKI.slices) {
+    if (!sl.stalls || !sl.stalls.length) continue;
+    const share = RIVAL_SKI.share[sl.slot] ?? ((sl.last && sl.last.guests) || 0);
+    const cut = Math.min(1, share / RIVAL_PER_CAR / sl.stalls.length) * rivalLotFill(sl);
+    for (const st of sl.stalls) {
+      if (c >= MAX_CARS) return c;
+      if (st.th >= cut) continue;
+      _e.set(0, st.yaw, 0); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(st.x, heightAt(st.x, st.z) + 0.1, st.z);
+      _m.compose(_v, _q, _s);
+      _m.toArray(carMeshes.body.instanceMatrix.array, c * 16);
+      _m.toArray(carMeshes.cabin.instanceMatrix.array, c * 16);
+      carMeshes.body.instanceColor.setXYZ(c, ...hexRGB(st.color));
+      c++;
+    }
+  }
+  return c;
+}
 // Drawn with your own guests' figures, after them (drawPeople).
 function drawRivalSkiers(n) {
   if (!RIVAL_SKI.on || !rivalLive()) return n;
@@ -23588,6 +23627,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.3', date: 'Nov 5, 2026', title: 'Cars in your rivals’ lots', kotm: true, items: [
+    'King of the Mountain: while the day plays, your rivals’ parking lots fill with their guests’ cars, about one car for every two or three skiers they drew that day. Cars arrive through the morning and leave in the afternoon, and only night skiers’ cars stay after the lifts close.'] },
   { v: '3.2', date: 'Nov 5, 2026', title: 'Bigger resorts can charge more', items: [
     'What guests will pay for a lift ticket now grows with your resort. A small hill is still about $65, but more trails, more lift capacity and a good reputation raise it, up to about $120 for the biggest resorts. Prices shows the figure for your resort, and season pass buyers follow it too. Thanks Adum888!',
     'In King of the Mountain the same goes for every resort: skiers weigh each ticket against what a resort of that size usually charges, so a big resort can charge more than a small rival and still win skiers.',

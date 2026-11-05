@@ -45,11 +45,20 @@ export default async function ({ browser, url }) {
   eq([r.n, r.eve[0], r.lamps, r.litLifts, r.night, r.apres], [2, { night: 1260, apres: 1305 }, true, true, true, true], 'rivals night ski on their lit trails and run après, from their own plans');
   assert(r.gone > 0 && r.out > 0 && r.onLit, `some of their skiers went home; the rest are on lit trails and lifts (${r.out} out, ${r.gone} gone)`);
   assert(r.bars && /1/.test(r.sig), 'their après venues are lit');
+  // Their lots fill with their guests' cars through the day, about one car for every 2.4 skiers, and empty after the lifts close.
+  const cars = await g.ev(`(() => { const t = state.time, at = (m) => { state.time = m; return drawRivalCars(0); };
+    const o = { eve: drawRivalCars(0), early: at(470), morning: at(560), noon: at(720), close: at(950), stalls: RIVAL_SKI.slices.map((sl) => sl.stalls.length) }; state.time = t; return o; })()`);
+  eq(cars.early, 0, 'no cars in their lots before the day starts');
+  assert(cars.morning > 20 && cars.morning < cars.noon, `cars arrive through the morning (${cars.morning}, then ${cars.noon} at noon)`);
+  assert(cars.noon >= 140 && cars.noon <= 170, `at noon about 400 skiers came in about 167 cars, less a few still on the road (${cars.noon})`);
+  assert(cars.stalls.every((n) => n >= 96), `each rival's lot has its spaces (${cars.stalls})`);
+  assert(cars.close < cars.noon && cars.eve > 0 && cars.eve < cars.close, `cars leave in the afternoon; night skiers' cars stay (${cars.close} at 3:50, ${cars.eve} in the evening)`);
   if (process.env.SHOTS) { await g.ev("document.getElementById('updCard').hidden = true; cam.viewH = 170; cam.viewGoal = null; updateCamera()"); await g.wait(3000); await g.page.screenshot({ path: 'match-evening.png' }); }
   // After night skiing, rivals' last skiers go home and their lights go off; après stays on until last call.
   const late = await g.ev(`(() => { const t = state.time; state.time = 1262; for (let k = 0; k < 4000; k++) rivalSkiersTick(0.1); const S = RIVAL_SKI.slices;
     const o = { out: RIVAL_SKI.ghosts.filter((x) => x.mode !== 'gone').length, night: S.some(rivalNight), apres: S.every(rivalApres) }; state.time = t; return o; })()`);
   eq(late, { out: 0, night: false, apres: true }, 'after night skiing every rival skier has gone home, and après carries on');
+  eq(await g.ev(`(() => { const t = state.time; state.time = 1262; const n = drawRivalCars(0); state.time = t; return n; })()`), 0, 'and their lots are empty');
   // The end of the evening ends the day with the server's report.
   await g.ev(`matchView.lobby.starts_at = new Date(Date.now() - (60 + 28.5) * 60000).toISOString(); matchTick()`); await g.wait(800);
   eq(await g.ev(`[state.phase, !!matchView.replay, !document.getElementById('report').hidden]`), ['closed', false, true], 'at 28 minutes the evening is over and the day report shows');
