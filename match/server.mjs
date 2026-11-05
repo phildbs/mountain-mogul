@@ -25,7 +25,7 @@ const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest
 export const SETTINGS = { computers: false };
 // Spring skiing in 3.1 goes on while a loop with snow still reaches the base. Matches that started before then keep
 // the old rule (an average trail base of 18 inches), so nobody's rules change partway through a match.
-export const SPRING_LOOP_FROM = Date.parse('2026-11-06T00:00:00Z');
+export const SPRING_LOOP_FROM = Date.parse('2026-11-05T01:05:00Z');
 const springOldRule = (lobby) => Date.parse(lobby.starts_at) < SPRING_LOOP_FROM;
 const MAX_DAYS_PER_TICK = 3; // catching up after the server was down: a few days a minute, not all at once
 const log = (...a) => console.log(new Date().toISOString(), ...a);
