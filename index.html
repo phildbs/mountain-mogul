@@ -8338,7 +8338,12 @@ function liftUpgradeSection(L) {
   if (!overnightOk()) return '<p class="help">Lifts are upgraded overnight, while the resort is closed.</p>';
   if (matchUp(L)) return `<div class="field-label">Upgrade</div><p class="help">Becomes a <b>${LIFT_TYPES[matchUp(L)].long.toLowerCase()}</b> tonight. It runs as it is until then.</p>`;
   const ok = ups.filter((u) => !u.problems.length), from = ok.length ? Math.min(...ok.map((u) => u.cost)) : 0;
-  if (liftUpFor !== L.id) return ok.length ? `<button class="btn" data-action="liftUpOpen">Upgrade lift · from ${money(from)}</button>` : '';
+  if (!ok.length) { // nothing fits: say what's in the way (the same for every size, or each size's own reason)
+    const why = [...new Set(ups.map((u) => u.problems[0]))];
+    return `<div class="field-label">Upgrade</div><p class="help">This lift can’t be upgraded here. ${why.length === 1 ? esc(why[0])
+      : ups.map((u) => `<br><b>${LIFT_TYPES[u.type].long}:</b> ${esc(u.problems[0])}`).join('')}${why.some((w) => /^Too close to (?!the parking)/.test(w)) ? '<br>Moving or removing what’s in the way would make room.' : ''}</p>`;
+  }
+  if (liftUpFor !== L.id) return `<button class="btn" data-action="liftUpOpen">Upgrade lift · from ${money(from)}</button>`;
   const s = L.stats, row = (u) => {
     const t = LIFT_TYPES[u.type], short = u.cost > state.cash, g = liftWaitGuess(L, u.stats.cap);
     return `<div class="upopt${u.problems.length ? ' off' : ''}">
@@ -22413,8 +22418,9 @@ function mapViewStart() {
   camTween = null; cam.target.x = to.x; cam.target.z = to.z; cam.az = cam.azGoal = to.az; cam.viewH = to.viewH; cam.viewGoal = null; updateCamera();
 }
 // A rival's evening today, from their own plan: night skiing until when (0 for none), and après until when (0).
+// Their save is the morning after the day the server played, so today is the day before it.
 function rivalEvening(clock, w) {
-  const ops = clock.ops || {}, day = state.day, o = ops.override, ev = clock.event && clock.event.days && clock.event.days.includes(day);
+  const ops = clock.ops || {}, day = clock.day != null ? clock.day - 1 : state.day, o = ops.override, ev = clock.event && clock.event.days && clock.event.days.includes(day);
   const kind = o && o.day === day && !ev ? o.plan : !ev && ops.fridayWeekend === true && dateOf(day).getUTCDay() === 5 ? 'weekend' : dayKind(day, clock.event);
   const P = { ...blankPlan(), ...((ops.plans || {})[kind] || {}) }, lit = (w.trails || []).some((t) => t.lit && !t.virtual);
   const night = P.night && lit ? P.night : 0, apres = P.apres === 'on' && (w.buildings || []).some(rivalApresType);
@@ -23176,10 +23182,11 @@ $('visitChat').onclick = () => { if (mcOpen()) select(null); else { MC.stick = t
 const DAY_PART = 18 / 30, EVE_PART = 28 / 30; // of each day's slot: to the lifts closing, and to the end of the evening
 const replayWindow = (l) => { const t0 = Date.parse(l.starts_at) + l.day * l.day_minutes * 60000, len = l.day_minutes * 60000; return { t0, len, e: Date.now() - t0 }; };
 // The latest today can run on its plan: 5:15 PM, or later with après and night skiing (the same as dayHardEnd).
+// Before it starts, the save is the morning after the day being watched, so it's the plan for the day before.
 function plannedEnd() {
   if (state.phase === 'open') return dayHardEnd();
   const was = runOps;
-  try { runOps = resolvePlan(planFor(state.day)); return dayHardEnd(); } catch (e) { return DAY_HARD_END; } finally { runOps = was; }
+  try { runOps = resolvePlan(planFor(state.day - 1)); return dayHardEnd(); } catch (e) { return DAY_HARD_END; } finally { runOps = was; }
 }
 // One clock for the whole match: the evening runs until the last resort on the mountain closes (its night skiing or
 // après), so everyone's evening starts and runs at the same time, and you can watch your rivals' after yours is over.
@@ -23218,12 +23225,13 @@ async function startReplay(manual) {
   if (state.tool !== 'explore') setTool('explore');
   const condo = state.lastReport && state.lastReport.condo; // the server's own report of today: the homes it sold this morning
   matchView.replay = { day: l.day, official: k >= 0 ? res.resorts[k] : null, cash: state.cash, sim: 0, shut };
+  const undo = replayRewind();
   const own = demandForDay, ownPass = passBuyers;
   demandForDay = () => n || 1; passBuyers = () => 0;
   try { replayKeep(openDay); } finally { demandForDay = own; passBuyers = ownPass; state.cash = matchView.replay.cash; }
   if (runOps && matchView.lotNew != null) { runOps.lots = Math.min(runOps.lots, matchView.lotNew); styleLot(); } // parking added since last night opens tomorrow
   if (shut && state.phase === 'open') { schedule = []; today.closeAt = DAY_OPEN; for (const B of world.buildings) if (runOps && runOps.bld) runOps.bld[B.id] = 'closed'; } // nobody comes and nothing opens
-  if (state.phase !== 'open') { matchView.replay = null; watchButton(); return; }
+  if (state.phase !== 'open') { undo(); matchView.replay = null; watchButton(); return; }
   matchView.replay.end = sharedEnd(dayHardEnd()); // today's plans, yours and your rivals': how long the evening runs
   // The morning's cash and loan, from the server's result for today (older results: the cash less the day's profit).
   const off = matchView.replay.official;
@@ -23238,6 +23246,20 @@ async function startReplay(manual) {
   toast(matchView.waiting ? `Day ${l.day}: your resort opens tomorrow morning. Watching your rivals live from ${clockText(replayClock(l))}. Build any time.` : shut ? `Day ${l.day}: your resort is closed today. Watching your rivals live from ${clockText(replayClock(l))}.${soldLine}` : `Day ${l.day}, live from ${clockText(replayClock(l))}.${soldLine} Pick a build tool any time to build.`);
   replaySync();
   watchButton(); matchBar();
+}
+// The server saves each resort the morning after the day it played, so step back a day to watch it: its date
+// (weekday or weekend, holiday, plan and ticket price), its weather and its event. Watching from the save's own
+// day showed the next day's date with the day before's crowd (a quiet Friday looked like a Thursday).
+// Gives back how to undo it, for a day that doesn't open after all.
+function replayRewind() {
+  const was = { day: state.day, days: state.wx && state.wx.days && [...state.wx.days], event: state.event }, r = state.lastReport;
+  const undo = () => { state.day = was.day; if (was.days) state.wx.days = was.days; state.event = was.event; };
+  if (!(state.day > 0)) return undo;
+  state.day--;
+  if (!r || r.day !== state.day || (r.season || state.season) !== state.season) return undo; // shut that day: no report of it
+  if (r.wx && was.days) state.wx.days.unshift({ ...r.wx });
+  if (r.event && !(state.event && state.event.days.includes(state.day))) state.event = { type: r.event, days: [state.day] };
+  return undo;
 }
 const clockText = (t) => { const h = Math.floor(t / 60), m = Math.floor(t % 60); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
 // Keep the day in step with the clock: catch up when behind, then run at the speed that ends it on time.
@@ -23547,6 +23569,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.1.3', date: 'Nov 5, 2026', title: 'The live day is the right day', small: true, items: [
+    'King of the Mountain: watching the day live now shows the day the server actually played, with its own date, weather and crowd. It showed the next day’s date with the day before’s crowd, so a quiet Friday looked like a Thursday and a quiet Monday looked like a busy Sunday. The numbers in your report were always right. Thanks Adum888!',
+    'King of the Mountain: a one-day plan picked while watching the day now goes to the next day the server plays, not the day after.',
+    'When a lift can’t be upgraded, its panel now says why, such as the building or lift that’s in the way, instead of the Upgrade button just not showing. Thanks Adum888!'] },
   { v: '3.1.2', date: 'Nov 5, 2026', title: 'Back to the match window from a profile', kotm: true, small: true, items: [
     'King of the Mountain: tap a player’s name to see their profile, then close it or tap Back, and you’re back in the King of the Mountain window where you were, not on the title screen. Your own Profile link works the same way.'] },
   { v: '3.1.1', date: 'Nov 5, 2026', title: 'Your mountain first on the title screen', small: true, items: [

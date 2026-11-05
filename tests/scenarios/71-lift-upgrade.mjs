@@ -51,6 +51,16 @@ export default async function ({ browser, url }) {
   await g.ev(`undoLast()`); await g.ev(`undoLast()`);
   eq(await g.ev(`[world.lifts[0].type, world.lifts[0].name, Math.round(state.cash)]`), ['double', L0.name, Math.round(cash0)], 'undo puts the double back and refunds');
 
+  // something in the way of every bigger lift: the panel says what, instead of the button just going
+  const blocked = await g.ev(`(() => { const L = world.lifts[0], B = world.buildings[0], was = { x: B.x, z: B.z };
+    B.x = L.a.x + 3; B.z = L.a.z + 3; select({ kind: 'lift', obj: L }); renderSheet();
+    const out = { button: !!document.querySelector('#sheet [data-action=liftUpOpen]'), text: $('sheet').innerText, name: B.name, ok: liftUpgrades(L).filter((u) => !u.problems.length).length };
+    B.x = was.x; B.z = was.z; renderSheet(); return out; })()`);
+  eq(blocked.ok, 0, `a building beside the bottom station blocks every upgrade (${blocked.name})`);
+  assert(!blocked.button && blocked.text.includes('can’t be upgraded here') && blocked.text.includes(`Too close to ${blocked.name}`) && /Moving or removing/.test(blocked.text),
+    `the panel says why: ${blocked.text.match(/can’t be upgraded[^\n]*(\n[^\n]*){0,2}/)?.[0]}`);
+  assert(/Upgrade lift · from \$/.test(await g.ev(`$('sheet').innerText`)), 'with the building back, the button is back');
+
   // not while open, and not on visits
   await g.ev(`(() => { openDay(); select({ kind: 'lift', obj: world.lifts[0] }); })()`); await g.wait(50);
   eq(await g.ev(`[!!document.querySelector('#sheet [data-action=liftUpOpen]'), /upgraded overnight/.test($('sheet').innerText)]`), [false, true], 'overnight only');

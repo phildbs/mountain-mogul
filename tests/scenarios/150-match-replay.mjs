@@ -27,6 +27,10 @@ export default async function ({ browser, url }) {
   assert(w.speed > 0.25 && w.speed < 0.5, `in step with the clock (${w.speed.toFixed(2)})`);
   eq(w.expected, 150, 'with the share of skiers the server gave this resort');
   assert(/watching day 2 live/.test(w.bar) && w.btn === 'Pause the day', 'the bar says so');
+  // The save is the morning after the day the server played: the day on screen is that day, with its weather, not the next.
+  const played = save.clock.lastReport;
+  eq(await g.ev(`[state.day, today.day, JSON.stringify(todayWx())]`), [played.day, played.day, JSON.stringify(played.wx)], `the day on screen is the day the server played (${played.when}), with its weather`);
+  eq(save.clock.day, played.day + 1, 'and the save itself is the next morning');
   await g.wait(3000);
   assert(await g.ev('guests.length > 0'), 'skiers are out on the mountain');
   await g.wait(2000);
