@@ -20,7 +20,8 @@ export default async function ({ browser, url }) {
   eq(await counts('more-mountains'), [[0, 'false'], [1, 'true']], 'changing your mind moves the vote');
   await page.click('[data-idea="more-mountains"] .vote.down'); await page.waitForTimeout(200);
   eq(await counts('more-mountains'), [[0, 'false'], [0, 'false']], 'tapping again takes it back');
-  await page.click('[data-idea=multiplayer] .vote.up'); await page.click('[data-idea=shared-challenges] .vote.down'); await page.waitForTimeout(300);
+  // (Multiplayer is Done since Nov 5, so its votes are closed: vote on an open match idea instead)
+  await page.click('[data-idea=more-match-mountains] .vote.up'); await page.click('[data-idea=shared-challenges] .vote.down'); await page.waitForTimeout(300);
 
   // a finished idea keeps its votes but takes no more
   const done = await ev(`document.querySelectorAll('#done .card').length`);
@@ -29,18 +30,18 @@ export default async function ({ browser, url }) {
     eq(await counts(id), before, 'no voting on a finished idea'); }
   // a reload keeps your votes
   await page.reload(); await page.waitForTimeout(500);
-  eq([await counts('multiplayer'), await counts('shared-challenges')], [[[1, 'true'], [0, 'false']], [[0, 'false'], [1, 'true']]], 'votes kept after a reload');
+  eq([await counts('more-match-mountains'), await counts('shared-challenges')], [[[1, 'true'], [0, 'false']], [[0, 'false'], [1, 'true']]], 'votes kept after a reload');
   eq(await ev(`JSON.parse(localStorage.getItem('FAKE_DB')).votes.length`), 2, 'one row per idea voted');
 
   // someone else sees the totals but not as theirs
   await ev(`localStorage.removeItem('FAKE_SESSION')`); await page.reload(); await page.waitForTimeout(500);
-  eq(await counts('multiplayer'), [[1, 'false'], [0, 'false']], 'a visitor sees the totals');
+  eq(await counts('more-match-mountains'), [[1, 'false'], [0, 'false']], 'a visitor sees the totals');
 
   // Most wanted: one list, highest first, and back
   const stay = await ev(`document.querySelector('#mountain .cards').children.length`);
   await page.click('.sort [data-sort=ranked]'); await page.waitForTimeout(100);
   const order = await ev(`[...document.querySelectorAll('#rankedCards .card')].map((c) => c.dataset.idea)`);
-  eq([order.length, order[0], order[order.length - 1]], [ids.length - done, 'multiplayer', 'shared-challenges'], 'most wanted first, least last');
+  eq([order.length, order[0], order[order.length - 1]], [ids.length - done, 'more-match-mountains', 'shared-challenges'], 'most wanted first, least last');
   eq(await ev(`getComputedStyle(document.getElementById('done')).display !== 'none'`), true, 'Done stays in view, on its own');
   eq(await ev(`[...document.querySelectorAll('section.topic')].every((s) => getComputedStyle(s).display === 'none')`), true, 'topics hidden meanwhile');
   await page.click('.sort [data-sort=topic]'); await page.waitForTimeout(100);
