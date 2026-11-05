@@ -21568,7 +21568,7 @@ async function loadKotmRecord(id) {
     if (CLOUD.viewCreator === id && !$('community').hidden) refreshCommunity();
   } catch (e) { /* the page shows without it */ }
 }
-let cmPrev = 'board';
+let cmPrev = 'board', cmReturn = null; // cmReturn 'mp': it was opened from King of the Mountain, so closing goes back there
 function openCreator(id) {
   if ($('community').hidden) openCommunity('board');
   const cur = ['board', 'browse', 'profile'].find((t) => !$(t === 'board' ? 'cmBoardTab' : t === 'browse' ? 'cmBrowseTab' : 'cmProfileTab').hidden);
@@ -21720,6 +21720,7 @@ function cmTab(t) {
 }
 function openCommunity(tab) {
   closeMenu();
+  cmReturn = null;
   if (state.started && !visiting && state.phase !== 'open') saveNow();
   fillProfile();
   CLOUD.shelf = null; // Browse opens on the overview
@@ -21734,7 +21735,7 @@ function onBoardClick(e) {
   else if (b.dataset.action === 'boardMt') { toggleBoardMt(b.dataset.v); refreshCommunity(); }
   else if (b.dataset.action === 'visit') visitResort(b.dataset.v);
   else if (b.dataset.action === 'creator') openCreator(b.dataset.v);
-  else if (b.dataset.action === 'cmBack') cmTab(cmPrev);
+  else if (b.dataset.action === 'cmBack') { if (cmReturn === 'mp') closeCommunity(); else cmTab(cmPrev); }
   else if (b.dataset.action === 'shelf') { CLOUD.shelf = b.dataset.v || null; refreshCommunity(); document.querySelector('#community .cm').scrollTop = 0; } // back to the top of the window
   else if (b.dataset.action === 'browseMt') { setBrowseMt(b.dataset.v); refreshCommunity(); }
   else if (b.dataset.action === 'creatorAll') { CLOUD.creatorAll = true; refreshCommunity(); }
@@ -21762,8 +21763,9 @@ $('titleAcct').addEventListener('click', (e) => {
   else if (id === 'cmOutNo') { CLOUD.confirmOut = false; refreshCommunity(); }
   else if (id === 'cmOutYes') { CLOUD.confirmOut = false; signOut(); }
 });
-$('cmClose').onclick = () => { $('community').hidden = true; };
-$('community').addEventListener('click', (e) => { if (e.target.id === 'community') $('community').hidden = true; });
+function closeCommunity() { $('community').hidden = true; if (cmReturn === 'mp') mpBack(); }
+$('cmClose').onclick = closeCommunity;
+$('community').addEventListener('click', (e) => { if (e.target.id === 'community') closeCommunity(); });
 
 /* ---------- Multiplayer: the lobby list ----------
    Official tournaments set up by the owner (the only ones with badges), and matches any signed-in player makes,
@@ -21977,6 +21979,11 @@ function openMp() {
   clearInterval(MP.timer); MP.timer = setInterval(() => { if ($('mpModal').hidden) clearInterval(MP.timer); else if (!MP.joinFor && !MP.claimFor && !MP.make) loadMp(); else if (!MP.make) renderMp(); }, 30000);
 }
 function closeMp() { $('mpModal').hidden = true; clearInterval(MP.timer); LOBBY_FLAG.at = 0; loadLobbyFlag(); lobbyFlag(); }
+// A profile opened from King of the Mountain: closing it (or Back) comes back to the window where you were,
+// not all the way out to the title screen.
+const mpScrollers = () => [document.querySelector('#mpModal .modal'), $('mpBody')].filter(Boolean);
+function mpToCommunity(open) { MP.scroll = mpScrollers().map((el) => el.scrollTop); closeMp(); open(); cmReturn = 'mp'; }
+function mpBack() { cmReturn = null; openMp(); const at = MP.scroll || []; mpScrollers().forEach((el, i) => { el.scrollTop = at[i] || 0; }); }
 $('mpCard').onclick = openMp;
 $('mpClose').onclick = closeMp;
 $('mpModal').addEventListener('toggle', (e) => { if (e.target.id === 'mpPast') MP.pastOpen = e.target.open; }, true);
@@ -22014,8 +22021,8 @@ $('mpModal').addEventListener('click', async (e) => {
   if (what === 'intro-ok') { try { localStorage.setItem('mm.kotm.intro', '1'); } catch (er) { /* fine */ } MP.intro = false; renderMp(); return; }
   if (what === 'intro') { MP.intro = true; renderMp(); $('mpBody').scrollTop = 0; return; }
   if (what === 'bug') { closeMp(); openFeedback('fb'); return; }
-  if (what === 'profile') { closeMp(); openCommunity('profile'); return; }
-  if (what === 'who') { closeMp(); openCreator(b.dataset.uid); return; } // your name, badges and record: see and edit it there
+  if (what === 'profile') { mpToCommunity(() => openCommunity('profile')); return; }
+  if (what === 'who') { mpToCommunity(() => openCreator(b.dataset.uid)); return; } // your name, badges and record: see and edit it there
   if (what === 'pick') {
     MP.joinFor = b.dataset.id; MP.joinErr = ''; MP.make = false;
     MP.joinName = CLOUD.profile && CLOUD.profile.name ? `${CLOUD.profile.name}’s Peak`.slice(0, 40) : resortNameIdea('');
@@ -23540,6 +23547,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.1.2', date: 'Nov 5, 2026', title: 'Back to the match window from a profile', kotm: true, small: true, items: [
+    'King of the Mountain: tap a player’s name to see their profile, then close it or tap Back, and you’re back in the King of the Mountain window where you were, not on the title screen. Your own Profile link works the same way.'] },
   { v: '3.1.1', date: 'Nov 5, 2026', title: 'Your mountain first on the title screen', small: true, items: [
     'On phones, your own mountain and Start building now come first on the title screen. King of the Mountain is a slim card just below it.',
     'On computers and tablets, King of the Mountain now sits at the top of the right-hand column, above Community.'] },
