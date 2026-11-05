@@ -181,6 +181,23 @@ try {
   ok(db.tables.match_lobbies.find((l) => l.id === 'L7').status === 'finished', 'the match finishes');
   ok(P7(0).place >= 1 && P7(1).place == null, `a place only for a player who ran the resort at least half the season (${P7(0).place}, ${P7(1).place})`);
   ok(!(db.tables.match_badges || []).some((b) => b.lobby_id === 'L7' && b.user_id === U4) && (db.tables.match_badges || []).some((b) => b.lobby_id === 'L7' && b.user_id === U3), 'and a badge likewise');
+  // Spring (3.1): a match started before the new spring rule keeps the old one; newer matches use the loop rule,
+  // and a player's order to end the season shuts the resort that morning.
+  ok(rows('L6').every((r) => r.save.clock.springRule == null), 'a newer match uses the spring loop rule');
+  const T5 = Date.parse('2026-11-01T18:00:00Z');
+  await db.insert('match_lobbies', [{ id: 'L8', name: 'Old Cup', map: 'match', slots: 2, starts_at: new Date(T5).toISOString(), days: 1, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L8', slot: 0, user_id: U1, resort_name: 'Old Hill' }]);
+  await tick(db, game, T5 + 60000);
+  ok(rows('L8')[0].save.clock.springRule === 'avg', `a match from before 3.1 keeps the average-base rule (${rows('L8')[0].save.clock.springRule})`);
+  const T6 = T4 + 20 * H;
+  await db.insert('match_lobbies', [{ id: 'L9', name: 'Spring Cup', map: 'match', slots: 2, starts_at: new Date(T6).toISOString(), days: 2, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L9', slot: 0, user_id: U1, resort_name: 'Spring Hill' }]);
+  await tick(db, game, T6 + 60000);
+  const r9 = rows('L9')[0]; r9.save.clock.day = 140;
+  await db.insert('match_orders', [{ lobby_id: 'L9', slot: 0, user_id: U1, kind: 'other', payload: { seasonEnd: true }, applied_day: null, error: null }]);
+  await tick(db, game, T6 + H + 60000);
+  const o9 = db.tables.match_orders.find((o) => o.lobby_id === 'L9'), s9 = rows('L9')[0];
+  ok(o9.applied_day === 1 && !o9.error && s9.save.clock.phase === 'season' && s9.summary.last.guests === 0, `ending the season shuts it from that morning (${o9.error || s9.save.clock.phase}, ${s9.summary.last.guests} guests)`);
 } finally {
   await game.close();
 }

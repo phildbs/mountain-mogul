@@ -3892,7 +3892,7 @@ function saveData(withSim) {
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
-        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined },
+        goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined, springRule: state.springRule || undefined },
       snow: encodeSnow(),
       terrain: encodeTerrain(),
       sim: withSim ? serializeSim() : null,
@@ -6563,6 +6563,54 @@ function syncLinks() {
     addTrail(t);
   }
 }
+// Which lifts and trails a guest arriving at the base can reach, and which bring them back to it. With `ok`, only
+// trails it passes count, and a hub at the top of a base lift isn't home (spring: skied down, not ridden).
+function flowSets(ok) {
+  // Which lifts and trails a guest arriving at the base can reach.
+  const T0 = ok ? world.trails.filter(ok) : world.trails, good = ok || (() => true);
+  const liftR = new Set(world.lifts.filter((L) => L.fromBase));
+  const trailR = new Set(), hubR = new Set(world.areas.filter((A) => isHub(A) && A.basePoint));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const L of liftR) if (L.hubTop && !hubR.has(L.hubTop)) { hubR.add(L.hubTop); changed = true; }
+    for (const L of [...liftR]) if (L.midUp && !liftR.has(L.midLo)) { liftR.add(L.midLo); liftR.add(L.midUp); changed = true; } // riders pass the mid-station
+    for (const T of trailR) if (T.to && T.to.kind === 'hub' && !hubR.has(T.to.obj)) { hubR.add(T.to.obj); changed = true; }
+    for (const A of hubR) {
+      for (const L of A.loads) if (!liftR.has(L)) { liftR.add(L); changed = true; }
+      for (const T of A.starts) if (!trailR.has(T) && good(T)) { trailR.add(T); changed = true; }
+    }
+    for (const L of liftR) for (const t of L.departing) if (!trailR.has(t) && good(t)) { trailR.add(t); changed = true; }
+    for (const t of T0) {
+      if (trailR.has(t) || !t.from) continue;
+      if ((t.from.kind === 'lift' && liftR.has(t.from.obj)) || (t.from.kind === 'trail' && trailR.has(t.from.obj))) { trailR.add(t); changed = true; }
+    }
+    for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
+    for (const t of trailR) {
+      if (t.link === 'top' && !trailR.has(t.parent) && good(t.parent)) { trailR.add(t.parent); changed = true; }
+      if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
+      if (t.to && t.to.kind === 'top') {
+        for (const D of t.to.obj.departing) if (!trailR.has(D) && good(D)) { trailR.add(D); changed = true; }
+        for (const M of t.to.obj.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
+      }
+      if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L)) { liftR.add(L); changed = true; }
+    }
+  }
+  // Which trails eventually bring skiers back to the base area, directly, via other
+  // trails, or via a lift whose own trails do.
+  const ret = new Set(), hubRet = new Set(world.areas.filter((A) => isHub(A) && A.basePoint)), liftRet = new Set(world.lifts.filter((L) => L.fromBase));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const A of world.areas.filter(isHub)) if (!hubRet.has(A) && (A.starts.some((T) => ret.has(T)) || A.loads.some((L) => liftRet.has(L)) || (!ok && A.tops.some((L) => liftRet.has(L))))) { hubRet.add(A); changed = true; }
+    for (const t of T0) {
+      if (ret.has(t) || !t.to) continue;
+      if ((t.to.kind === 'hub' && hubRet.has(t.to.obj)) || t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
+    }
+    for (const L of [...world.lifts, ...midParts()]) {
+      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)) || (L.midLo && liftRet.has(L.midLo)))) { liftRet.add(L); changed = true; }
+    }
+  }
+  return { liftR, trailR, hubR, ret, hubRet, liftRet };
+}
 function computeNetwork() {
   syncAreaLines();
   syncLinks();
@@ -6622,34 +6670,7 @@ function computeNetwork() {
   const tops = [...world.lifts, ...midParts().filter((M) => !M.queue)], loads = [...world.lifts, ...midParts().filter((M) => M.queue)];
   for (const L of tops) L.transfers = loads.filter((M) => liftTransferMode(L, M));
   for (const M of loads) M.transferFrom = tops.filter((L) => L.transfers.includes(M));
-  // Which lifts and trails a guest arriving at the base can reach.
-  const liftR = new Set(world.lifts.filter((L) => L.fromBase));
-  const trailR = new Set(), hubR = new Set(world.areas.filter((A) => isHub(A) && A.basePoint));
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const L of liftR) if (L.hubTop && !hubR.has(L.hubTop)) { hubR.add(L.hubTop); changed = true; }
-    for (const L of [...liftR]) if (L.midUp && !liftR.has(L.midLo)) { liftR.add(L.midLo); liftR.add(L.midUp); changed = true; } // riders pass the mid-station
-    for (const T of trailR) if (T.to && T.to.kind === 'hub' && !hubR.has(T.to.obj)) { hubR.add(T.to.obj); changed = true; }
-    for (const A of hubR) {
-      for (const L of A.loads) if (!liftR.has(L)) { liftR.add(L); changed = true; }
-      for (const T of A.starts) if (!trailR.has(T)) { trailR.add(T); changed = true; }
-    }
-    for (const L of liftR) for (const t of L.departing) if (!trailR.has(t)) { trailR.add(t); changed = true; }
-    for (const t of world.trails) {
-      if (trailR.has(t) || !t.from) continue;
-      if ((t.from.kind === 'lift' && liftR.has(t.from.obj)) || (t.from.kind === 'trail' && trailR.has(t.from.obj))) { trailR.add(t); changed = true; }
-    }
-    for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
-    for (const t of trailR) {
-      if (t.link === 'top' && !trailR.has(t.parent)) { trailR.add(t.parent); changed = true; }
-      if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
-      if (t.to && t.to.kind === 'top') {
-        for (const D of t.to.obj.departing) if (!trailR.has(D)) { trailR.add(D); changed = true; }
-        for (const M of t.to.obj.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
-      }
-      if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L)) { liftR.add(L); changed = true; }
-    }
-  }
+  const { liftR, trailR, hubR, ret, hubRet, liftRet } = flowSets();
   // Which trails lead somewhere a skier can ride up from again.
   const drains = new Set(), hubDrains = new Set(world.areas.filter((A) => isHub(A) && (A.basePoint || A.loads.length)));
   for (let changed = true; changed;) {
@@ -6658,20 +6679,6 @@ function computeNetwork() {
     for (const t of world.trails) {
       if (drains.has(t) || !t.to) continue;
       if ((t.to.kind === 'hub' && hubDrains.has(t.to.obj)) || t.to.kind === 'lift' || t.to.kind === 'base' || (t.to.kind === 'trail' && drains.has(t.to.obj)) || (t.to.kind === 'top' && (t.to.obj.departing.some((D) => drains.has(D)) || t.to.obj.transfers.length))) { drains.add(t); changed = true; }
-    }
-  }
-  // Which trails eventually bring skiers back to the base area, directly, via other
-  // trails, or via a lift whose own trails do.
-  const ret = new Set(), hubRet = new Set(world.areas.filter((A) => isHub(A) && A.basePoint)), liftRet = new Set(world.lifts.filter((L) => L.fromBase));
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const A of world.areas.filter(isHub)) if (!hubRet.has(A) && (A.starts.some((T) => ret.has(T)) || A.loads.some((L) => liftRet.has(L)) || A.tops.some((L) => liftRet.has(L)))) { hubRet.add(A); changed = true; }
-    for (const t of world.trails) {
-      if (ret.has(t) || !t.to) continue;
-      if ((t.to.kind === 'hub' && hubRet.has(t.to.obj)) || t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
-    }
-    for (const L of [...world.lifts, ...midParts()]) {
-      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)) || (L.midLo && liftRet.has(L.midLo)))) { liftRet.add(L); changed = true; }
     }
   }
   for (const A of world.areas.filter(isHub)) { A.reachable = hubR.has(A); A.returns = hubRet.has(A); }
@@ -8507,6 +8514,10 @@ function sheetAct(b) {
   }
   else if (a === 'baseSmMode' && state.baseSm) { state.baseSm.mode = b.dataset.v; renderSheet(); scheduleSave(); }
   else if (a === 'waitWeek') waitWeek();
+  else if (a === 'seasonEnd' || a === 'seasonNo') { sheetConfirm = a === 'seasonEnd'; renderSheet(); }
+  else if (a === 'seasonYes' && seasonEndOk() && state.phase === 'closed' && !matchPlay) {
+    sheetConfirm = false; state.seasonStats.shut = true; select(null); endSeason();
+  }
   else if (a === 'smMode' && obj && obj.sm) { obj.sm.mode = b.dataset.v; renderSheet(); scheduleSave(); }
   else if (a === 'smTarget' && obj && obj.sm) { obj.sm.target = clamp(obj.sm.target + +b.dataset.d, 12, 96); renderSheet(); scheduleSave(); }
   else if (a === 'cancelPlan' && obj) { cancelPlan(obj); select(null); toast('Blueprint cancelled'); scheduleSave(); }
@@ -9329,7 +9340,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null, springRule: null };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -11644,14 +11655,7 @@ function nextDay() {
   updateCash(false);
   if (state.bankrupt) { refreshSnowState(todayWx()); styleSnowVisuals(); refreshTimebar(true); renderSheet(); return; }
   refreshSnowState(todayWx());
-  if (seasonOver()) {
-    state.phase = 'season';
-    recordSeason(state.seasonStats);
-    state.seasonStats.goals = checkGoals('season', state.seasonStats).map((G) => G.title);
-    styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
-    showSeasonReport();
-    return;
-  }
+  if (seasonOver()) return endSeason();
   if (selected && selected.kind === 'plan') select(null);
   const hadPlans = world.plans.length > 0;
   executePlans();
@@ -17766,11 +17770,12 @@ function weatherSheet(noHead) {
     </dl>
     <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm && !gunsPacked() ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
       Snowmaking needs about ${tempF(28)} or colder. Trails need ${inch(OPEN_NEED[0])} of base to open, and black diamonds need ${inch(OPEN_NEED[2])}.
-      ${spring ? ` Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more, until May 31.${gunsPacked() ? ' Snowmaking is off for the season, so May runs on the snow that’s left.' : ' Snowmaking stops after April 30.'}` : ''}</p>
+      ${spring ? ` ${springOld() ? `Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more, until May 31.` : `Spring bonus days continue while a lift from the base and trails with enough snow still bring skiers back to the base, until May 31.${springLoop() ? '' : ' Right now none do, so the season ends tonight.'}`}${gunsPacked() ? ' Snowmaking is off for the season, so May runs on the snow that’s left.' : ' Snowmaking stops after April 30.'}` : ''}</p>
     ${baseSnowSection()}
     ${state.phase === 'closed' && !visiting ? `<div class="field-label">Stay closed</div>
       <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
-      <p class="help">Skip ahead up to 7 days, stopping early if a big storm arrives.${preOpening() ? ' Until your first open day of the season, overhead runs at the summer rate.' : ' Overhead still runs every day.'} Snowmaking keeps running on cold nights.</p>` : ''}`;
+      <p class="help">Skip ahead up to 7 days, stopping early if a big storm arrives.${preOpening() ? ' Until your first open day of the season, overhead runs at the summer rate.' : ' Overhead still runs every day.'} Snowmaking keeps running on cold nights.</p>` : ''}
+    ${seasonEndBlock()}`;
 }
 function trailNightSection(t) {
   if (visiting) return t.lit ? `<div class="field-label">Night skiing</div><p class="help">Lit for night skiing.</p>` : '';
@@ -17808,7 +17813,40 @@ function trailSnowSection(t) {
     <div class="field-label">Snowmaking</div>
     ${smHtml}`;
 }
-function seasonOver() { return state.day > SPRING_LAST || (state.day > SEASON_LAST && avgBase() < SPRING_MIN_BASE); }
+// After March 31 the season goes on while a lift from the base and trails with enough snow still make a loop back to
+// it, until May 31, or until the owner ends it (seasonStats.shut). Matches that started before 3.1 keep the old rule,
+// an average trail base of 18 inches (state.springRule 'avg', set by the match server).
+const springTrail = (t) => t.snowOk !== false && !(t.virtual && !t.glade && !t.link); // a learning area isn't a run home
+function springLoop() {
+  if (!world.lifts.some((L) => L.fromBase)) return false;
+  const { trailR, ret } = flowSets(springTrail);
+  return [...ret].some((t) => trailR.has(t));
+}
+const springOld = () => state.springRule === 'avg';
+function seasonOver() {
+  if (state.day > SPRING_LAST) return true;
+  if (state.day <= SEASON_LAST) return false;
+  if (state.seasonStats && state.seasonStats.shut) return true;
+  return springOld() ? avgBase() < SPRING_MIN_BASE : !springLoop();
+}
+function endSeason() {
+  state.phase = 'season';
+  recordSeason(state.seasonStats);
+  state.seasonStats.goals = checkGoals('season', state.seasonStats).map((G) => G.title);
+  styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
+  showSeasonReport();
+}
+// Ending the season yourself, in spring: overnight, or in a match from the next morning (the server does it).
+const seasonEndOk = () => !state.summer && state.day > SEASON_LAST && state.phase !== 'season' && !visiting && !practice;
+function seasonEndBlock() {
+  if (!seasonEndOk()) return '';
+  if (matchPlay && matchView && matchView.seasonEnd) return `<div class="field-label">End the season</div><p class="help">Your season ends tomorrow morning.</p>`;
+  const ok = matchPlay || state.phase === 'closed';
+  return `<div class="field-label">End the season</div>${sheetConfirm && ok
+    ? `<div class="confirm-box"><p>End the season ${matchPlay ? 'from tomorrow morning' : 'now'}? The mountain stays closed until next season${matchPlay ? ', and your profit so far is what counts in the match' : ''}.</p><div class="row"><button class="btn secondary" data-action="seasonNo">Keep going</button><button class="btn danger" data-action="seasonYes">End the season</button></div></div>`
+    : `<button class="btn secondary" data-action="seasonEnd" ${ok ? '' : 'disabled'}>End the season</button>
+      <p class="help">${ok ? 'When a day on thin spring snow costs more than it earns, you can close for the summer early.' : 'You can end the season overnight, once today is over.'}</p>`}`;
+}
 function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0 }; }
 
 /* ---------- Goals: five per mountain, earning stars ---------- */
@@ -18230,6 +18268,11 @@ function loanSection() {
     <button class="btn secondary" data-action="buyout" ${state.cash >= state.investor.paid * BUYOUT ? '' : 'disabled'}>Buy ${INVESTOR_SHORT} out · ${money(state.investor.paid * BUYOUT)}</button>` : ''}
     <p class="help">Interest is charged every night. The bank lends more as your reputation and best season improve. If cash runs out overnight, the bank covers it, adds a ${Math.round(OVERDRAFT_FEE * 100)}% fee to your loan, and your reputation takes a hit.</p>`;
 }
+// Why the season ended, said once on the season report.
+const seasonEndWhy = (s) => state.summer || state.day <= SEASON_LAST ? '' : s.shut ? 'You ended the season in spring. '
+  : state.day > SPRING_LAST ? 'Spring skiing ran all the way to May 31. '
+  : springOld() ? 'The average trail base dropped below 18 inches, which ended spring skiing. '
+  : 'No lift and trail with enough snow could bring skiers back to the base any more, which ended spring skiing. ';
 function showSeasonReport() {
   if (simulating) return;
   const s = state.seasonStats || newSeasonStats();
@@ -18251,7 +18294,7 @@ function showSeasonReport() {
       ${s.best ? `<span>Best day</span><span>${dateLabel(s.best.day)} · ${signedMoney(s.best.profit)}</span>` : ''}
       ${s.worst ? `<span>Toughest day</span><span>${dateLabel(s.worst.day)} · ${signedMoney(s.worst.profit)}</span>` : ''}
     </div>
-    <p class="help">Reputation heading into next season: <b>${repWordOf(state.reputation)}</b>. Over the summer you can build and plan while the mountain is green.</p>`;
+    <p class="help">${seasonEndWhy(s)}Reputation heading into next season: <b>${repWordOf(state.reputation)}</b>. Over the summer you can build and plan while the mountain is green.</p>`;
   $('rpNext').textContent = 'Head into summer';
   syncAuto();
   $('report').hidden = false;
@@ -22623,7 +22666,7 @@ const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', '
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
   'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
   'parkPick', 'parkSel', 'parkMove', 'parkHere', 'parkBuild', 'parkRemove', 'saveBlueprint', 'planGo', 'planMove', 'planPause', 'planDrop', 'planNow', 'cancelPlan',
-  'moveLift', 'liftMoveReset', 'moveTrail', 'trailMoveCancel', 'trailMoveReset', 'gradeTrail', 'chainUndo', 'shapeTrail', 'shapeAll', 'shapeReset', 'shapeCancel', 'shapeApply', 'moveBld'];
+  'moveLift', 'liftMoveReset', 'moveTrail', 'trailMoveCancel', 'trailMoveReset', 'gradeTrail', 'chainUndo', 'shapeTrail', 'shapeAll', 'shapeReset', 'shapeCancel', 'shapeApply', 'moveBld', 'seasonEnd', 'seasonNo', 'seasonYes'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
@@ -22644,6 +22687,10 @@ function matchGate(b) {
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (a === 'liftUp' && selected && selected.kind === 'lift' && selected.obj) { matchUpTonight(selected.obj, b); return true; }
+  if (a === 'seasonYes') {
+    if (seasonEndOk() && !matchView.seasonEnd) { matchView.seasonEnd = true; matchOrder('other', { seasonEnd: true }); toast('Sent to the match server: your season ends tomorrow morning.'); }
+    sheetConfirm = false; renderSheet(); return true;
+  }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
   if (a === 'removeYes' && matchLive() && selected && selected.obj && matchListOf(selected.kind)) { matchRemoveTonight(b); return true; }
   return false;
@@ -22873,6 +22920,7 @@ function matchAfter(s) {
 // waits. Returns '' when done, or why it couldn't be.
 function matchDo(kind, p) {
   if (kind === 'ops') { matchSetKnobs(p.set); return ''; }
+  if (p.seasonEnd) return matchSeasonEnd();
   if (p.move) return matchMove(p.move);
   if (p.park) return matchPark(p.park);
   if (p.plan) return matchPlan(p.plan);
@@ -22894,6 +22942,14 @@ function matchDo(kind, p) {
   }
   computeNetwork();
   return matchSig() !== before ? '' : 'there wasn’t enough cash, or it couldn’t be done';
+}
+// Ending the season: on the server, before the day plays, so the resort stays shut from this morning. On the
+// player's screen, waiting to be done, it's only noted.
+function matchSeasonEnd() {
+  if (state.summer || state.day <= SEASON_LAST) return 'the season can only end early in spring';
+  if (state.phase === 'season') return '';
+  if (matchPlay) { if (matchView) matchView.seasonEnd = true; return ''; }
+  state.seasonStats.shut = true; endSeason(); return '';
 }
 // Painting an area or a brush stroke of levelling or replanting, done again where the player did it.
 function matchLand(p) {
@@ -23470,6 +23526,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.1', date: 'Nov 5, 2026', title: 'Spring skiing lasts while a run gets you home', items: [
+    'Spring skiing after March 31 now goes on as long as a lift from the base and trails with enough snow still bring skiers back down to the base, as late as May 31. Before, it ended when the average snow across every trail dropped below 18 inches, even with your best runs still deep. Thanks James!',
+    'Snow you make on your main runs pays off in spring: keep one good loop covered and you stay open.',
+    'You can end the season yourself in spring, from Manage › Snow, when a day on thin snow costs more than it earns.',
+    'King of the Mountain: new matches use the same spring rule, and you can end your season from the next morning. Matches that started before this update keep the old rule to the end.'] },
   { v: '3.0.1', date: 'Nov 4, 2026', title: 'No more walking over the mountain', small: true, items: [
     'Fixed: on Ridgeback, guests who finished their day at a lift on the far side of the ridge walked home straight up and over the summit. That low ground behind the ridge is as low as the parking lots, so the game counted it as part of the base.',
     'The base is now only the low ground you can walk to from a parking lot. A lift that starts behind the ridge works like any lift partway down the mountain: guests ski down to it, ride it up and ski home the front way. Give its top a trail or lift back toward the lots.',

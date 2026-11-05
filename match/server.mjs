@@ -23,6 +23,10 @@ const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest
 // Matches already running keep the computer resorts they started with, and late joiners can still take them over.
 // The test turns them on to keep checking that older code path.
 export const SETTINGS = { computers: false };
+// Spring skiing in 3.1 goes on while a loop with snow still reaches the base. Matches that started before then keep
+// the old rule (an average trail base of 18 inches), so nobody's rules change partway through a match.
+export const SPRING_LOOP_FROM = Date.parse('2026-11-06T00:00:00Z');
+const springOldRule = (lobby) => Date.parse(lobby.starts_at) < SPRING_LOOP_FROM;
 const MAX_DAYS_PER_TICK = 3; // catching up after the server was down: a few days a minute, not all at once
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const dollars = (v) => (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
@@ -56,6 +60,7 @@ async function openResort(game, save, name, lobby, slot) {
   const g = await openGame(game.browser, game.url, { query: `?matchMap=${mapQuery(lobby, slot)}`, mountain: 'fresh' });
   if (save) await g.page.evaluate((s) => window.__dbg('applySave')(s), save);
   await g.ev(`state.resortName = ${JSON.stringify(name)}`);
+  await g.ev(`state.springRule = ${springOldRule(lobby) ? "'avg'" : 'null'}`);
   return g;
 }
 const saveOf = (g) => g.page.evaluate(() => window.__dbg('saveData')(false));
