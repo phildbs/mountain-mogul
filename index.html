@@ -10707,6 +10707,14 @@ function endOfTrail(g) {
 // Lift tickets can cost more on weekends and holidays, when crowds are biggest.
 const peakDay = (day) => { const d = dateOf(day), w = d.getUTCDay(); return w === 0 || w === 6 || !!holidayOf(d); };
 const ticketOn = (day) => (state.ticketPeak != null && peakDay(day) ? state.ticketPeak : state.ticket);
+// What guests expect a day ticket to cost here. Small hills sit at $65; more trails, more lift capacity and a
+// good name let a resort charge more before guests stay away, up to about $125 for the giants, as in real life.
+function fairTicket() {
+  const trails = realTrails().filter((t) => t.reachable && t.returns).length;
+  const cap = world.lifts.filter((L) => L.reachable).reduce((a, L) => a + L.stats.cap, 0);
+  const size = Math.max(0, trails + cap / 1000 - 10);
+  return Math.round(clamp(65 + 2 * Math.pow(size, 0.7) * (0.5 + 0.5 * state.reputation), 65, 125) / 5) * 5;
+}
 // How many people a resort of this size and variety draws on a normal weekend day.
 const pullOf = (open, cap, variety) => (110 + 140 * Math.pow(open.length, 0.65) + cap / 14 + variety * 40) * MOUNTAIN.draw;
 let dayPull = 1; // today's draw relative to an ordinary weekend day (weekdays less, holidays and powder more)
@@ -10720,7 +10728,7 @@ function demandForDay() {
   let f = dow === 0 || dow === 6 ? 1 : dow === 5 ? 0.7 : 0.4;
   if (holidayOf(d)) f = 1.55;
   const m = d.getUTCMonth(), season = m === 11 ? 0.75 + d.getUTCDate() / 31 * 0.2 : m === 2 ? 0.85 : m === 4 ? 0.6 : 1; // fewer think of skiing in May
-  const priceF = clamp(Math.exp(-(ticketOn(state.day) - 65) / 65 * 1.8), 0.12, 1.6);
+  const fair = fairTicket(), priceF = clamp(Math.exp(-(ticketOn(state.day) - fair) / fair * 1.8), 0.12, 1.6);
   const has = (t) => world.buildings.some((B) => B.type === t && bldMode(B) !== 'closed');
   let amen = has('lodge') ? 1.08 : 0.9;
   if (has('restaurant') || has('fine')) amen += 0.05;
@@ -11330,7 +11338,7 @@ function cutbackScore(ops) {
 }
 // Satisfaction points each guest loses at the door when today's cutbacks show.
 function letdownFor(ops, day) {
-  const price = clamp((day == null ? (ops.dayKind === 'weekend' ? state.ticketPeak ?? state.ticket : state.ticket) : ticketOn(day)) / 65, 0.6, 1.8);
+  const price = clamp((day == null ? (ops.dayKind === 'weekend' ? state.ticketPeak ?? state.ticket : state.ticket) : ticketOn(day)) / fairTicket(), 0.6, 1.8);
   return Math.round(clamp(cutbackScore(ops) * EXPECT[ops.dayKind] * Math.pow(price, 0.6) * state.reputation * 6, -4, 18));
 }
 // The running cost of a plan before guests (staff for lifts and buildings, upkeep, parking, lift power), for comparing plans.
@@ -18034,7 +18042,7 @@ function passBuyers(price) {
   const open = realTrails().filter((t) => runnable(t) && t.reachable && t.returns);
   if (!open.length || !price) return 0;
   const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap, 0);
-  const priceF = clamp(Math.exp(-(price - PASS_DEFAULT) / PASS_DEFAULT * 2.2), 0.05, 2);
+  const fair = PASS_DEFAULT * fairTicket() / 65, priceF = clamp(Math.exp(-(price - fair) / fair * 2.2), 0.05, 2);
   return Math.round(pullOf(open, cap, new Set(open.map(trailSign)).size) * 0.55 * priceF * state.reputation);
 }
 function sellPasses() {
@@ -19252,7 +19260,7 @@ function resortSheet() {
     <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower weekday price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise weekday price">+</button></div>
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
-    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
+    <p class="help">Higher prices earn more per guest but bring fewer guests. Resorts like yours charge about ${money(fairTicket())}. The more trails and lift capacity you add, the more guests will pay. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
     <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Other prices</summary>${groupedPrices()}</details>
     ${passSection()}
     ${last}`;
@@ -19599,7 +19607,7 @@ function pricesPanel() {
     <div class="stepper"><button data-action="price" data-d="-5" aria-label="Lower weekday price">−</button><output>${money(state.ticket)}</output><button data-action="price" data-d="5" aria-label="Raise weekday price">+</button></div>
     <div class="field-label">Weekends and holidays</div>
     <div class="stepper"><button data-action="pricePeak" data-d="-5" aria-label="Lower weekend price">−</button><output>${money(state.ticketPeak ?? state.ticket)}</output><button data-action="pricePeak" data-d="5" aria-label="Raise weekend price">+</button></div>
-    <p class="help">Higher prices earn more per guest but bring fewer guests. Most resorts like yours charge about $65. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
+    <p class="help">Higher prices earn more per guest but bring fewer guests. Resorts like yours charge about ${money(fairTicket())}. The more trails and lift capacity you add, the more guests will pay. Weekends and holidays draw the biggest crowds, so many resorts charge more then.${state.phase === 'open' ? ` Today’s price: ${money(ticketOn(state.day))}.` : ''}</p>
     ${passSection()}
     <details class="prices" id="pricesDetails" ${pricesOpen ? 'open' : ''}><summary>Food, shops, lessons and scenic rides</summary>${groupedPrices()}</details>
     <p class="help">Parking is priced under <button class="link" data-action="manage" data-v="parking">Parking</button>, events under <button class="link" data-action="manage" data-v="events">Events</button>.</p>`;
@@ -19950,8 +19958,8 @@ function opsTips(r) {
     if (L.use < 0.2 && L.cost > 600) tips.push([L.cost * 0.4, `${L.name} carried only ${L.rides} riders on ${money(L.cost)} of power. Running it Slow on ${plan} days would save about ${money(L.cost * 0.4)}, or Off if guests can do without it (Manage › Operations).`]);
   }
   const spare = o.lots.open - Math.ceil((o.lots.peak + 1) / SPACES_PER_SECTION);
-  if (spare > 0 && !busy) tips.push([spare * LOT_RUN_DAY, `Parking peaked at ${o.lots.peak} cars. Closing ${spare} ${spare === 1 ? 'section' : 'sections'} on ${plan} days would save ${money(spare * LOT_RUN_DAY * MOUNTAIN.costs)} a day.`]);
-  if (o.lots.away) tips.push([o.lots.away * ticketOn(r.day), `Closed parking turned ${o.lots.away} guests away. Open more sections in the ${plan} plan.`]);
+  if (spare > 0 && !busy) tips.push([spare * LOT_RUN_DAY, `Parking peaked at ${o.lots.peak} cars. Closing ${spare} ${spare === 1 ? 'section' : 'sections'} on ${plan} days would save ${money(spare * LOT_RUN_DAY * MOUNTAIN.costs)} a day. Use the parking −/+ in Manage › Operations; closed sections stay built and reopen any time.`]);
+  if (o.lots.away) tips.push([o.lots.away * ticketOn(r.day), `Closed parking turned ${o.lots.away} guests away. Open more sections in the ${plan} plan (Manage › Operations).`]);
   for (const B of o.blds) {
     if (B.mode === 'open' && EATS.includes(B.type) && B.profit < 0 && !busy && B.visits < 60) tips.push([-B.profit, `${B.name} lost ${money(-B.profit)} serving ${B.visits} guests. Opening it for lunch only on ${plan} days would cut that.`]);
   }
@@ -23580,6 +23588,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.2', date: 'Nov 5, 2026', title: 'Bigger resorts can charge more', items: [
+    'What guests will pay for a lift ticket now grows with your resort. A small hill is still about $65, but more trails, more lift capacity and a good reputation raise it, up to about $120 for the biggest resorts. Prices shows the figure for your resort, and season pass buyers follow it too. Thanks Adum888!',
+    'The tip to close parking sections on quiet days now says where: the parking −/+ in Manage › Operations. Closed sections stay built and reopen any time; you don’t have to sell them. Thanks Adum888!'] },
   { v: '3.1.4', date: 'Nov 5, 2026', title: 'A tidier title screen', small: true, items: [
     'On wider screens the Community card on the title screen folds down to one row with your rank, so the cards under it fit without scrolling. Tap it to see the top three and the Leaderboard and Browse buttons; it remembers whether you left it open.',
   ] },
