@@ -240,16 +240,39 @@ export function switchBranch(want, unitDir = '/etc/systemd/system/mm-match.servi
   if (reload) execFileSync('systemctl', ['daemon-reload'], { timeout: 30000 });
 }
 
-// One check of every lobby. `now` can be set by tests.
-export async function tick(db, game, now = Date.now()) {
-  const lobbies = await db.select('match_lobbies', { status: ['in', ['open', 'running']] });
-  for (const lobby of lobbies) {
-    try {
-      if (lobby.status === 'open') { if (Date.parse(lobby.starts_at) <= now) await startLobby(db, game, lobby); continue; }
-      const due = Math.min(lobby.days, Math.floor((now - Date.parse(lobby.starts_at)) / (lobby.day_minutes * 60000)));
-      for (let n = 0; lobby.day < due && n < MAX_DAYS_PER_TICK; n++) lobby.day = await playDay(db, game, lobby);
-    } catch (e) { log(`${lobby.name}: ${e.stack || e}`); }
+// Matches play side by side, so one with a big resort (a day of up to 2 minutes) doesn't hold up everyone else's.
+// A few at a time: each resort is a tab in the one invisible browser, and the server has only so much room.
+// MM_PARALLEL on the server changes how many. A match still playing from an earlier minute is left to finish.
+export const PARALLEL = { max: Math.max(1, Number(process.env.MM_PARALLEL) || 2) };
+export const HOOKS = { beforeDay: null }; // tests can slow a match down
+const busy = new Map(); // lobby id → the work in progress
+export const busyCount = () => busy.size;
+export const settle = () => Promise.all([...busy.values()]);
+async function runLobby(db, game, lobby, now) {
+  if (lobby.status === 'open') return startLobby(db, game, lobby);
+  const due = Math.min(lobby.days, Math.floor((now - Date.parse(lobby.starts_at)) / (lobby.day_minutes * 60000)));
+  for (let n = 0; lobby.day < due && n < MAX_DAYS_PER_TICK; n++) {
+    if (HOOKS.beforeDay) await HOOKS.beforeDay(lobby);
+    lobby.day = await playDay(db, game, lobby);
   }
+}
+// What's waiting: lobbies due to start, and running ones with a day due. The latest first, for the free places.
+function dueWork(lobbies, now) {
+  const at = (l) => (l.status === 'open' ? Date.parse(l.starts_at) : Date.parse(l.starts_at) + (l.day + 1) * l.day_minutes * 60000);
+  return lobbies.filter((l) => !busy.has(l.id) && at(l) <= now && (l.status === 'open' || l.day < l.days)).sort((a, b) => at(a) - at(b));
+}
+// One check of every lobby: start what's due, up to PARALLEL.max at once. `now` can be set by tests. By default it
+// waits for the work it started (the tests rely on that); the server's own loop doesn't (wait: false), so a slow
+// match never stops the next minute's check from starting the others.
+export async function tick(db, game, now = Date.now(), { wait = true } = {}) {
+  const lobbies = await db.select('match_lobbies', { status: ['in', ['open', 'running']] }), started = [];
+  for (const lobby of dueWork(lobbies, now)) {
+    if (busy.size >= PARALLEL.max) break;
+    const job = runLobby(db, game, lobby, now).catch((e) => log(`${lobby.name}: ${e.stack || e}`)).finally(() => busy.delete(lobby.id));
+    busy.set(lobby.id, job); started.push(job);
+  }
+  if (wait) await Promise.all(started);
+  return started.length;
 }
 
 // Run as a program: check every minute, forever.
@@ -268,9 +291,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     catch (e) { log('branch switch failed, staying on', branch, e.message); }
   }
   for (let n = 0; ; n++) {
-    await tick(db, game).catch((e) => log('tick failed:', e.stack || e));
+    await tick(db, game, Date.now(), { wait: false }).catch((e) => log('tick failed:', e.stack || e));
     if (branch && n % 5 === 4) {
-      try { const there = git('ls-remote', 'origin', branch).split(/\s/)[0]; if (there && there !== here) { log(`update found (${there.slice(0, 7)}), restarting`); await game.close(); process.exit(0); } }
+      // An update waits for the days being played to finish and save, then restarts.
+      try { const there = git('ls-remote', 'origin', branch).split(/\s/)[0]; if (there && there !== here) { log(`update found (${there.slice(0, 7)}), restarting once ${busyCount()} playing ${busyCount() === 1 ? 'match finishes' : 'matches finish'}`); await settle(); await game.close(); process.exit(0); } }
       catch (e) { log('update check failed:', e.message); }
     }
     // Wake just after the next whole minute: days start on whole minutes, and a 10-minute turn can't wait long.

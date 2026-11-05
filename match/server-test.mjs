@@ -2,7 +2,7 @@
 // sends orders, two computer resorts, three days, then the league table and badges.
 //   cd tests && npm install && cd .. && node match/server-test.mjs
 import { memoryDb } from './db.mjs';
-import { startGame, tick, SETTINGS } from './server.mjs';
+import { startGame, tick, SETTINGS, PARALLEL, HOOKS, busyCount, settle } from './server.mjs';
 import { matchDays, seasonOf } from './market.mjs';
 
 const fail = (m) => { console.log('FAIL ' + m); process.exitCode = 1; };
@@ -241,6 +241,29 @@ try {
   const f10 = [0, 1].map((s) => R10(s).summary);
   ok(L10().status === 'finished' && f10.every((x) => x.seasons.length === 2 && x.seasons[0] + x.seasons[1] === x.profit), `the match finishes with both seasons' profits adding up to the total (${f10.map((x) => x.seasons)})`);
   ok([0, 1].every((s) => !R10(s).save.clock.summer), 'the last season isn\'t followed by a summer');
+
+  // Side by side (Nov 5): a slow match (a big resort's day can take 2 minutes) doesn't hold up another one's day,
+  // isn't started twice while it's still playing, and no more than PARALLEL.max play at once.
+  const T8 = T7 + 400 * H, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  await db.insert('match_lobbies', [
+    { id: 'L11', name: 'Slow Cup', map: 'match', slots: 2, starts_at: new Date(T8).toISOString(), days: 2, day_minutes: 5, status: 'open', day: 0, prize: null, computers: false, keep_profit: true },
+    { id: 'L12', name: 'Quick Cup', map: 'match', slots: 2, starts_at: new Date(T8).toISOString(), days: 2, day_minutes: 5, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L11', slot: 0, user_id: U1, resort_name: 'Slow Hill' }, { lobby_id: 'L12', slot: 0, user_id: U2, resort_name: 'Quick Hill' }]);
+  await tick(db, game, T8 + 60000);
+  const lob = (id) => db.tables.match_lobbies.find((l) => l.id === id), daysOf = (id) => db.tables.match_days.filter((d) => d.lobby_id === id).length;
+  HOOKS.beforeDay = (l) => (l.id === 'L11' ? sleep(20000) : null);
+  const at1 = T8 + 5 * 60000 + 60000, n1 = await tick(db, game, at1, { wait: false });
+  for (let k = 0; k < 60 && lob('L12').day < 1; k++) await sleep(500);
+  ok(n1 === 2 && lob('L12').day === 1 && lob('L11').day === 0 && busyCount() === 1, `the quick match's day is played while the slow one is still busy (${n1} started; days ${lob('L11').day}, ${lob('L12').day})`);
+  const n2 = await tick(db, game, at1 + 1000, { wait: false });
+  ok(n2 === 0, `a match still playing isn't started again (${n2} started)`);
+  await settle(); HOOKS.beforeDay = null;
+  ok(lob('L11').day === 1 && daysOf('L11') === 1, `the slow match plays its day once (${lob('L11').day}, ${daysOf('L11')} saved)`);
+  PARALLEL.max = 1;
+  const n3 = await tick(db, game, T8 + 10 * 60000 + 60000, { wait: false }); await settle();
+  ok(n3 === 1 && [lob('L11').day, lob('L12').day].sort().join() === '1,2', `with room for one at a time, one starts and the other waits for the next check (${n3}; ${lob('L11').day}, ${lob('L12').day})`);
+  await tick(db, game, T8 + 10 * 60000 + 120000); PARALLEL.max = 2;
+  ok(lob('L11').status === 'finished' && lob('L12').status === 'finished', 'both finish');
 } finally {
   await game.close();
 }
