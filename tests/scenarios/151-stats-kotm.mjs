@@ -33,9 +33,9 @@ export default async function ({ browser, url }) {
   // Make a lobby, without late joining.
   // Each length says how long it takes in real time, for the day length picked.
   const lengths = () => g.page.evaluate(() => [...document.querySelectorAll('#kNew [name=days] option')].map((o) => o.textContent));
-  eq(await lengths(), ['One season · 168 days (3½ days)', 'Two seasons · 336 days (7 days)', 'Short test · 12 days (6 hours)'], 'lengths with 30-minute days');
+  eq(await lengths(), ['One season · 168 days (3½ days)', 'Short test · 12 days (6 hours)'], 'lengths with 30-minute days');
   await g.page.selectOption('#kNew [name=turn]', '10');
-  eq(await lengths(), ['One season · 168 days (28 hours)', 'Two seasons · 336 days (2½ days)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
+  eq(await lengths(), ['One season · 168 days (28 hours)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
   await g.page.selectOption('#kNew [name=turn]', '15');
   eq((await lengths())[0], 'One season · 168 days (42 hours)', 'and 15 minutes');
   await g.page.selectOption('#kNew [name=turn]', '30');
@@ -43,13 +43,13 @@ export default async function ({ browser, url }) {
   const start = new Date(Date.now() + 3 * 3600000); start.setMinutes(10, 0, 0);
   const p = (n) => String(n).padStart(2, '0');
   await g.page.fill('#kNew [name=starts]', `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}T${p(start.getHours())}:10`);
-  await g.page.selectOption('#kNew [name=days]', '336');
+  await g.page.selectOption('#kNew [name=days]', '12');
   await g.page.uncheck('#kNew [name=latejoin]');
   eq(await g.page.$('#kNew [name=computers]'), null, 'no computer players to choose');
   await g.page.click('#kNew button[type=submit]');
   await g.page.waitForFunction(() => /Made “Winter Cup”/.test(document.getElementById('kotm').innerText), null, { timeout: 10000 });
   const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Winter Cup'));
-  eq([made.days, made.slots, made.computers, made.late, made.flag, new Date(made.starts_at).getMinutes()], [336, 3, false, false, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
+  eq([made.days, made.slots, made.computers, made.late, made.flag, new Date(made.starts_at).getMinutes()], [12, 3, false, false, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
   // The title screen flag can be switched off and on again from the lobby list.
   const flagOf = () => g.page.evaluate((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag, made.id);
   await g.page.waitForSelector(`[data-kflag=${made.id}]`, { timeout: 5000 });
