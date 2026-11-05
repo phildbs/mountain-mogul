@@ -14,6 +14,11 @@ export default async function ({ browser, url }) {
     if (wide) {
       const r = await g.ev(`(() => { const b = (e) => e.getBoundingClientRect(), c = b($('titleComm')), t = b(document.querySelector('.tcards')), s = b($('titleSlots')); return { clear: c.left > s.right && t.left > s.right, stacked: t.top >= c.bottom - 1 }; })()`);
       eq(r, { clear: true, stacked: true }, `${w}x${h}: the column is clear of your mountains, community above the other cards`);
+      // folded to one row at first, so the cards under it stay in view; a tap opens it, and it stays open next time
+      eq(await g.ev(`[document.querySelector('#titleComm details').open, document.querySelector('#titleComm .cc-top').checkVisibility()]`), [false, false], 'wide: community card starts folded');
+      assert(await g.ev(`$('titleComm').offsetHeight`) < 90, 'wide: folded, it is one slim row');
+      await g.click('#titleComm summary'); await g.wait(100); await g.ev(`showTitle()`); await g.wait(200);
+      eq(await g.ev(`document.querySelector('#titleComm details').open`), true, 'wide: opened, it stays open when the title redraws');
     }
     eq(await g.ev(`document.querySelectorAll('.ccard .cc-top li:not(.gap):not(.me)').length`), 3, 'with the top three');
     eq(await g.ev(`document.querySelector('.ccard .cc-top li.me .md').textContent`), '11', 'and you, further down');
