@@ -25,7 +25,7 @@ Defined as CSS variables on `:root`. Use the variables, never raw hex values in 
 | `--line` | `rgba(20,36,58,.12)` | Borders and dividers |
 | `--accent` | `#df562c` (warm orange-red) | The main action on screen, brand highlight, "new" badges |
 | `--accent-soft` | 12% accent | Gentle accent backgrounds |
-| `--green` `#2c9a55` · `--blue` `#2565d4` · `--black` `#1a1e26` | | Trail ratings (and only that, plus "on" states and the Join now button for green) |
+| `--green` `#2c9a55` · `--blue` `#2565d4` · `--black` `#1a1e26` | | Trail ratings (and only that, plus "on" states and the Join buttons on match cards for green) |
 | `--steep` | `#b8402f` | Danger, errors, "too steep", remove buttons, bad toasts |
 | `--sky-1` / `--sky-2` | light blues | Backgrounds behind the map |
 

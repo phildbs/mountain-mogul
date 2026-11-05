@@ -221,7 +221,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-70ecf160-mpeu82` | Claude | **Official matches of 2 or 3 seasons in stats.html** (owner page only, no game change). `supabase/match-official-seasons.sql` is LIVE (Phil ran it Nov 5). | Nov 5, 2026 |
+| `ccr-70ecf160-mpeu82` | Claude | **Official matches of 2 or 3 seasons in stats.html**, and **3.4.1** open-lobby Join (and Sign in to join) as the solid green `.btn.join`, from Phil's phone screenshot (STYLE_GUIDE updated; 146, 165 pass). `supabase/match-official-seasons.sql` is LIVE (Phil ran it Nov 5). | Nov 5, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
