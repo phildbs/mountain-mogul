@@ -65,4 +65,16 @@ export default async function ({ browser, url }) {
   eq(a.rivalAt, [0, 2], 'their lift stands in their own valley, two along the ridge from yours');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
+  // From an end valley the furthest rival is three valleys along: the ground past the map reaches that far east and
+  // west, so every rival's lifts and base stand on it (Phil: "see all of your rivals on Ridgeline").
+  for (const s of [0, 3]) {
+    const d = await openGame(browser, url, { query: `?matchDemo=ridge@${s}`, mountain: 'fresh' });
+    await d.page.waitForFunction(() => window.__dbg('typeof matchView !== "undefined" && !!matchView && matchView.drawn > 0'), null, { timeout: 60000 });
+    const v = await d.ev(`(() => ({ rivals: RIVAL_SKI.slices.map((sl) => sl.slot).sort(), onGround: RIVAL_SKI.slices.map((sl) => sl.lifts.length > 0 && sl.lifts.every((L) => !farOut(L.a, 8) && !farOut(L.b, 8))),
+      bases: matchView.resorts.map((r) => { const b = MOUNTAIN.bases[r.slot], x = PLAY0 + b[0] * PN - HALF, z = PLAY1 - b[1] * PN - HALF; return !farOut({ x: x - 40, z }) && !farOut({ x: x + 40, z }); }) }))()`);
+    eq(v.rivals, [0, 1, 2, 3].filter((k) => k !== s), `from valley ${s + 1}, the three other valleys have rivals`);
+    eq([...v.onGround, ...v.bases], Array(6).fill(true), `from valley ${s + 1}, every rival's lifts and whole valley have ground under them: ${JSON.stringify(v)}`);
+    eq(d.errors, [], 'no page errors');
+    await d.page.close();
+  }
 }
