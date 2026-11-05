@@ -17917,6 +17917,36 @@ function seasonEndBlock() {
     : `<button class="btn secondary" data-action="seasonEnd" ${ok ? '' : 'disabled'}>End the season</button>
       <p class="help">${ok ? 'When a day on thin spring snow costs more than it earns, you can close for the summer early.' : 'You can end the season overnight, once today is over.'}</p>`}`;
 }
+// In a match, after an open spring day that lost money: offer the two ways to stop paying for thin snow, opening on
+// weekends and holidays only (the Quiet season plan, which covers spring weekdays, stays closed) or ending the
+// season. At most once a week, remembered on this device, since the server's copy of the resort replaces the save.
+function springAsk() {
+  if (!matchPlay || !matchView || !matchView.me || matchView.seasonEnd || matchView.lobby.status !== 'running' || !seasonEndOk()) return;
+  const r = state.lastReport;
+  if (!r || r.day <= SEASON_LAST || state.day - r.day > 1 || !r.guests || r.profit >= 0) return;
+  const key = `mm.springAsk.${matchPlay.lobby}.${matchPlay.slot}`;
+  let seen = ''; try { seen = localStorage.getItem(key) || ''; } catch (e) { /* storage blocked */ }
+  const [s, d] = seen.split(':').map(Number);
+  if (s === (state.season || 1) && state.day - d < 7) return;
+  if (!$('crisis').hidden) { setTimeout(springAsk, 3000); return; } // after any other popup
+  try { localStorage.setItem(key, `${state.season || 1}:${state.day}`); } catch (e) { /* storage blocked */ }
+  const o = opsState(), wk = o.plans.quiet.hours !== 'closed';
+  showCrisis(`<div><div class="eyebrow">Spring snow</div><h2 id="crTitle">${esc(r.when || 'Yesterday')} lost ${money(-r.profit)}</h2></div>
+    <p class="help">${r.guests.toLocaleString('en-US')} guest${r.guests === 1 ? '' : 's'} came, but the lifts, staff and upkeep cost as much as on a busy day.
+    ${wk ? 'You could open on weekends and holidays only, when the crowds come, and stay closed on weekdays. Or end your season now.' : 'You’re already open on weekends and holidays only. You could end your season now.'}</p>
+    <p class="help">Ending the season can’t be undone: your resort closes from tomorrow morning, and your profit so far is what counts in the match.</p>`,
+  `${wk ? '<button class="btn" id="saWk">Weekends only</button>' : ''}<button class="btn ${wk ? 'secondary' : 'danger'}" id="saEnd">End the season</button><button class="btn secondary" id="saNo">Keep going</button>`);
+  const close = () => { $('crisis').hidden = true; };
+  if (wk) $('saWk').onclick = () => {
+    close();
+    if (o.plans.quiet.hours !== 'closed') { o.springShut = o.plans.quiet.hours; o.plans.quiet.hours = 'closed'; }
+    matchView.toldOps = true; matchOrder('ops', { set: { ops: JSON.parse(JSON.stringify(o)) } });
+    toast('Sent to the match server: from tomorrow you open on weekends and holidays only. Change it any time in Operations, Quiet season.');
+    renderSheet();
+  };
+  $('saEnd').onclick = () => { close(); matchEndSeason(); renderSheet(); };
+  $('saNo').onclick = close;
+}
 function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0 }; }
 
 /* ---------- Goals: five per mountain, earning stars ---------- */
@@ -18849,6 +18879,7 @@ function newSeason() {
   state.cash -= summerCosts;
   coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
+  const o = state.ops; if (o && o.springShut) { if (o.plans && o.plans.quiet) o.plans.quiet.hours = o.springShut; delete o.springShut; } // weekends only was for last spring
   state.wx = initWeather(state.day);
   state.seasonStats = newSeasonStats();
   seedPreseasonSnow(); state.treeSnow = 0.4;
@@ -19890,7 +19921,7 @@ function opsAction(a, b) {
   else if (a === 'opsLift') { if (!liftById(id) || !LIFT_MODES.some(([k]) => k === v)) return false; if (v === 'full') delete P.lifts[id]; else P.lifts[id] = v; }
   else if (a === 'opsBld') { const B = bldById(id); if (!B || isDecor(B) || !['open', 'closed', ...(lunchOnlyOk(B) ? ['lunch'] : [])].includes(v)) return false; if (v === 'open') delete P.bld[id]; else P.bld[id] = v; }
   else if (a === 'opsLots') { const n = clamp(lotsIn(P) + +b.dataset.d, 1, state.lotSections); P.lots = n === state.lotSections ? null : n; }
-  else if (a === 'opsHours') P.hours = v;
+  else if (a === 'opsHours') { P.hours = v; if (kind === 'quiet') delete o.springShut; }
   else if (a === 'opsFold') opsFold[v] = !opsFold[v];
   else if (a === 'opsApres') P.apres = v;
   else if (a === 'opsLastCall') P.lastCall = +v;
@@ -22268,6 +22299,7 @@ async function openMatch(lid, want = null) { // want: the slot a spectator asked
   await matchApplyPending();
   if (waiting) toast(`Welcome to ${lob.name}! Your resort opens when day ${lob.day + 1} starts, in ${mpIn(matchNext(lob) - Date.now())}. Start building now: it’s all ready that morning.`);
   else startReplay();
+  if (play) setTimeout(springAsk, 4000);
   if (rescue) toast(`${name} is yours! Its fresh start comes tonight: no debt and ${money(state.cash)} to spend. Fix it up now: it reopens when day ${lob.day + 1} starts.`);
   // Every 20 seconds, or every 10 once the next day is due, so it starts soon after the server has played it.
   let n = 0; matchView.timer = setInterval(() => { if (matchView && !matchView.ticking && (++n % 2 === 0 || Date.now() >= matchNext(matchView.lobby) + 15000)) { matchView.ticking = true; matchTick().finally(() => { if (matchView) matchView.ticking = false; }); } }, 10000);
@@ -22790,6 +22822,7 @@ async function matchTick() {
   if (matchPlay) {
     matchView.pending = 0; matchView.sent = matchPrices();
     await matchApplyPending();
+    if (data.status === 'running') setTimeout(springAsk, 3000);
     if (data.status !== 'running') { matchPlay = null; matchLeaveButton(); document.body.classList.remove('matchplay'); visiting = { id: `match:${data.id}`, match: data.id, name: $('resortName').textContent, fromTitle: true, owner: CLOUD.uid }; document.body.classList.add('visiting'); }
     // Anything the server couldn't build, and why.
     const { data: bad } = await CLOUD.sb.from('match_orders').select('kind,payload,error').eq('lobby_id', data.id).eq('applied_day', data.day).then((r) => r, () => ({}));
@@ -22871,10 +22904,7 @@ function matchGate(b) {
   }
   if (['price', 'pricePeak', 'setPrice', 'passPrice'].includes(a)) { clearTimeout(matchView.priceT); matchView.priceT = setTimeout(matchSendPrices, 3000); }
   if (a === 'liftUp' && selected && selected.kind === 'lift' && selected.obj) { matchUpTonight(selected.obj, b); return true; }
-  if (a === 'seasonYes') {
-    if (seasonEndOk() && !matchView.seasonEnd) { matchView.seasonEnd = true; matchOrder('other', { seasonEnd: true }); toast('Sent to the match server: your season ends tomorrow morning.'); }
-    sheetConfirm = false; renderSheet(); return true;
-  }
+  if (a === 'seasonYes') { matchEndSeason(); sheetConfirm = false; renderSheet(); return true; }
   if (matchView.replay && MATCH_PAUSE.includes(a)) { matchPause(b); return true; }
   if (a === 'removeYes' && matchLive() && selected && selected.obj && matchListOf(selected.kind)) { matchRemoveTonight(b); return true; }
   return false;
@@ -23126,6 +23156,9 @@ function matchDo(kind, p) {
   }
   computeNetwork();
   return matchSig() !== before ? '' : 'there wasn’t enough cash, or it couldn’t be done';
+}
+function matchEndSeason() {
+  if (seasonEndOk() && !matchView.seasonEnd) { matchView.seasonEnd = true; matchOrder('other', { seasonEnd: true }); toast('Sent to the match server: your season ends tomorrow morning.'); }
 }
 // Ending the season: on the server, before the day plays, so the resort stays shut from this morning. On the
 // player's screen, waiting to be done, it's only noted.
@@ -23754,6 +23787,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.7', date: 'Nov 5, 2026', title: 'Weekends only in spring', kotm: true, items: [
+    'King of the Mountain: when a spring day loses money, a short message offers to open on weekends and holidays only, end your season, or keep going. It comes up at most once a week.',
+    'Weekends only keeps your resort closed on spring weekdays, when few skiers come, and goes back to normal when the next season starts.'] },
   { v: '3.6', date: 'Nov 5, 2026', title: 'Match results', kotm: true, items: [
     'King of the Mountain: when a match you played in ends, its results come up on the title screen: where you came, the podium and final standings, your resort’s guests, passes, profit and more, and any badge you earned.',
     'Tap Look at the mountain to walk around the finished match. Your finished matches are still under Past matches.',
