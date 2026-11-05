@@ -102,6 +102,11 @@ export default async function ({ browser, url }) {
     return out; })()`);
   eq(tb, { trail: 1, open: false, bld: 1, bOpen: false, ran: true, used: false, replay: true }, 'a trail and a building go in too, closed today, and the day plays on');
   eq(await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders.filter((o) => ['trail', 'building'].includes(o.payload.what)).length), 2, 'both ordered for the next overnight');
+  // Levelling the ground beside it (as placing a neighbour does) redraws it, still as a blueprint.
+  const ghost = `(() => { const B = world.buildings[world.buildings.length - 1], ms = []; B.group.traverse((m) => { if (m.isMesh) ms.push(m.material); }); return ms.length > 0 && ms.every((m) => m.color && m.color.equals(BLUEPRINT.color) && m.opacity === BLUEPRINT.opacity); })()`;
+  eq(await g.ev(ghost), true, 'the building ordered for tonight looks like a blueprint');
+  await g.ev(`(() => { const B = world.buildings[world.buildings.length - 1], i = Math.round(B.x) + HALF, j = Math.round(B.z) + HALF; refreshOnTerrain(i - 2, j - 2, i + 2, j + 2, null); })()`);
+  eq(await g.ev(ghost), true, 'and still does after the ground next to it is levelled');
   // Overnight jobs work while the day plays too: snowmaking, parking, painting areas. Nothing pauses.
   const orders = () => g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.orders);
   const press = async (sel) => { await g.wait(150); const ok = await g.ev(`(() => { const b = document.querySelector('#sheet ${sel}'); if (b && !b.disabled) { b.click(); return true; } return false; })()`); assert(ok, `${sel} is there to press`); await g.wait(300); };
