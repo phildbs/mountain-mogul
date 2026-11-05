@@ -33,9 +33,9 @@ export default async function ({ browser, url }) {
   // Make a lobby, without late joining.
   // Each length says how long it takes in real time, for the day length picked.
   const lengths = () => g.page.evaluate(() => [...document.querySelectorAll('#kNew [name=days] option')].map((o) => o.textContent));
-  eq(await lengths(), ['One season · 168 days (3½ days)', 'Short test · 12 days (6 hours)'], 'lengths with 30-minute days');
+  eq(await lengths(), ['One season · 168 days (3½ days)', 'Two seasons · 363 days (7½ days)', 'Three seasons · 558 days (11½ days)', 'Short test · 12 days (6 hours)'], 'lengths with 30-minute days');
   await g.page.selectOption('#kNew [name=turn]', '10');
-  eq(await lengths(), ['One season · 168 days (28 hours)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
+  eq(await lengths(), ['One season · 168 days (28 hours)', 'Two seasons · 363 days (2½ days)', 'Three seasons · 558 days (4 days)', 'Short test · 12 days (2 hours)'], 'a new day every 10 minutes makes them shorter');
   await g.page.selectOption('#kNew [name=turn]', '15');
   eq((await lengths())[0], 'One season · 168 days (42 hours)', 'and 15 minutes');
   await g.page.selectOption('#kNew [name=turn]', '30');
@@ -50,6 +50,18 @@ export default async function ({ browser, url }) {
   await g.page.waitForFunction(() => /Made “Winter Cup”/.test(document.getElementById('kotm').innerText), null, { timeout: 10000 });
   const made = await g.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === 'Winter Cup'));
   eq([made.days, made.slots, made.computers, made.late, made.flag, new Date(made.starts_at).getMinutes()], [12, 3, false, false, true, 30], 'the lobby is made with its settings (flagged on the title screen by default), starting on the half hour');
+  // Two seasons (3.4): the lobby is made, then given its seasons. Before match-official-seasons.sql is run, it's closed
+  // again with a note, so it can't start as one very long season.
+  const official = async (name, days, missing) => {
+    await g.page.evaluate((m) => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); if (m) d.noOfficialSeasons = true; else delete d.noOfficialSeasons; localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, missing);
+    await g.page.fill('#kNew [name=name]', name); await g.page.selectOption('#kNew [name=days]', String(days)); await g.page.click('#kNew button[type=submit]');
+    await g.page.waitForFunction((n) => new RegExp(`Made “${n}”|Not made`).test(document.getElementById('kMsg').innerText), name, { timeout: 10000 });
+    return { msg: await g.page.innerText('#kMsg'), row: await g.page.evaluate((n) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.name === n), name) };
+  };
+  const early = await official('Early Cup', 363, true);
+  assert(/Not made: run supabase\/match-official-seasons\.sql/.test(early.msg) && early.row.status === 'closed', `without the SQL it's closed again (${early.msg}, ${early.row.status})`);
+  const two = await official('Two Winter Cup', 363, false), three = await official('Three Winter Cup', 558, false);
+  eq([two.row.seasons, two.row.days, two.row.status, three.row.seasons, three.row.days], [2, 363, 'open', 3, 558], 'two- and three-season official matches');
   // The title screen flag can be switched off and on again from the lobby list.
   const flagOf = () => g.page.evaluate((id) => JSON.parse(localStorage.getItem('FAKE_DB')).match.lobbies.find((l) => l.id === id).flag, made.id);
   await g.page.waitForSelector(`[data-kflag=${made.id}]`, { timeout: 5000 });

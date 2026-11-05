@@ -422,7 +422,8 @@ details > summary { cursor: pointer; }
   // King of the Mountain: make lobbies, change their settings, close them, and look after the match chat.
   // Everything goes through the owner-only admin_* functions in supabase/multiplayer.sql, match-chat.sql and
   // match-late.sql. Crown Peak has three slices, so a lobby has 2 or 3 resorts.
-  const K_LENGTHS = [[168, 'One season'], [12, 'Short test']]; // no Two seasons until the match server is tested past a season's end
+  const K_LENGTHS = [[168, 'One season'], [363, 'Two seasons'], [558, 'Three seasons'], [12, 'Short test']]; // 2 and 3 seasons: a summer between each (3.4)
+  const K_SEASONS = { 363: 2, 558: 3 };
   // How long a match lasts in real time, for the chosen day length: hours under two days, then days (halves as ½).
   const kSpan = (days, minutes) => { const h = days * minutes / 60; if (h < 48) return `${+h.toFixed(1)} ${h === 1 ? 'hour' : 'hours'}`; const d = Math.round(h / 12) / 2; return `${Math.floor(d)}${d % 1 ? '½' : ''} days`; };
   const kLengthLabel = (days, label, minutes) => `${label} · ${days} days (${kSpan(days, minutes)})`;
@@ -505,7 +506,7 @@ details > summary { cursor: pointer; }
       Resorts left: ${num(s.left)}, rescued: ${num(s.rescued)}. Chat this week: ${num(s.chat_7d)} ${s.chat_7d === 1 ? 'message' : 'messages'} from ${num(s.chatters_7d)} ${s.chatters_7d === 1 ? 'player' : 'players'}.</p></section>`;
     const ms = (s.matches || []).filter((m) => m.status !== 'open' || m.players.length);
     const table = ms.length ? `<section class="card"><h2>Matches, player by player</h2><p class="note">Running matches first, then ones from the last 14 days. Changes: what each player sent the server (all · last 24 h). Profit is the season so far.</p>
-      ${ms.map((m) => `<h3 class="kmh">${esc(m.name)} <span class="note">${m.status === 'running' ? `day ${m.day} of ${m.days}` : m.status} · ${m.map === 'ridge' ? 'Ridgeline' : 'Crown Peak'}${m.kind === 'custom' ? ' · player match' : ''}</span></h3>
+      ${ms.map((m) => `<h3 class="kmh">${esc(m.name)} <span class="note">${m.status === 'running' ? `day ${m.day} of ${m.days}` : m.status}${m.days === 363 ? ' · 2 seasons' : m.days === 558 ? ' · 3 seasons' : ''} · ${m.map === 'ridge' ? 'Ridgeline' : 'Crown Peak'}${m.kind === 'custom' ? ' · player match' : ''}</span></h3>
       <div class="scroll"><table><thead><tr><th>Resort</th><th>Player</th><th class="num">Changes</th><th class="num">Chats</th><th>Last active</th><th class="num">Profit</th><th class="num">Guests</th><th class="num">Lifts · trails</th></tr></thead><tbody>
       ${m.players.map((p) => `<tr><td><b>${esc(p.resort)}</b>${p.left ? ' <span class="priv">left</span>' : ''}</td><td>${p.real ? esc(p.player || '–') : '<span class="note">empty</span>'}${p.joined_day ? `<small class="note"> · joined day ${p.joined_day}</small>` : ''}</td>
         <td class="num">${num(p.orders)} · ${num(p.orders_24h)}</td><td class="num">${num(p.chats)}</td><td>${p.last_seen ? ago(p.last_seen) : '–'}</td>
@@ -535,6 +536,10 @@ details > summary { cursor: pointer; }
       // Shorter turns need supabase/match-custom.sql; without it the lobby is still made, with 30-minute days.
       if (!err && f.get('latejoin') !== 'on') { const t = await sb.rpc('admin_match_late', { lid: id, plate: false }); if (t.error) err = { message: `Made it, but late joining is still on: ${/admin_match_late/.test(t.error.message) ? 'run supabase/match-options.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
       if (!err && +f.get('turn') !== 30) { const t = await sb.rpc('admin_match_turn', { lid: id, pminutes: +f.get('turn') }); if (t.error) err = { message: `Made it, but with 30-minute days: ${/admin_match_turn/.test(t.error.message) ? 'run supabase/match-custom.sql in the Supabase SQL Editor first' : t.error.message}.` }; }
+      // Two or three seasons need supabase/match-official-seasons.sql. Without it the match would play as one very
+      // long season, so it's closed again rather than left to start.
+      if (!err && K_SEASONS[+f.get('days')]) { const t = await sb.rpc('admin_match_seasons', { lid: id, pseasons: K_SEASONS[+f.get('days')] });
+        if (t.error) { await sb.rpc('admin_match_close', { lid: id }); err = { message: `Not made: ${/admin_match_seasons/.test(t.error.message) ? 'run supabase/match-official-seasons.sql in the Supabase SQL Editor first, then try again' : t.error.message}.` }; } }
       // The title screen flag needs supabase/match-flag.sql; without it the lobby is still made, unflagged.
       if (!err && f.get('flag') === 'on') { const r = await sb.rpc('admin_match_flag', { lid: id, pflag: true }); if (r.error) err = { message: `Made it, but couldn’t flag it: ${/admin_match_flag/.test(r.error.message) ? 'run supabase/match-flag.sql in the Supabase SQL Editor first' : r.error.message}.` }; }
     }
