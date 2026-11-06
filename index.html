@@ -6268,6 +6268,25 @@ function hubSheet(A) {
     ${sm && sm.on ? `<div class="seg" role="group" aria-label="Snowmaking mode">${[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([k, label]) => `<button data-action="smMode" data-v="${k}" aria-pressed="${sm.mode === k}">${label}</button>`).join('')}</div><p class="help">${gunCount(A)} guns · about ${money(gunCount(A) * GUN_NIGHT)} per cold night. Auto keeps ${inch(sm.target)} underfoot.</p>` : `<p class="help">Works on natural snow. Optional snowmaking keeps the ground white: ${gunCount(A)} guns, about ${money(gunCount(A) * GUN_NIGHT)} per cold night.</p><button class="btn secondary" data-action="smInstall" ${closed && state.cash >= snowmakingCost(A) ? '' : 'disabled'}>Add snowmaking · ${money(snowmakingCost(A))}</button>`}
     ${closed ? '<button class="btn secondary" data-action="editArea">Edit painted area</button>' + removeBlock('this guest area', `Remove ${esc(A.name)}? You get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
+// A lift station at the very edge of a guest area belongs to it. A station counts as in an area by the one square
+// it stands on, so an area painted round a top station but missing that square took its trails (they start in the
+// area) and left the lift with nowhere to go: "No trails leave the top station" (Snowy, Nov 6). Now the station's
+// square joins an area that comes within two squares of it, unless another area or the parking lot is there.
+function hubStations() {
+  const H = world.areas.filter(isHub);
+  if (!H.length) return;
+  const pts = [];
+  for (const L of world.lifts) if (!isVillage(L)) { pts.push(L.a, L.b); if (L.midUp) pts.push(L.midUp.a); }
+  for (const p of pts) {
+    const x = Math.round(p.x), z = Math.round(p.z), k = cellKey(x, z);
+    if (!inProperty(x, z) || world.areas.some((A) => A.set.has(k))) continue;
+    let best = null, bd = 5;
+    for (const A of H) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) { const d = dx * dx + dz * dz; if (d && d < bd && A.set.has(cellKey(x + dx, z + dz))) { bd = d; best = A; } }
+    if (!best || hubBlocks(best).has(k)) continue;
+    best.cells.push(k); best.set.add(k);
+    if (best.mesh) try { refreshAreaMesh(best); } catch (e) { /* only how it looks */ }
+  }
+}
 function cacheHubs() {
   for (const A of world.areas.filter(isHub)) {
     A.loads = [...world.lifts, ...midParts().filter((M) => M.queue)].filter((L) => !isVillage(L) && hubAt(L.a) === A);
@@ -6700,6 +6719,7 @@ function flowSets(ok) {
 function computeNetwork() {
   syncAreaLines();
   syncLinks();
+  hubStations();
   refreshHubEdges();
   cacheHubs();
   for (const t of world.trails) {
@@ -23138,6 +23158,7 @@ function matchKnobs() {
 }
 const matchSig = () => [state.cash, state.debt, state.lotSections, state.offsite, world.lifts.length, world.trails.length, world.buildings.length, world.areas.length,
   (world.noPoles || []).length, (world.noGuns || []).length, world.areas.reduce((n, A) => n + (A.noFence || []).length, 0),
+  world.areas.map((A) => `${A.cells.length}:${A.cells.reduce((a, k) => a + k, 0)}`).join(), // an area edit that only erases costs nothing: its squares still change
   JSON.stringify(state.event || null), JSON.stringify(state.investor || null), JSON.stringify(state.land || []), JSON.stringify(matchKnobs())].join('|');
 function matchSetKnobs(set) {
   const sm = (o, v) => { if (o.sm && v) { o.sm.mode = v[0]; o.sm.target = v[1]; } };
@@ -23843,6 +23864,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.8.2', date: 'Nov 6, 2026', title: 'Guest areas round a lift station', small: true, items: [
+    'Fixed: a guest area painted round a lift’s top station, but not over the square the station stands on, took the trails starting there, and the lift stopped running with “No trails leave the top station”. A station right at the edge of a guest area now belongs to it. Thanks Snowy!',
+    'Fixed: King of the Mountain: changing a guest area by only erasing part of it wasn’t sent to the match server, so it went back to how it was. Thanks Snowy!'] },
   { v: '3.8.1', date: 'Nov 6, 2026', title: 'Ski-in hotels and safer parking', small: true, items: [
     'Fixed: a hotel with a trail running right past its door, within about 50 m, now counts as ski-in, ski-out, as a condo does. Before, the trail had to end at the door. Thanks Snowy!',
     'Removing a parking section now asks first. A quick double tap on adding parking could land the second tap on Remove, which had just appeared beside it, and lose most of what the section cost. Thanks Snowy!'] },
