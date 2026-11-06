@@ -16,10 +16,13 @@ export default async function ({ browser, url }) {
       ups: L.querySelectorAll('.wn-up:not(.wn-fixes)').length, fixes: L.querySelectorAll('.wn-small').length,
       bigs: GENERAL.filter((c) => !c.small).length, smalls: GENERAL.filter((c) => c.small).length,
       top: L.querySelector('.wn-up summary').textContent, firstTitle: latestBig().title,
+      onlyFixes: !weeks[0].querySelector('.wn-up:not(.wn-fixes)'), fixesOpen: !!weeks[0].querySelector('.wn-fixes[open]'),
       height: L.scrollHeight, foldsPerWeek: weeks.every((w) => w.querySelectorAll(':scope > div > .wn-fixes').length <= 1) }; })()`);
   eq(r.weeks, r.want, 'one fold per group');
   eq(r.open, r.open.map((_, i) => i === 0), 'only the newest group is open');
-  eq([r.firstOpen, r.shownOpen], [0, 1], 'only the newest update is open');
+  // The newest update is open; if the newest group only has small fixes, its fixes fold is open instead.
+  if (r.onlyFixes) eq([r.fixesOpen, r.shownOpen], [true, 0], 'the newest group has only fixes: its fixes fold is open, no update');
+  else eq([r.firstOpen, r.shownOpen], [0, 1], 'only the newest update is open');
   eq([r.ups, r.fixes], [r.bigs, r.smalls], 'every update and fix is listed once');
   eq([r.tab, r.leaks], ['all', false], 'outside a match it opens on the game’s updates, with no match-only changes in them');
   const k = await g.ev(`(() => { $('wnTabs').querySelector('[data-wn=kotm]').click(); const L = $('wnList');
@@ -32,7 +35,7 @@ export default async function ({ browser, url }) {
   assert(/^\d+ new$/.test(b || ''), `the tab counts new match changes (${b})`);
   await g.ev(`openWhatsNew('all')`);
   assert(!(await g.ev('latestBig().kotm')), 'a match-only change never headlines');
-  assert(r.top.startsWith(r.firstTitle), `newest update first: ${r.top}`);
+  assert(r.onlyFixes ? /small fix/.test(r.top) : r.top.startsWith(r.firstTitle), `newest update first: ${r.top}`);
   assert(r.foldsPerWeek, 'one fixes fold per group at most');
   assert(r.height < 1400, `closed groups keep it short (${r.height}px)`);
   // opening an older week shows its titles
