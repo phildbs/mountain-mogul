@@ -2,13 +2,16 @@
 
 // The town's market: rivals grow it a little (more resorts draw more people to the valley), then each resort's
 // draw on its own, price included, decides its share. SHARP > 1 makes a better offer win more than its plain
-// share, so undercutting a rival really takes skiers from them. Season pass buyers are shared the same way.
+// share, so undercutting a rival really takes skiers from them. It was 1.5, which turned a resort with 2.4 times the
+// draw into one with 3.8 times the skiers from day 1, with no way back (Snowy, Nov 5): 1.2 still rewards the better
+// offer. Season passes are bought once, on opening day, for the whole season, so they're shared in plain proportion
+// to each resort's draw (PASS_SHARP): a slow first day shouldn't cost a resort a whole season of passes.
 // A resort that was full last time is offered only what it held (cap); the skiers it can't take try the others.
-export const GROW = 0.4, SHARP = 1.5;
-export function splitSkiers(alone, cap = alone.map(() => Infinity)) {
+export const GROW = 0.4, SHARP = 1.2, PASS_SHARP = 1;
+export function splitSkiers(alone, cap = alone.map(() => Infinity), sharp = SHARP) {
   const sorted = [...alone].sort((a, b) => b - a), sum = sorted.reduce((a, b) => a + b, 0);
   if (!sum) return alone.map(() => 0);
-  const town = sorted[0] + GROW * (sum - sorted[0]), w = alone.map((d) => Math.pow(d, SHARP));
+  const town = sorted[0] + GROW * (sum - sorted[0]), w = alone.map((d) => Math.pow(d, sharp));
   let out = alone.map(() => 0), left = town;
   const open = alone.map((d) => d > 0);
   for (let pass = 0; pass < alone.length && left > 1; pass++) {

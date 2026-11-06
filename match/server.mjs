@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
-import { splitSkiers, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY, seasonOf, PAGE_SUMMER, PAGE_NEW_SEASON } from './market.mjs';
+import { splitSkiers, PASS_SHARP, nextCap, PAGE_ALONE, pagePlay, pageOrders, PAGE_SUMMARY, seasonOf, PAGE_SUMMER, PAGE_NEW_SEASON } from './market.mjs';
 import { restDb } from './db.mjs';
 
 const COMPUTER_NAMES = ['Summit Ridge', 'Valley View', 'Pine Hollow', 'Snowcrest'], COMPUTER_PRICE = 65;
@@ -165,7 +165,7 @@ async function playDay(db, game, lobby) {
     const cal = seasonOf(lobby, day), quiet = cal.summer || cal.newSeason, none = pages.map(() => 0);
     const alone = await Promise.all(pages.map((g, k) => (shut[k] || quiet ? { day: 0, passes: 0 } : g.ev(PAGE_ALONE))));
     const held = await Promise.all(pages.map((g, k) => (shut[k] ? g.ev(MOTHBALL) : null))); // put back after the day: shut costs nothing
-    const share = quiet ? none : splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = quiet ? none : splitSkiers(alone.map((a) => a.passes));
+    const share = quiet ? none : splitSkiers(alone.map((a) => a.day), resorts.map((r) => r.summary.cap ?? Infinity)), passShare = quiet ? none : splitSkiers(alone.map((a) => a.passes), undefined, PASS_SHARP);
     const results = await Promise.all(pages.map((g, k) => g.ev(cal.summer ? PAGE_SUMMER : cal.newSeason ? PAGE_NEW_SEASON : pagePlay(share[k], passShare[k]))));
     for (const [k, h] of held.entries()) if (h) {
       await pages[k].ev(UNMOTHBALL(h));

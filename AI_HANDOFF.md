@@ -229,6 +229,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `claude/new-session-ipov07` | Claude | **3.8 Fairer skier split in matches** (Snowy's feedback, Nov 5). `SHARP` 1.5 to 1.2; passes split with `PASS_SHARP = 1` (plain proportion); in a match `trailsCount` counts each trail by length (60 units = 1, clamped 0.5 to 2), games of your own unchanged. Ridgeline Beta Cup day 1 would have gone 168/487 skiers (was 137/518), 207/554 passes (was 142/619). Server picks it up once published to `main`. New scenario `181-match-balance`. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 

@@ -10,7 +10,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, launch, openGame, SETUPS } from '../tests/harness.mjs';
-import { splitSkiers, nextCap, GROW, SHARP } from './market.mjs';
+import { splitSkiers, nextCap, GROW, SHARP, PASS_SHARP } from './market.mjs';
 
 const N = +(process.env.PLAYERS || 3), DAYS = +(process.env.DAYS || 21);
 const PRICES = (process.env.PRICES || '45,65,85').split(',').map(Number);
@@ -39,7 +39,7 @@ console.log(`Match on ${players[0].start.map}: ${N} players, ${DAYS} days from d
 for (let d = 0; d < DAYS; d++) {
   // 1. Morning: how many would come to each resort, and buy its pass, if it were alone in the valley.
   const alone = await Promise.all(players.map((p) => p.g.ev(`state.phase === 'closed' ? { day: demandForDay(), passes: passesSoldThisSeason() ? 0 : passBuyers(state.passPrice) } : { day: 0, passes: 0 }`)));
-  const share = splitSkiers(alone.map((a) => a.day), players.map((p) => p.cap)), passShare = splitSkiers(alone.map((a) => a.passes));
+  const share = splitSkiers(alone.map((a) => a.day), players.map((p) => p.cap)), passShare = splitSkiers(alone.map((a) => a.passes), undefined, PASS_SHARP);
   // 2. Every resort plays the day at once, with its share of the town's skiers (and pass buyers, on opening day).
   const t0 = Date.now();
   const days = await Promise.all(players.map((p, k) => p.g.ev(`(() => {
@@ -72,7 +72,7 @@ table.forEach((r, i) => console.log(`  ${i + 1}. ${r.name.padEnd(13)} $${String(
 const errors = players.flatMap((p) => p.g.errors.map((e) => `${p.name}: ${e}`));
 console.log(errors.length ? `\nPage errors:\n${errors.join('\n')}` : '\nNo page errors.');
 const saves = await Promise.all(players.map((p) => p.g.ev('JSON.stringify(saveData(true))')));
-writeFileSync(join(out, 'match.json'), JSON.stringify({ map: players[0].start.map, players: N, days: DAYS, model: { GROW, SHARP }, table, log, errors }, null, 1));
+writeFileSync(join(out, 'match.json'), JSON.stringify({ map: players[0].start.map, players: N, days: DAYS, model: { GROW, SHARP, PASS_SHARP }, table, log, errors }, null, 1));
 players.forEach((p, k) => writeFileSync(join(out, `resort-${k + 1}.json`), saves[k]));
 console.log(`Wrote match/out/match.json and ${N} resort saves.`);
 await browser.close(); server.close();
