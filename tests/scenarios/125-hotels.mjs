@@ -107,7 +107,7 @@ export default async function ({ browser, url }) {
   const p = await openGame(browser, url, { width: 390, height: 844 });
   await p.click('#startBtn'); await p.wait(300);
   const menu = await p.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('stay'); renderSheet(); const cards = [...document.querySelectorAll('[data-action=pickB][data-v=hotel]')];
-    return { n: cards.length, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()), rooms: cards.map((c) => c.querySelector('.bp small').textContent) }; })()`);
+    return { n: cards.length, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()), rooms: cards.map((c) => c.querySelector('small').textContent) }; })()`);
   eq(menu.n, 3, 'three hotel sizes in the menu');
   eq(menu.rooms, ['12 rooms', '40 rooms', '120 rooms'], 'each size shows its rooms, not seats');
   assert(!menu.text.some((t) => /undefined/.test(t)), 'nothing reads undefined');

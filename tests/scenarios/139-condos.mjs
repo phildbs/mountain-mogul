@@ -104,11 +104,12 @@ export default async function ({ browser, url }) {
   const p = await openGame(browser, url, { width: 390, height: 844 });
   await p.click('#startBtn'); await p.wait(300);
   const menu = await p.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('stay'); renderSheet(); const cards = [...document.querySelectorAll('[data-action=pickB][data-v=condo]')];
-    return { n: cards.length, tab: document.querySelector('[data-action=bTab][data-v=stay]').textContent, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()), small: cards.map((c) => c.querySelector('.bp small').textContent) }; })()`);
+    return { n: cards.length, tab: document.querySelector('[data-action=bTab][data-v=stay]').textContent, text: cards.map((c) => c.textContent.replace(/\\s+/g, ' ').trim()), names: cards.map((c) => c.title), small: cards.map((c) => c.querySelector('small').textContent), one: cards.every((c) => c.closest('.bsized') === cards[0].closest('.bsized')) }; })()`);
   eq(menu.n, 3, 'three condo sizes in the menu');
+  eq(menu.one, true, 'as buttons on one condo card');
   eq(menu.tab, 'Lodging', 'the tab is called Lodging');
   eq(menu.small, ['1 home', '2 homes', '5 homes'], 'each size shows its homes');
-  assert(menu.text[0].includes('Ski chalet') && menu.text[2].includes('Row of townhomes'), 'sizes have their own names: ' + menu.text.join(' | '));
+  assert(menu.text[0].includes('Chalet') && menu.text[2].includes('Townhomes') && menu.names[0] === 'Ski chalet' && menu.names[2] === 'Row of townhomes', 'sizes have their own names: ' + menu.text.join(' | '));
   assert(!menu.text.some((t) => /undefined/.test(t)), 'nothing reads undefined');
   eq(p.errors, [], 'no phone errors');
   await p.page.close();

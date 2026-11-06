@@ -1492,6 +1492,14 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .bpick i.bi svg { width: 20px; height: 20px; }
 .bpick em { font-style: normal; font-size: 11.5px; color: var(--ink); opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bpick .have { color: #1f7a42; font-weight: 600; }
+.bsized { border: 1px solid var(--line); background: rgba(255,255,255,0.6); border-radius: 10px; padding: 7px 8px 8px; }
+.bsized .bhead { display: flex; align-items: center; gap: 8px; }
+.bsized .bhead > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bsizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
+.bpick .bsizes button { flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; background: #fff; }
+.bpick .bsizes button b { font: 600 12.5px var(--ui); color: var(--ink); }
+.bpick .bsizes button span { flex: none; font: 600 12px var(--ui); color: var(--ink); font-variant-numeric: tabular-nums; }
+.bpick .bsizes button small { font: 500 11px var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .themes { display: flex; gap: 4px; margin: 0 0 10px; }
 .themes button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 6px; font: 600 12px var(--ui); color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .themes button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -17017,7 +17025,15 @@ function bldDraftSheet() {
       return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${k === 'hotel' && sz && sz.seats ? 'Rooms and a restaurant' : BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : sz.inventory ? `${sz.inventory} pairs` : sz.classes ? `${sz.classes} instructors` : sz.campers ? `${sz.campers} kids` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
     };
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
-    const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
+    // A building with sizes is one card with a button for each size, so the list stays short.
+    const sized = (k) => {
+      const t = BTYPES[k], have = world.buildings.filter((B) => B.type === k).length;
+      const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : t.where === 'low' ? 'base or low slopes' : '';
+      const cap = (sz) => sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : sz.inventory ? `${sz.inventory} pairs` : sz.classes ? `${sz.classes} instructors` : sz.campers ? `${sz.campers} kids` : `${sz.seats} seats`;
+      return `<div class="bsized"><div class="bhead"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, 0)}</i><span><b>${t.name}</b><em>${BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${k === 'hotel' ? '<small>Medium and large have a restaurant</small>' : ''}${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span></div>
+        <div class="bsizes">${t.tiers.map((sz, tier) => `<button data-action="pickB" data-v="${k}" data-tier="${tier}" title="${esc(tierName(t, sz))}"><b>${sz.label}</b><span>${money(sizeCost(k, tier))}</span><small>${cap(sz)}</small></button>`).join('')}</div></div>`;
+    };
+    const cards = (g) => g[2].map((k) => BTYPES[k].tiers ? sized(k) : card(k, 0)).join('')
       + (g[0] === 'transport' ? extra('manage', 'parking', 'parking', 'Off-site parking', 'Overflow lots, shuttled in', offsiteSpec() ? `${offsiteSpec().label} · ${offsiteSpec().spaces} spaces` : 'Set up under Parking')
         + extra('manage', 'lotgrow', 'car', lotCount() > 1 ? 'Grow your parking' : 'Grow the main lot', 'More spaces by the road', lotBuildable() ? `+${SPACES_PER_SECTION} spaces a section` : 'Add overnight', lotBuildable() ? money(LOT_EXPAND_COST) : '') : '');
     return `<div class="sheet-title"><h3>New building</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
@@ -24382,7 +24398,8 @@ const CHANGES = [
     'Rental shops, ski schools and kids’ camps now come in three sizes, each its own choice under Build › Buildings, in every building style.',
     'A big rental shop or rental hall fits more guests at once and has more pairs. The rental and tuning center is still there for strong skiers.',
     'A ski and ride school or snowsports center has 16 or 28 instructors and a bigger practice area. A kids’ center or kids’ village takes 150 or 300 children, and the village has its own little play hill.',
-    'Lessons grow your skiers: a busy ski school slowly turns a few beginners into intermediates who come back to ski your blue runs. Its card shows how much.'] },
+    'Lessons grow your skiers: a busy ski school slowly turns a few beginners into intermediates who come back to ski your blue runs. Its card shows how much.',
+    'The Buildings menu is tidier: lodges, hotels, condos, rental shops, ski schools and kids’ camps each have one card, with a button for each size showing its price and what it holds.'] },
   { v: '3.10', date: 'Nov 6, 2026', title: 'Snowmaking ponds', items: [
     'Snowmaking now needs water. Village water runs up to 120 snow guns a night. When more guns want to run than that, each makes its share of snow.',
     'Dig a snowmaking pond for more: paint it on fairly flat ground with Landscape › Pond, or from Manage › Snow. Each acre adds water for 60 more guns, and pond water costs about 45% less to pump.',
