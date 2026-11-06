@@ -171,7 +171,9 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`liftById(${nl.id}).open`), false, 'back in the live day, the new lift is closed again until tomorrow');
   // Shrinking the parking lot still needs the resort closed: it pauses.
   await g.ev(`(() => { select({ kind: 'manage', obj: 'lotgrow' }); renderSheet(); })()`); await g.wait(300);
-  const shrink = await g.ev(`(() => { const b = document.querySelector('#sheet [data-action=shrinkLot]'); if (b && !b.disabled) b.click(); return !!b; })()`);
+  // It asks first (Remove opens a confirm box), then Remove in the box pauses the day.
+  await g.ev(`(() => { const b = document.querySelector('#sheet [data-action=shrinkLotAsk]'); if (b && !b.disabled) b.click(); })()`); await g.wait(700);
+  const shrink = await g.ev(`(() => { const b = document.querySelector('#sheet .confirm-box [data-action=shrinkLot]'); if (b && !b.disabled) b.click(); return !!b; })()`);
   assert(shrink, 'the lot panel has Remove the newest section');
   { await g.wait(1500); eq(await g.ev('[!!matchView.replay, matchView.paused]'), [false, true], 'shrinking the lot pauses the day'); }
   // The chat stays open when the day picks up again: closing it under your cursor made your letters game shortcuts.

@@ -8653,7 +8653,9 @@ function sheetAct(b) {
   }
   else if (a === 'repay') repay(+b.dataset.v);
   else if (a === 'expandLot') growLot(b.dataset.row == null ? null : +b.dataset.row, +(b.dataset.lot || 0));
-  else if (a === 'shrinkLot') shrinkLot();
+  else if (a === 'shrinkLotAsk') { lotAsk = Date.now(); renderSheet(); }
+  else if (a === 'shrinkLotNo') { lotAsk = 0; renderSheet(); }
+  else if (a === 'shrinkLot') { if (Date.now() - lotAsk < LOT_ASK_GAP) return; lotAsk = 0; shrinkLot(); } // too soon after asking: a second tap of a quick double tap
   else if (a === 'offsiteClose') {
     if (state.phase !== 'closed' || state.offsite < 0) return;
     pushUndo('closing off-site parking');
@@ -9503,6 +9505,12 @@ function growLot(row, lot = 0) {
   toast(`Added ${SPACES_PER_SECTION} parking spaces · −${money(LOT_EXPAND_COST)}`); renderSheet(); scheduleSave();
   if (selected && selected.obj === 'lotgrow') setTimeout(fitLotView, 60); // keep the next spots in view
 }
+// Removing a section asks first (Snowy, Nov 5): a quick double tap on Add put the second tap on Remove, which had
+// just appeared beside it, and in a match there's no undo. The confirm box sits below the buttons, and a tap on
+// Remove in the first half second after it opens is ignored. The server presses shrinkLot itself, with no ask.
+let lotAsk = 0;
+const LOT_ASK_GAP = 500;
+const lotShrinkAsk = () => (lotAsk && Date.now() - lotAsk < 60000 ? `<div class="confirm-box"><p>Remove the newest parking section? You get back ${money(Math.round(LOT_EXPAND_COST * 0.25))} of the ${money(LOT_EXPAND_COST)} it cost.</p><div class="row"><button class="btn secondary" data-action="shrinkLotNo">Keep it</button><button class="btn danger" data-action="shrinkLot">Remove</button></div></div>` : '');
 function shrinkLot() {
   if (state.phase !== 'closed' || state.lotSections <= 1) return;
   pushUndo('removing a parking section');
@@ -9534,7 +9542,7 @@ function lotGrowPanel() {
     ${Array.from({ length: lotCount() }, (_, lot) => block(lot)).join('')}
     ${short && closed ? `<p class="help warn">You need ${money(LOT_EXPAND_COST - state.cash)} more.</p>` : ''}
     ${many ? `<p class="conn">All lots · ${lotCapacity().toLocaleString('en-US')} spaces</p>` : ''}
-    ${state.lotSections > 1 && closed ? `<button class="link" data-action="shrinkLot">Remove the newest section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}</button>` : ''}
+    ${state.lotSections > 1 && closed ? lotShrinkAsk() || `<button class="link" data-action="shrinkLotAsk">Remove the newest section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}</button>` : ''}
     <button class="btn wide" data-action="close">Done</button>`;
 }
 // On the map while choosing: an outline and a + where each next section could go, or why it can't.
@@ -12889,7 +12897,7 @@ const BTYPES = {
     desc: 'A big shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests. Builds beside the access road.' },
   hotel: {
     name: 'Hotel', where: 'base', cost: 300000, sign: 'HOTEL', accent: 0x1f6f6b,
-    desc: 'Rooms at the base for guests who stay the night. They need no parking space, are out for the first chair and stay for après. Rooms fill most on weekends and holidays, and faster with a lift or the end of a trail beside the door. Medium and large hotels have a restaurant, open to every guest for lunch and après.',
+    desc: 'Rooms at the base for guests who stay the night. They need no parking space, are out for the first chair and stay for après. Rooms fill most on weekends and holidays, and faster with a base lift or a trail beside the door. Medium and large hotels have a restaurant, open to every guest for lunch and après.',
     tiers: [
       { label: 'Small', rooms: 12, w: 4.0, d: 3.0, upkeep: 900 },
       { label: 'Medium', rooms: 40, seats: 60, stalls: 4, w: 6.0, d: 3.8, upkeep: 3300, cost: 600000 }, // medium and large have a restaurant
@@ -16346,10 +16354,16 @@ function busUnload(b, st) {
    door for the first chair, ski the day without a car, and walk back in. Nobody is kept from one day to the next. */
 const ROOM_GUESTS = 2, SKI_IN_R = 10, HOTEL_NEAR = 14, HOTEL_MARKET = 0.6, HOTEL_EATS = ['lodge', 'restaurant', 'fine', 'bar'];
 const HOTEL_THOUGHTS = ['Out the hotel door and first in line!', 'Day two of our ski week. Legs are sore!', 'Love waking up right at the mountain.', 'No parking, no traffic. Best start to a ski day.'];
-// A base lift or the bottom of a trail beside the door: ski-in, ski-out.
+// A base lift, the bottom of a trail, or a trail running past, beside the door: ski-in, ski-out. A trail running
+// past counts as it does for condos (within 50 m of its edge); it used to need to end there, so a hotel between
+// two trails, or at a guest area the trails run into, wasn't ski-in, ski-out (Snowy, Nov 5).
 function skiInOut(B) {
   for (const L of world.lifts) if (L.fromBase && distXZ(L.a, B.door) < SKI_IN_R) return true;
-  for (const t of realTrails()) { const e = t.samples && t.samples[t.samples.length - 1]; if (e && t.to && t.to.kind === 'base' && distXZ(e, B.door) < SKI_IN_R) return true; }
+  for (const t of realTrails()) {
+    const S = t.samples || [], e = S[S.length - 1];
+    if (e && t.to && t.to.kind === 'base' && distXZ(e, B.door) < SKI_IN_R) return true;
+    const lim = trailHW(t) + CONDO_REACH; if (S.some((p) => distXZ(p, B.door) < lim)) return true;
+  }
   return false;
 }
 // What fills a hotel's rooms tonight: the day, the room price, the spot and the resort's name.
@@ -16616,7 +16630,7 @@ function hotelChecks(spot) {
   const list = names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] : names[0];
   const eat = spot.own ? `<b>Its own restaurant</b> feeds guests${names.length ? `, and there’s more close by: ${list}${more ? ` and ${more} more` : ''}` : ''}.` : names.length ? `Food close by: ${names.length > 1 ? names.slice(0, -1).join(', ') + (more ? ', ' : ' and ') + names[names.length - 1] : names[0]}${more ? ` and ${more} more` : ''}.` : '<b>No food close by.</b> A lodge, casual restaurant, fine dining or bar a short walk from the door helps (cafés and food trucks don’t count).';
   return `<ul class="checks">
-    <li class="${spot.ski ? 'ok' : ''}">${CHECK_ICON(spot.ski)}<span>${spot.ski ? '<b>Ski-in, ski-out:</b> a base lift or the end of a trail is beside the door.' : '<b>Not ski-in, ski-out.</b> A base lift or the end of a trail beside the door fills rooms faster.'}</span></li>
+    <li class="${spot.ski ? 'ok' : ''}">${CHECK_ICON(spot.ski)}<span>${spot.ski ? '<b>Ski-in, ski-out:</b> a base lift or a trail is beside the door.' : '<b>Not ski-in, ski-out.</b> A base lift or a trail beside the door (within about 50 m) fills rooms faster.'}</span></li>
     <li class="${spot.own || spot.eats.length ? 'ok' : ''}">${CHECK_ICON(spot.own || spot.eats.length)}<span>${eat}</span></li>
   </ul>`;
 }
@@ -19622,7 +19636,7 @@ function parkingPanel() {
   const lot = `<li class="lrow static">
       <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Main lot</b><span class="pill ${lotOpenN(0) < lotSize(0) ? 'warn' : 'on'}">${lotOpenN(0)} of ${lotSize(0)} open</span></div>
       <div class="l2"><span>${live ? `<b>${lotUsed(0)}</b> of ` : ''}${lotOpenN(0) * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span><span>${money(Math.round(LOT_RUN_DAY * MOUNTAIN.costs))} a day per open section</span>${state.lastReport && state.lastReport.turnedAway ? `<span>${state.lastReport.turnedAway} turned away last day</span>` : ''}</div>
-      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${lotBuildable() && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 ? `<button class="chip" data-action="shrinkLot" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>`}
+      ${visiting ? '' : block ? `<div class="l3"><span class="note">${esc(block)}</span></div>` : `<div class="l3">${[[0, 'Along the road'], [1, 'A row below']].map(([row, label]) => { const why = lotGrowBlock(row); return `<button class="chip" data-action="expandLot" data-row="${row}" title="${esc(why || `Add ${SPACES_PER_SECTION} spaces`)}" ${!why && canExpand && !short ? '' : 'disabled'}>${label}${lotBuildable() && !why ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`; }).join('')}${state.lotSections > 1 && !lotShrinkAsk() ? `<button class="chip" data-action="shrinkLotAsk" ${state.phase === 'closed' ? '' : 'disabled'}>${state.phase === 'closed' ? `Remove a section · +${money(Math.round(LOT_EXPAND_COST * 0.25))}` : 'Remove a section overnight'}</button>` : ''}</div>${state.phase === 'closed' && state.lotSections > 1 ? lotShrinkAsk() : ''}`}
       ${visiting ? '' : '<div class="l3"><button class="link" data-action="manage" data-v="lotgrow">Choose where on the map ›</button></div>'}
       ${visiting || block ? '' : (() => { const w0 = lotGrowBlock(0), w1 = lotGrowBlock(1); const note = !lotBuildable() ? 'Parking is added overnight.' : [w0, w1].filter(Boolean).join(' '); return `<p class="help lot-help">${esc(note || `Each section is ${SPACES_PER_SECTION} spaces. Grow it along the road, or a row below under the first.`)} Now ${rowLen(0)} across${rowLen(1) ? ` and 2 rows deep` : ''}.</p>`; })()}
     </li>`;
@@ -22921,7 +22935,7 @@ async function matchApplyPending() {
   if (short) toast(`${short === 1 ? 'One of your changes costs' : `${short} of your changes cost`} more than the cash you have left, so ${short === 1 ? 'it won’t be' : 'they won’t be'} built tonight.`, true);
 }
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
-const MATCH_ACTIONS = ['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
+const MATCH_ACTIONS = ['shrinkLotAsk', 'shrinkLotNo', 'close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
   'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
   'parkPick', 'parkSel', 'parkMove', 'parkHere', 'parkBuild', 'parkRemove', 'saveBlueprint', 'planGo', 'planMove', 'planPause', 'planDrop', 'planNow', 'cancelPlan',
@@ -23829,6 +23843,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.8.1', date: 'Nov 6, 2026', title: 'Ski-in hotels and safer parking', small: true, items: [
+    'Fixed: a hotel with a trail running right past its door, within about 50 m, now counts as ski-in, ski-out, as a condo does. Before, the trail had to end at the door. Thanks Snowy!',
+    'Removing a parking section now asks first. A quick double tap on adding parking could land the second tap on Remove, which had just appeared beside it, and lose most of what the section cost. Thanks Snowy!'] },
   { v: '3.8', date: 'Nov 6, 2026', title: 'Fairer skier split in matches', kotm: true, items: [
     'King of the Mountain: the resort that draws the most skiers no longer takes such a big lead. Skiers still go for the better resort and the better price, but a resort that falls behind keeps a fairer share and can catch up.',
     'King of the Mountain: season passes are shared out in plain proportion to how much each resort draws on opening day, so a slow start no longer costs you most of a whole season’s passes.',

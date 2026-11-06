@@ -34,7 +34,8 @@ export default async function ({ browser, url }) {
     const added = state.lotSections === s0 + 1, stalls1 = stalls.length;
     openManage('parking');
     const c0 = state.cash;
-    document.querySelector('[data-action=shrinkLot]').click();
+    document.querySelector('[data-action=shrinkLotAsk]').click(); lotAsk -= 1000; // it asks first; a tap in the first half second is ignored
+    document.querySelector('.confirm-box [data-action=shrinkLot]').click();
     const removed = state.lotSections === s0 && stalls.length < stalls1 && state.cash - c0 === Math.round(LOT_EXPAND_COST * 0.25);
     buyOffsite(); openManage('parking');
     const had = state.offsite === 0;
