@@ -3946,7 +3946,7 @@ function saveData(withSim) {
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined, springRule: state.springRule || undefined },
       snow: encodeSnow(),
-      terrain: encodeTerrain(),
+      terrain: encodeTerrain(), tv: 1, // tv: ground already repaired, so loading doesn't repair it again
       sim: withSim ? serializeSim() : null,
       cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
   };
@@ -3976,7 +3976,7 @@ function applySave(sv) {
     else if (!ok) { delete slot.photo; delete slot.photoAt; }
   }
   if (!state.wx) state.wx = initWeather(ok && sv.clock && sv.clock.day != null ? sv.clock.day : PRESEASON_DAY);
-  restoreTerrain(ok ? sv.terrain : '');
+  restoreTerrain(ok ? sv.terrain : '', ok && sv.tv >= 1);
   satSpaces = 0;
   // land first: what's on bought parcels has to count as being on your property
   state.land = ok && sv.clock && Array.isArray(sv.clock.land) ? sv.clock.land : [];
@@ -18669,13 +18669,17 @@ function encodeTerrain() {
   for (let i = 0; i < bytes.length; i += 4096) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
   return btoa(s);
 }
-function restoreTerrain(b64) {
+// Saves from before 3.8.4 get the old-save repairs below once. They used to run on every load (and every undo,
+// which reloads a snapshot), pulling leveled ground beside the road and the creek a little further back each time.
+function restoreTerrain(b64, repaired) {
   HT.set(HT0);
   if (b64) {
     const s = atob(b64), bytes = new Uint8Array(s.length);
     for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
     const f = new Float32Array(bytes.buffer);
     for (let i = 0; i + 1 < f.length; i += 2) HT[f[i]] = f[i + 1];
+  }
+  if (b64 && !repaired) {
     // Before bridges, a trail across the creek filled its bed in. Dig it back out; the trail now bridges it.
     for (let k = 0; k < NV * NV; k++) if (CREEKD[k] < 1.9) HT[k] = lerp(HT0[k], HT[k], creekKeep(k));
     // Before 2.82.2, building pads and lots beside the road could lift or bury it. Put the roadbed back.
@@ -23866,6 +23870,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.8.4', date: 'Nov 6, 2026', title: 'Leveled ground stays put', small: true, items: [
+    'Ground you leveled beside the road or the creek no longer slowly slips back toward its old shape each time the game loads or you press Undo. Undo now puts the ground back exactly as it was.'] },
   { v: '3.8.3', date: 'Nov 6, 2026', title: 'Night lights across the ridge', kotm: true, small: true, items: [
     'King of the Mountain: fixed long bright stripes across your rivals’ valleys at night. The glow from lit trails, lamps and buildings now stays where the lights are, on every slice and valley, and your rivals’ own lights show on their side of the mountain.'] },
   { v: '3.8.2', date: 'Nov 6, 2026', title: 'Guest areas round a lift station', small: true, items: [

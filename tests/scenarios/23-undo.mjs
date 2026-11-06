@@ -31,6 +31,21 @@ export default async function ({ browser, url }) {
   eq(back, { ...s0, started: true }, 'trees, ground and cash all back');
   assert(/Undid clearing trees/.test(await g.ev(`$('toast').textContent`)), 'says what was undone');
 
+  // ground leveled beside the road stays exactly as left through reloads, and undo puts it back exactly (it used to
+  // drift: an old-save repair ran on every load and every undo)
+  const rd = await g.ev(`(() => { for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) { const k = j * NV + i, x = i - HALF, z = j - HALF;
+    if (inProperty(x, z) && ROADD[k] > 2.5 && ROADD[k] < 3.5) return [x, z]; } })()`);
+  const ht = `Array.from(HT)`, diff = (a, b) => a.reduce((m, v, k) => Math.max(m, Math.abs(v - b[k])), 0);
+  const h0 = await g.ev(ht);
+  await g.ev(`(() => { setTool('clear'); state.landMode = 'level'; pushUndo('leveling the ground'); stroke.active = true; stroke.target = trueY(${rd[0]}, ${rd[1]}) + 2;
+    for (let d = -5; d <= 5; d++) strokeTo(new THREE.Vector3(${rd[0]} + d, heightAt(${rd[0]} + d, ${rd[1]}), ${rd[1]})); endStroke(); setTool('explore'); })()`);
+  const h1 = await g.ev(ht);
+  assert(diff(h1, h0) > 0.5, 'leveled beside the road');
+  await g.ev(`(() => { const u = undoStack.slice(); for (let r = 0; r < 3; r++) { applySave(JSON.parse(JSON.stringify(saveData(false)))); afterLoad(); } undoStack = u; syncUndo(); })()`);
+  eq(diff(await g.ev(ht), h1) < 1e-4, true, 'leveled ground beside the road stays put through reloads');
+  await g.ev(`undoLast()`); await g.wait(100);
+  eq(diff(await g.ev(ht), h0) < 1e-4, true, 'undo puts the ground beside the road back exactly');
+
   // remove the lodge from its panel, then Ctrl+Z brings it back
   await g.ev(`select({ kind: 'bld', obj: world.buildings[0] })`); await g.wait(100);
   await g.click('[data-action=remove]'); await g.wait(50); await g.click('[data-action=removeYes]'); await g.wait(200);
