@@ -3946,7 +3946,7 @@ function saveData(withSim) {
       v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
-        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
+        records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, grads: state.grads || undefined, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined, springRule: state.springRule || undefined },
       snow: encodeSnow(),
@@ -9490,7 +9490,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null, springRule: null };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null, springRule: null, grads: 0 };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -10928,7 +10928,10 @@ function carPath(stall) {
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
 // With more than one lot, a carload leans toward the base whose lifts and runs suit its lead skier, and
 // the lifts guests rode most last time: their favourites. Emptier lots draw more cars, so all lots fill together.
-const drawAbility = () => { const r = Math.random(), mix = MOUNTAIN.skiers; return r < mix[0] ? 0 : r < mix[0] + mix[1] ? 1 : r < mix[0] + mix[1] + mix[2] ? 2 : 3; };
+// Lessons grow your skiers, gently: every lesson taught moves a little of the crowd from beginner to intermediate,
+// up to 5 points of it. It halves each new season, so a school has to keep teaching to keep it.
+const lessonShift = () => Math.min(MOUNTAIN.skiers[0] * 0.5, 0.05 * (1 - Math.exp(-(state.grads || 0) / 8000)));
+const drawAbility = () => { const r = Math.random(), s = lessonShift(), m0 = MOUNTAIN.skiers, mix = [m0[0] - s, m0[1] + s, m0[2], m0[3]]; return r < mix[0] ? 0 : r < mix[0] + mix[1] ? 1 : r < mix[0] + mix[1] + mix[2] ? 2 : 3; };
 function lotCentre(lot) { const S = stalls.filter((s) => (s.lot || 0) === lot); if (!S.length) return null; let x = 0, z = 0; for (const t of S) { x += t.x; z += t.z; } return { x: x / S.length, z: z / S.length }; }
 let lotScoreCache = null;
 function lotScores(ab) {
@@ -12933,7 +12936,12 @@ const BTYPES = {
   flood: { name: 'Floodlight', where: 'any', cost: 9000, accent: 0x9aa3b0, w: 0.8, d: 0.8, upkeep: 25, decor: true,
     desc: 'A tall tower of bright lamps that floods a wide patch of snow during night skiing. Trail poles light the edges; a floodlight beside a wide trail fills its dark middle. It turns to face the nearest trail; rotate it to aim it yourself. It uses as much power as two or three trail lights.' },
   rental: { name: 'Rental shop', where: 'base', cost: 60000, sign: 'RENTALS', accent: 0xd99a14, stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650,
-    desc: 'Fits guests with skis and boots when they arrive.' },
+    desc: 'Fits guests with skis and boots when they arrive. Comes in three sizes: a bigger shop fits more guests at once and has more pairs.',
+    tiers: [
+      { label: 'Small', title: 'Rental shop', stations: 12, inventory: 260, w: 3.0, d: 2.4, upkeep: 650 },
+      { label: 'Medium', title: 'Big rental shop', stations: 20, inventory: 480, w: 4.2, d: 2.8, upkeep: 1150, cost: 60000 },
+      { label: 'Large', title: 'Rental hall', stations: 36, inventory: 960, w: 5.6, d: 3.4, upkeep: 2000, cost: 120000 },
+    ] },
   tuning: { name: 'Rental and tuning center', where: 'base', cost: 160000, sign: 'TUNE & DEMO', accent: 0xc77d12, stations: 22, inventory: 520, w: 4.0, d: 2.6, upkeep: 1300,
     desc: 'Twice the rental shop: more pairs and fitting stations, and ski tuning for strong skiers who bring their own.' },
   store: { name: 'Ski store', where: 'base', cost: 120000, sign: 'SKI STORE', accent: 0x2c6e8f, seats: 24, counter: 4, w: 3.4, d: 2.2, upkeep: 900,
@@ -12941,7 +12949,13 @@ const BTYPES = {
   gift: { name: 'Gift kiosk', where: 'any', cost: 25000, sign: 'GIFTS', accent: 0xb5487a, seats: 6, counter: 3, w: 1.5, d: 1.4, upkeep: 180,
     desc: 'Souvenirs and hand warmers. Small, cheap and steady wherever guests pass by.' },
   school: { name: 'Ski school', where: 'base', cost: 75000, sign: 'SKI SCHOOL', accent: 0x2f8f5e, classes: 8, w: 3.2, d: 4.6, upkeep: 1600,
-    desc: 'Beginner lessons on a practice area beside the building. Eight instructors.' },
+    desc: 'Beginner lessons on a practice area beside the building. Comes in three sizes: a bigger school has more instructors and a bigger practice area.',
+    // yard: where instructors stand on the practice area (first x, step, per row, first z, row step)
+    tiers: [
+      { label: 'Small', title: 'Ski school', classes: 8, w: 3.2, d: 4.6, upkeep: 1600, yard: [-1.1, 0.6, 4, 0.15, 0.9] },
+      { label: 'Medium', title: 'Ski and ride school', classes: 16, w: 4.4, d: 5.6, upkeep: 3100, cost: 85000, yard: [-1.5, 0.55, 6, -0.3, 0.75] },
+      { label: 'Large', title: 'Snowsports center', classes: 28, w: 5.6, d: 6.6, upkeep: 5300, cost: 140000, yard: [-1.9, 0.5, 8, -0.4, 0.7] },
+    ] },
   patrol: { name: 'Ski patrol', where: 'any', cost: 85000, sign: 'SKI PATROL', accent: 0xc0302a, crew: 2, w: 2.6, d: 2.2, upkeep: 950,
     desc: 'Patrollers ski out to injured guests. Choose 1–6 staff per hut overnight. Returning staff take operating lifts uphill.' },
   restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
@@ -12951,7 +12965,12 @@ const BTYPES = {
   clinic: { name: 'First-aid clinic', where: 'base', cost: 110000, sign: 'FIRST AID', accent: 0xd23c3c, beds: 6, w: 2.8, d: 2.2, upkeep: 850,
     desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
   kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
-    desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer.' },
+    desc: 'Families drop the kids off for a day of games and lessons, then ski on their own and stay longer. Comes in three sizes: a bigger camp takes more children.',
+    tiers: [
+      { label: 'Small', title: 'Kids’ camp', campers: 60, w: 3.6, d: 3.4, upkeep: 1300 },
+      { label: 'Medium', title: 'Kids’ center', campers: 150, w: 4.6, d: 4.2, upkeep: 2900, cost: 140000 },
+      { label: 'Large', title: 'Kids’ village', campers: 300, w: 5.8, d: 5.0, upkeep: 5400, cost: 200000 },
+    ] },
   hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'HEATED RESTROOMS', accent: 0xc0552d, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
     desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
@@ -13728,7 +13747,8 @@ function modelBar() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
   return k;
 }
-function modelRental() {
+function modelRental(tier) {
+  if (tier) return bigModel('rental', tier, 'classic');
   const k = new Kit();
   hall(k, { w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
   door(k, 0, 0.51, 0.44, 0.34, BM.dark);
@@ -13738,7 +13758,8 @@ function modelRental() {
   k.add(bx(2.8, 0.06, 1.0), BM.plank, 0, 0.03, 0.75);
   return k;
 }
-function modelSchool() {
+function modelSchool(tier) {
+  if (tier) return bigModel('school', tier, 'classic');
   const k = new Kit();
   hall(k, { w: 2.5, d: 1.4, h: 0.6, rise: 0.5, z: -1.4, chimney: -1 });
   door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
@@ -13883,7 +13904,8 @@ function modelClinic() {
   k.pop();
   return k;
 }
-function modelKids() {
+function modelKids(tier) {
+  if (tier) return bigModel('kids', tier, 'classic');
   const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
   hall(k, { w: 2.6, d: 1.3, h: 0.56, rise: 0.4, z: -1.0, roof: accentMat(0x2c7fb8), chimney: 1 });
   door(k, 0, -0.34, 0.42, 0.3, acc);
@@ -14069,7 +14091,8 @@ function modelBarModern() {
   return k;
 }
 
-function modelRentalModern() {
+function modelRentalModern(tier) {
+  if (tier) return bigModel('rental', tier, 'modern');
   const k = new Kit();
   modernVolume(k, { w: 2.6, d: 1.6, h: 1.08, z: -0.3, shed: -0.06 });
   door(k, 0, 0.51, 0.44, 0.34, BM.dark);
@@ -14092,7 +14115,8 @@ function modelStoreModern() {
   return k;
 }
 
-function modelSchoolModern() {
+function modelSchoolModern(tier) {
+  if (tier) return bigModel('school', tier, 'modern');
   const k = new Kit();
   modernVolume(k, { w: 2.5, d: 1.4, h: 1.05, z: -1.4, shed: -0.08 });
   door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
@@ -14140,7 +14164,8 @@ function modernPortal(k, x, z, h, w, trim = MODERN_METAL) {
   for (const side of [-1, 1]) k.add(bx(0.045, h + 0.055, 0.035), trim, x + side * (w / 2 + 0.055), (h + 0.055) / 2, z - 0.003);
   k.add(bx(w + 0.16, 0.045, 0.09), trim, x, h + 0.055, z + 0.015);
 }
-function modelKidsModern() {
+function modelKidsModern(tier) {
+  if (tier) return bigModel('kids', tier, 'modern');
   const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
   modernVolume(k, { w: 2.6, d: 1.3, h: 0.86, rise: 0.4, z: -1.0, roof: accentMat(0x2c7fb8), chimney: 1 , over: 0.06, glazing: [[-0.78,0.39,0.64,0.4,1],[0.78,0.39,0.64,0.4,1],[-0.7,0.64,0.42,0.16,-1],[0.7,0.64,0.42,0.16,-1]], wall: MODERN_METAL });
   door(k, 0, -0.34, 0.42, 0.3, acc);
@@ -14422,7 +14447,8 @@ function modelBarScandinavian() {
   for (const s of [-1, 1]) k.add(bx(0.04, 0.66, 0.04), BM.dark, s * 1.78, 0.33, 1.75);
   return k;
 }
-function modelRentalScandinavian() {
+function modelRentalScandinavian(tier) {
+  if (tier) return bigModel('rental', tier, 'scandi');
   const k = new Kit();
   scandiHall(k, { color: 0xd4a842, w: 2.6, d: 1.6, h: 0.62, rise: 0.52, z: -0.3, chimney: 1 });
   door(k, 0, 0.51, 0.44, 0.34, BM.dark);
@@ -14443,7 +14469,8 @@ function modelStoreScandinavian() {
   k.add(bx(3.2, 0.06, 0.8), BM.plank, 0, 0.03, 0.85);
   return k;
 }
-function modelSchoolScandinavian() {
+function modelSchoolScandinavian(tier) {
+  if (tier) return bigModel('school', tier, 'scandi');
   const k = new Kit();
   scandiHall(k, { color: 0x719082, w: 2.5, d: 1.4, h: 0.6, rise: 0.5, z: -1.4, chimney: -1 });
   door(k, 0, -0.69, 0.44, 0.32, accentMat(BTYPES.school.accent));
@@ -14481,7 +14508,8 @@ function modelGiftScandinavian() {
   for (const [x, c] of [[-0.55, 0xd94f2a], [-0.45, 0x2565d4], [0.45, 0x2c9a55], [0.55, 0xe0a21b]]) k.add(bx(0.07, 0.07, 0.07), accentMat(c), x, 0.36, 0.42);
   return k;
 }
-function modelKidsScandinavian() {
+function modelKidsScandinavian(tier) {
+  if (tier) return bigModel('kids', tier, 'scandi');
   const k = new Kit(), acc = accentMat(BTYPES.kids.accent);
   scandiHall(k, { color: 0xd4a842, w: 2.6, d: 1.3, h: 0.56, z: -1.0 });
   door(k, 0, -0.34, 0.42, 0.3, acc);
@@ -14578,6 +14606,94 @@ function modelTransitScandinavian() {
   return k;
 }
 const MODELS_SCANDINAVIAN = { lodge: modelLodgeScandinavian, cafe: modelCafeScandinavian, restaurant: modelRestaurantScandinavian, fine: modelFineScandinavian, bar: modelBarScandinavian, rental: modelRentalScandinavian, store: modelStoreScandinavian, school: modelSchoolScandinavian, tuning: modelTuningScandinavian, gift: modelGiftScandinavian, kids: modelKidsScandinavian, patrol: modelPatrolScandinavian, clinic: modelClinicScandinavian, restroom: modelRestroomScandinavian, hrest: modelHrestScandinavian, shuttle: modelShuttleScandinavian, transit: modelTransitScandinavian, hotel: modelHotelScandinavian, condo: modelCondoScandinavian };
+/* Medium and large rental shops, ski schools and kids' camps. One layout per size, built in each style's own walls,
+   roofs and decks: log and gable (classic), flat-roofed metal and glass (modern), painted timber houses (Scandinavian). */
+const BIG_SHELL = {
+  classic: { hall: (k, o) => hall(k, o), deck: (...a) => deck(...a), trim: () => BM.wood },
+  modern: { hall: (k, o) => modernVolume(k, { w: o.w, d: o.d, h: o.h + (o.rise || 0) * 0.7, x: o.x || 0, z: o.z || 0, over: 0.08 }), deck: (...a) => modernDeck(...a), trim: () => MODERN_METAL },
+  scandi: { hall: (k, o) => scandiHall(k, { ...o, color: o.paint || 0xd4a842 }), deck: (...a) => scandiDeck(...a), trim: () => SCANDI_TRIM },
+};
+function snowman(k, x, z, s = 1) {
+  k.add(new THREE.SphereGeometry(0.13 * s, 10, 8), BM.white, x, 0.12 * s, z); k.add(new THREE.SphereGeometry(0.09 * s, 10, 8), BM.white, x, 0.3 * s, z);
+  k.add(bx(0.03, 0.03, 0.08), accentMat(0xff7a1a), x, 0.31 * s, z + 0.1 * s);
+}
+function cones(k, x0, z0, n, dx, dz) {
+  const cone = new THREE.ConeGeometry(0.05, 0.16, 6).translate(0, 0.08, 0);
+  for (let i = 0; i < n; i++) k.add(cone, accentMat(i % 2 ? 0xe0a21b : 0xd94f2a), x0 + i * dx, 0.05, z0 + (i % 2) * dz);
+}
+function bigModel(type, tier, theme) {
+  const k = new Kit(), S = BIG_SHELL[theme], big = tier >= 2, acc = accentMat(BTYPES[type].accent), glass = theme === 'modern';
+  if (type === 'rental') {
+    if (!big) {
+      S.hall(k, { w: 3.8, d: 1.7, h: 0.7, rise: 0.6, z: -0.5, chimney: 1, paint: 0xd4a842 });
+      for (const x of [-0.75, 0.75]) door(k, x, 0.36, 0.44, 0.32, BM.dark);
+      k.add(bx(3.4, 0.05, 0.45), acc, 0, 0.74, 0.55, -0.3);
+      sign(k, 'rental', 0, 0.98, 0.37, 1.1);
+      S.deck(k, 0, 0.85, 4.0, 1.0);
+      skiRack(k, -1.45, 0.95, 9); skiRack(k, 1.45, 0.95, 9); skiRack(k, 0, 1.15, 7);
+    } else {
+      S.hall(k, { w: 2.4, d: 2.3, h: 0.95, rise: 0.95, z: -0.5, gableFront: true, paint: 0xd4a842 });
+      for (const sd of [-1, 1]) S.hall(k, { w: 1.5, d: 1.9, h: 0.66, rise: 0.5, x: sd * 1.95, z: -0.6, chimney: sd, paint: sd < 0 ? 0x577b8e : 0xa74438 });
+      k.add(bx(1.4, 0.55, 0.05), BM.dark, 0, 0.62, 0.66); k.add(bx(1.3, 0.47, 0.06), BM.glow, 0, 0.62, 0.665);
+      door(k, 0, 0.68, 0.46, 0.4, BM.dark);
+      for (const sd of [-1, 1]) { door(k, sd * 1.95, 0.36, 0.42, 0.3, BM.dark); k.add(bx(1.3, 0.05, 0.4), acc, sd * 1.95, 0.72, 0.52, -0.3); }
+      sign(k, 'rental', 0, 1.35, 0.67, 1.25);
+      S.deck(k, 0, 1.15, 5.4, 1.0);
+      for (const x of [-2.2, -0.8, 0.8, 2.2]) skiRack(k, x, 1.3, 7);
+      k.add(bx(0.5, 0.3, 0.3), BM.dark, -2.5, 0.15, 0.95); // boot dryer bench
+    }
+  } else if (type === 'school') {
+    const yz = big ? 1.1 : 0.95, yw = big ? 5.4 : 4.2, yd = big ? 4.2 : 3.6;
+    if (!big) {
+      S.hall(k, { w: 3.4, d: 1.6, h: 0.66, rise: 0.55, z: -2.0, chimney: -1, paint: 0x719082 });
+      door(k, 0, -1.19, 0.44, 0.32, acc); door(k, 1.1, -1.19, 0.42, 0.28, BM.dark);
+      sign(k, 'school', -0.6, 0.95, -1.18, 1.2);
+    } else {
+      S.hall(k, { w: 2.6, d: 2.0, h: 0.9, rise: 0.85, z: -2.25, gableFront: true, paint: 0x719082 });
+      for (const sd of [-1, 1]) S.hall(k, { w: 1.4, d: 1.6, h: 0.62, rise: 0.5, x: sd * 1.95, z: -2.4, chimney: sd, paint: sd < 0 ? 0xd4a842 : 0x577b8e });
+      k.add(bx(1.4, 0.5, 0.05), BM.dark, 0, 0.6, -1.24); k.add(bx(1.3, 0.42, 0.06), BM.glow, 0, 0.6, -1.235);
+      door(k, 0, -1.22, 0.46, 0.36, acc); for (const sd of [-1, 1]) door(k, sd * 1.95, -1.59, 0.42, 0.28, BM.dark);
+      sign(k, 'school', 0, 1.3, -1.23, 1.35);
+    }
+    k.add(bx(yw, 0.05, yd), BM.groomed, 0, 0.025, yz);
+    for (const x of big ? [-2.4, 2.4] : [1.8]) { // magic carpets up the practice slope
+      k.add(bx(0.22, 0.04, yd - 0.6), BM.asphalt, x, 0.06, yz); k.add(bx(0.3, 0.3, 0.25), acc, x, 0.15, yz + yd / 2 - 0.15);
+    }
+    cones(k, big ? -1.8 : -1.5, yz - 0.6, big ? 12 : 9, 0.32, 1.2);
+    for (const [fx, fz] of big ? [[-2.7, -1.0], [2.7, -1.0], [-2.7, 3.1], [2.7, 3.1]] : [[-2.0, -0.85], [2.0, -0.85], [-2.0, 2.6]]) {
+      k.add(bx(0.03, 0.5, 0.03), BM.dark, fx, 0.25, fz); k.add(bx(0.18, 0.11, 0.01), acc, fx + 0.1, 0.44, fz);
+    }
+  } else { // kids' camp
+    const roof = theme === 'classic' ? accentMat(0x2c7fb8) : undefined, fx = big ? 2.8 : 2.2, z0 = -0.4, z1 = big ? 2.4 : 2.0;
+    if (!big) {
+      S.hall(k, { w: 3.4, d: 1.5, h: 0.62, rise: 0.45, z: -1.3, roof, chimney: 1 });
+      door(k, 0, -0.54, 0.42, 0.3, acc);
+      sign(k, 'kids', -0.95, 0.88, -0.54, 0.9);
+    } else {
+      S.hall(k, { w: 2.2, d: 1.9, h: 0.8, rise: 0.8, z: -1.5, gableFront: true, roof });
+      for (const sd of [-1, 1]) S.hall(k, { w: 1.5, d: 1.4, h: 0.56, rise: 0.4, x: sd * 1.85, z: -1.6, roof, paint: sd < 0 ? 0x577b8e : 0xa74438 });
+      if (glass) { k.add(bx(1.2, 0.4, 0.05), BM.dark, 0, 0.5, -0.54); k.add(bx(1.1, 0.32, 0.06), BM.glow, 0, 0.5, -0.535); }
+      door(k, 0, -0.54, 0.44, 0.32, acc); for (const sd of [-1, 1]) door(k, sd * 1.85, -0.89, 0.38, 0.26, acc);
+      sign(k, 'kids', 0, 1.2, -0.54, 1.1);
+    }
+    // a fenced play area out front
+    for (const x of [-fx, fx]) k.add(bx(0.04, 0.22, z1 - z0), acc, x, 0.11, (z0 + z1) / 2);
+    k.add(bx(fx * 2 + 0.04, 0.22, 0.04), acc, 0, 0.11, z1);
+    for (let x = -fx; x <= fx + 0.01; x += fx / (big ? 4 : 3)) k.add(bx(0.06, 0.3, 0.06), S.trim(), x, 0.15, z1);
+    // slide tower and slide
+    k.add(bx(0.32, 0.4, 0.32), accentMat(0xd94f2a), fx - 0.8, 0.2, 0.15); k.add(bx(0.24, 0.04, 0.95), accentMat(0x2c9a55), fx - 0.8, 0.22, 0.7, 0.42);
+    // a crawl tunnel
+    k.add(new THREE.CylinderGeometry(0.17, 0.17, 0.7, 12, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), accentMat(0x2c7fb8), -0.2, 0.0, z1 - 0.55);
+    snowman(k, -fx + 0.6, 0.4); snowman(k, -fx + 1.1, 1.0, 0.85); if (big) snowman(k, 0.6, 1.5, 0.9);
+    if (big) { // a little play hill with a carpet up it
+      k.add(new THREE.SphereGeometry(0.9, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.38, 1), BM.groomed, -1.4, 0, 1.45);
+      k.add(bx(0.16, 0.04, 1.2), BM.asphalt, -2.35, 0.05, 1.45);
+      for (let i = 0; i < 5; i++) k.add(bx(0.18, 0.12, 0.01), accentMat([0xd94f2a, 0xe0a21b, 0x2c9a55, 0x2c7fb8, 0xb5487a][i]), -2.3 + i * 0.5, 0.5, z1 - 0.02); // bunting
+      k.add(bx(fx * 2, 0.01, 0.01), BM.dark, 0, 0.56, z1 - 0.02);
+    }
+  }
+  return k;
+}
 // Console-only, transient comparison. Left: classic; right: Scandinavian. Never enters world.buildings/saves.
 // Open ?dev, then previewScandinavian(); previewScandinavian({ types: ['lodge'], tier: 2 }) for one pair.
 function previewScandinavian({ types = Object.keys(MODELS_SCANDINAVIAN), tier = null, x = -28, z = 10, spacing = 7, focus = true } = {}) {
@@ -15087,6 +15203,7 @@ function buildingVisual(b, ghost) {
 }
 function addBuilding(b) {
   if (b.type === 'patrol') { b.patrollers = patrolSize(b); b.tier = 0; }
+  if (BTYPES[b.type] && BTYPES[b.type].tiers) b.tier = clamp(Math.floor(b.tier || 0), 0, BTYPES[b.type].tiers.length - 1); // older saves of a type that later got sizes
   const v = buildingVisual(b, false);
   b.group = v.group; b.baseY = v.baseY;
   const s = bspec(b);
@@ -15881,6 +15998,7 @@ function serve(g, B) {
   }
   if (MEAL_SVCS.includes(svc) && (!g.ate || g.skipped)) { g.mealAt = state.time; g.skipped = false; }
   B.used[pool]++; B.today.visits += AGENT;
+  if (svc === 'lesson') state.grads = (state.grads || 0) + AGENT;
   const services = B.today.services || (B.today.services = {});
   services[svc] = (services[svc] || 0) + AGENT;
   g.until = state.time + lerp(SVC_TIME[svc][0], SVC_TIME[svc][1], Math.random());
@@ -16896,7 +17014,7 @@ function bldDraftSheet() {
       const t = BTYPES[k], sz = t.tiers ? t.tiers[tier] : null;
       const have = t.plop ? 0 : world.buildings.filter((B) => B.type === k && (!sz || (B.tier || 0) === tier)).length;
       const meta = BY_ROAD.includes(k) ? 'by the road' : t.where === 'base' ? 'base area' : t.where === 'low' ? 'base or low slopes' : '';
-      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${k === 'hotel' && sz && sz.seats ? 'Rooms and a restaurant' : BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
+      return `<button data-action="pickB" data-v="${k}" data-tier="${tier}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, tier)}</i><span><b>${sz ? tierName(t, sz) : t.name}</b><em>${k === 'hotel' && sz && sz.seats ? 'Rooms and a restaurant' : BBLURB[k] || ''}${meta ? ` · ${meta}` : ''}</em>${have ? `<small class="have">You have ${have}</small>` : ''}${bTheme() !== 'classic' && !hasTheme(k, bTheme()) && (BGROUPS.find((gr) => gr[2].includes(k)) || [0, 0, []])[2].some(themed) ? `<small class="only">Classic look only</small>` : ''}</span><span class="bp">${money(sizeCost(k, tier))}${sz ? `<small>${sz.rooms ? `${sz.rooms} rooms` : sz.units ? `${sz.units} ${sz.units === 1 ? 'home' : 'homes'}` : sz.inventory ? `${sz.inventory} pairs` : sz.classes ? `${sz.classes} instructors` : sz.campers ? `${sz.campers} kids` : `${sz.seats} seats`}</small>` : ''}</span></button>`;
     };
     const extra = (act, v, icon, name, blurb, meta, price) => `<button data-action="${act}" data-v="${v}"><i class="bi" style="--c:#2565d4">${bIcon(icon)}</i><span><b>${name}</b><em>${blurb}</em><small>${meta}</small></span><span class="bp">${price || '›'}</span></button>`;
     const cards = (g) => g[2].map((k) => (BTYPES[k].tiers || [null]).map((_, tier) => card(k, tier)).join('')).join('')
@@ -17125,7 +17243,7 @@ function bldSheet(B) {
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(t.accent)}"></span>
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">${t.tiers ? s.title || s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>
+    <p class="help">${t.tiers ? s.title || s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>${B.type === 'school' ? `<p class="help">Beginners who take lessons come back better: ${lessonShift() >= 0.002 ? `your lessons have turned about <b>${(lessonShift() * 100).toFixed(1)}%</b> of your crowd from beginners into intermediates.` : 'over a season, a busy school turns a few beginners into intermediates who ski your blue runs.'}</p>` : ''}
     ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
     ${ownRack(B) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
     <dl class="kv">
@@ -17165,9 +17283,9 @@ function drawStaff(n) {
       writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, PATROL_LOOK, 0);
     }
     if (B.type === 'school' && B.used && B.used.lesson) {
-      const k = Math.ceil(B.used.lesson / 6);
+      const k = Math.ceil(B.used.lesson / 6), [x0, dx, per, z0, dz] = bspec(B).yard || [-1.1, 0.6, 4, 0.15, 0.9];
       for (let i = 0; i < k && n < MAX_G; i++) {
-        const p = toWorld(B, -1.1 + (i % 4) * 0.6, 0.15 + Math.floor(i / 4) * 0.9);
+        const p = toWorld(B, x0 + (i % per) * dx, z0 + Math.floor(i / per) * dz);
         writeFig(n++, p.x, B.baseY + 0.06, p.z, B.rot * Math.PI / 2 + Math.PI + Math.sin(state.time * 0.5 + i) * 0.4, 1, INSTRUCTOR_LOOK, 0);
       }
     }
@@ -19342,6 +19460,7 @@ function enterSummer() {
   toast('Summer: the snow is gone. Build and plan, then start the next season.');
 }
 function newSeason() {
+  state.grads = (state.grads || 0) / 2; // last season's learners mostly come back, but the effect fades without more lessons
   const summerInterest = chargeInterest(OFFSEASON_DAYS);
   const summerCosts = Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE);
   state.cash -= summerCosts;
@@ -24259,6 +24378,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.11', date: 'Nov 6, 2026', title: 'Bigger rental shops, ski schools and kids’ camps', items: [
+    'Rental shops, ski schools and kids’ camps now come in three sizes, each its own choice under Build › Buildings, in every building style.',
+    'A big rental shop or rental hall fits more guests at once and has more pairs. The rental and tuning center is still there for strong skiers.',
+    'A ski and ride school or snowsports center has 16 or 28 instructors and a bigger practice area. A kids’ center or kids’ village takes 150 or 300 children, and the village has its own little play hill.',
+    'Lessons grow your skiers: a busy ski school slowly turns a few beginners into intermediates who come back to ski your blue runs. Its card shows how much.'] },
   { v: '3.10', date: 'Nov 6, 2026', title: 'Snowmaking ponds', items: [
     'Snowmaking now needs water. Village water runs up to 120 snow guns a night. When more guns want to run than that, each makes its share of snow.',
     'Dig a snowmaking pond for more: paint it on fairly flat ground with Landscape › Pond, or from Manage › Snow. Each acre adds water for 60 more guns, and pond water costs about 45% less to pump.',
