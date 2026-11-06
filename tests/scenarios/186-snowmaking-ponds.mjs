@@ -19,6 +19,11 @@ export default async function ({ browser, url }) {
   // the Snow panel offers it
   await g.ev(`select({ kind: 'manage', obj: 'snow' })`); await g.wait(50);
   assert(await g.ev(`!!$('sheet').querySelector('[data-action=pondTool]')`), 'Manage › Snow offers a pond');
+  await g.ev(`openLandscape()`); await g.wait(50);
+  await g.click('[data-action=landMode][data-v=pond]'); await g.wait(50);
+  eq(await g.ev(`[state.tool, state.landMode, $('tClear').getAttribute('aria-pressed')]`), ['clear', 'pond', 'true'], 'Landscape › Pond opens it too');
+  await g.click('[data-action=landMode][data-v=trees]'); await g.wait(50);
+  await g.ev(`select({ kind: 'manage', obj: 'snow' })`); await g.ev(`setTool('explore')`); await g.ev(`select({ kind: 'manage', obj: 'snow' })`); await g.wait(50);
   await g.click('[data-action=pondTool]'); await g.wait(50);
   eq(await g.ev(`[state.tool, state.landMode]`), ['clear', 'pond'], 'pond tool open');
 

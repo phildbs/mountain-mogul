@@ -8601,6 +8601,7 @@ function sheetAct(b) {
   else if (a === 'levelCancel') levelCancel();
   else if (a === 'levelKeep') levelKeep();
   else if (a === 'levelBefore') { levelCompare(b.dataset.v === '1'); renderSheet(); }
+  else if (a === 'landMode' && b.dataset.v === 'pond') { levelKeep(true); openPondTool(); }
   else if (a === 'landMode') { levelKeep(true); state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
   else if (a === 'editArea' && selected && selected.kind === 'area') editArea(selected.obj);
@@ -17616,9 +17617,9 @@ function openPondTool() {
   if (!shut()) { toast('Ponds are dug overnight, while the resort is closed.', true); return; }
   clearAreaDraft(); state.landMode = 'pond'; setTool('clear'); $('sizes').hidden = false;
 }
-function pondPaintSheet() {
+function pondPaintSheet(head) {
   const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
-  return `<div class="sheet-title"><h3>New snowmaking pond</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+  return `${head}
     <p class="help">Paint fairly flat ground away from trails, the road and buildings. The pond is dug with a pumphouse on its bank. It adds water for ${POND_GUNS_CELL * 40 | 0} snow guns an acre, at about ${Math.round((1 - POND_PRICE) * 100)}% less than village water.</p>
     <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
     ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Adds</dt><dd>${info.guns} snow guns</dd></div></dl>
@@ -18998,15 +18999,16 @@ function levelDraftHtml() {
 function landSheet() {
   const hub = state.landMode === 'hub';
   if (hub) return hubPaintSheet();
-  if (state.landMode === 'pond') return pondPaintSheet();
-  const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant', glade = state.landMode === 'glade';
+  const lvl = state.landMode === 'level', pond = state.landMode === 'pond', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant', glade = state.landMode === 'glade';
   const head = area || glade ? `<div class="sheet-title"><h3>${glade ? 'New glade' : 'New learning area'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES(glade ? 'glade' : 'area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="seg" role="group" aria-label="Landscape mode">
-      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze && !plant}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze && !plant && !pond}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
       <button data-action="landMode" data-v="plant" aria-pressed="${plant}">Replant<small>${money(REPLANT_COST)} a tree</small></button>
       <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
-      <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button></div>`;
+      <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button>${pondsHere() ? `
+      <button data-action="landMode" data-v="pond" aria-pressed="${pond}">Pond<small>for snowmaking</small></button>` : ''}</div>`;
+  if (pond) return pondPaintSheet(head);
   if (glade) {
     const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash, th = state.gladeThin || 'classic';
     return `${head}
@@ -24259,7 +24261,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '3.10', date: 'Nov 6, 2026', title: 'Snowmaking ponds', items: [
     'Snowmaking now needs water. Village water runs up to 120 snow guns a night. When more guns want to run than that, each makes its share of snow.',
-    'Dig a snowmaking pond for more: paint it on fairly flat ground (Manage › Snow › Dig a snowmaking pond). Each acre adds water for 60 more guns, and pond water costs about 45% less to pump.',
+    'Dig a snowmaking pond for more: paint it on fairly flat ground with Landscape › Pond, or from Manage › Snow. Each acre adds water for 60 more guns, and pond water costs about 45% less to pump.',
     'Ponds are dug into the ground with a pumphouse on the bank. They freeze and gather snow in the cold, keep open water by the pump while it runs, and have reeds in summer.',
     'Manage › Snow shows your water and how many guns it covers. Fill a pond back in from its card. King of the Mountain has no water limit for now.'] },
   { v: '3.9', date: 'Nov 6, 2026', title: 'Try leveling before you keep it', items: [
