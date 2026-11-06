@@ -44,11 +44,12 @@ export default async function ({ browser, url }) {
   const nudge = await g.ev(`(() => { const mix = MOUNTAIN.skiers.slice(); state.grads = 0; const s0 = lessonShift();
     state.grads = 6000; const s1 = lessonShift(); state.grads = 1e7; const s2 = lessonShift();
     state.grads = 6000; let beg = 0; for (let i = 0; i < 40000; i++) if (drawAbility() === 0) beg++;
-    return { s0, s1: +s1.toFixed(3), s2: +s2.toFixed(3), beg: +(beg / 40000).toFixed(2), want: +(mix[0] - s1).toFixed(2) }; })()`);
+    return { s0, s1: +s1.toFixed(3), s2: +s2.toFixed(3), beg: beg / 40000, want: mix[0] - s1 }; })()`);
   eq(nudge.s0, 0, 'no lessons, no change');
   assert(nudge.s1 > 0.02 && nudge.s1 < 0.03, `a season of a busy school moves about 2.5% of the crowd (${nudge.s1})`);
   assert(nudge.s2 <= 0.05, `capped at 5% (${nudge.s2})`);
-  assert(Math.abs(nudge.beg - nudge.want) <= 0.01, `fewer beginners turn up (${nudge.beg} vs ${nudge.want})`);
+  // 40,000 random guests: one spread is about 0.0023, so 0.012 is five spreads
+  assert(Math.abs(nudge.beg - nudge.want) < 0.012, `fewer beginners turn up (${nudge.beg.toFixed(4)} vs ${nudge.want.toFixed(4)})`);
   const saved = await g.ev(`(() => { state.grads = 6000; const sv = JSON.parse(JSON.stringify(saveData(false))); state.grads = 0; applySave(sv); afterLoad(); return state.grads; })()`);
   eq(saved, 6000, 'lessons taught are saved');
   eq(await g.ev(`(() => { newSeason(); return state.grads; })()`), 3000, 'halved each new season');
