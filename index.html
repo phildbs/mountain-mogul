@@ -3208,6 +3208,7 @@ function refreshTreeShade(i0, j0, i1, j1) {
 }
 
 const COL = {
+  dug: [0.66, 0.33, 0.22], built: [0.88, 0.68, 0.24], // the leveling draft's tint: ground cut away, ground built up
   snow: [0.95, 0.965, 0.99], floor: [0.79, 0.83, 0.88], alpine: [0.93, 0.95, 0.985],
   rock: [0.5, 0.48, 0.48], rockD: [0.32, 0.31, 0.33], road: [0.38, 0.39, 0.43], bank: [0.84, 0.86, 0.9], ice: [0.68, 0.79, 0.87],
   green: [0.2, 0.64, 0.36], blue: [0.17, 0.42, 0.86], black: [0.17, 0.18, 0.22], dbl: [0.07, 0.07, 0.09], steep: [0.76, 0.27, 0.2],
@@ -3245,6 +3246,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
     if (overlay.slope && (MAP_VIEW ? sliceAt(i, j) >= 0 : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
+    if (levelDraft && !levelDraft.before) { const d = h - levelDraft.ht0[idx]; if (Math.abs(d) > 0.03) mix(d < 0 ? COL.dug : COL.built, Math.min(0.6, 0.18 + Math.abs(d) * 0.3)); }
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
   }
@@ -3954,7 +3956,7 @@ function saveData(withSim) {
 function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
-  clearUndo(); heatStamp = null; profitStamp = null;
+  levelDraft = null; clearUndo(); heatStamp = null; profitStamp = null;
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
   state.cash = START_CASH; state.cleared = 0; state.sandbox = false; // the save's own setting comes back with its clock below
@@ -4037,6 +4039,12 @@ function treesInBrush(p, r, cb) {
 function countInBrush(p, r) { let n = 0; treesInBrush(p, r, () => n++); return n; }
 
 const stroke = { active: false, trees: 0, cost: 0, broke: false, last: null, areaWhy: '', areaChanged: false };
+/* Leveling is a draft until you keep it: each stroke shows straight away, tinted where it digs or builds up, and can
+   be stepped back one stroke at a time or put back entirely, exactly, from a copy of the ground before the draft.
+   Not in matches, where each stroke goes to the server as it's made. */
+let levelDraft = null; // { ht0, snap, cost, treeCost, trees: [], steps: [{ ht, trees, cost, treeCost }], box, before, after }
+const LEVEL_STEPS = 30;
+const levelDrafting = () => !matchPlay && !visiting;
 /* ---------- Replant: regrow the mountain's own trees where they were cleared ----------
    Never inside a trail, a learning area, a lift line or station clearing, a building's footprint,
    the parking lot or the road. The blocked ground is worked out once per stroke. */
@@ -4144,7 +4152,15 @@ function endStroke() {
   stroke.mpts = null;
   if (state.landMode === 'level') {
     if (stroke.box) refreshOnTerrain(stroke.box.i0, stroke.box.j0, stroke.box.i1, stroke.box.j1);
-    if (stroke.broke) toast('Not enough cash to keep leveling', true);
+    if (levelDraft) {
+      const D = levelDraft, b = stroke.box;
+      if (b) D.box = D.box ? { i0: Math.min(D.box.i0, b.i0), i1: Math.max(D.box.i1, b.i1), j0: Math.min(D.box.j0, b.j0), j1: Math.max(D.box.j1, b.j1) } : { ...b };
+      if (!stroke.cost) D.steps.pop();
+      if (!D.steps.length && !D.cost) levelDraft = null;
+      if (stroke.broke) toast('Not enough cash to keep leveling', true);
+      syncUndo(); renderSheet();
+    }
+    else if (stroke.broke) toast('Not enough cash to keep leveling', true);
     else if (stroke.cost) toast(`Leveled ground · −${money(stroke.cost)}`);
     stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null; stroke.box = null;
     scheduleSave();
@@ -4250,7 +4266,7 @@ function setTool(tool) {
     toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') clearAreaDraft(); if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') { clearAreaDraft(); levelKeep(true); } if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -8536,7 +8552,7 @@ function sheetAct(b) {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (state.tool === 'midstn') closeMidTool(); else if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else leaveDraft(() => setTool('explore')); }
+  else if (a === 'exitTool') { if (state.tool === 'midstn') closeMidTool(); else if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else if (levelDraft) leaveLevelDraft(() => setTool('explore')); else leaveDraft(() => setTool('explore')); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -8569,7 +8585,11 @@ function sheetAct(b) {
   }
   else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
-  else if (a === 'landMode') { state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
+  else if (a === 'levelUndo') levelUndoStep();
+  else if (a === 'levelCancel') levelCancel();
+  else if (a === 'levelKeep') levelKeep();
+  else if (a === 'levelBefore') { levelCompare(b.dataset.v === '1'); renderSheet(); }
+  else if (a === 'landMode') { levelKeep(true); state.landMode = b.dataset.v; clearAreaDraft(); $('sizes').hidden = b.dataset.v === 'doze'; renderSheet(); hover.dirty = true; }
   else if (a === 'areaErase') { if (!areaDraft) areaDraft = { cells: new Set(), erase: false }; areaDraft.erase = b.dataset.v === '1'; renderSheet(); }
   else if (a === 'editArea' && selected && selected.kind === 'area') editArea(selected.obj);
   else if (a === 'areaClear') {
@@ -11542,6 +11562,7 @@ function replayHold() { try { return !!(matchView && matchView.replay && matchVi
 function openDay() {
   if (matchPlay && !(matchView && matchView.replay)) { toast('In a match the server plays every day, for every resort at once. Tap Watch today to see yours live.', true); return; }
   if (state.phase !== 'closed' || refClaimBusy) return;
+  levelKeep(true); // a leveling draft left open is kept, as leaving the tool does
   if (state.bankrupt && !visiting) return showGameOver();
   if (state.summer) return newSeason();
   const ops = startOps(state.day);
@@ -18605,12 +18626,107 @@ function levelAt(p) {
   if (cost <= 0) return;
   if (cost > state.cash) { stroke.broke = true; return; }
   const res = levelBrush(p, r, stroke.target, 0.4, false);
+  const step = levelDraft && levelDraft.steps[levelDraft.steps.length - 1];
+  if (step) for (const k of treeSet) if (trees.alive[k]) { step.trees.push(k); levelDraft.trees.push(k); }
   clearTreeSet(treeSet);
   state.cash -= cost; stroke.cost += cost;
+  if (step) { const tc = treeSet.size * TREE_COST; step.cost += cost; step.treeCost += tc; levelDraft.cost += cost; levelDraft.treeCost += tc; }
   applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   const b = stroke.box || (stroke.box = { i0: res.i0, i1: res.i1, j0: res.j0, j1: res.j1 });
   b.i0 = Math.min(b.i0, res.i0); b.i1 = Math.max(b.i1, res.i1); b.j0 = Math.min(b.j0, res.j0); b.j1 = Math.max(b.j1, res.j1);
   updateCash(true);
+}
+// A new stroke in the leveling draft: keep a copy of the ground before it, so it can be stepped back.
+function levelStep() {
+  if (levelDraft && levelDraft.before) levelCompare(false);
+  if (!levelDraft) levelDraft = { ht0: HT.slice(), snap: !simulating && state.started && state.phase === 'closed' ? JSON.stringify(saveData(false)) : null,
+    cost: 0, treeCost: 0, trees: [], steps: [], box: null, before: false };
+  levelDraft.steps.push({ ht: HT.slice(), trees: [], cost: 0, treeCost: 0 });
+  if (levelDraft.steps.length > LEVEL_STEPS) levelDraft.steps.shift(); // the oldest stroke can only be put back with the rest
+}
+// Puts ground, trees and cash back: the ground from a copy, the trees cleared regrown, the money refunded.
+function levelPutBack(ht, ks, cost) {
+  const D = levelDraft;
+  HT.set(ht);
+  if (ks.length) {
+    let i0 = WN, i1 = 0, j0 = WN, j1 = 0;
+    for (const k of ks) if (!trees.alive[k]) {
+      trees.alive[k] = 1; cellTrees[trees.cell[k]]++; state.cleared--;
+      const gx = trees.x[k] + HALF, gz = trees.z[k] + HALF;
+      i0 = Math.min(i0, gx); i1 = Math.max(i1, gx); j0 = Math.min(j0, gz); j1 = Math.max(j1, gz);
+    }
+    packTrees(); refreshTreeShade(Math.floor(i0) - 1, Math.floor(j0) - 1, Math.ceil(i1) + 1, Math.ceil(j1) + 1);
+  }
+  state.cash += cost;
+  if (D.box) { applyTerrainChange(D.box.i0, D.box.j0, D.box.i1, D.box.j1); refreshOnTerrain(D.box.i0, D.box.j0, D.box.i1, D.box.j1); }
+  updateCash(true); scheduleSave();
+}
+function levelUndoStep() {
+  const D = levelDraft;
+  if (!D || !D.steps.length) return;
+  if (D.before) levelCompare(false);
+  const st = D.steps.pop();
+  D.cost -= st.cost; D.treeCost -= st.treeCost;
+  const gone = new Set(st.trees); D.trees = D.trees.filter((k) => !gone.has(k));
+  levelPutBack(st.ht, st.trees, st.cost);
+  if (!D.steps.length && D.cost <= 0) { levelDraft = null; if (D.box) recolorTerrain(D.box.i0 - 2, D.box.j0 - 2, D.box.i1 + 2, D.box.j1 + 2); }
+  toast(`Stroke undone${st.cost ? ` · ${money(st.cost)} back` : ''}`);
+  syncUndo(); renderSheet();
+}
+function levelCancel() {
+  const D = levelDraft;
+  if (!D) return;
+  if (D.before) levelCompare(false);
+  levelPutBack(D.ht0, D.trees, D.cost);
+  levelDraft = null;
+  if (D.box) recolorTerrain(D.box.i0 - 2, D.box.j0 - 2, D.box.i1 + 2, D.box.j1 + 2);
+  toast(`Ground put back${D.cost ? ` · ${money(D.cost)} back` : ''}`);
+  syncUndo(); renderSheet();
+}
+// Keep the draft: it's paid for already, so this only clears the tint and makes it one step for Undo.
+function levelKeep(quiet) {
+  const D = levelDraft;
+  if (!D) return;
+  if (D.before) levelCompare(false);
+  levelDraft = null;
+  if (D.snap && !visiting && !simulating && state.phase === 'closed') {
+    undoStack.push({ label: 'leveling the ground', snap: D.snap });
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+  }
+  if (D.box) recolorTerrain(D.box.i0 - 2, D.box.j0 - 2, D.box.i1 + 2, D.box.j1 + 2);
+  if (D.cost) toast(`Leveled ground · −${money(D.cost)}`);
+  syncUndo(); scheduleSave();
+  if (!quiet) renderSheet();
+}
+// Before and after: show the ground as it was, without the tint, then switch back. Trees stay as they are now.
+function levelCompare(before) {
+  const D = levelDraft;
+  if (!D || !D.box || D.before === before) return;
+  if (before) { D.after = HT.slice(); HT.set(D.ht0); } else { HT.set(D.after); D.after = null; }
+  D.before = before;
+  applyTerrainChange(D.box.i0, D.box.j0, D.box.i1, D.box.j1); refreshOnTerrain(D.box.i0, D.box.j0, D.box.i1, D.box.j1);
+}
+// Leaving the leveling tool with a draft: keep it, put it back, or carry on.
+function leaveLevelDraft(then) {
+  const D = levelDraft;
+  if (!D) return then();
+  showCrisis(`<div><div class="eyebrow">Not kept yet</div><h2 id="crTitle">Keep this leveling?</h2></div>
+    <p class="help">You’ve reshaped the ground but haven’t kept it yet.</p>`,
+    `<button class="btn" id="crYes">Keep it · ${money(D.cost)}</button><button class="btn secondary" id="crNo">Put it all back</button><button class="btn secondary" id="crKeep">Keep editing</button>`);
+  const close = () => { $('crisis').hidden = true; };
+  $('crYes').onclick = () => { close(); levelKeep(true); then(); };
+  $('crNo').onclick = () => { close(); levelCancel(); then(); };
+  $('crKeep').onclick = () => { close(); renderSheet(); };
+}
+function levelDraftHtml() {
+  const D = levelDraft;
+  if (!D) return '';
+  const earth = D.cost - D.treeCost, n = D.trees.length;
+  return `<div class="field-label">Your changes</div>
+    <p class="help">Dug-out ground shows red-brown and built-up ground gold. Nothing is final until you keep it.</p>
+    <div class="seg" role="group" aria-label="Compare"><button data-action="levelBefore" data-v="1" aria-pressed="${!!D.before}">Before</button><button data-action="levelBefore" data-v="0" aria-pressed="${!D.before}">After</button></div>
+    <div class="costs"><span>Earth moved</span><span>${money(earth)}</span>${n ? `<span>Clearing ${n.toLocaleString('en-US')} ${n === 1 ? 'tree' : 'trees'}</span><span>${money(D.treeCost)}</span>` : ''}</div>
+    <div class="row"><button class="btn secondary" data-action="levelUndo" ${D.steps.length ? '' : 'disabled'}>Undo stroke</button><button class="btn secondary" data-action="levelCancel">Put it all back</button><button class="btn" data-action="levelKeep">Keep it · ${money(D.cost)}</button></div>`;
 }
 function landSheet() {
   const hub = state.landMode === 'hub';
@@ -18657,6 +18773,7 @@ function landSheet() {
       : lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for views, building sites, or to open up a glade.'}</p>
+    ${lvl ? levelDraftHtml() : ''}
     <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Glades and learning areas are under <button class="link" data-action="trailMode" data-v="glade">Trail</button>.</p>`;
 }
 /* ---------- Saving terrain edits ---------- */
@@ -20174,7 +20291,8 @@ canvas.addEventListener('pointerdown', (e) => {
     const paint = state.tool === 'clear' && state.landMode !== 'doze' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
     if (paint) {
       gesture = { type: 'paint' };
-      if (!paintingArea()) pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
+      if (state.landMode === 'level' && levelDrafting()) levelStep();
+      else if (!paintingArea()) pushUndo(state.landMode === 'level' ? 'leveling the ground' : state.landMode === 'plant' ? 'replanting trees' : 'clearing trees');
       stroke.active = true; stroke.areaWhy = ''; stroke.areaChanged = false;
       if (state.landMode === 'hub') {
         if (!areaDraft) areaDraft = { cells: new Set(), erase: false, editId: null };
@@ -20969,11 +21087,12 @@ function pushUndo(label) {
 const dropUndo = () => { undoStack.pop(); syncUndo(); }; // the change didn't happen after all
 function clearUndo() { if (undoing) return; undoStack = []; syncUndo(); }
 function syncUndo() {
-  const b = $('tUndo'), last = undoStack[undoStack.length - 1];
-  b.disabled = !last;
-  b.title = last ? `Undo ${last.label} (Ctrl+Z)` : 'Nothing to undo';
+  const b = $('tUndo'), last = undoStack[undoStack.length - 1], lv = levelDraft && levelDraft.steps.length;
+  b.disabled = !last && !lv;
+  b.title = lv ? 'Undo the last leveling stroke (Ctrl+Z)' : last ? `Undo ${last.label} (Ctrl+Z)` : 'Nothing to undo';
 }
 function undoLast() {
+  if (levelDraft && levelDraft.steps.length) { levelUndoStep(); return; }
   if (matchPlay) { toast('Changes in a match are sent to the server straight away, so they can’t be undone.', true); return; }
   if (state.tool === 'clear' && state.landMode === 'hub' && areaDraft && areaDraft.history && areaDraft.history.length) { undoHubStroke(); return; }
   if (refClaimBusy) return;
@@ -23870,6 +23989,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.9', date: 'Nov 6, 2026', title: 'Try leveling before you keep it', items: [
+    'Leveling ground is now a draft. Your changes show straight away, red-brown where ground is dug out and gold where it’s built up, with the price so far.',
+    'Undo one stroke at a time, flip between Before and After, or Put it all back to return the ground, trees and money exactly as they were. Press Keep it when you’re happy.',
+    'Closing the tool with changes you haven’t kept asks what to do. Kept leveling can still be undone overnight with Undo.'] },
   { v: '3.8.4', date: 'Nov 6, 2026', title: 'Leveled ground stays put', small: true, items: [
     'Ground you leveled beside the road or the creek no longer slowly slips back toward its old shape each time the game loads or you press Undo. Undo now puts the ground back exactly as it was.'] },
   { v: '3.8.3', date: 'Nov 6, 2026', title: 'Night lights across the ridge', kotm: true, small: true, items: [
