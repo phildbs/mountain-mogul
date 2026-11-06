@@ -2791,6 +2791,7 @@ const HT = new Float32Array(NV * NV);     // height per vertex
 const GR = new Float32Array(NV * NV);     // grade (rise/run) per vertex
 const ROADD = new Float32Array(NV * NV);  // distance to road centre, cells
 const CREEKD = new Float32Array(NV * NV); // distance to creek centre, cells
+const PM = new Float32Array(NV * NV); // how much of each ground point is snowmaking pond (0 to 1), for its banks' colour
 const HAZEV = new Float32Array(NV * NV);  // haze mix per vertex
 const TSH = new Float32Array(NV * NV);    // forest shade per vertex
 const cellTrees = new Uint8Array(WN * WN);
@@ -3208,7 +3209,7 @@ function refreshTreeShade(i0, j0, i1, j1) {
 }
 
 const COL = {
-  dug: [0.66, 0.33, 0.22], built: [0.88, 0.68, 0.24], // the leveling draft's tint: ground cut away, ground built up
+  mud: [0.33, 0.29, 0.23], dug: [0.66, 0.33, 0.22], built: [0.88, 0.68, 0.24], // the leveling draft's tint: ground cut away, ground built up
   snow: [0.95, 0.965, 0.99], floor: [0.79, 0.83, 0.88], alpine: [0.93, 0.95, 0.985],
   rock: [0.5, 0.48, 0.48], rockD: [0.32, 0.31, 0.33], road: [0.38, 0.39, 0.43], bank: [0.84, 0.86, 0.9], ice: [0.68, 0.79, 0.87],
   green: [0.2, 0.64, 0.36], blue: [0.17, 0.42, 0.86], black: [0.17, 0.18, 0.22], dbl: [0.07, 0.07, 0.09], steep: [0.76, 0.27, 0.2],
@@ -3242,6 +3243,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     }
     const cd = CREEKD[idx];
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
+    if (PM[idx] > 0.1) mix(COL.mud, sstep(0.1, 0.45, PM[idx]) * (1 - 0.8 * cov)); // a pond's wet banks and bed
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
@@ -4263,7 +4265,7 @@ function setTool(tool) {
   else if (matchView && matchView.paused && tool === 'explore') { matchView.paused = false; setTimeout(startReplay, 0); }
   if (visiting && tool !== 'explore') { toast('You’re visiting. Return home to build.', true); return; }
   if (!shut() && tool === 'clear') {
-    toast(state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
+    toast(state.landMode === 'pond' ? 'Ponds are dug overnight, while the resort is closed.' : state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
   if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') { clearAreaDraft(); levelKeep(true); } if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } }
@@ -4273,7 +4275,7 @@ function setTool(tool) {
   draft.kind = tool === 'trail' || tool === 'lift' || tool === 'bld' || tool === 'shape' ? tool : null;
   $('tBld').setAttribute('aria-pressed', tool === 'bld');
   $('tExplore').setAttribute('aria-pressed', tool === 'explore');
-  const painting = tool === 'clear' && paintingArea();
+  const painting = tool === 'clear' && paintingArea() && state.landMode !== 'pond';
   $('tTrail').setAttribute('aria-pressed', tool === 'trail' || tool === 'shape' || tool === 'tpark' || painting);
   $('tLift').setAttribute('aria-pressed', tool === 'lift');
   $('tClear').setAttribute('aria-pressed', tool === 'clear' && !painting);
@@ -4719,7 +4721,7 @@ function analyzeTrail(samples) {
   if (n < 2) return res;
   for (let i = 1; i < n; i++) res.len += distXZ(samples[i], samples[i - 1]);
   res.vert = samples[0].y - samples[n - 1].y;
-  let uphill = false, cliff = false, outside = false;
+  let uphill = false, cliff = false, outside = false, wet = false;
   const Wn = 6;
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - Wn), b = Math.min(n - 1, i + Wn), run = (b - a) * 0.5;
@@ -4729,12 +4731,14 @@ function analyzeTrail(samples) {
     if (g < -0.08) { uphill = true; res.bad.add(i); }
     if ((!samples[i].bridge && sampleGrid(GR, samples[i].x + HALF, samples[i].z + HALF) > 1.05) || g > 1.0) { cliff = true; res.bad.add(i); }
     if (!inProperty(samples[i].x, samples[i].z)) { outside = true; res.bad.add(i); }
+    if (world.ponds.length && pondAt(samples[i].x, samples[i].z)) { wet = true; res.bad.add(i); }
   }
   res.avgGrade = res.len > 0 ? res.vert / res.len : 0;
   res.rating = ratingFor(res.maxGrade);
   if (cliff) res.problems.push('Crosses terrain too steep to ski. Route around the red section.');
   if (uphill) res.problems.push('Part of the trail runs uphill. Skiers can only go down.');
   if (outside) res.problems.push('Part of the trail is outside your property.');
+  if (wet) res.problems.push('The trail runs into a snowmaking pond. Route around it.');
   res.bridges = bridgeSpans(samples);
   const along = res.bridges.filter(([a, b]) => (b - a + 1) * 0.5 > BRIDGE_MAX);
   if (along.length) { res.problems.push('The trail runs along the creek. Cross it more directly.'); for (const [a, b] of along) for (let i = a; i <= b; i++) res.bad.add(i); }
@@ -5863,6 +5867,7 @@ function connAt(p, self, which) {
    or T-bar. Guests ski it anywhere they like, so each serving lift gets a few weaving ski lines,
    kept as hidden trails so skiing, snow and the network all work as they do on a trail. */
 world.areas = [];
+world.ponds = []; // snowmaking ponds: kept apart from areas, which code treats as learning areas unless hub or glade
 const areaGroup = new THREE.Group();
 scene.add(areaGroup);
 const AREA_CELL_COST = 450, AREA_MAX_GRADE = 0.24, AREA_MIN_CELLS = 25, AREA_GROOM_CELL = 2, AREA_LINES = 4;
@@ -5886,6 +5891,7 @@ function areaBlocks(skip, plant) {
   for (const B of world.buildings) box(boxOf(B, 0.5), 'too close to a building');
   for (const b of lotBoxes()) box({ x0: b.x0 - 0.5, x1: b.x1 + 0.5, z0: b.z0 - 0.5, z1: b.z1 + 0.5 }, 'on the parking lot');
   for (const a of world.areas) if (a !== skip && !(plant && isGlade(a))) for (const k of a.cells) if (!m.has(k)) m.set(k, 'already part of another area');
+  for (const P of world.ponds) for (const k of P.cells) if (!m.has(k)) m.set(k, 'in a snowmaking pond');
   if (plant) for (const t of world.trails) if (t.glade) for (const sm of t.samples) mark(sm.x, sm.z, 'on a glade line');
   return m;
 }
@@ -5908,7 +5914,7 @@ function gladeCellProblem(x, z, blocks) {
   if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4) return 'in the creek';
   return '';
 }
-const paintingArea = () => ['area', 'glade', 'hub'].includes(state.landMode);
+const paintingArea = () => ['area', 'glade', 'hub', 'pond'].includes(state.landMode);
 // A flat grid of cells draped on the ground, lit like the snow; the outer cells take the edge colour.
 function cellsGeo(cells, lift, edgeCol) {
   const pos = [], uv = [], col = [], idx = [];
@@ -6054,7 +6060,7 @@ function areaPaintAt(p, draw = true) {
     if ((x - p.x) ** 2 + (z - p.z) ** 2 > r * r) continue;
     const k = cellKey(x, z);
     if (areaDraft.erase) { if (areaDraft.cells.delete(k)) stroke.areaChanged = true; continue; }
-    const why = (state.landMode === 'hub' ? hubCellProblem : state.landMode === 'glade' ? gladeCellProblem : cellProblem)(x, z, areaDraft.blocks);
+    const why = (state.landMode === 'hub' ? hubCellProblem : state.landMode === 'glade' ? gladeCellProblem : state.landMode === 'pond' ? pondCellProblem : cellProblem)(x, z, areaDraft.blocks);
     if (why) stroke.areaWhy = why; else if (!areaDraft.cells.has(k)) { areaDraft.cells.add(k); stroke.areaChanged = true; }
   }
   if (draw) drawAreaDraft();
@@ -6091,6 +6097,7 @@ function areaDraftInfo() {
   if (!areaDraft || !areaDraft.cells.size) return null;
   if (state.landMode === 'glade') return gladeDraftInfo();
   if (state.landMode === 'hub') return hubDraftInfo();
+  if (state.landMode === 'pond') return pondDraftInfo();
   const n = areaDraft.cells.size, treeSet = new Set(), problems = [], old = areaDraft.editId == null ? null : areaById(areaDraft.editId);
   const added = old ? [...areaDraft.cells].filter((k) => !old.set.has(k)) : [...areaDraft.cells];
   for (const k of added) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
@@ -6106,6 +6113,7 @@ function commitArea() {
   if (visiting) return;
   if (info.hub) return commitHub(info);
   if (info.glade) return commitGlade(info);
+  if (info.pond) return commitPond(info);
   pushUndo(info.old ? 'editing a learning area' : 'building a learning area');
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
@@ -6152,6 +6160,7 @@ function hubFlood(cells, target) {
 function hubBlocks(skip) {
   const m = new Map();
   for (const A of world.areas) if (A !== skip) for (const k of A.cells) m.set(k, 'already part of another area');
+  for (const P of world.ponds) for (const k of P.cells) m.set(k, 'in a snowmaking pond');
   for (const b of lotBoxes()) for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) m.set(cellKey(x, z), 'on the parking lot');
   return m;
 }
@@ -7853,6 +7862,8 @@ function pickFeature(p) {
     if (d < 1.6 && d < bd) { bd = d; best = { kind: 'lift', obj: L }; }
   }
   if (best) return best;
+  const P = pondAt(p.x, p.z);
+  if (P) return { kind: 'pond', obj: P };
   const A = areaAt(p.x, p.z);
   if (A) return { kind: 'area', obj: A };
   for (const t of realTrails()) {
@@ -7917,7 +7928,7 @@ function renderSheet() {
   else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'midstn') html = midToolSheet();
-  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
+  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, pond: pondSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
   if (html && state.tool === 'explore' && selected && matchPending(selected.kind, selected.obj)) html = html.replace(/(<div class="sheet-title">[\s\S]*?<\/div>)/, '$1<p class="help"><b>Blueprint:</b> built tonight, opens tomorrow morning.</p>');
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
@@ -8585,6 +8596,7 @@ function sheetAct(b) {
   }
   else if (a === 'trailMode') { if (b.dataset.v !== state.landMode) clearAreaDraft(); if (b.dataset.v === 'area') openAreaTool(); else if (b.dataset.v === 'glade') openGladeTool(); else if (b.dataset.v === 'hub') openHubTool(); else if (b.dataset.v === 'tpark') openParkTool(); else setTool('trail'); for (const A of world.areas) styleArea(A); }
   else if (a === 'gladeThin') { state.gladeThin = b.dataset.v; renderSheet(); }
+  else if (a === 'pondTool') openPondTool();
   else if (a === 'levelUndo') levelUndoStep();
   else if (a === 'levelCancel') levelCancel();
   else if (a === 'levelKeep') levelKeep();
@@ -8746,6 +8758,7 @@ function sheetAct(b) {
     pushUndo(`removing ${obj.name}`);
     if (selected.kind === 'trail') removeTrail(obj);
     else if (selected.kind === 'area') { state.cash += Math.round((obj.cost || 0) * 0.25); removeArea(obj); computeNetwork(); updateCash(true); }
+    else if (selected.kind === 'pond') removePond(obj, true);
     else if (selected.kind === 'bld') { state.cash += Math.round((obj.spent || 0) * 0.25); removeBuilding(obj); updateCash(true); }
     else { state.cash += Math.round((obj.cost || 0) * 0.25); removeLift(obj); updateCash(true); }
     toast(`Removed ${obj.name}`);
@@ -9397,6 +9410,7 @@ function serializeWorld() {
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
+    ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump })) : undefined,
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map(planData),
@@ -9411,6 +9425,7 @@ function rebuildWorld(data) {
   for (const B of [...world.buildings]) removeBuilding(B);
   for (const p of [...world.plans]) cancelPlan(p);
   for (const a of [...world.areas]) removeArea(a);
+  for (const P of [...world.ponds]) removePond(P);
   selected = null;
   world.nextId = (data && data.nextId) || 1;
   world.noPoles = ((data && data.noPoles) || []).slice();
@@ -9425,6 +9440,7 @@ function rebuildWorld(data) {
     for (const p of data.plans || []) if (BTYPES[p.type] || p.kind !== 'bld') addPlan({ ...p }); // satellite lot blueprints are gone
     for (const t of data.trails || []) addTrail({ ...t, pts: t.pts.map((p) => ({ x: p.x, z: p.z })) });
     for (const a of data.areas || []) addArea({ ...a });
+    for (const P of data.ponds || []) addPond({ ...P }); // the ground was dug when it was made, and saved with the terrain
   }
   computeNetwork();
   syncLabels();
@@ -9492,6 +9508,7 @@ function lotLandBlock(bb) {
   if ([[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x0, bb.z1], [bb.x1, bb.z1]].some(([x, z]) => !inProperty(x, z))) return 'it’s reached your property line';
   const fs = footprintStats(bb);
   if (fs.creek) return 'the creek is in the way';
+  if (fs.pond) return 'a snowmaking pond is in the way';
   if (fs.road) return 'the access road is in the way';
   if (fs.hmax - fs.hmin > 3.2) return 'the ground past it is too steep';
   return '';
@@ -11804,7 +11821,7 @@ function nextDay() {
   // Snowmaking is paid each night and reported with the next open day, closed nights included.
   state.smAcc = (state.smAcc || 0) + smr.cost + bsm.cost;
   if (smr.cost + bsm.cost > 0) state.smNights = (state.smNights || 0) + 1;
-  state.nightCost = { snowmaking: smr.cost + bsm.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, base: bsm.ran, grooming: 0 };
+  state.nightCost = { snowmaking: smr.cost + bsm.cost, smTrails: smr.trails, tooWarm: smr.tooWarm, base: bsm.ran, grooming: 0, want: smr.want, ran: smr.ran, pond: smr.pond };
   chargeInterest(1);
   const oh = dailyOverhead() * (preOpening() ? OFFSEASON_RATE : 1); // until opening day, a skeleton crew
   state.cash -= oh; state.ohAcc = (state.ohAcc || 0) + oh;
@@ -11822,7 +11839,7 @@ function nextDay() {
   refreshTimebar(true); renderSheet(); scheduleSave();
   styleSnowVisuals();
   const w = todayWx();
-  if (!hadPlans) toast(w.snow >= 4 && w.type !== 'rain' ? `${inch(w.snow)} of new snow overnight!` : smr.trails ? `Snowmaking ran on ${smr.trails} ${smr.trails === 1 ? 'trail' : 'trails'} overnight · −${money(smr.cost)}` : 'Overnight: build and plan, then open for the day.');
+  if (!hadPlans) toast(w.snow >= 4 && w.type !== 'rain' ? `${inch(w.snow)} of new snow overnight!` : smr.trails ? `Snowmaking ran on ${smr.trails} ${smr.trails === 1 ? 'trail' : 'trails'} overnight${smr.ran < smr.want ? `, short of water (${Math.round(smr.ran / smr.want * 100)}% each)` : ''} · −${money(smr.cost)}` : 'Overnight: build and plan, then open for the day.');
 }
 
 /* =====================================================================
@@ -14937,17 +14954,18 @@ function segNearBox(a, b, bb, pad) {
   return false;
 }
 function footprintStats(bb) {
-  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity;
+  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity, pond = false;
   for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) {
     const gx = x + HALF, gz = z + HALF, h = sampleGrid(HT, gx, gz);
     hmin = Math.min(hmin, h); hmax = Math.max(hmax, h);
     gmax = Math.max(gmax, sampleGrid(GR, gx, gz));
     if (sampleGrid(CREEKD, gx, gz) < 1.4) creek = true;
+    if (world.ponds.length && pondAt(x, z)) pond = true;
     const rd = sampleGrid(ROADD, gx, gz);
     if (rd < 1.8) road = true;
     roadMin = Math.min(roadMin, rd);
   }
-  return { hmin, hmax, gmax, creek, road, roadMin };
+  return { hmin, hmax, gmax, creek, road, roadMin, pond };
 }
 function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
@@ -14957,6 +14975,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   const fs = footprintStats(bb);
   if (fs.hmax - fs.hmin > 3.2) problems.push('The ground is too steep to level here. Look for a gentler spot.');
   if (fs.creek) problems.push('Too close to the creek.');
+  if (fs.pond) problems.push('In a snowmaking pond.');
   if (fs.road) problems.push('That would block the access road.');
   else if (BY_ROAD.includes(type)) {
     const a = rot * Math.PI / 2, f = { x: x + Math.sin(a) * BAY_FRONT[type], z: z + Math.cos(a) * BAY_FRONT[type] }, r = nearestRoad(f);
@@ -17355,34 +17374,279 @@ function smWants(t) {
   return t.base < sm.target;
 }
 function smEfficiency(t, lo) { return clamp((28 - trailMidTemp(t, lo)) / 12, 0, 1); }
-// Runs the guns overnight. Colder nights make more snow; above about 28°F they can't run.
+// Runs the guns overnight. Colder nights make more snow; above about 28°F they can't run. When more guns want to
+// run than there's water for, each makes its share of snow (and costs its share). Pond water is cheaper.
 function runSnowmaking(lo) {
   let cost = 0, made = 0, tooWarm = 0, guns = 0;
+  const run = [];
   for (const t of world.trails) {
     t.smRanTonight = false;
     if (!smWants(t)) continue;
     const eff = gunsPacked() ? 0 : smEfficiency(t, lo);
     if (eff <= 0) { tooWarm++; continue; }
-    const g = gunCount(t);
-    const add = 5 * eff;
-    t.machine = (t.machine || 0) + add;
-    cost += g * GUN_NIGHT * (0.5 + 0.5 * eff);
-    made++; guns += g; t.smRanTonight = true;
+    run.push({ t, eff, g: gunCount(t) });
   }
   for (const A of world.areas.filter(isHub)) {
     A.smRanTonight = false;
     const sm = A.sm;
     if (!sm || !sm.on || sm.mode === 'off' || gunsPacked() || (sm.mode === 'auto' && hubDepth(A) >= sm.target)) continue;
-    let madeSnow = 0;
-    for (const k of A.cells) {
-      const x = keyX(k), z = keyZ(k), eff = clamp((28 - tempAt(lo, trueY(x, z))) / 12, 0, 1);
-      NS[Math.round(z + HALF) * NV + Math.round(x + HALF)] += 5 * eff; madeSnow += eff;
-    }
-    if (!madeSnow) { tooWarm++; continue; }
-    const g = gunCount(A); cost += g * GUN_NIGHT * (0.5 + 0.5 * madeSnow / A.cells.length);
-    guns += g; A.smRanTonight = true;
+    let e = 0;
+    const effs = A.cells.map((k) => { const v = clamp((28 - tempAt(lo, trueY(keyX(k), keyZ(k)))) / 12, 0, 1); e += v; return v; });
+    if (!e) { tooWarm++; continue; }
+    run.push({ A, effs, eff: e / A.cells.length, g: gunCount(A) });
   }
-  return { cost: Math.round(cost), trails: made, tooWarm, guns };
+  const want = run.reduce((n, r) => n + r.g, 0), f = want ? Math.min(1, waterGuns() / want) : 1, used = want * f;
+  const fromPond = Math.min(used, pondGuns()), price = used ? (fromPond * POND_PRICE + used - fromPond) / used : 1;
+  for (const r of run) {
+    if (r.t) { r.t.machine = (r.t.machine || 0) + 5 * r.eff * f; made++; r.t.smRanTonight = true; }
+    else { r.A.cells.forEach((k, i) => { NS[Math.round(keyZ(k) + HALF) * NV + Math.round(keyX(k) + HALF)] += 5 * r.effs[i] * f; }); r.A.smRanTonight = true; }
+    cost += r.g * GUN_NIGHT * (0.5 + 0.5 * r.eff) * f * price; guns += r.g;
+  }
+  for (const P of world.ponds) P.smRan = fromPond > 0;
+  return { cost: Math.round(cost), trails: made, tooWarm, guns, want, ran: Math.round(used), pond: Math.round(fromPond) };
+}
+
+/* ---------- Snowmaking water: village water and ponds ----------
+   Snow guns run on village water, up to VILLAGE_GUNS at once at the full price. A snowmaking pond adds more guns
+   and its water costs less to pump. When more guns want to run than there's water for, every one gets a share
+   and makes that share of its snow. Matches have no limit until ponds can be dug there. */
+const VILLAGE_GUNS = 120, POND_GUNS_CELL = 1.5, POND_PRICE = 0.55, POND_CELL_COST = 1500, PUMPHOUSE_COST = 40000;
+const POND_MIN_CELLS = 16, POND_MAX_GRADE = 0.25, POND_DEPTH = 0.9;
+const POND_NAMES = ['Mill Pond', 'Beaver Pond', 'Snowmaker Pond', 'Upper Reservoir', 'Lower Reservoir', 'Spring Pond', 'Heron Pond', 'Frog Pond'];
+const pondsHere = () => !MOUNTAIN.match;
+const villageGuns = () => (MOUNTAIN.match ? Infinity : VILLAGE_GUNS);
+const pondGunsOf = (P) => Math.round(P.cells.length * POND_GUNS_CELL);
+const pondGuns = () => world.ponds.reduce((n, P) => n + pondGunsOf(P), 0);
+const waterGuns = () => villageGuns() + pondGuns();
+function smGunsInstalled() {
+  let n = 0;
+  for (const t of realTrails()) if (t.sm && t.sm.on) n += gunCount(t);
+  for (const A of world.areas) if (isHub(A) && A.sm && A.sm.on) n += gunCount(A);
+  return n;
+}
+const pondGroup = new THREE.Group();
+scene.add(pondGroup);
+function pondAt(x, z) { const k = cellKey(Math.round(x), Math.round(z)); return world.ponds.find((P) => P.set.has(k)) || null; }
+// The pond's smooth outline: each ground point near it, how much is pond (0 to 1), from a soft blur of its squares.
+function pondMask(P) {
+  const m = new Map(), R = 2;
+  let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
+  for (const k of P.cells) { const i = keyX(k) + HALF, j = keyZ(k) + HALF; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
+  for (let j = Math.max(0, j0 - R - 1); j <= Math.min(WN, j1 + R + 1); j++) for (let i = Math.max(0, i0 - R - 1); i <= Math.min(WN, i1 + R + 1); i++) {
+    let s = 0, w = 0;
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      const wt = Math.max(0, 1 - Math.hypot(dx, dz) / (R + 0.6));
+      w += wt; if (P.set.has(cellKey(i - HALF + dx, j - HALF + dz))) s += wt;
+    }
+    if (s > 0) m.set(j * NV + i, s / w);
+  }
+  P.box = { i0: Math.max(0, i0 - R - 1), i1: Math.min(WN, i1 + R + 1), j0: Math.max(0, j0 - R - 1), j1: Math.min(WN, j1 + R + 1) };
+  return m;
+}
+// Dig it: the water level sits just under the lowest point of its bank, the bed falls away from the shore,
+// the uphill bank slopes down to the water instead of standing as a wall, and a low embankment closes the
+// downhill side. Remembers the ground it changed, to fill it back in.
+function digPond(P) {
+  const m = pondMask(P);
+  let low = Infinity;
+  for (const [idx, v] of m) if (v > 0.15 && v < 0.6) low = Math.min(low, HT[idx]);
+  P.water = low - 0.12;
+  const orig = [];
+  for (const [idx, v] of m) {
+    let h = HT[idx];
+    if (v >= 0.5) h = Math.min(h, P.water - 0.08 - POND_DEPTH * sstep(0.5, 0.95, v));
+    else if (v > 0.12) h = Math.min(h, lerp(h, P.water + 0.3, sstep(0.12, 0.5, v)));
+    // the bank holds the water in all round: on the downhill side that's a low embankment, as on a real pond
+    if (v > 0.01 && v < 0.5) h = Math.max(h, P.water + 0.14 * sstep(0.01, 0.05, v));
+    h = lerp(HT[idx], h, groundKeep(idx));
+    if (Math.abs(h - HT[idx]) > 1e-4) { orig.push([idx, HT[idx]]); HT[idx] = h; }
+  }
+  P.orig = orig;
+  P.mask = m;
+}
+// Where the pumphouse stands: on the bank, on the side nearest the base, facing the water.
+function pumpSpot(P) {
+  const goal = roadEnd(); let best = null, bd = Infinity, cx = 0, cz = 0;
+  for (const k of P.cells) { cx += keyX(k); cz += keyZ(k); }
+  cx /= P.cells.length; cz /= P.cells.length;
+  for (const [idx, v] of P.mask) {
+    if (v < 0.05 || v > 0.16) continue;
+    const x = (idx % NV) - HALF, z = Math.floor(idx / NV) - HALF;
+    if (!inProperty(x, z) || areaAt(x, z) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2) || realTrails().some((t) => t.samples.some((s) => distXZ(s, { x, z }) < trailHW(t) + 1))) continue;
+    const d = Math.hypot(x - goal.x, z - goal.z);
+    if (d < bd) { bd = d; best = { x, z }; }
+  }
+  best ||= { x: keyX(P.cells[0]), z: keyZ(P.cells[0]) };
+  return { x: best.x, z: best.z, rot: Math.atan2(cx - best.x, cz - best.z) };
+}
+const POND_ICE = [0.62, 0.74, 0.82], POND_SNOWY = [0.86, 0.9, 0.94], POND_SHALLOW = [0.4, 0.6, 0.6], POND_DEEP = [0.1, 0.27, 0.42];
+const PUMP_GEO = mergeColored([
+  [new THREE.BoxGeometry(1.3, 0.8, 1.0).translate(0, 0.4, 0), [0.56, 0.38, 0.26]],
+  [new THREE.CylinderGeometry(0.01, 0.95, 0.42, 4, 1).rotateY(Math.PI / 4).scale(1.0, 1, 0.78).translate(0, 1.0, 0), [0.28, 0.3, 0.33]],
+  [new THREE.BoxGeometry(0.34, 0.56, 0.04).translate(-0.3, 0.28, 0.51), [0.36, 0.25, 0.18]],
+  [new THREE.BoxGeometry(0.3, 0.22, 0.04).translate(0.3, 0.5, 0.51), [0.75, 0.84, 0.9]],
+]);
+const PIPE_MAT = new THREE.MeshLambertMaterial({ color: 0x6b7280 }), ROCK_MAT = new THREE.MeshLambertMaterial({ color: 0x7c7a78 }), REED_MAT = new THREE.MeshLambertMaterial({ color: 0x7a8a3a });
+function addPond(P) {
+  P.set = new Set(P.cells);
+  P.mask = pondMask(P);
+  if (P.water == null) { let low = Infinity; for (const [idx, v] of P.mask) if (v > 0.15 && v < 0.6) low = Math.min(low, HT[idx]); P.water = low - 0.12; }
+  for (const [idx, v] of P.mask) PM[idx] = Math.max(PM[idx], v);
+  P.pump ||= pumpSpot(P);
+  const g = new THREE.Group();
+  // The water: a flat sheet a little wider than the pond; the banks rise through its edge, so the shore follows the ground.
+  const pos = [], col = [], idx = [], at = new Map();
+  for (const [k, v] of P.mask) {
+    if (v < 0.06) continue;
+    at.set(k, pos.length / 3);
+    pos.push((k % NV) - HALF, P.water * VEX, Math.floor(k / NV) - HALF); col.push(0, 0, 0);
+  }
+  for (const [k] of at) {
+    const r = at.get(k + 1), d = at.get(k + NV), dr = at.get(k + NV + 1);
+    if (r != null && d != null && dr != null) idx.push(at.get(k), d, r, r, d, dr);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  P.waterMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.93 }));
+  P.waterMesh.receiveShadow = true; P.waterMesh.renderOrder = 2; P.waterKeys = [...at.keys()];
+  g.add(P.waterMesh);
+  // The pumphouse on the bank, and its intake pipe running into the water.
+  const ph = new THREE.Mesh(PUMP_GEO, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  ph.position.set(P.pump.x, heightAt(P.pump.x, P.pump.z) - 0.05, P.pump.z); ph.rotation.y = P.pump.rot; ph.castShadow = true; ph.receiveShadow = true;
+  g.add(ph);
+  let tgt = null, td = Infinity;
+  for (const k of P.waterKeys) { if (P.mask.get(k) < 0.7) continue; const x = (k % NV) - HALF, z = Math.floor(k / NV) - HALF, d = Math.hypot(x - P.pump.x, z - P.pump.z); if (d < td) { td = d; tgt = { x, z }; } }
+  if (tgt) {
+    const a = new THREE.Vector3(P.pump.x, Math.max(heightAt(P.pump.x, P.pump.z), P.water * VEX) + 0.12, P.pump.z), b = new THREE.Vector3(tgt.x, P.water * VEX + 0.02, tgt.z);
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, a.distanceTo(b), 6), PIPE_MAT);
+    pipe.position.copy(a).add(b).multiplyScalar(0.5); pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    g.add(pipe); P.intake = tgt;
+  }
+  // A few rocks along the shore, and reeds that show in summer.
+  const shore = [...P.mask].filter(([k, v]) => v > 0.2 && v < 0.45).map(([k]) => k);
+  const rnd = (n) => { const s = Math.sin(P.id * 97.3 + n * 12.9898) * 43758.5453; return s - Math.floor(s); };
+  const rocks = [], reeds = [];
+  for (let n = 0; n < Math.min(14, Math.ceil(shore.length / 6)); n++) {
+    const k = shore[Math.floor(rnd(n) * shore.length)], x = (k % NV) - HALF + rnd(n + 50) - 0.5, z = Math.floor(k / NV) - HALF + rnd(n + 90) - 0.5;
+    if (Math.hypot(x - P.pump.x, z - P.pump.z) < 1.5) continue;
+    const s = 0.16 + rnd(n + 7) * 0.22;
+    rocks.push(new THREE.DodecahedronGeometry(s, 0).scale(1, 0.6, 1.2).rotateY(rnd(n + 3) * 6).translate(x, heightAt(x, z) + s * 0.2, z));
+  }
+  for (let n = 0; n < Math.min(40, shore.length); n++) {
+    const k = shore[Math.floor(rnd(n + 200) * shore.length)], x = (k % NV) - HALF + rnd(n + 300) - 0.5, z = Math.floor(k / NV) - HALF + rnd(n + 400) - 0.5;
+    const h = 0.35 + rnd(n + 500) * 0.3;
+    reeds.push(new THREE.ConeGeometry(0.05, h, 3).translate(x, Math.max(heightAt(x, z), P.water * VEX) + h / 2, z));
+  }
+  if (rocks.length) { const m = new THREE.Mesh(mergeGeos(rocks), ROCK_MAT); m.castShadow = true; g.add(m); P.rocks = m; }
+  if (reeds.length) { P.reeds = new THREE.Mesh(mergeGeos(reeds), REED_MAT); g.add(P.reeds); }
+  P.group = g; pondGroup.add(g);
+  world.ponds.push(P);
+  stylePond(P);
+  recolorTerrain(P.box.i0, P.box.j0, P.box.i1, P.box.j1);
+}
+function removePond(P, fill) {
+  pondGroup.remove(P.group); disposeGroup(P.group);
+  world.ponds = world.ponds.filter((o) => o !== P);
+  for (const [idx] of P.mask) PM[idx] = 0;
+  for (const o of world.ponds) for (const [idx, v] of o.mask) PM[idx] = Math.max(PM[idx], v);
+  if (fill && P.orig) { for (const [idx, h] of P.orig) HT[idx] = h; gradeAndRefresh(P.box); }
+  else recolorTerrain(P.box.i0, P.box.j0, P.box.i1, P.box.j1);
+}
+// Open water in summer and thaws; ice, then snow on the ice, when it's cold, with open water by the intake.
+function stylePond(P) {
+  const w = winterView || state.summer ? null : todayWx();
+  let ice = 0;
+  if (winterView) ice = 1;
+  else if (w) { let s = 0; for (const k of P.cells) s += snowCover((keyZ(k) + HALF) * NV + keyX(k) + HALF); ice = sstep(0.35, 0.7, s / P.cells.length) * (w.hi > 45 ? 0.4 : 1); }
+  const snowy = ice > 0.6 && (winterView || (w && w.snow >= 0.5 && w.type !== 'rain') || state.treeSnow > 0.5) ? 0.55 : 0.15;
+  const col = P.waterMesh.geometry.attributes.color.array;
+  P.waterKeys.forEach((k, n) => {
+    const depth = P.water - HT[k], c = [0, 0, 0], t = sstep(0, 0.8, depth);
+    for (let q = 0; q < 3; q++) c[q] = lerp(POND_SHALLOW[q], POND_DEEP[q], t);
+    const x = (k % NV) - HALF, z = Math.floor(k / NV) - HALF;
+    const open = P.intake && P.smRan ? 1 - sstep(0.8, 2.2, Math.hypot(x - P.intake.x, z - P.intake.z)) : 0; // the pump keeps the water moving
+    const ik = ice * (1 - open);
+    for (let q = 0; q < 3; q++) col[n * 3 + q] = lerp(c[q], lerp(POND_ICE[q], POND_SNOWY[q], snowy) - 0.07 * t, ik);
+  });
+  P.waterMesh.geometry.attributes.color.needsUpdate = true;
+  if (P.reeds) P.reeds.visible = !winterView && (state.summer || ice < 0.3);
+}
+function stylePonds() { for (const P of world.ponds) stylePond(P); }
+function pondCellProblem(x, z, blocks) {
+  if (!inProperty(x, z)) return 'outside your property';
+  const b = blocks && blocks.get(cellKey(x, z));
+  if (b) return b;
+  if (roadDist(x, z) < 2.5) return 'too close to the road';
+  if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.8) return 'in the creek';
+  if (sampleGrid(GR, x + HALF, z + HALF) > POND_MAX_GRADE) return 'too steep for a pond';
+  return '';
+}
+function pondDraftInfo() {
+  const cells = [...areaDraft.cells], n = cells.length, treeSet = new Set(), problems = [];
+  for (const k of cells) treesInBrush({ x: keyX(k), z: keyZ(k) }, 0.75, (t) => treeSet.add(t));
+  if (n < POND_MIN_CELLS) problems.push('Paint a bigger pond: at least about 0.4 acres.');
+  // one connected pond
+  const seen = new Set([cells[0]]), q = [cells[0]];
+  while (q.length) { const k = q.pop(), x = keyX(k), z = keyZ(k); for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const o = cellKey(x + dx, z + dz); if (areaDraft.cells.has(o) && !seen.has(o)) { seen.add(o); q.push(o); } } }
+  if (seen.size < n) problems.push('Paint one connected pond.');
+  const dig = n * POND_CELL_COST;
+  return { pond: true, n, treeSet, problems, dig, cost: dig + PUMPHOUSE_COST + treeSet.size * TREE_COST, guns: Math.round(n * POND_GUNS_CELL) };
+}
+function commitPond(info) {
+  pushUndo('digging a snowmaking pond');
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  const used = new Set(world.ponds.map((P) => P.name));
+  const P = { id: world.nextId++, name: pickFree(POND_NAMES, used) || `Pond ${world.ponds.length + 1}`, cells: [...areaDraft.cells], cost: info.cost };
+  P.set = new Set(P.cells);
+  digPond(P);
+  clearAreaDraft();
+  addPond(P);
+  gradeAndRefresh(P.box);
+  updateCash(true); scheduleSave();
+  toast(`Dug ${P.name} · −${money(info.cost)}. It adds ${pondGunsOf(P)} snow guns of cheaper water.`);
+  setTool('explore');
+  select({ kind: 'pond', obj: P });
+}
+function openPondTool() {
+  if (visiting) return;
+  if (!pondsHere()) { toast('Snowmaking ponds aren’t in King of the Mountain yet.', true); return; }
+  if (!shut()) { toast('Ponds are dug overnight, while the resort is closed.', true); return; }
+  clearAreaDraft(); state.landMode = 'pond'; setTool('clear'); $('sizes').hidden = false;
+}
+function pondPaintSheet() {
+  const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash;
+  return `<div class="sheet-title"><h3>New snowmaking pond</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <p class="help">Paint fairly flat ground away from trails, the road and buildings. The pond is dug with a pumphouse on its bank. It adds water for ${POND_GUNS_CELL * 40 | 0} snow guns an acre, at about ${Math.round((1 - POND_PRICE) * 100)}% less than village water.</p>
+    <div class="seg" role="group" aria-label="Brush"><button data-action="areaErase" data-v="0" aria-pressed="${!erase}">Paint</button><button data-action="areaErase" data-v="1" aria-pressed="${erase}">Erase</button></div>
+    ${info ? `<dl class="kv"><div><dt>Size</dt><dd>${fmtAcres(acresOf(info.n), 1)}</dd></div><div><dt>Adds</dt><dd>${info.guns} snow guns</dd></div></dl>
+    ${problemsHtml(info.problems)}
+    <div class="costs"><span>Digging</span><span>${money(info.dig)}</span><span>Pumphouse</span><span>${money(PUMPHOUSE_COST)}</span>${info.treeSet.size ? `<span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>` : ''}</div>
+    <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Dig it · ${money(info.cost)}`}</button></div>` : ''}
+    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+}
+function pondSheet(P) {
+  const nc = state.nightCost || {};
+  return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(0x3f7fa6)}"></span><h3>${esc(P.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">Snowmaking pond · ${fmtAcres(acresOf(P.cells.length), 1)}. Its pumphouse supplies ${pondGunsOf(P)} snow guns, at about ${Math.round((1 - POND_PRICE) * 100)}% less than village water.</p>
+    ${waterKv()}
+    ${nc.want > nc.ran ? `<p class="conn warn">Last night ${nc.want} guns wanted to run and there was water for ${nc.ran}.</p>` : ''}
+    ${sheetConfirm ? `<div class="confirm-box"><p>Fill in ${esc(P.name)}? The ground goes back as it was. There’s no refund.</p><div class="row"><button class="btn secondary" data-action="removeNo">Keep it</button><button class="btn danger" data-action="removeYes">Fill it in</button></div></div>`
+      : `<button class="link" data-action="remove" ${shut() ? '' : 'disabled'}>Fill in the pond</button>`}`;
+}
+function waterKv() {
+  const g = smGunsInstalled(), cap = waterGuns();
+  return `<dl class="kv"><div><dt>Village water</dt><dd>${MOUNTAIN.match ? 'no limit' : `${VILLAGE_GUNS} guns`}</dd></div><div><dt>Ponds</dt><dd>${pondGuns()} guns</dd></div><div><dt>Your snow guns</dt><dd>${g}${Number.isFinite(cap) && g > cap ? ` <span class="muted">(${Math.round(cap / g * 100)}% each)</span>` : ''}</dd></div></dl>`;
+}
+function waterSection() {
+  if (visiting) return '';
+  const nc = state.nightCost || {}, short = nc.want > nc.ran;
+  return `<div class="field-label">Snowmaking water</div>
+    ${waterKv()}
+    <p class="help">${MOUNTAIN.match ? 'In King of the Mountain, village water has no limit for now.' : `Village water runs up to ${VILLAGE_GUNS} snow guns a night. A snowmaking pond adds more guns, and its water costs about ${Math.round((1 - POND_PRICE) * 100)}% less. When more guns want to run than there’s water for, each makes its share of snow.`}${short ? ` Last night ${nc.want} guns wanted to run and there was water for ${nc.ran}.` : ''}</p>
+    ${pondsHere() ? `<button class="btn secondary" data-action="pondTool" ${shut() ? '' : 'disabled'}>${shut() ? 'Dig a snowmaking pond' : 'Dig a pond overnight'}</button>` : ''}`;
 }
 
 /* ---------- Visual state: bare ground, snowy trees, roofs, ribbons ---------- */
@@ -17448,6 +17712,7 @@ function styleSnowVisuals() {
   } else TREE_U.uSnowLine.value = winterView ? -100 : 999;
   for (const t of world.trails) styleTrail(t);
   for (const a of world.areas) styleArea(a);
+  stylePonds();
   recolorTerrain(0, 0, WN, WN);
   applyWeatherLook();
 }
@@ -17939,6 +18204,7 @@ function weatherSheet(noHead) {
     <p class="help">${sm.smTrails ? `Snowmaking ran on ${sm.smTrails} ${sm.smTrails === 1 ? 'trail' : 'trails'} last night for ${money(sm.snowmaking || 0)}.` : 'No snowmaking ran last night.'}${sm.tooWarm && !gunsPacked() ? ` It was too warm to make snow on ${sm.tooWarm}.` : ''}
       Snowmaking needs about ${tempF(28)} or colder. Trails need ${inch(OPEN_NEED[0])} of base to open, and black diamonds need ${inch(OPEN_NEED[2])}.
       ${spring ? ` ${springOld() ? `Spring bonus days continue while the average trail base stays at ${inch(SPRING_MIN_BASE)} or more, until May 31.` : `Spring bonus days continue while a lift from the base and trails with enough snow still bring skiers back to the base, until May 31.${springLoop() ? '' : ' Right now none do, so the season ends tonight.'}`}${gunsPacked() ? ' Snowmaking is off for the season, so May runs on the snow that’s left.' : ' Snowmaking stops after April 30.'}` : ''}</p>
+    ${waterSection()}
     ${baseSnowSection()}
     ${state.phase === 'closed' && !visiting ? `<div class="field-label">Stay closed</div>
       <button class="btn secondary" data-action="waitWeek">Stay closed for a week</button>
@@ -18618,6 +18884,7 @@ function gradeAndRefresh(res, skip) {
 /* ---------- Level ground brush strokes ---------- */
 function levelAt(p) {
   if (!inProperty(p.x, p.z)) return;
+  if (world.ponds.length && world.ponds.some((P) => P.cells.some((k) => Math.hypot(keyX(k) - p.x, keyZ(k) - p.z) < state.brushR + 1.5))) return; // leave a pond's banks alone
   const r = state.brushR;
   const est = levelBrush(p, r, stroke.target, 0.4, true);
   const treeSet = new Set();
@@ -18731,6 +18998,7 @@ function levelDraftHtml() {
 function landSheet() {
   const hub = state.landMode === 'hub';
   if (hub) return hubPaintSheet();
+  if (state.landMode === 'pond') return pondPaintSheet();
   const lvl = state.landMode === 'level', area = state.landMode === 'area', doze = state.landMode === 'doze', plant = state.landMode === 'plant', glade = state.landMode === 'glade';
   const head = area || glade ? `<div class="sheet-title"><h3>${glade ? 'New glade' : 'New learning area'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>${TRAIL_MODES(glade ? 'glade' : 'area')}`
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
@@ -23989,6 +24257,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.10', date: 'Nov 6, 2026', title: 'Snowmaking ponds', items: [
+    'Snowmaking now needs water. Village water runs up to 120 snow guns a night. When more guns want to run than that, each makes its share of snow.',
+    'Dig a snowmaking pond for more: paint it on fairly flat ground (Manage › Snow › Dig a snowmaking pond). Each acre adds water for 60 more guns, and pond water costs about 45% less to pump.',
+    'Ponds are dug into the ground with a pumphouse on the bank. They freeze and gather snow in the cold, keep open water by the pump while it runs, and have reeds in summer.',
+    'Manage › Snow shows your water and how many guns it covers. Fill a pond back in from its card. King of the Mountain has no water limit for now.'] },
   { v: '3.9', date: 'Nov 6, 2026', title: 'Try leveling before you keep it', items: [
     'Leveling ground is now a draft. Your changes show straight away, red-brown where ground is dug out and gold where it’s built up, with the price so far.',
     'Undo one stroke at a time, flip between Before and After, or Put it all back to return the ground, trees and money exactly as they were. Press Keep it when you’re happy.',
