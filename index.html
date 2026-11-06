@@ -12349,13 +12349,15 @@ function updateNightLights() {
 // Night light that actually lights things: every lamp, fire pit, open door, lit parking section and
 // trail light paints a warm patch into a map of the whole mountain, seen from above. After dark, the
 // snow, buildings, trees, skiers and cars under a patch are lit by it.
-const LM_PX = 1024;
+// On a match map it covers the ground past the edge too (your rivals' land), at the same detail. It used to cover
+// only your own square, and the ground past it took the map's edge, smeared out into long bright stripes.
+const LM_PX = 1024, LM_X = HALF + FAR_X, LM_Z = HALF + FAR_Z, LM_K = Math.min(LM_PX / (2 * HALF), 4096 / (2 * Math.max(LM_X, LM_Z)));
 const lmCanvas = document.createElement('canvas');
-lmCanvas.width = lmCanvas.height = LM_PX;
+lmCanvas.width = Math.round(2 * LM_X * LM_K); lmCanvas.height = Math.round(2 * LM_Z * LM_K);
 const lmCtx = lmCanvas.getContext('2d');
 const lightTex = new THREE.CanvasTexture(lmCanvas);
 lightTex.flipY = false; // canvas rows run with world z
-const MM_LIGHT = { map: { value: lightTex }, night: { value: 0 }, box: { value: new THREE.Vector4(-HALF, -HALF, 2 * HALF, 2 * HALF) } };
+const MM_LIGHT = { map: { value: lightTex }, night: { value: 0 }, box: { value: new THREE.Vector4(-LM_X, -LM_Z, 2 * LM_X, 2 * LM_Z) } };
 // Buildings (`low`) take it only near the ground: decks and the foot of the walls, not the roofs.
 function nightLit(mat, low) {
   if (mat.userData.mmLit) return;
@@ -12373,7 +12375,7 @@ function nightLit(mat, low) {
   #endif
     vMmW = (modelMatrix * mw).xyz; }`);
     sh.fragmentShader = 'varying vec3 vMmW;\nvarying float vMmH;\nuniform sampler2D mmLightMap;\nuniform float mmNight;\nuniform vec4 mmBox;\n' + sh.fragmentShader.replace('gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-      `outgoingLight += (diffuseColor.rgb * 0.7 + 0.12) * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5${low ? ' * (1.0 - smoothstep(0.25, 0.95, vMmH))' : ''}; // dark wood catches some warm light too
+      `outgoingLight += (diffuseColor.rgb * 0.7 + 0.12) * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5 * step(abs((vMmW.x - mmBox.x) / mmBox.z - 0.5), 0.5) * step(abs((vMmW.z - mmBox.y) / mmBox.w - 0.5), 0.5)${low ? ' * (1.0 - smoothstep(0.25, 0.95, vMmH))' : ''}; // dark wood catches some warm light too
 gl_FragColor = vec4( outgoingLight, diffuseColor.a );`);
   };
   mat.customProgramCacheKey = () => base + (low ? '|mmlitb' : '|mmlit');
@@ -12387,11 +12389,11 @@ function patchNightMaterials() {
   });
 }
 function drawLightMap() {
-  const c = lmCtx, k = LM_PX / (2 * HALF);
-  c.globalCompositeOperation = 'source-over'; c.fillStyle = '#000'; c.fillRect(0, 0, LM_PX, LM_PX);
+  const c = lmCtx, k = LM_K;
+  c.globalCompositeOperation = 'source-over'; c.fillStyle = '#000'; c.fillRect(0, 0, lmCanvas.width, lmCanvas.height);
   c.globalCompositeOperation = 'lighter';
   const spot = (x, z, r, rgb, a) => {
-    const px = (x + HALF) * k, pz = (z + HALF) * k, pr = r * k, g = c.createRadialGradient(px, pz, 0, px, pz, pr);
+    const px = (x + LM_X) * k, pz = (z + LM_Z) * k, pr = r * k, g = c.createRadialGradient(px, pz, 0, px, pz, pr);
     g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.45, `rgba(${rgb},${a * 0.55})`); g.addColorStop(1, `rgba(${rgb},0)`);
     c.fillStyle = g; c.fillRect(px - pr, pz - pr, pr * 2, pr * 2);
   };
@@ -23864,6 +23866,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.8.3', date: 'Nov 6, 2026', title: 'Night lights across the ridge', kotm: true, small: true, items: [
+    'King of the Mountain: fixed long bright stripes across your rivals’ valleys at night. The glow from lit trails, lamps and buildings now stays where the lights are, on every slice and valley, and your rivals’ own lights show on their side of the mountain.'] },
   { v: '3.8.2', date: 'Nov 6, 2026', title: 'Guest areas round a lift station', small: true, items: [
     'Fixed: a guest area painted round a lift’s top station, but not over the square the station stands on, took the trails starting there, and the lift stopped running with “No trails leave the top station”. A station right at the edge of a guest area now belongs to it. Thanks Snowy!',
     'Fixed: King of the Mountain: changing a guest area by only erasing part of it wasn’t sent to the match server, so it went back to how it was. Thanks Snowy!'] },
