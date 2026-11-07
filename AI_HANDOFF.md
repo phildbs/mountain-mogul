@@ -429,6 +429,10 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Phil, Nov 7: mountains and valley to the edge of what's drawn. Past each end of a side (`VALLEY.s`), `range` repeats
   the mountain shape (`fe`, the same width as a slice's face, out of sight) at 88% height, instead of easing down.
   No change inside the slices.
+- Phil, Nov 7: make the land past the ends buyable. Each slice's `parcels` add three plots (lower, middle, upper, ~62
+  acres each, 18–27% grade) on the mountainside past its outer end, `VALLEY.far` (0.29) wide, up to the crest: the
+  next scenery mountain's face. The viewer colours steepness on them (`viewLand`) but keeps their woods thin (trees:
+  ~88k). `farX` 112 so the far south-east plots sit clear of the edge fade.
 - Creeks: new map fields `creeks: [[points, width], ...]` and `creekW` (the river is 1.6 creeks wide: CREEKD is
   measured in widths, so the carve, water colour, bridges and tree clearing all scale). `groundAt` takes the nearest.
   Six creeks: one between the two mountains on each side, one down each outer side, each across the floor to the river.

@@ -88,7 +88,8 @@ export default async function ({ browser, url }) {
   assert(y.acres[0] > 450 && y.top.every((a) => a >= 40), `every slice is wide (${y.acres[0]} acres) with a flat summit (${y.top} acres)`);
   eq(y.runs.map((x) => x.slice(0, 4)), [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every summit, the far side too');
   assert(y.runs.every((x) => x[4] > 7000), `the greens are long (${y.runs.map((x) => x[4])} ft)`);
-  eq(y.land, [0, 1, 2, 3].map(() => [[16, true], [16, true]]), 'two flat parcels for sale below every slice, on both sides of the valley');
+  eq(y.land.map((l) => l.slice(0, 2)), [0, 1, 2, 3].map(() => [[16, true], [16, true]]), 'two flat parcels for sale below every slice, on both sides of the valley');
+  eq(y.land.map((l) => l.slice(2).map(([a]) => a)), [0, 1, 2, 3].map(() => [62, 62, 62]), 'and the mountainside past each end of the valley, in three plots, beside each end slice');
   assert(y.lots.every(([a, b]) => a === 4 && b === 4), `4 + 4 parking sections on every slice, clear of the creek, the far side's turned round (${JSON.stringify(y.lots)})`);
   assert(Math.max(...y.trees) / Math.min(...y.trees) < 1.05, `every slice has about as many trees (${y.trees})`);
   eq(y.dry, [true, true, true, true], 'no base road crosses the river');

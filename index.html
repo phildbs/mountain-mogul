@@ -2687,7 +2687,7 @@ MATCH_MAPS.ridge = {
 // side, and across the valley floor into the river: every slice has the same, a creek down each side of its face.
 // The river weaves across the road between the bases, never under a base road.
 // Slices: 0 north-west, 1 north-east, 2 south-east, 3 south-west (round the valley).
-const VALLEY = { c: 0.5, edge: 0.18, k: 1.09, b: [-0.18, 0.4, 0.98], s: [-0.35, 0.4, 1.15], crest: 1.0, top: 0.94, base: 0.065, amp: 0.045,
+const VALLEY = { c: 0.5, edge: 0.18, k: 1.09, b: [-0.18, 0.4, 0.98], s: [-0.35, 0.4, 1.15], far: 0.29, crest: 1.0, top: 0.94, base: 0.065, amp: 0.045,
   // each slice's steep ground (as Ridgeline's): [slice, local u, half-width, from v, to v, drop], on its outer side
   pitches: [[0, -0.01, 0.05, 0.27, 0.36, 4], [1, 0.83, 0.05, 0.67, 0.82, 5], [2, -0.01, 0.055, 0.45, 0.56, 4.5], [3, 0.81, 0.05, 0.51, 0.6, 4]],
   uv: (k, lu, lv) => (k < 2 ? [lu, VALLEY.c + VALLEY.edge + lv] : [VALLEY.k - lu, VALLEY.c - VALLEY.edge - lv]), // slice k's local u, v on the map
@@ -2715,14 +2715,19 @@ MATCH_MAPS.valley = {
   summits: [0, 1, 2, 3].map((k) => VALLEY.uv(k, (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, VALLEY.top)),
   // the valley floor below each slice down toward the road, either side of its base road (as Ridgeline's), named as
   // that resort's owner sees them (the south side's west is the map's east)
-  parcels: [0, 1, 2, 3].map((k) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, a = c - 0.25, b = c + 0.25;
-    return [[a, c], [c, b]].map(([l0, l1], i) => { const [p, q] = [VALLEY.uv(k, l0, -0.1), VALLEY.uv(k, l1, 0)];
-      return { name: i ? 'East' : 'West', u0: Math.min(p[0], q[0]), u1: Math.max(p[0], q[0]), v0: Math.min(p[1], q[1]), v1: Math.max(p[1], q[1]) }; }); }),
+  // And the mountainside past each end of the valley, beside the slice at that end: the next mountain's face up to
+  // its summit line (VALLEY.far wide), in three plots from the foot to the crest, so it can be bought a piece at a time.
+  parcels: [0, 1, 2, 3].map((k) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, S = VALLEY.s, F = VALLEY.far, out = k % 2 ? [S[2], S[2] + F] : [S[0] - F, S[0]];
+    const rect = (name, l0, l1, w0, w1) => { const [p, q] = [VALLEY.uv(k, l0, w0), VALLEY.uv(k, l1, w1)];
+      return { name, u0: Math.min(p[0], q[0]), u1: Math.max(p[0], q[0]), v0: Math.min(p[1], q[1]), v1: Math.max(p[1], q[1]) }; };
+    const side = k % 2 ? 'Far east' : 'Far west', t = VALLEY.crest + 0.03;
+    return [rect('West', c - 0.25, c, -0.1, 0), rect('East', c, c + 0.25, -0.1, 0),
+      ...[['lower', 0, t / 3], ['middle', t / 3, 2 * t / 3], ['upper', 2 * t / 3, t]].map(([b, w0, w1]) => rect(`${side} ${b}`, out[0], out[1], w0, w1))]; }),
   runTurns: 0.11,
   runLanes: VALLEY.pitches.map(([k, pu]) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2; return VALLEY.uv(k, c - Math.sign(pu - c) * 0.05, 0)[0]; }),
   blackRuns: VALLEY.pitches.map(([k, pu, , v1, v2]) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, T = VALLEY.top;
     return [[c, T - 0.04], [lerp(c, pu, 0.7), Math.min(T - 0.1, v2 + 0.06)], [pu, (v1 + v2) / 2], [lerp(c, pu, 0.4), v1 - 0.1], [c, VALLEY.base + 0.04]].map(([u, v]) => VALLEY.uv(k, u, v)); }),
-  viewCentre: [0.545, 0.5], viewSpan: 420, viewAz: 0.2, farX: 92, farZ: 128, // the far ring reaches both crests and the ends of the valley
+  viewCentre: [0.545, 0.5], viewSpan: 460, viewAz: 0.2, farX: 112, farZ: 128, // the far ring reaches both crests and the ends of the valley
   get area() { return this.sliceAreas[1]; },
   // every slice's forest evened out, as Ridgeline's (see its treeK): expected trees per slice from a coarse sample
   treeK(u, v) {
@@ -3070,6 +3075,10 @@ function inPoly(P, gx, gz) {
   return inside;
 }
 function sliceAt(gx, gz) { for (let k = 0; k < SLICES.length; k++) if (inPoly(SLICES[k], gx, gz)) return k; return -1; }
+// The map viewer: land for sale (MOUNTAIN.parcels, in grid coordinates) gets steepness colours like a slice (its woods stay
+// the scenery's thinner ones: the viewer draws enough trees for a phone already).
+const VIEW_SALE = MAP_VIEW && MOUNTAIN.parcels ? MOUNTAIN.parcels.flat().map((P) => ({ i0: PLAY0 + P.u0 * PN, i1: PLAY0 + P.u1 * PN, j0: PLAY1 - P.v1 * PN, j1: PLAY1 - P.v0 * PN })) : [];
+const viewLand = (gx, gz) => sliceAt(gx, gz) >= 0 || VIEW_SALE.some((p) => inRect(p, gx, gz));
 
 const trees = {};
 // The ground at (u, v): the mountain's shape, the road bed and the creek. Also how far the road and creek are.
@@ -3389,7 +3398,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
-    if (overlay.slope && (MAP_VIEW ? sliceAt(i, j) >= 0 : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
+    if (overlay.slope && (MAP_VIEW ? viewLand(i, j) : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
     if (levelDraft && !levelDraft.before) { const d = h - levelDraft.ht0[idx]; if (Math.abs(d) > 0.03) mix(d < 0 ? COL.dug : COL.built, Math.min(0.6, 0.18 + Math.abs(d) * 0.3)); }
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
@@ -3503,7 +3512,7 @@ function recolorFar() {
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
-    if (overlay.slope && MAP_VIEW && sliceAt(gx, gz) >= 0) mix(DIFF[difficulty(g)].col, 0.72); // the viewer: rivals' slices reach out here
+    if (overlay.slope && MAP_VIEW && viewLand(gx, gz)) mix(DIFF[difficulty(g)].col, 0.72); // the viewer: rivals' slices reach out here
     col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
   }
   farGeo.attributes.color.needsUpdate = true;
@@ -23703,7 +23712,7 @@ function viewPanel() {
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
       ${lots[k] ? `<small>Parking: first row ${lots[k].free} sections (${lots[k].free * SPACES_PER_SECTION} spaces) on your own land; a second row of ${lots[k].bought} on the land for sale</small>` : ''}
-      ${land[k] ? `<small>Land for sale below: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
+      ${land[k] ? `<small>Land for sale: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
       ${runs[k] ? `<small class="vrun">${Object.keys(runs[k]).map((kind) => runLine(runs[k], kind)).join('<br>')}</small>` : ''}</div>`).join('');
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'mapView';
