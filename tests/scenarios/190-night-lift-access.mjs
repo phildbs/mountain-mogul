@@ -30,6 +30,16 @@ export default async function ({ browser, url }) {
     const b = document.querySelector('#sheet .link.back'); if (!b) return 'no back button';
     b.click(); return [b.textContent.trim(), selected && selected.kind, selected && selected.obj]; })()`);
   eq(back, ['‹ Trails', 'manage', 'trails'], 'a gladed run opened from the Trails list goes back to it');
+  // Adum888 (Nov 7): canLoad asks liftLit for every guest at a lift, and big night-skiing resorts crawled while each ask
+  // checked every trail and the lift network was worked out again each game minute. Now it's worked out only on a change.
+  const work = await g.ev(`(() => { for (const k of Object.keys(state.ops.plans)) state.ops.plans[k].night = 1260;
+    state.day = 41; openDay(); state.speed = 0; let n = 0; while (state.time < 1000 && n++ < 90000) simStep(1.5);
+    const was = flowSets; let calls = 0; flowSets = (...a) => { calls++; return was(...a); };
+    try { for (let s = 0; s < 400; s++) simStep(1.5); const quiet = calls; realTrails()[0].lit = !realTrails()[0].lit; simStep(1.5);
+      return { night: nightNow(), quiet, afterToggle: calls - quiet }; } finally { flowSets = was; } })()`);
+  eq(work.night, true, 'night skiing is on');
+  eq(work.quiet, 0, 'ten game minutes of night skiing with nothing changed: the night lifts are not worked out again');
+  assert(work.afterToggle >= 1, `switching a trail's lights works them out again (${work.afterToggle})`);
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

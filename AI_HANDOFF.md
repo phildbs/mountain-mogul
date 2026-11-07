@@ -239,6 +239,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `claude/new-session-anw9g3` | Claude | **3.14.1** (not published): night lifts worked out once per sim step and only on a change (Adum888: big resorts slow skipping to the end of the day). | Nov 7, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
@@ -411,6 +412,18 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-07 · Claude · 3.14.1: night lift check made big resorts crawl at night (not published)
+
+- Adum888, Granite Ridge (Ridgeback, 16 lifts, 40 trails, 34 lit, night to 9 PM, ~8,400 guests): slow skipping to the
+  end of the day. Cause: 3.13.2's `liftLit` is asked by `canLoad` for every guest at a lift; it re-ran `flowSets` (up to
+  10 rounds) every game minute, and 11655f4 added a loop over every trail on each ask. bigBuild (26 lifts, 110 lit
+  trails), one hour of night skiing: 580 s on 3ce5d59, 4.4 s now; the whole day with evening about 60 s, no errors.
+- Now: within a sim step (`xStep`, new `simTick`) the answer is reused; otherwise the trail hash is checked and the
+  set is rebuilt only when it or `netGen` (new, counted in `computeNetwork`) or the day changes. No time in the key.
+  Scenario 190 counts `flowSets` calls over 400 night steps (0) and after a lights toggle (1+); it fails on 3ce5d59.
+- Lesson: anything `canLoad`, `stepLift` or guest decisions call runs thousands of times a step; benchmark night
+  skiing on bigBuild with lit trails, not just the day.
 
 ### 2026-11-07 · Claude · Willow Valley, a valley map from Phil's sketch (`?mapView=valley`, not published)
 
