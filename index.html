@@ -2154,7 +2154,7 @@ const BOOT = (() => { try { return JSON.parse(sessionStorage.getItem(BOOT_KEY)) 
 try { sessionStorage.removeItem(BOOT_KEY); } catch (e) { /* ignore */ }
 function bootMountainId() {
   if (MAP_VIEW) return MATCH_MAPS[MAP_VIEW] ? MAP_VIEW : 'match';
-  if (MATCH_PREVIEW) { const id = MATCH_Q('matchMap') || MATCH_Q('matchDemo'); return id === 'ridge' ? 'ridge@1' : mountainDef(id).match ? id : 'match'; }
+  if (MATCH_PREVIEW) { const id = MATCH_Q('matchMap') || MATCH_Q('matchDemo'); return id === 'ridge' || (MATCH_MAPS[id] && MATCH_MAPS[id].turns) ? `${id}@1` : mountainDef(id).match ? id : 'match'; }
   if (BOOT.mt) return BOOT.mt;
   try {
     const s = JSON.parse(localStorage.getItem(SLOTS_KEY));
@@ -2677,64 +2677,122 @@ MATCH_MAPS.ridge = {
     return h;
   },
 };
-// Mount Ember (draft, only in the map viewer and the match demo for now): a giant volcano shared by up to four
-// resorts, each with a quarter of the cone from its own base up to its own stretch of the crater rim. The crater
-// belongs to nobody: out of bounds, with a hot lake, as on real volcanoes with ski areas (Ruapehu has two, on
-// opposite sides). Like Crown Peak the cone is the same all the way round and each slice mirrors about its middle,
-// so every player gets the same ground. Its profile is a real volcano's: steep under the rim, flaring out gently
-// towards the base, so on every slice the blacks are up high and the greens low down.
+// Mount Ember (draft, only in the map viewer and the match demo for now): a giant volcano shared by two, three or
+// four resorts, cut into halves, thirds or quarters (volcano2, volcano3, volcano4), each slice from its own base up
+// to its own stretch of the crater rim. The crater belongs to nobody: out of bounds, with a hot lake, as on real
+// volcanoes with ski areas (Ruapehu has two, on opposite sides). The cone's shape is the same all the way round: a
+// real volcano's profile, steep under the rim and flaring out gently towards the base, so on every slice the blacks
+// are up high and the greens low down. Its ribs, gullies, bare rock and woods are natural rather than mirrored, so
+// the slices are about as good as each other, not copies (the viewer's numbers), and each has one old cinder cone.
+// Each player's game turns the whole mountain so their own base is in front (roundFrame), so all see the same one.
 // rim: the crater's edge; inner: where each slice's land starts; shelf: the flat ground below the rim for the
-// summit stations; foot: where the cone meets the valley; H: the cone's height.
-const VOLC = { c: [0.5, 0.86], n: 4, rim: 0.09, inner: 0.105, shelf: 0.17, foot: 0.8, H: 36, crater: 9 };
+// summit stations; foot: where the cone meets the valley; H: the cone's height; crater: how deep it is.
+const VOLC = { c: [0.5, 0.86], rim: 0.075, inner: 0.14, shelf: 0.2, foot: 0.8, H: 36, crater: 8, seed: 4417 };
 const volcDir = (a, r) => [VOLC.c[0] + r * Math.sin(a), VOLC.c[1] - r * Math.cos(a)];
-// A spot folded onto one half of one slice: the same on every slice, mirrored about its middle. [across, along, r, angle]
-const volcFold = (u, v) => { const dx = u - VOLC.c[0], dy = v - VOLC.c[1], r = Math.hypot(dx, dy), sec = 2 * Math.PI / VOLC.n;
-  const b = Math.abs(((Math.atan2(dx, -dy) + sec / 2) % sec + sec) % sec - sec / 2); return [r * Math.sin(b), r * Math.cos(b), r, b]; };
-MATCH_MAPS.volcano = {
-  id: 'volcano',
-  name: 'Mount Ember',
-  match: true, slices: VOLC.n, draft: true, hub: VOLC, crater: true,
-  level: 'Advanced', dot: 'var(--black)',
-  blurb: 'A giant volcano shared by up to four resorts, each with a quarter of the cone up to its own stretch of the crater rim.',
-  cash: 2500000,
-  weather: { storm: 1, wind: 1.2, warm: 1 },
-  skiers: [0.33, 0.35, 0.22, 0.1],
-  draw: 1, costs: 1,
-  seed: 4417,
-  baseFt: 3000,
-  treeline: 23, // the upper cone stands bare: ash, rock and snow
-  area: (() => { const w = Math.PI / VOLC.n, t = (1 - VOLC.c[0]) / Math.sin(w); // from the crater's edge out along both edges to the property line
-    return [volcDir(-w, VOLC.inner), volcDir(w, VOLC.inner), volcDir(w, t), [1, 0], [0, 0], volcDir(-w, t)]; })(),
-  road: catmull([[0.56, -0.34], [0.53, -0.16], [0.5, -0.04], [0.49, 0.055]], 10),
-  creek: catmull([[-0.04, 0.22], [-0.1, 0.06], [-0.18, -0.1], [-0.36, -0.3]], 10),
-  // the rivals' bases sit further out than on Crown Peak: the one opposite is past the far side of the cone
-  farX: 76, farZ: 116, viewSpan: 340,
-  // the example runs the viewer lays on slice 1 (the same on every slice): from the shelf below the rim to the base,
-  // zig-zagging round the cone
-  runTop: [0.5, 0.86 - 0.16], runTurns: 0.5, // turning back this far (radians) either side of the slice's middle
-  forestUV: (u, v) => volcFold(u, v), // the same woods on every slice, as the ground is
-  height(u, v) {
-    const s = this.seed, sec = 2 * Math.PI / VOLC.n, [px, py, r, b] = volcFold(u, v); // the same spot on every slice, mirrored about its middle
-    let h = 2 + 0.6 * fbm(px * 3, py * 3, s + 1, 3);
-    // The cone: rounded off into a flat shelf below the rim (no lip), steepest just below it, flaring out to the foot.
-    const x = clamp((r - VOLC.shelf) / (VOLC.foot - VOLC.shelf), 0, 1), k = 0.2, xr = (x < k ? x * x / (2 * k) : x - k / 2) / (1 - k / 2);
-    h += VOLC.H * Math.pow(1 - xr, 1.8);
-    // The rim: a low lip round the crater, then sheer walls down to its floor and the lake.
-    h += 2 * Math.exp(-(((r - VOLC.rim) / 0.02) ** 2)) - VOLC.crater * (1 - sstep(VOLC.rim - 0.03, VOLC.rim, r));
-    // A ridge down each edge between slices, fading out before the shelf and the base.
-    const edge = r * Math.sin(Math.max(0, sec / 2 - b));
-    h += 5 * Math.exp(-((edge / 0.05) ** 2)) * sstep(VOLC.shelf + 0.03, VOLC.shelf + 0.14, r) * (1 - sstep(0.5, VOLC.foot, r));
-    // Lava ribs and gullies running straight down the flanks; the shelf and the valley floor stay smooth.
-    const flank = sstep(VOLC.shelf + 0.01, VOLC.shelf + 0.09, r) * (1 - sstep(VOLC.foot - 0.14, VOLC.foot, r));
-    h += flank * (1.0 * ridged(b * 7, r * 2.4, s + 9, 3) + 1.0 * fbm(px * 6, py * 6, s + 5, 4) - 0.6);
-    // Two old cinder cones low on each slice, either side of its middle.
-    const cd = Math.hypot(px - 0.62 * Math.sin(0.5), py - 0.62 * Math.cos(0.5));
-    h += 4.5 * Math.exp(-((cd / 0.045) ** 2)) - 1.6 * Math.exp(-((cd / 0.014) ** 2));
-    // Wooded hills far out round the valley.
-    h += 8 * sstep(0.98, 1.35, r) * (0.6 + 0.6 * fbm(px * 4, py * 4, s + 13, 3));
-    return h;
-  },
-};
+// Noise read round the cone (x: the angle times k, y as given), seamless: two copies with their seams on opposite
+// sides of the mountain, each used away from its seam.
+const roundNoise = (f, th, y, k) => { const w = sstep(-0.35, 0.35, Math.cos(th)); return w * f(th * k, y) + (1 - w) * f((th < 0 ? th + 2 * Math.PI : th) * k + 37.3, y); };
+// The lava ribs and gullies running straight down the cone, wandering a little: 0 in a gully, 1 on a rib's crest.
+const volcRib = (th, r) => roundNoise((x, y) => ridged(x + 0.7 * fbm(x * 0.4, y * 2, VOLC.seed + 71, 2), y, VOLC.seed + 9, 3), th, r * 2.4, 7);
+function volcanoMap(n) {
+  const A = 2 * Math.PI / n, w = Math.PI / n, s = VOLC.seed;
+  // a spot on the first slice (the one in front) turned onto slice k, in u, v, as the viewer and drawRivals turn them
+  const turn = (u, v, k) => { const c = Math.cos(k * A), sn = Math.sin(k * A), du = u - VOLC.c[0], dv = v - VOLC.c[1]; return [VOLC.c[0] + du * c + dv * sn, VOLC.c[1] + dv * c - du * sn]; };
+  // which slice a spot is nearest the middle of (k), and the next one round (k2), with how far across to it (0 to 1)
+  const between = (th) => { const q = -th / A, k = Math.floor(q); return [((k % n) + n) % n, (((k + 1) % n) + n) % n, q - k]; };
+  // each slice's cinder cone, low down and off to one side of its middle (alternate sides)
+  const cones = Array.from({ length: n }, (_, k) => { const off = (k % 2 ? 1 : -1) * (0.35 + 0.25 * hash2(k, n, s)) * w, r = 0.58 + 0.06 * hash2(k, n, s + 1);
+    return turn(...volcDir(off, r), k); });
+  const t = (1 - VOLC.c[0]) / Math.sin(w), arc = Array.from({ length: 9 }, (_, i) => volcDir(-w + 2 * w * i / 8, VOLC.inner)); // from the crater's edge out along both edges to the property line
+  const M = {
+    id: `volcano${n}`,
+    name: 'Mount Ember', label: `Mount Ember, ${n} resorts`,
+    match: true, slices: n, draft: true, hub: { ...VOLC, n }, crater: true, turns: true,
+    level: 'Advanced', dot: 'var(--black)',
+    blurb: `A giant volcano shared by ${n} resorts, each with ${['', '', 'half', 'a third', 'a quarter'][n]} of the cone up to its own stretch of the crater rim.`,
+    cash: 2500000,
+    weather: { storm: 1, wind: 1.2, warm: 1 },
+    skiers: [0.33, 0.35, 0.22, 0.1],
+    draw: 1, costs: 1,
+    seed: s,
+    baseFt: 3000,
+    treeline: 23, // the upper cone stands bare: rock, ash and snow
+    area: [...arc, volcDir(w, t), [1, 0], [0, 0], volcDir(-w, t)].map(([u, v]) => [clamp(u, 0, 1), v]),
+    road: catmull([[0.56, -0.34], [0.53, -0.16], [0.5, -0.04], [0.49, 0.055]], 10),
+    creek: catmull([[-0.04, 0.22], [-0.1, 0.06], [-0.18, -0.1], [-0.36, -0.3]], 10),
+    // the rivals' bases sit further out than on Crown Peak: the one opposite is past the far side of the cone
+    farX: 76, farZ: 116, viewSpan: 340,
+    // the example runs the viewer lays on each slice: from the shelf below the rim to the base, zig-zagging round the cone
+    runTop: [0.5, VOLC.c[1] - 0.18], runTurns: 0.5, // turning back this far (radians) either side of the slice's middle
+    height(u, v) {
+      const dx = u - VOLC.c[0], dy = v - VOLC.c[1], r = Math.hypot(dx, dy), th = Math.atan2(dx, -dy), [, , f] = between(th);
+      let h = 2 + 0.6 * fbm(u * 3, v * 3, s + 1, 3);
+      // The cone: rounded off into a flat shelf below the rim (no lip), steepest just below it, flaring out to the foot.
+      // The shelf's edge wanders in and out a little, so it isn't a perfect ring.
+      const shelf = VOLC.shelf + 0.014 * roundNoise((a, b) => fbm(a, b, s + 67, 3), th, 0.7, 2.2);
+      const x = clamp((r - shelf) / (VOLC.foot - shelf), 0, 1), k = 0.2, xr = (x < k ? x * x / (2 * k) : x - k / 2) / (1 - k / 2);
+      h += VOLC.H * Math.pow(1 - xr, 1.8);
+      // The summit: an old, worn crater, not a neat cup. Craggy peaks stand round its rim, one much the highest, with
+      // low saddles between and a notch where the wall gave way; inside, a shallow floor and its lake. All of it on
+      // the crater's own ground, nobody's.
+      const rimR = VOLC.rim + 0.006 * roundNoise((a, b) => fbm(a, b, s + 61, 3), th, 1.3, 1.2);
+      const crags = 3 + 8 * roundNoise((a, b) => fbm(a, b, s + 63, 3), th, 2.1, 1.1) + 2 * roundNoise((a, b) => ridged(a, b, s + 65, 3), th, 4.3, 5)
+        + 6 * Math.exp(-(((th + 2.1) / 0.5) ** 2)) - 4 * Math.exp(-(((th - 2.3) / 0.3) ** 2));
+      // the peaks: broad at the rim, sloping down to the shelf by the slices' land (inner), so the shelves stay flat
+      h += Math.max(0, crags) * sstep(rimR - 0.025, rimR, r) * (1 - sstep(rimR + 0.012, VOLC.inner - 0.005, r))
+        - VOLC.crater * (1 - sstep(rimR - 0.03, rimR, r));
+      // Each slice is a broad bowl carved into the flank, like an old glacier's: a steeper headwall under the shelf,
+      // a gentler floor, opening out at the foot. Between the bowls, big ridges run down from the summit and out into
+      // the valley as wooded spurs, so the mountain has arms rather than standing alone.
+      const mid = Math.pow(Math.sin(Math.PI * clamp(f < 0.5 ? f + 0.5 : f - 0.5, 0, 1)), 1.5); // 1 down each slice's middle, 0 at its edges
+      h -= 8 * mid * sstep(shelf + 0.02, 0.36, r) * (1 - sstep(0.52, 0.82, r));
+      const edge = r * Math.sin(Math.min(Math.PI / 2, Math.abs(f - 0.5) * A)), spur = 0.05 + 0.04 * sstep(0.3, 0.9, r);
+      h += (9 * sstep(shelf + 0.02, shelf + 0.12, r) * (1 - sstep(0.6, 1.15, r)) + 3 * sstep(0.7, 0.9, r) * (1 - sstep(0.95, 1.2, r))) * Math.exp(-((edge / spur) ** 2)) * (0.75 + 0.5 * fbm(u * 5, v * 5, s + 73, 3));
+      // Ribs and gullies down the flanks, smaller lumps, and broad swells, so no two parts look alike; the shelf and
+      // the valley floor stay smooth.
+      const flank = sstep(shelf + 0.01, shelf + 0.09, r) * (1 - sstep(VOLC.foot - 0.14, VOLC.foot, r));
+      h += flank * (1.2 * volcRib(th, r) + 0.9 * fbm(u * 6, v * 6, s + 5, 4) + 1.4 * fbm(u * 2.2, v * 2.2, s + 75, 3) - 0.6);
+      // the cinder cones, each with a little crater of its own
+      for (const [cu, cv] of cones) { const d = Math.hypot(u - cu, v - cv); if (d < 0.12) h += 4.5 * Math.exp(-((d / 0.045) ** 2)) - 1.6 * Math.exp(-((d / 0.014) ** 2)); }
+      // Rolling wooded hills round the valley, rising to the spurs.
+      h += sstep(0.88, 1.25, r) * Math.max(0, 3 + 7 * fbm(u * 3, v * 3, s + 13, 4) + 3 * ridged(u * 2, v * 2, s + 15, 3));
+      return h;
+    },
+    // Bare dark rock where the wind keeps the upper cone's ribs scoured, showing through the snow (0 to 1).
+    scour(u, v) {
+      const dx = u - VOLC.c[0], dy = v - VOLC.c[1], r = Math.hypot(dx, dy);
+      if (r < VOLC.shelf || r > 0.52) return 0;
+      return sstep(0.6, 0.8, volcRib(Math.atan2(dx, -dy), r) + 0.15 * fbm(u * 14, v * 14, s + 81, 2)) * sstep(0.52, 0.3, r) * sstep(VOLC.shelf, VOLC.shelf + 0.06, r);
+    },
+    // Each slice's woods are its own, but thinned or thickened so every slice has about the same number of trees to
+    // clear (as on Ridgeline): each slice's share of the forest the game would seed, on a coarse grid, evened out.
+    treeK(u, v) {
+      if (!this.treeBal) {
+        const P = Array.from({ length: n }, (_, k) => this.area.map(([a, b]) => turn(a, b, k))), E = Array(n).fill(0);
+        for (let x = -0.4; x < 1.4; x += 0.0125) for (let y = -0.1; y < 1.8; y += 0.0125) {
+          const k = P.findIndex((Q) => inPoly(Q, x, y));
+          if (k < 0) continue;
+          const tl = this.treeline + 3 * fbm(x * 8, y * 8, s + 23, 3), h = this.height(x, y), g = Math.hypot(this.height(x + 1 / PN, y) - h, this.height(x, y + 1 / PN) - h);
+          E[k] += (0.04 + 0.96 * sstep(-0.22, 0.28, fbm(x * 4.5, y * 4.5, s + 21, 4))) * (1 - sstep(tl - 3, tl + 1.5, h)) * (1 - sstep(0.55, 0.85, g));
+        }
+        const mean = E.reduce((a, b) => a + b, 0) / n;
+        this.treeBal = E.map((e) => mean / e);
+      }
+      const [k, k2, f] = between(Math.atan2(u - VOLC.c[0], VOLC.c[1] - v)), d = 0.05 * n / 4;
+      return lerp(this.treeBal[k], this.treeBal[k2], sstep(0.5 - d, 0.5 + d, f));
+    },
+  };
+  M.turn = turn;
+  return M;
+}
+for (const n of [2, 3, 4]) MATCH_MAPS[`volcano${n}`] = volcanoMap(n);
+// A round map with natural ground (Mount Ember) in one player's game: the whole mountain turned so their slice is
+// the one in front. Their rivals' resorts are turned onto theirs as on Crown Peak (drawRivals).
+function roundFrame(M, slot) {
+  const T = (u, v) => M.turn(u, v, slot);
+  return { ...M, id: `${M.id}@${slot}`, base: M.id, slot,
+    height: (u, v) => M.height(...T(u, v)), scour: (u, v) => M.scour(...T(u, v)), treeK: (u, v) => M.treeK(...T(u, v)), forestUV: T };
+}
 MOUNTAINS.lonepine.is3d = MOUNTAINS.ridgeback.is3d = true;
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
@@ -2825,8 +2883,9 @@ function customBlurb(r) {
 // A mountain by id: one of the built-in ones, or a custom recipe.
 function mountainDef(mt) {
   if (isCustomId(mt)) { const r = parseRecipe(mt.slice(2)); if (r) return makeCustom(r); }
-  const f = /^([a-z]+)@([0-9])$/.exec(mt || ''); // a strip map seen from one player's valley (stripFrame)
+  const f = /^([a-z]+[0-9]?)@([0-9])$/.exec(mt || ''); // a match map seen from one player's slice (stripFrame, roundFrame)
   if (f && MATCH_MAPS[f[1]] && MATCH_MAPS[f[1]].strip && +f[2] < MATCH_MAPS[f[1]].slices) return stripFrame(MATCH_MAPS[f[1]], +f[2]);
+  if (f && MATCH_MAPS[f[1]] && MATCH_MAPS[f[1]].turns && +f[2] < MATCH_MAPS[f[1]].slices) return roundFrame(MATCH_MAPS[f[1]], +f[2]);
   return MOUNTAINS[mt] || MATCH_MAPS[mt] || MOUNTAINS.juniper;
 }
 // A strip map (Ridgeline) in one player's game: the whole ridge slid along so their valley sits in the usual square
@@ -2855,6 +2914,8 @@ const START_CASH = MOUNTAIN.cash;
    WORLD GENERATION
    ===================================================================== */
 const HT = new Float32Array(NV * NV);     // height per vertex
+const SCR = MOUNTAIN.scour ? new Float32Array(NV * NV) : null; // a volcano's bare, wind-scoured rock per vertex (0 to 1)
+let FARSCR = null;
 const GR = new Float32Array(NV * NV);     // grade (rise/run) per vertex
 const ROADD = new Float32Array(NV * NV);  // distance to road centre, cells
 const CREEKD = new Float32Array(NV * NV); // distance to creek centre, cells
@@ -3015,6 +3076,7 @@ function generate(M) {
     for (let i = 0; i < NV; i++) {
       const idx = j * NV + i, [h, drc, dcc] = groundAt(M, vu(i), vv(j));
       HT[idx] = h; ROADD[idx] = drc; CREEKD[idx] = dcc;
+      if (SCR) SCR[idx] = M.scour(vu(i), vv(j));
       HAZEV[idx] = hazeAt(i, j);
     }
   }
@@ -3089,6 +3151,7 @@ function generateFar(M) {
     const gx = fi - FAR_X, gz = fj - FAR_Z, k = fj * FNVX + fi;
     if (gx >= 0 && gz >= 0 && gx <= WN && gz <= WN) { const idx = gz * NV + gx; FAR[k] = HT[idx]; FARRD[k] = ROADD[idx]; FARCD[k] = CREEKD[idx]; continue; }
     [FAR[k], FARRD[k], FARCD[k]] = groundAt(M, vu(gx), vv(gz));
+    if (M.scour) (FARSCR = FARSCR || new Float32Array(FNVX * FNVZ))[k] = M.scour(vu(gx), vv(gz));
   }
   // A thinner forest than the map's own (one try a cell, fewer on phones): it's scenery, and trees cost the most to draw.
   const rng = mulberry32(M.seed * 7 + 11), thin = { full: 0.75, phone: 0.4, low: 0.25 }[GFX];
@@ -3275,6 +3338,8 @@ function refreshTreeShade(i0, j0, i1, j1) {
   }
 }
 
+// A volcano's bare rock: dark basalt, here and there the rusty red of old scoria.
+const volcRock = (i, j) => { const t = sstep(0.1, 0.7, vnoise(i * 0.09, j * 0.09, 57)); return [lerp(0.22, 0.38, t), lerp(0.21, 0.27, t), lerp(0.23, 0.24, t)]; };
 const COL = {
   mud: [0.33, 0.29, 0.23], dug: [0.66, 0.33, 0.22], built: [0.88, 0.68, 0.24], // the leveling draft's tint: ground cut away, ground built up
   snow: [0.95, 0.965, 0.99], floor: [0.79, 0.83, 0.88], alpine: [0.93, 0.95, 0.985],
@@ -3308,6 +3373,7 @@ function recolorTerrain(i0, j0, i1, j1) {
       const strata = 0.5 + 0.5 * vnoise(i * 0.25, h * 1.6, 7);
       mix([lerp(COL.rockD[0], COL.rock[0], strata), lerp(COL.rockD[1], COL.rock[1], strata), lerp(COL.rockD[2], COL.rock[2], strata)], rk * 0.92);
     }
+    if (SCR && SCR[idx] > 0) mix(volcRock(i, j), SCR[idx] * 0.85);
     const cd = CREEKD[idx];
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
     if (PM[idx] > 0.1) mix(COL.mud, sstep(0.1, 0.45, PM[idx]) * (1 - 0.8 * cov)); // a pond's wet banks and bed
@@ -3424,6 +3490,7 @@ function recolorFar() {
     if (cov < 1) { groundColor(gx, gz, edge, _gc); mix(_gc, 1 - cov); }
     const rk = sstep(0.78, 1.15, g + 0.12 * vnoise(gx * 0.4, gz * 0.4, 51));
     if (rk > 0) { const st = 0.5 + 0.5 * vnoise(gx * 0.25, h * 1.6, 7); mix([lerp(COL.rockD[0], COL.rock[0], st), lerp(COL.rockD[1], COL.rock[1], st), lerp(COL.rockD[2], COL.rock[2], st)], rk * 0.92); }
+    if (FARSCR && FARSCR[k] > 0) mix(volcRock(gx, gz), FARSCR[k] * 0.85);
     const cd = FARCD[k], rd = FARRD[k];
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
@@ -3527,7 +3594,7 @@ let boundaryLine = null;
 // A volcano's crater (Mount Ember): a warm turquoise lake on its floor, never frozen, with steam drifting up out of it.
 const STEAM_N = 36, steam = { pts: null, pos: new Float32Array(STEAM_N * 3), age: new Float32Array(STEAM_N), c: null, R: 0 };
 function buildCrater() {
-  const C = uvWorld(HUB.c), R = (HUB.rim - 0.025) * PN;
+  const C = uvWorld(HUB.c), R = (HUB.rim - 0.02) * PN;
   let top = -Infinity; // the lake fills the floor to its highest point, so no island shows through
   for (let r = 0; r <= R; r += 1) for (let a = 0; a < 6.28; a += 0.4) top = Math.max(top, heightAt(C.x + r * Math.cos(a), C.z + r * Math.sin(a)));
   const lake = new THREE.Mesh(new THREE.CircleGeometry(R + 2, 40), new THREE.MeshLambertMaterial({ color: 0x5aaea3, emissive: 0x0a2c29, transparent: true, opacity: 0.92 }));
@@ -23008,10 +23075,10 @@ function matchDemo() {
   const mine = saveData(false), land = PARCELS.filter((p) => /^(S[1-3]|V[01])$/.test(p.id)).map((p) => ({ id: p.id, own: 'buy', wait: 0, price: 0, rent: 0 }));
   const rival = (n) => ({ ...mine, clock: { ...mine.clock, lotSections: n, lotLayout: Array.from({ length: n }, (_, k) => k < 4 ? [0, k] : [1, k - 4]), land } });
   // a strip map (Ridgeline): a pretend rival in every other valley; Crown Peak: one on each other slice
-  const slot = MOUNTAIN.strip ? MOUNTAIN.slot : 1, others = Array.from({ length: MOUNTAIN.slices }, (_, k) => k).filter((k) => k !== slot);
+  const slot = MOUNTAIN.slot ?? 1, others = Array.from({ length: MOUNTAIN.slices }, (_, k) => k).filter((k) => k !== slot);
   matchView = { demo: true, slot, me: false, lobby: { name: 'Demo' }, players: [], resorts: others.map((k, i) => ({ slot: k, save: rival(i % 2 ? 8 : 6), summary: {} })) };
   drawRivals();
-  toast(`Match demo: your starter resort, with ${others.length === 2 ? 'two' : 'three'} pretend rivals on the other ${MOUNTAIN.strip ? 'valleys' : 'slices'} of ${MOUNTAIN.name}. Nothing here is saved or sent anywhere.`);
+  toast(`Match demo: your starter resort, with ${['no', 'one', 'two', 'three'][others.length]} pretend ${others.length === 1 ? 'rival' : 'rivals'} on the other ${MOUNTAIN.strip ? 'valleys' : 'slices'} of ${MOUNTAIN.name}. Nothing here is saved or sent anywhere.`);
 }
 /* ---------- Map viewer (?mapView=1) ----------
    For shaping match maps: the whole mountain with every slice in full, each slice's edge in its own colour, a
@@ -23073,10 +23140,12 @@ function viewLines() {
 // `grade`, crossing to `a` either side of the middle and turning back. So the pitch stays even over bumps and
 // tilted ground alike. Returns points in world x, z, one every few units.
 // On a round map (Mount Ember) the same, but turning round the cone: across the slope is round the summit, and it
-// turns back a angle either side of the slice's middle. On slice 1, from runTop to the base.
-function viewRouteRound(grade, A) {
+// turns back a angle either side of the slice's middle. On slice k, from runTop to the base: worked out as if on
+// slice 1 (the ground read turned onto slice k), then turned onto it.
+function viewRouteRound(k, grade, A, first = 1) {
   const C = viewCentre(), p0 = uvWorld(MOUNTAIN.runTop), end = roadEnd(), R1 = Math.hypot(end.x - C.x, end.z - C.z) - 6, step = 1;
-  let x = p0.x, z = p0.z, side = 1;
+  const onK = viewTurn(k), trueY = (x, z) => { const p = onK({ x, z }); return heightAt(p.x, p.z) / VEX; };
+  let x = p0.x, z = p0.z, side = first;
   const pts = [{ x, z }];
   for (let i = 0; i < 3000 && Math.hypot(x - C.x, z - C.z) < R1; i++) {
     const r = Math.hypot(x - C.x, z - C.z), ox = (x - C.x) / r, oz = (z - C.z) / r, ang = Math.atan2(x - C.x, z - C.z); // 0 down the middle of slice 1
@@ -23093,7 +23162,7 @@ function viewRouteRound(grade, A) {
     if (i % 4 === 3) pts.push({ x, z });
   }
   pts.push(end);
-  return pts;
+  return pts.map(onK);
 }
 function viewRoute(k, grade, a) {
   const [c0, top] = MOUNTAIN.summits ? MOUNTAIN.summits[k] : MOUNTAIN.runTop, base = MOUNTAIN.bases ? MOUNTAIN.bases[k][1] : (PLAY1 - roadEnd().z - HALF) / PN, c = MOUNTAIN.runLanes ? MOUNTAIN.runLanes[k] : c0;
@@ -23123,14 +23192,24 @@ function viewRoute(k, grade, a) {
 }
 // Each slice's example runs: laid as real trails and rated by the game's own rules, so the colour drawn is what a
 // player would get on that line.
+// On natural ground one line can catch a rib where another misses it, as a player laying a trail would find: the
+// easiest of a few, turning back nearer or further out and setting off either way.
+function bestRound(k, grade) {
+  let best = null;
+  for (const A of [0.35, 0.5, 0.65]) for (const side of [1, -1]) {
+    const pts = viewRouteRound(k, grade, A * MOUNTAIN.runTurns / 0.5, side), an = analyzeTrail(trailSamples(pts, 2)), score = an.rating * 10 + an.maxGrade;
+    if (!best || score < best.score) best = { pts, score };
+  }
+  return best.pts;
+}
 function viewRuns() {
   const grp = new THREE.Group(), out = [];
-  // A round map (Mount Ember) is the same on every slice: the runs are laid on the first and turned onto the others.
-  const round = !MOUNTAIN.summits && MOUNTAIN.runTop, laid = {};
+  // A round map (Mount Ember): each slice's runs zig-zag round the cone (viewRouteRound), the black straight down its middle.
+  const round = !MOUNTAIN.summits && MOUNTAIN.runTop;
   if (MOUNTAIN.summits || round) for (let k = 0; k < MOUNTAIN.slices; k++) {
     const res = {};
     for (const kind of MOUNTAIN.blackRuns || round ? ['green', 'blue', 'black'] : ['green', 'blue']) {
-      const route = round ? (laid[kind] = laid[kind] || (kind === 'black' ? [uvWorld(MOUNTAIN.runTop), uvWorld([MOUNTAIN.runTop[0], (PLAY1 - roadEnd().z - HALF) / PN + 0.04])] : viewRouteRound(kind === 'green' ? 0.1 : 0.3, MOUNTAIN.runTurns))).map(viewTurn(k))
+      const route = round ? (kind === 'black' ? [uvWorld(MOUNTAIN.runTop), uvWorld([MOUNTAIN.runTop[0], (PLAY1 - roadEnd().z - HALF) / PN + 0.04])].map(viewTurn(k)) : bestRound(k, kind === 'green' ? 0.1 : 0.3))
         : kind === 'green' ? viewRoute(k, 0.1, MOUNTAIN.runTurns) : kind === 'blue' ? viewRoute(k, 0.3, MOUNTAIN.runTurns * 0.8) : MOUNTAIN.blackRuns[k].map(uvWorld);
       const sm = trailSamples(route, 2), an = analyzeTrail(sm), pos = [], idx = [];
       res[kind] = { len: an.len, rating: an.rating, max: an.maxGrade, uphill: an.problems.some((p) => /uphill/.test(p)) };
@@ -23276,7 +23355,7 @@ function viewPanel() {
   el.innerHTML = `<div class="vhead"><div><h2>${MOUNTAIN.name}</h2><p>Map viewer · ${n} resorts · nothing here is saved</p></div>
       <button class="vfold" id="vFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
     <div id="vBody">
-      ${maps.length > 1 ? `<label class="vpick">Map <select id="vMap">${maps.map((M) => `<option value="${M.id}"${M.id === MOUNTAIN.id ? ' selected' : ''}>${M.name}${M.draft ? ' (draft)' : ''}</option>`).join('')}</select></label>` : ''}
+      ${maps.length > 1 ? `<label class="vpick">Map <select id="vMap">${maps.map((M) => `<option value="${M.id}"${M.id === MOUNTAIN.id ? ' selected' : ''}>${M.label || M.name}${M.draft ? ' (draft)' : ''}</option>`).join('')}</select></label>` : ''}
       <div class="vgo"><button data-go="-1" aria-pressed="false">Whole mountain</button>${S.map((_, k) => `<button data-go="${k}" aria-pressed="false" style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>${k + 1}</button>`).join('')}</div>
       <label class="vtilt">Tilt <input type="range" id="vTilt" min="20" max="85" step="1" value="${Math.round(EL * 180 / Math.PI)}"><span id="vTiltV">${Math.round(EL * 180 / Math.PI)}°</span></label>
       <div class="vtog">
@@ -24315,7 +24394,8 @@ function matchOverview() {
   camTween = null; cam.target.x = cx; cam.target.z = cz + 10; cam.viewH = Math.min(VIEW_MAX, 250); cam.viewGoal = null; updateCamera();
 }
 // The game for a lobby's map, seen from one slot: Crown Peak is the same from every slice; a strip map is slid.
-const matchMt = (lob, slot) => (MATCH_MAPS[lob.map] && MATCH_MAPS[lob.map].strip ? `${lob.map}@${clamp(slot | 0, 0, MATCH_MAPS[lob.map].slices - 1)}` : 'match');
+const matchMt = (lob, slot) => (lob.map === 'volcano' ? `volcano${clamp(lob.slots | 0, 2, 4)}@${clamp(slot | 0, 0, clamp(lob.slots | 0, 2, 4) - 1)}` // Mount Ember: cut for the lobby's resorts
+  : MATCH_MAPS[lob.map] && MATCH_MAPS[lob.map].strip ? `${lob.map}@${clamp(slot | 0, 0, MATCH_MAPS[lob.map].slices - 1)}` : 'match');
 // A spectator follows another resort: theirs becomes the one in front, with its numbers, reports and live day. Every
 // game turns the mountain so the resort it shows is in front, so the camera turns with it and the view stays put.
 function matchSwitch(slot) {
@@ -24323,7 +24403,7 @@ function matchSwitch(slot) {
   const r = matchView.resorts.find((x) => x.slot === slot);
   if (!r || !r.save) return;
   // a strip map: each resort's game is the ridge slid to its valley, so follow it there (a reload)
-  if (MOUNTAIN.strip) { reloadInto({ match: matchView.lobby.id, slot }, matchMt(matchView.lobby, slot)); return; }
+  if (MOUNTAIN.strip || MOUNTAIN.turns) { reloadInto({ match: matchView.lobby.id, slot }, matchMt(matchView.lobby, slot)); return; } // (and a turned map: each game turns it its own way)
   if (matchView.replay) stopReplay(true);
   const phi = (slot - matchView.slot) * 2 * Math.PI / HUB.n, c = Math.cos(-phi), sn = Math.sin(-phi);
   const cx = PLAY0 + HUB.c[0] * PN - HALF, cz = PLAY1 - HUB.c[1] * PN - HALF, dx = cam.target.x - cx, dz = cam.target.z - cz;
