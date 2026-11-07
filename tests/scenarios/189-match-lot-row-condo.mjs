@@ -46,9 +46,11 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { const own = condoMorning; condoMorning = function (...a) { const C = bldById(${id}); if (!C.sold) { C.sold = 1; C.sales = 250000; state.cash += 250000; } return own.apply(this, a); }; window.__cash0 = state.cash - (state.debt || 0); })()`);
   const res = await g.ev(pagePlay(200, 0));
   const delta = await g.ev(`Math.round(state.cash - (state.debt || 0) - window.__cash0)`);
-  eq(await g.ev(`bldById(${id}).sales`), 250000, 'a home sold during the match day');
-  eq(res.condo, 250000, 'the day reports the condo sale');
-  eq(res.profit, delta - 250000, 'and its profit leaves the sale out (the cash still has it)');
+  // The forced sale, plus any home the market sells on its own that day (it's random, so the total varies).
+  const sales = await g.ev(`bldById(${id}).sales`);
+  assert(sales >= 250000, `a home sold during the match day (${sales})`);
+  eq(res.condo, sales, 'the day reports the condo sales');
+  eq(res.profit, delta - sales, 'and its profit leaves the sales out (the cash still has them)');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
