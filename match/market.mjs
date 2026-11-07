@@ -25,12 +25,16 @@ export function splitSkiers(alone, cap = alone.map(() => Infinity), sharp = SHAR
 // After a day: full means next time it's offered only what it held; not full, it may have grown, so a little more.
 export const nextCap = (cap, day) => (day.turnedAway > 0 ? day.guests : Math.min(1e6, (cap ?? 1e6) * 1.15));
 
+// Condo homes sold so far, in dollars. Selling a home brings cash, but it isn't running the resort, so in a match the
+// day's profit leaves it out (Snowy, Nov 6: late in a season it turned into a race to build and sell condos, worth
+// far more than the resort itself). Dues and nightly rentals still count. In a game of your own it was never profit.
+export const CONDO_SALES = `world.buildings.reduce((a, B) => a + (B.type === 'condo' ? B.sales || 0 : 0), 0)`;
 // Code run inside a game page (through the test harness's __dbg).
 // How many would come to this resort today, and buy its pass, if it were alone in the valley (none if its plan keeps it closed today).
 export const PAGE_ALONE = `state.phase === 'closed' && !(typeof planShut === 'function' && planShut()) ? { day: demandForDay(), passes: passesSoldThisSeason() ? 0 : passBuyers(state.passPrice) } : { day: 0, passes: 0 }`;
 // Play today with this resort's share of the town's skiers and pass buyers, then go to the next morning.
 export const pagePlay = (share, passShare) => `(() => {
-  const t0 = performance.now(), before = state.cash - (state.debt || 0), own = demandForDay, ownPass = passBuyers, cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);
+  const t0 = performance.now(), before = state.cash - (state.debt || 0), own = demandForDay, ownPass = passBuyers, cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0), sold0 = ${CONDO_SALES};
   let played = false;
   if (${+share} > 0) { demandForDay = () => ${+share}; passBuyers = () => ${+passShare}; try { openDay(); } finally { demandForDay = own; passBuyers = ownPass; } played = state.phase === 'open'; }
   state.speed = 0; let n = 0, next = 0, last = null;
@@ -45,8 +49,9 @@ export const pagePlay = (share, passShare) => `(() => {
   if (last && money[money.length - 1] !== last) money.push(last);
   const r = played ? state.lastReport : null;
   if (played) nextDay(); else waitDay();
+  const condo = Math.round(${CONDO_SALES} - sold0); // condo homes sold today: cash, not profit
   return { ms: Math.round(performance.now() - t0), guests: r ? r.guests : 0, turnedAway: r ? r.turnedAway || 0 : 0, passes: r ? r.rev.passes || 0 : 0, sat: r ? r.sat : null,
-    profit: Math.round(state.cash - (state.debt || 0) - before), cash0, debt0, ...(played ? { money } : {}), wx: r ? r.wx.type + (r.wx.snow ? ' ' + r.wx.snow + 'in' : '') : 'closed' };
+    profit: Math.round(state.cash - (state.debt || 0) - before - condo), cash0, debt0, ...(condo ? { condo } : {}), ...(played ? { money } : {}), wx: r ? r.wx.type + (r.wx.snow ? ' ' + r.wx.snow + 'in' : '') : 'closed' };
 })()`;
 // A player's orders, applied overnight in the order sent. Each comes back ok, or with the reason it failed.
 // Prices: ticket, peak ticket (null for none) and season pass. Builds: a lift, a trail or a building, checked by
@@ -119,10 +124,10 @@ export const PAGE_SUMMER = `(() => {
 })()`;
 // The summer night: summer upkeep and loan interest are paid, and the new season begins. Counts in season profit.
 export const PAGE_NEW_SEASON = `(() => {
-  const before = state.cash - (state.debt || 0), cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0);
+  const before = state.cash - (state.debt || 0), cash0 = Math.round(state.cash), debt0 = Math.round(state.debt || 0), sold0 = ${CONDO_SALES};
   if (!state.summer) { if (state.phase !== 'season') endSeason(); enterSummer(); }
   newSeason();
-  return { ms: 0, guests: 0, turnedAway: 0, passes: 0, sat: null, profit: Math.round(state.cash - (state.debt || 0) - before), cash0, debt0, wx: 'summer', summer: true };
+  return { ms: 0, guests: 0, turnedAway: 0, passes: 0, sat: null, profit: Math.round(state.cash - (state.debt || 0) - before - (${CONDO_SALES} - sold0)), cash0, debt0, wx: 'summer', summer: true };
 })()`;
 // A small summary for the league table.
 export const PAGE_SUMMARY = `({ cash: Math.round(state.cash), debt: Math.round(state.debt || 0), rep: +state.reputation.toFixed(3), ticket: state.ticket, pass: state.passPrice,

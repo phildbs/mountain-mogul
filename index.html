@@ -10211,11 +10211,27 @@ const lotName = (lot) => (lot ? (MOUNTAIN.lots[lot - 1] || [])[2] || `Lot ${lot 
 const rowWord = (lot) => (lot && lotSite(lot).up ? 'A row behind' : 'A row below');
 const rowDir = (lot) => (lot && lotSite(lot).up ? 'behind' : 'below');
 const slotOrigin = (row, col, lot = 0) => {
-  const e = lotSite(lot);
+  const e = lotSite(lot), dx = row ? rowShift(lot) : 0;
   // up the mountain side of the road, on the valley side of it (south), or at the end of the road (the main lot)
   // a main lot can grow west instead, when its road comes in from the east (Ridgeback)
-  return { x: e.west ? e.x - 0.9 - LOT.w - col * (LOT.w + 0.7) : e.x + 0.9 + col * (LOT.w + 0.7), z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
+  return { x: e.west ? e.x - 0.9 - LOT.w - col * (LOT.w + 0.7) - dx : e.x + 0.9 + col * (LOT.w + 0.7) + dx, z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
 };
+// On the match maps the road climbs to the main lot from below, right where its second row would go (Snowy, Nov 6:
+// "the first parking tile blocks the access road"). There the second row sits a little further along, clear of the
+// road, with its own drive in the gap. Worked out from the road alone, so it's 0 wherever a second row always fitted.
+const rowShifts = [];
+function rowShift(lot) {
+  if (rowShifts[lot] != null) return rowShifts[lot];
+  const e = lotSite(lot);
+  let d = 0;
+  if (!lot && !e.up && !e.south) {
+    const z0 = e.z - 1.2 + LOT.d + 0.7, x0 = e.west ? e.x - 0.9 - LOT.w : e.x + 0.9;
+    const hits = (d) => { for (let z = z0; z <= z0 + LOT.d + 0.01; z += 0.5) for (let x = 0; x <= LOT.w + 0.01; x += 0.5) if (roadDist(x0 + (e.west ? -d : d) + x, z) < 1.8) return true; return false; };
+    while (d < LOT.w && hits(d)) d += 0.25;
+    if (d >= LOT.w) d = 0; // a road right across it: no use moving the row
+  }
+  return (rowShifts[lot] = d);
+}
 function sectionOrigin(k) { const [row, col, lot] = lotSlot(k); return slotOrigin(row, col, lot); }
 const slotBox = (row, col, lot = 0) => { const o = slotOrigin(row, col, lot); return { x0: o.x, x1: o.x + LOT.w, z0: o.z, z1: o.z + LOT.d }; };
 const rowLen = (row, lot = 0) => { let n = 0; for (let k = 0; k < state.lotSections; k++) { const s = lotSlot(k); if (s[0] === row && s[2] === lot) n++; } return n; };
@@ -10319,7 +10335,14 @@ function buildLot() {
       const a = slotOrigin(row, col - 1, lot).x, x0 = Math.min(a, o.x) + LOT.w - 0.05, x1 = Math.max(a, o.x) + 0.05; // the gap between this section and the last
       for (let b = 0; b < LOT.bays; b++) { const za = o.z + 1.4 + b * 2.8; lotLinks.add(linkMesh(x0, x1, za - 0.45, za + 0.45)); }
     }
-    if (row === 1 && col === 0 && !lot) lotLinks.add(lotSite(0).west ? linkMesh(o.x + LOT.w - 0.05, o.x + LOT.w + 0.9, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4) : linkMesh(o.x - 0.9, o.x + 0.05, slotOrigin(0, 0).z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
+    if (row === 1 && col === 0 && !lot) {
+      const w = lotSite(0).west, o0 = slotOrigin(0, 0), gz = o0.z + LOT.d; // gz: the gap between the rows
+      if (!rowShift(0)) lotLinks.add(w ? linkMesh(o.x + LOT.w - 0.05, o.x + LOT.w + 0.9, o0.z + 1.4, o.z + LOT.d - 1.4) : linkMesh(o.x - 0.9, o.x + 0.05, o0.z + 1.4, o.z + LOT.d - 1.4)); // the drive down to the second row
+      else { // a second row moved clear of the road: across the gap from the first row's lane, then down its own drive
+        lotLinks.add(w ? linkMesh(o.x + LOT.w - 0.05, o0.x + LOT.w + 0.9, gz - 0.05, gz + 0.75) : linkMesh(o0.x - 0.9, o.x + 0.05, gz - 0.05, gz + 0.75));
+        lotLinks.add(w ? linkMesh(o.x + LOT.w - 0.05, o.x + LOT.w + 0.9, gz, o.z + LOT.d - 1.4) : linkMesh(o.x - 0.9, o.x + 0.05, gz, o.z + LOT.d - 1.4));
+      }
+    }
     // the main lot's lane, from where the road comes in down its edge to the last aisle
     if (!row && !col && !lot) { const w = lotSite(0).west, x = w ? o.x + LOT.w - 0.05 : o.x - 0.9; lotLinks.add(linkMesh(x, x + 0.95, o.z + 1.4, o.z + LOT.d - 0.95)); }
     if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4; lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
@@ -11099,7 +11122,10 @@ function makeSchedule(n) {
 }
 function carPath(stall) {
   if (stall.lot) { const s = lotSite(stall.lot); return [...s.route.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
-  if (stall.row) { const o = slotOrigin(0, 0); return [...MAIN_DRIVE, { x: lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, z: o.z + 1.4 }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // down the drive
+  if (stall.row) { // down the drive (across the gap first, when the second row sits clear of the road)
+    const o = slotOrigin(0, 0), lx = lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, gz = o.z + LOT.d + 0.35;
+    return [...MAIN_DRIVE, { x: lx, z: o.z + 1.4 }, ...(rowShift(0) ? [{ x: lx, z: gz }, { x: stall.entry.x, z: gz }] : []), stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
+  }
   return [...MAIN_DRIVE, stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
 }
 function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); return s; }
@@ -23136,7 +23162,7 @@ const MP_INTRO = `<div class="mp-intro"><b>How King of the Mountain works</b>
   <p><b>Joining.</b> Sign in and pick a player name, then join an open lobby or make your own match: public, or locked with a password for friends. Most matches let you join late, until a quarter of the way through, with a catch-up investment for the days you missed. You can be in up to three matches at once.</p>
   <p><b>A match runs day and night.</b> A new game day starts every 5, 10, 15 or 30 minutes, and a match is one, two or three whole seasons. Your resort keeps running while you’re away, so check in from your phone or computer whenever you like.</p>
   <p><b>Build and run it any time.</b> Almost everything from your own resorts works here: lifts, trails, buildings, parking, prices, plans, events and more. Watch each day live, evenings included. What you build during the day shows as a blueprint and opens the next morning. On quiet days, an operations plan can keep you closed to save money.</p>
-  <p><b>Winning.</b> Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins. Building never counts against you. <b>Official</b> tournaments give badges to the top three; every match you finish counts on your profile as played and won.</p>
+  <p><b>Winning.</b> Every day the town’s skiers pick a resort by price, terrain, snow and reviews. The most season profit wins. Building never counts against you, and selling condo homes brings cash but not profit. <b>Official</b> tournaments give badges to the top three; every match you finish counts on your profile as played and won.</p>
   <p><b>Leaving and rescuing.</b> Can’t keep going? Leave this match, in the menu. Your resort stays shut for another player to claim, until three-quarters of the way through the season. The first to claim it gets a fresh start from the bank: no debt and at least $500,000. A win only counts if you run your resort for at least half the season.</p>
   <p><b>Watch and chat.</b> Anyone can watch a match and follow any resort. Players and signed-in spectators share the match chat.</p>
   <p><b>This is a beta.</b> Things will go wrong. Please tell us about any bug, however small, and we’ll fix it as soon as we can.</p>
@@ -24996,6 +25022,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.13.1', date: 'Nov 7, 2026', title: 'Second row of parking, and condo sales in matches', kotm: true, items: [
+    'King of the Mountain: a second row of parking can be built on Crown Peak and Ridgeline. The access road ran right where it went, so it sits a little further along now, clear of the road, with its own drive. Thanks Snowy!',
+    'King of the Mountain: selling condo homes no longer counts as profit in the standings. The sale money still goes into your cash to build with, and condo dues and nightly rentals still count. The match is about running the best resort, not the most condos. Thanks Snowy!'] },
   { v: '3.13', date: 'Nov 7, 2026', title: 'Willow Valley: a third match mountain', kotm: true, items: [
     'A new King of the Mountain map for 2 to 4 resorts: Willow Valley. Two resorts on each side of a valley, with the road and a river between them, so you look across at your rivals.',
     'Every slice gets the same: the same acres, about the same vertical and trees to clear, a creek down each side, room for 4 + 4 parking sections, and land for sale in the valley below and on the mountainside past your end of the valley.',
