@@ -424,7 +424,8 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   past a creek, a gentler shoulder out to its edge (`VALLEY.s`): 0.75 wide, 489 acres (Ridgeline 358). The west
   slices' main lots grow west (`lotsWest`, as `MOUNTAIN.lotWest`; only `viewLots` reads it so far), so every slice
   gets the same room. Nov 7, Phil: lots mustn't cross the creek. `viewLots` now stops a row as `lotLandBlock` does (creek,
-  too steep), reading `creekDist` (CREEKD, or FARCD past the map's edge): 5 free sections in row 0, 4 on the parcels.
+  too steep), reading `creekDist` (CREEKD, or FARCD past the map's edge): 5 would fit; Phil chose 4 + 4: map field `lotCols: 4` (viewer only so far; the game's
+  `lotReserve` should honour it when the map becomes playable).
 - Phil, Nov 7: mountains and valley to the edge of what's drawn. Past each end of a side (`VALLEY.s`), `range` repeats
   the mountain shape (`fe`, the same width as a slice's face, out of sight) at 88% height, instead of easing down.
   No change inside the slices.

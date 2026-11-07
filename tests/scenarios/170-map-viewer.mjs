@@ -89,7 +89,7 @@ export default async function ({ browser, url }) {
   eq(y.runs.map((x) => x.slice(0, 4)), [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every summit, the far side too');
   assert(y.runs.every((x) => x[4] > 7000), `the greens are long (${y.runs.map((x) => x[4])} ft)`);
   eq(y.land, [0, 1, 2, 3].map(() => [[16, true], [16, true]]), 'two flat parcels for sale below every slice, on both sides of the valley');
-  assert(y.lots.every(([a, b]) => a === y.lots[0][0] && a >= 4 && b >= 4), `the same parking on every slice, stopping at the creek, the far side's turned round (${JSON.stringify(y.lots)})`);
+  assert(y.lots.every(([a, b]) => a === 4 && b === 4), `4 + 4 parking sections on every slice, clear of the creek, the far side's turned round (${JSON.stringify(y.lots)})`);
   assert(Math.max(...y.trees) / Math.min(...y.trees) < 1.05, `every slice has about as many trees (${y.trees})`);
   eq(y.dry, [true, true, true, true], 'no base road crosses the river');
   assert(y.bridges >= 4, `the valley road bridges the river where it weaves across (${y.bridges})`);
