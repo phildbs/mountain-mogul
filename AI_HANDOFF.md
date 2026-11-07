@@ -476,7 +476,7 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   'valley'; copied from match-fast-turns.sql, which matches live's current one: checked read-only Nov 7). Until it's
   run, Make a match on Willow Valley says it isn't switched on (the game also reads "pick one of the mountains").
   Fake DB: `d.noValley`. Server: no change (`mapQuery` gives `valley@slot`); server-test plays a Valley Cup (passes).
-- Scenario 186-willow-valley-match; 157, 165, 171 updated for the third picture. Not done: `match-stats.sql` still counts
+- Scenario 188-willow-valley-match; 157, 165, 171 updated for the third picture. Not done: `match-stats.sql` still counts
   Willow Valley lobbies under Crown Peak on stats.html (its `crown` is "not ridge").
 
 ### 2026-11-03 · Claude · Map viewer for a new multiplayer mountain (`?mapView=1`, not published)

@@ -20,7 +20,7 @@ export default async function ({ browser, url }) {
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } };
     localStorage.setItem('FAKE_DB', JSON.stringify(d)); localStorage.setItem('mm.kotm.intro', '1'); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
-  // The title card: the mountains' pictures (Willow Valley's tag: scenario 186).
+  // The title card: the mountains' pictures (Willow Valley's tag: scenario 188).
   eq(await g.ev(`[...document.querySelectorAll('#mpCard .mh-pic img')].map((i) => i.getAttribute('src')).slice(0, 2).join()`),
     'img/crown.jpg,img/ridgeline.jpg', 'the title card shows Crown Peak and Ridgeline');
   await g.click('#mpCard');
