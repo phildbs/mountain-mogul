@@ -237,6 +237,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-69ff09d4-fyqiv6` | Claude | **Mount Ember volcano match map (draft).** Map viewer (`?mapView=volcano`) and match demo (`?matchDemo=volcano`) only; not in Make a match yet. See the Nov 7 note. | Nov 7, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
@@ -484,6 +485,30 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   (`body.matchmap`; the advice guard checks `MOUNTAIN.match`), so previews match real play. `ownedAcres` counts the
   slice (Crown Peak 364, was 632). Scenario 171-ridgeline-match; 165 updated. Publish: run match-maps.sql on live
   first (until then Make a match on Ridgeline says it isn't switched on); the server picks it up on restart.
+
+### 2026-11-07 · Claude · Mount Ember, a volcano match map (draft, viewer and demo only)
+
+- Phil (Nov 7): a large one-mountain multiplayer map, a giant volcano. His picks: up to 4 resorts; the crater rim as
+  each slice's summit with the crater out of bounds (as on Ruapehu, which has two ski areas on opposite sides).
+- `MATCH_MAPS.volcano` (`draft: true`, `hub: VOLC`, `crater: true`): a round map like Crown Peak, 4 slices of 90°,
+  `VOLC.c` [0.5, 0.86]. Each slice mirrors about its middle (`volcFold`), so all four are the same ground. Profile: a
+  flat shelf below the rim (`shelf`), steepest just under it, flaring out to the foot (`(1 - x)^1.8` with a rounded
+  top), lava ribs straight down, a ridge on each slice edge, two cinder cones low on each slice. Land starts at
+  `inner` (0.105), so the crater is nobody's. `buildCrater` adds the lake (a disc at the floor's highest point) and
+  `updateSteam` a few faint wisps (`STEAM_N` 36).
+- `HUB = MOUNTAIN.hub || CROWN` replaces Crown Peak's centre and count wherever slices turn (parcels, `hazeAt`,
+  `SLICES`, `viewCentre`, `drawRivals`, `matchOverview`, `matchSwitch`); `hazeAt` now checks `MOUNTAIN.match`, not
+  the id. New map hook `forestUV(u, v)`: the coordinates the forest noise reads (the volcano folds them, so every
+  slice has the same woods; trees were 5,400 to 9,500 a slice before). The viewer lays round maps' example runs on
+  slice 1 with `viewRouteRound` (zig-zag round the cone; `viewRoute`'s across-the-map turns go downhill on a cone)
+  and turns them onto the others.
+- Viewer numbers, every slice: 383 acres (Crown 364), 3,000 to 4,250 ft, 1,250 ft vertical (Crown ~1,000), flat
+  shelf 10 acres, ~10,600 trees; ground 49% easier, 15% intermediate, 25% advanced, 11% expert. Example green 12,990
+  ft (steepest 18%), blue 6,320 ft (36%), black 3,180 ft (67%, expert). Level 'Advanced'.
+- Not playable in matches yet. Still to do: Make a match choice and `MP_SLOTS`, a `supabase/` change so
+  `match_create_on` accepts 'volcano' (Phil runs it), the server's `mapQuery` (non-'match' maps get `map@slot`, which
+  `mountainDef` only knows for strip maps), `matchMt`, a picture (`tests/capture-*.mjs`), CHANGES and the guide.
+  Scenario 170 checks the viewer and `?matchDemo=volcano`.
 
 ### 2026-11-02 · Claude · Multiplayer plan (idea stage, nothing built)
 
