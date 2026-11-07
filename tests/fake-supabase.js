@@ -266,9 +266,11 @@
       // Player matches and passwords (supabase/match-custom.sql). Passwords stay in m.keys, which no select reads.
       // match_create_on (supabase/match-maps.sql): the same, on a mountain, with its own number of resorts
       if (fn === 'match_create_on') {
-        if (!['match', 'ridge'].includes(args.pmap)) return { data: null, error: { message: 'pick one of the mountains' } };
+        // (Willow Valley: supabase/match-valley.sql; d.noValley stands for a database it hasn't been run on yet)
+        if (!['match', 'ridge', ...(d.noValley ? [] : ['valley'])].includes(args.pmap)) return { data: null, error: { message: 'pick one of the mountains' } };
         if (args.pmap === 'match' && ![2, 3].includes(args.pslots)) return { data: null, error: { message: 'a match on Crown Peak has 2 or 3 resorts' } };
         if (args.pmap === 'ridge' && ![2, 3, 4].includes(args.pslots)) return { data: null, error: { message: 'a match on Ridgeline has 2 to 4 resorts' } };
+        if (args.pmap === 'valley' && ![2, 3, 4].includes(args.pslots)) return { data: null, error: { message: 'a match on Willow Valley has 2 to 4 resorts' } };
       }
       if (fn === 'match_create' || fn === 'match_create_on') {
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []), pw = String(args.ppassword || '').trim();

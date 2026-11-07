@@ -146,6 +146,16 @@ try {
   await tick(db, game, T3 + H + 60000);
   const lot = db.tables.match_orders.find((o) => o.lobby_id === 'L6');
   ok(db.tables.match_lobbies.find((l) => l.id === 'L6').status === 'finished' && lot.applied_day === 1 && !lot.error, `a Ridgeline match plays, orders and all (${lot.error || 'ok'})`);
+  // Willow Valley: two resorts each side of a valley. The far side's games are the valley turned round (valley@2, @3).
+  const T3b = T3 + 4 * H;
+  await db.insert('match_lobbies', [{ id: 'L6v', name: 'Valley Cup', map: 'valley', slots: 4, starts_at: new Date(T3b).toISOString(), days: 1, day_minutes: 60, status: 'open', day: 0, prize: null, computers: false, keep_profit: true }]);
+  await db.insert('match_players', [{ lobby_id: 'L6v', slot: 1, user_id: U1, resort_name: 'North Side' }, { lobby_id: 'L6v', slot: 2, user_id: U2, resort_name: 'South Side' }]);
+  await tick(db, game, T3b + 60000);
+  ok(rows('L6v').map((r) => r.save.mt).sort().join() === 'valley@1,valley@2', `on Willow Valley each resort is on its own slice (${rows('L6v').map((r) => r.save.mt)})`);
+  await db.insert('match_orders', [{ lobby_id: 'L6v', slot: 2, user_id: U2, kind: 'build', payload: { what: 'lot', row: null, lot: 0 }, applied_day: null, error: null }]);
+  await tick(db, game, T3b + H + 60000);
+  const vlot = db.tables.match_orders.find((o) => o.lobby_id === 'L6v');
+  ok(db.tables.match_lobbies.find((l) => l.id === 'L6v').status === 'finished' && vlot.applied_day === 1 && !vlot.error, `a Willow Valley match plays, the far side's orders too (${vlot.error || 'ok'})`);
   // Leaving and claiming (match-abandon.sql). Six days: First Hill's owner leaves after day 1 with a pending order and
   // the resort deep in debt; it stays shut on day 2; U3 claims it and gets a fresh start; Second Hill is left and
   // claimed on day 4, too late in the season for its new owner to get a place.

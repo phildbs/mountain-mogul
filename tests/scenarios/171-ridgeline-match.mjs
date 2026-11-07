@@ -20,17 +20,17 @@ export default async function ({ browser, url }) {
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.profiles = { 'user-B': { name: 'Phil', public: true } };
     localStorage.setItem('FAKE_DB', JSON.stringify(d)); localStorage.setItem('mm.kotm.intro', '1'); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
-  // The title card: both mountains' pictures, and the orange tag.
-  eq(await g.ev(`[[...document.querySelectorAll('#mpCard .mh-pic img')].map((i) => i.getAttribute('src')).join(), document.querySelector('#mpCard .mh-tag').textContent]`),
-    ['img/crown.jpg,img/ridgeline.jpg', 'New 4-player mountain'], 'the title card shows both mountains, tagged new');
+  // The title card: the mountains' pictures (Willow Valley's tag: scenario 186).
+  eq(await g.ev(`[...document.querySelectorAll('#mpCard .mh-pic img')].map((i) => i.getAttribute('src')).slice(0, 2).join()`),
+    'img/crown.jpg,img/ridgeline.jpg', 'the title card shows Crown Peak and Ridgeline');
   await g.click('#mpCard');
   await g.page.waitForSelector('[data-mp=open][data-id=RL]', { timeout: 10000, state: 'attached' });
   const w = await g.page.evaluate(() => {
     const heroes = [...document.querySelectorAll('#mpBody .mp-hero')], r = heroes.map((h) => h.getBoundingClientRect());
-    return { names: heroes.map((h) => h.querySelector('b').textContent), tag: (heroes[1].querySelector('.mp-new') || {}).textContent, side: Math.abs(r[0].top - r[1].top) < 2 && r[1].left > r[0].right - 1,
+    return { names: heroes.map((h) => h.querySelector('b').textContent).slice(0, 2), side: Math.abs(r[0].top - r[1].top) < 2 && r[1].left > r[0].right - 1,
       card: document.querySelector('#mpBody .mp-card').innerText, pic: document.querySelector('#mpBody .mp-card img.mp-pic').getAttribute('src') };
   });
-  eq([w.names, w.tag, w.side], [['Crown Peak', 'Ridgeline'], 'New 4-player mountain', true], 'the window shows the two mountains side by side, Ridgeline tagged new');
+  eq([w.names, w.side], [['Crown Peak', 'Ridgeline'], true], 'the window shows the mountains side by side');
   assert(/Ridgeline · 4 resorts/.test(w.card) && w.pic === 'img/ridgeline.jpg', `a Ridgeline match says so, with its picture (${JSON.stringify(w.card.slice(0, 200))})`);
   // On a phone the two pictures still sit side by side, half each.
   await g.page.setViewportSize({ width: 390, height: 844 }); await g.wait(300);

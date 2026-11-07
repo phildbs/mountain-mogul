@@ -34,10 +34,10 @@ export default async function ({ browser, url }) {
   assert(/Open lobbies[\s\S]*Winter Cup\s*Official[\s\S]*Pals Cup[\s\S]*Player match by Maker · Password[\s\S]*a new day every 10 min[\s\S]*Quiet Cup/i.test(t), `official first, then player matches (${JSON.stringify(t.slice(0, 900))})`);
   assert(/Quiet Cup[\s\S]{0,40}Player match\n/.test(t) && !/Secret/.test(t), 'a maker with a private profile isn’t named');
   assert(!/Pals Cup[\s\S]{0,120}Prize/.test(t), 'player matches have no prize badge');
-  // Pictures: Crown Peak and Ridgeline at the top of the window, and each lobby's map on its card.
+  // Pictures: Crown Peak, Ridgeline and Willow Valley at the top of the window, and each lobby's map on its card.
   const pics = await g.page.evaluate(() => ({ hero: [...document.querySelectorAll('#mpBody .mp-hero img')].map((i) => i.getAttribute('src')),
     cards: document.querySelectorAll('#mpBody .mp-card').length, onCards: [...document.querySelectorAll('#mpBody .mp-card > img.mp-pic')].map((i) => i.getAttribute('src')) }));
-  assert(pics.hero.join() === 'img/crown.jpg,img/ridgeline.jpg' && pics.onCards.length === pics.cards && pics.onCards.every((x) => x === 'img/crown.jpg'), `Crown Peak and Ridgeline at the top, Crown Peak on each card (${JSON.stringify(pics)})`);
+  assert(pics.hero.join() === 'img/crown.jpg,img/ridgeline.jpg,img/willow.jpg' && pics.onCards.length === pics.cards && pics.onCards.every((x) => x === 'img/crown.jpg'), `Crown Peak, Ridgeline and Willow Valley at the top, Crown Peak on each card (${JSON.stringify(pics)})`);
   await g.page.waitForFunction(() => [...document.querySelectorAll('#mpBody img')].every((i) => i.complete && i.naturalWidth > 0), null, { timeout: 10000 });
   // Switches: computer players and late joining show on each lobby; with late joining off, there's no Join now.
   assert(/Closed Doors[\s\S]*No late joining/.test(t) && /Open Doors[\s\S]*Late joining until day 42/.test(t) && !/Computer players/.test(t), 'each lobby says whether late joining is on');

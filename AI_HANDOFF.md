@@ -239,7 +239,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
-| `ccr-e2bcd06d-dlgosa` | Claude | **Willow Valley, a new 4-player match map (draft, viewer only, `?mapView=valley`).** Phil's sketch (Nov 7): a valley with the road and a river down the middle, two resorts each side facing each other (staggered), creeks down the mountains. Not playable in a match yet. See the note below. | Nov 7, 2026 |
+| `ccr-02e9367e-8yousa` | Claude | **3.13 Willow Valley, playable (not published).** Carries on `ccr-e2bcd06d-dlgosa` (the draft, all of it included). Every slot plays (`valley@0` to `valley@3`), the far side turned round. Needs `supabase/match-valley.sql` run on live before Publish. See the note below. | Nov 7, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
@@ -445,10 +445,39 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
 - Numbers now (scenario 170): every slice 489 acres, 1,070–1,110 ft vertical, flat summit 55–58 acres, trees
   15,600–15,900 (seed 9111, picked because its forest starts out even, so `treeK` barely has to correct), example
   green 9,300–9,800 ft (17–20%), blue 4,700–5,400 ft, black 4,400–4,700 ft (two rate expert), two 16-acre parcels each.
-- To make it playable: a frame per slot like `stripFrame` but with a turn for the south side (rotate 180° and shift),
-  `drawRivals`/`rivalLot`/`hazeAt`/rival land turned for the far side, `roadFor(slot)` is ready, `lotWest` from
-  `lotsWest`, `matchMt`, `MP_SLOTS.valley`, the server's `mapQuery`, and `match_create_on` allowing `valley` (SQL,
-  additive). Then a picture for the match window.
+- Made playable later the same day (3.13, branch `ccr-02e9367e-8yousa`): see the next note.
+
+### 2026-11-07 · Claude · Willow Valley playable (3.13, `ccr-02e9367e-8yousa`, not published)
+
+- Phil: "make it playable and fair to all multiplayer users". `MATCH_MAPS.valley` now has `strip: true` and
+  `frame(k)` → `{ du, dv, s }`: a spot u, v in slot k's game is du + s·u, dv + s·v on the map (s −1 for the south
+  side, turned 180°). Each slice sits at u 0.125–0.875, its foot at v `VALLEY.foot` (0.08), so the valley road is at
+  v −0.1 as on Ridgeline. `stripFrame` is general now (Ridgeline's frames are `{ strip[k] − 0.25, 0, 1 }`, numbers
+  unchanged): it maps heights, `treeK`, the forest noise (`M.toMap`, in place of `M.du`), slices, bases, summits,
+  every slot's parcels (rects), roads, river and `creeks`; `lotWest` from `lotsWest[slot]`; `farX`/`farZ` from the
+  slices' corners (+24 / +16; Ridgeline keeps farZ 72).
+- Rivals: `stripTurn(slot)` → `{ s, phi, dx, dz, flip }` replaces `stripDx`; `drawRivals` turns with it.
+  Every base sits at x 0 in its own game, and slots 0/2 grow their lot west, 1/3 east, so `rivalLot(..., flip)` mirrors
+  your layout (x → −x, quads re-laid west to east, the drive reversed so ribbons face up) before turning it. Rival land:
+  `rivalParcel(slot, id)` reads that slot's own parcel from `MOUNTAIN.parcels` (already in this game's grid);
+  `hazeAt`'s strip branch no longer slides rects. The demo mirrors a pretend rival's copy for the other parity.
+- Lot cap: `LOT_COLS` (`MOUNTAIN.lotCols`, 4) in `lotReserve` and `nextLotSlot` ("the creek is just past it").
+- Parcels: `label` names the far plots as they are ("Far west lower"), not "… valley".
+- Fairness numbers in the game (each slot's own frame, before any building): 19,800 cells each; trees 15,630–15,720;
+  vertical 32.8–34.0 (Ridgeline 35.8–36.8); the same five parcels and sizes; first row 4, second 4 on bought land.
+  The in-map road to the base is 130–157 units (cars about 2 game minutes apart): it depends on which way town is.
+- Cost: ground past the map 251k–308k vertices (Ridgeline end valleys 225k), far trees 42k–63k; a server day about
+  15 s for two starter resorts (Ridgeline 12 s). Watch phones; next lever is an uneven `FAR_Z` (only the far side
+  needs the deep margin).
+- Window: three pictures in a row (`MP_MAP_IDS`, `.mp-heroes` 3 columns, 4:5), `img/willow.jpg` from
+  `tests/capture-willow.mjs` (down the valley from the east end), tagged "New"; title card three pictures, tag
+  "New valley". Make a match: Willow Valley, 2–4. stats.html: Willow Valley in the Mountain select and lists.
+- SQL: `supabase/match-valley.sql` (create or replace `match_create_on`, same arguments, only the map check takes
+  'valley'; copied from match-fast-turns.sql, which matches live's current one: checked read-only Nov 7). Until it's
+  run, Make a match on Willow Valley says it isn't switched on (the game also reads "pick one of the mountains").
+  Fake DB: `d.noValley`. Server: no change (`mapQuery` gives `valley@slot`); server-test plays a Valley Cup (passes).
+- Scenario 186-willow-valley-match; 157, 165, 171 updated for the third picture. Not done: `match-stats.sql` still counts
+  Willow Valley lobbies under Crown Peak on stats.html (its `crown` is "not ridge").
 
 ### 2026-11-03 · Claude · Map viewer for a new multiplayer mountain (`?mapView=1`, not published)
 
