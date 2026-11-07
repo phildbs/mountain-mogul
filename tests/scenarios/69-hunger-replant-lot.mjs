@@ -39,16 +39,17 @@ export default async function ({ browser, url }) {
     const pts = []; for (let z = 0; z <= 45; z += 3) for (let x = -2; x <= 28; x += 3) pts.push(new THREE.Vector3(x, heightAt(x, z), z));
     const alive = () => trees.alive.reduce((a, v) => a + v, 0);
     const a0 = alive(); for (const p of pts) clearAt(p); const a1 = alive();
-    state.landMode = 'plant'; stroke.trees = 0; stroke.cost = 0; const cash = state.cash; for (const p of pts) clearAt(p); const a2 = alive();
+    state.landMode = 'plant'; stroke.trees = 0; stroke.cost = 0; const cash = state.cash, t0 = world.buildings.filter((B) => B.type === 'tree').length; for (const p of pts) clearAt(p); const a2 = alive(), fresh = world.buildings.filter((B) => B.type === 'tree').length - t0;
     // nothing regrew in a trail or under the lift
     let bad = 0; for (let k = 0; k < trees.n; k++) if (trees.alive[k] && trees.play[k]) { const p = { x: trees.x[k], z: trees.z[k] };
       if (realTrails().some((t) => t.samples.some((s) => Math.hypot(s.x - p.x, s.z - p.z) < TRAIL_WIDTHS[t.width].hw - 0.3))) bad++;
       if (world.lifts.some((L) => distToSeg(p, L.a, L.b) < 1.5)) bad++; }
-    return { cleared: a0 - a1, regrown: a2 - a1, paid: cash - state.cash, bad, saved: saveData(false).trees === encodeCleared() }; })()`);
+    for (const B of world.buildings) if (B.type === 'tree') { if (realTrails().some((t) => t.samples.some((s) => Math.hypot(s.x - B.x, s.z - B.z) < TRAIL_WIDTHS[t.width].hw - 0.3))) bad++; if (world.lifts.some((L) => distToSeg(B, L.a, L.b) < 1.5)) bad++; }
+    return { cleared: a0 - a1, regrown: a2 - a1, fresh, paid: cash - state.cash, bad, saved: saveData(false).trees === encodeCleared() }; })()`);
   assert(rp.cleared > 300 && rp.regrown > rp.cleared * 0.6 && rp.regrown <= rp.cleared, `replanted most of a cleared glade: ${JSON.stringify(rp)}`);
-  eq([rp.paid, rp.bad], [rp.regrown * 150, 0], '$150 a tree, and nothing grew in a trail or under the lift');
+  eq([rp.paid, rp.bad], [rp.regrown * 150 + rp.fresh * 400, 0], '$150 a tree regrown, $400 a new one on open ground, and nothing grew in a trail or under the lift');
   await g.ev(`(() => { setTool('clear'); state.landMode = 'plant'; renderSheet(); })()`);
-  assert(/Replant/i.test(await g.ev(`$('sheet').innerText`)), 'Replant is in the Landscape panel');
+  assert(/Plant trees/i.test(await g.ev(`$('sheet').innerText`)), 'Plant trees is in the Landscape panel');
   await g.ev(`setTool('explore')`);
 
   // ---- a second row of parking

@@ -4227,8 +4227,9 @@ function replantBlocks() {
   if (sig !== plantSig) { plantSig = sig; plantBlocks = areaBlocks(null, true); }
   return plantBlocks;
 }
-function replantable(k, blocks) {
-  const x = trees.x[k], z = trees.z[k], p = { x, z };
+function replantable(k, blocks) { return plantableAt(trees.x[k], trees.z[k], blocks); }
+function plantableAt(x, z, blocks) {
+  const p = { x, z };
   if (blocks.has(cellKey(Math.round(x), Math.round(z)))) return false;
   if (sampleGrid(ROADD, x + HALF, z + HALF) < 3) return false;
   return !world.lifts.some((L) => distToSeg(p, L.a, L.b) < 2.2 || distXZ(p, L.a) < 4.4 || distXZ(p, L.b) < 4.8 || (L.midUp && distXZ(p, L.midUp.a) < 4.4));
@@ -4246,16 +4247,51 @@ function clearedInBrush(p, r, cb) {
     }
   }
 }
+// Open ground that never had trees (meadows, the base, above the old treeline): Replant plants new trees there too,
+// as planted Trees, one to a square on a fixed scatter so the same stroke always gives the same trees (the match
+// server replays it). A guest said Replant was finicky and "why can't you plant trees anywhere" (Nov 7): it only
+// regrew trees that once stood, and did nothing where the brush's middle was off your land.
+const NEW_TREE_KEEP = 0.75; // the share of squares that get one: a natural scatter, not a grid
+function newTreeSpots(p, r, blocks, fn) {
+  const r2 = r * r;
+  for (let j = Math.floor(p.z - r); j <= Math.ceil(p.z + r); j++) for (let i = Math.floor(p.x - r); i <= Math.ceil(p.x + r); i++) {
+    if (plantHash(i * 7 + 3, j * 13 + 5) > NEW_TREE_KEEP) continue;
+    const x = i + 0.3 + 0.4 * plantHash(i, j), z = j + 0.3 + 0.4 * plantHash(j, i + 1), dx = x - p.x, dz = z - p.z;
+    if (dx * dx + dz * dz > r2 || !inProperty(x, z) || blocks.has(cellKey(Math.round(x), Math.round(z)))) continue;
+    if (sampleGrid(ROADD, x + HALF, z + HALF) < 3 || sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4 || pondAt(x, z)) continue;
+    let near = false; // a tree of the mountain's own, standing or cleared (Replant regrows those), or one planted
+    treesInBrush({ x, z }, 0.9, () => { near = true; });
+    if (!near) clearedInBrush({ x, z }, 0.9, () => { near = true; });
+    if (near || world.buildings.some((B) => B.type === 'tree' && Math.abs(B.x - x) < 0.6 && Math.abs(B.z - z) < 0.6)) continue;
+    if (!plantableAt(x, z, blocks)) continue;
+    fn(x, z);
+  }
+}
+function plantNewAt(p, r, blocks) {
+  let n = 0;
+  newTreeSpots(p, r, blocks, (x, z) => {
+    if (world.buildings.filter((B) => B.type === 'tree').length >= PLANT_CAP) { stroke.full = true; return; }
+    // newTreeSpots has checked the ground (trails, lifts, the road, the lot, buildings, ponds, the creek); a single
+    // Tree from Buildings keeps more room around it than a forest does, so its own rules aren't used here
+    const cost = sizeCost('tree');
+    if (state.cash < cost) { stroke.broke = true; return; }
+    state.cash -= cost; stroke.trees++; stroke.cost += cost; n++;
+    const b = { id: world.nextId++, type: 'tree', tier: 0, x, z, rot: 0, spent: cost, yday: null, padY: null };
+    b.name = nextBuildingName('tree', x, z); addBuilding(b);
+  });
+  return n;
+}
 function replantAt(p) {
-  if (!inProperty(p.x, p.z)) return;
   const r = state.brushR, blocks = replantBlocks();
   let n = 0;
   clearedInBrush(p, r, (k) => {
-    if (!replantable(k, blocks)) return;
+    if (!replantable(k, blocks) || !inProperty(trees.x[k], trees.z[k])) return;
     if (state.cash < REPLANT_COST) { stroke.broke = true; return; }
     trees.alive[k] = 1; cellTrees[trees.cell[k]]++;
     state.cash -= REPLANT_COST; stroke.trees++; stroke.cost += REPLANT_COST; n++;
   });
+  const fresh = plantNewAt(p, r, blocks);
+  if (fresh) { updateCash(true); scheduleSave(); }
   if (n) {
     packTrees();
     const gx = p.x + HALF, gz = p.z + HALF, i0 = Math.floor(gx - r) - 1, i1 = Math.ceil(gx + r) + 1, j0 = Math.floor(gz - r) - 1, j1 = Math.ceil(gz + r) + 1;
@@ -4264,7 +4300,8 @@ function replantAt(p) {
     updateCash(true); scheduleSave();
   }
 }
-function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks)) n++; }); return n; }
+function replantCount(p) { const blocks = replantBlocks(); let n = 0; clearedInBrush(p, state.brushR, (k) => { if (replantable(k, blocks) && inProperty(trees.x[k], trees.z[k])) n++; }); return n; }
+function newTreeCount(p) { const blocks = replantBlocks(); let n = 0; newTreeSpots(p, state.brushR, blocks, () => n++); return n; }
 function clearAt(p) {
   if (matchPlay && !matchView.quiet && ['level', 'plant'].includes(state.landMode)) (stroke.mpts || (stroke.mpts = [])).push([Math.round(p.x * 100) / 100, Math.round(p.z * 100) / 100]); // replayed by the match server
   if (state.landMode === 'level') return levelAt(p);
@@ -4334,17 +4371,18 @@ function endStroke() {
     }
     else if (stroke.broke) toast('Not enough cash to keep leveling', true);
     else if (stroke.cost) toast(`Leveled ground · −${money(stroke.cost)}`);
-    stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null; stroke.box = null;
+    stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.full = false; stroke.last = null; stroke.box = null;
     scheduleSave();
     return;
   }
   const plant = state.landMode === 'plant';
   if (stroke.broke) toast(`Not enough cash to ${plant ? 'replant' : 'clear'} more trees`, true);
-  else if (stroke.trees) toast(`${plant ? 'Replanted' : 'Cleared'} ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
+  else if (plant && stroke.full) toast(`That’s the most planted trees a resort can have (${PLANT_CAP.toLocaleString('en-US')}).`, true);
+  else if (stroke.trees) toast(`${plant ? 'Planted' : 'Cleared'} ${stroke.trees.toLocaleString('en-US')} ${stroke.trees === 1 ? 'tree' : 'trees'} · −${money(stroke.cost)}`);
   if (stroke.trees && world.areas.some(isGlade)) { computeNetwork(); syncLabels(); } // a glade's trees set its rating
   if (matchPlay && !matchView.quiet && stroke.mks && stroke.mks.length && !plant) matchOrder('build', { what: 'trees', ks: stroke.mks });
   stroke.mks = null;
-  stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.last = null;
+  stroke.trees = 0; stroke.cost = 0; stroke.broke = false; stroke.full = false; stroke.last = null;
 }
 
 /* =====================================================================
@@ -4551,11 +4589,11 @@ function showReadout(p, px, py, pinned) {
     if (o && o.kind === 'tree' && TREE_COST > state.cash) html += ` <span class="warn">Not enough cash</span>`;
   }
   else if (state.tool === 'clear' && state.landMode === 'plant') {
-    if (stroke.active && stroke.trees) html += `<br>Replanted ${stroke.trees} · −${money(stroke.cost)}`;
+    if (stroke.active && stroke.trees) html += `<br>Planted ${stroke.trees} · −${money(stroke.cost)}`;
     else {
-      const n = replantCount(p);
-      html += n ? `<br>${n} ${n === 1 ? 'tree' : 'trees'} to regrow · ${money(n * REPLANT_COST)}` : `<br><span class="muted">Nothing to regrow here</span>`;
-      if (n && n * REPLANT_COST > state.cash) html += ` <span class="warn">Not enough cash</span>`;
+      const n = replantCount(p), f = newTreeCount(p), fc = f * sizeCost('tree'), all = n * REPLANT_COST + fc;
+      html += n || f ? `<br>${[n ? `${n} to regrow` : '', f ? `${f} new ${f === 1 ? 'tree' : 'trees'}` : ''].filter(Boolean).join(' · ')} · ${money(all)}` : `<br><span class="muted">No room for trees here</span>`;
+      if ((n || f) && all > state.cash) html += ` <span class="warn">Not enough cash</span>`;
     }
   }
   else if (state.tool === 'clear') {
@@ -8563,7 +8601,7 @@ function gladeSheet(A) {
     </dl>
     <div class="toggle-row"><div><b>“Experts only” signs</b><span>${A.signs ? 'Skiers who aren’t good enough stay out' : 'Anyone can wander in, and the wrong skier in the trees is how accidents happen'}</span></div>
       <button class="switch" role="switch" aria-checked="${!!A.signs}" data-action="gladeSigns" aria-label="Experts only signs"><i></i></button></div>
-    <p class="help">Glades aren’t groomed and can’t have snowmaking, so they open on natural snow. To change how tight it is, use Landscape: Replant inside it for tighter trees, or Clear trees to open it up.</p>
+    <p class="help">Glades aren’t groomed and can’t have snowmaking, so they open on natural snow. To change how tight it is, use Landscape: Plant trees inside it for tighter trees, or Clear trees to open it up.</p>
     ${state.phase === 'closed' || matchPlay ? removeBlock('this glade', `Remove ${esc(A.name)}? The trees stay as they are; you get back ${money((A.cost || 0) * 0.25)}.`) : ''}`;
 }
 function areaSheet(A) {
@@ -19757,7 +19795,7 @@ function landSheet() {
     : `<div class="sheet-title"><h3>Landscape</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <div class="seg" role="group" aria-label="Landscape mode">
       <button data-action="landMode" data-v="trees" aria-pressed="${!lvl && !doze && !plant && !pond}">Clear trees<small>${money(TREE_COST)} a tree</small></button>
-      <button data-action="landMode" data-v="plant" aria-pressed="${plant}">Replant<small>${money(REPLANT_COST)} a tree</small></button>
+      <button data-action="landMode" data-v="plant" aria-pressed="${plant}">Plant trees<small>from ${money(REPLANT_COST)} a tree</small></button>
       <button data-action="landMode" data-v="level" aria-pressed="${lvl}">Level ground<small>pay for earth moved</small></button>
       <button data-action="landMode" data-v="doze" aria-pressed="${doze}">Bulldoze<small>one at a time</small></button>${pondsHere() ? `
       <button data-action="landMode" data-v="pond" aria-pressed="${pond}">Pond<small>for snowmaking</small></button>` : ''}</div>`;
@@ -19792,7 +19830,7 @@ function landSheet() {
     <p class="help">Ctrl+Z puts back the last one. Bigger things (lifts, trails, buildings) are removed from their own panel.</p>`;
   return `${head}
     <p class="help">${plant
-      ? 'Drag over cleared ground to regrow the trees that stood there: fill in gaps between trails, tighten a glade, or screen the parking lot. Trails, lift lines, learning areas, glade lines, buildings and the lot stay clear.'
+      ? `Drag to plant trees: cleared ground grows back the trees that stood there (${money(REPLANT_COST)} each), and open ground gets new ones (${money(sizeCost('tree'))} each). Fill in gaps between trails, tighten a glade, or screen the parking lot. Trails, lift lines, learning areas, glade lines, buildings, the road and the lot stay clear.`
       : lvl
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for views, building sites, or to open up a glade.'}</p>
@@ -25049,6 +25087,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.14', date: 'Nov 7, 2026', title: 'Plant trees anywhere', items: [
+    'Landscape’s Replant brush is now Plant trees, and it works on open ground too. Where trees were cleared it regrows them ($150 a tree), and on meadows, the base or high ground that never had trees it plants new ones ($400 a tree, the price of a single Tree). The panel shows how many of each the brush will plant before you paint.',
+    'The brush now works right up to your property line: a dab that hangs over the edge plants on your side, instead of doing nothing.',
+    'Trails, lift lines, the road, the parking lot and buildings still stay clear. Thanks for the feedback!'] },
   { v: '3.13.2', date: 'Nov 7, 2026', title: 'Night lifts and glades in the Trails list', small: true, items: [
     'At night, a lift now runs only if night skiers can get to it: by lit trails and other night lifts from the base, with a lit trail from its top that leads home. Upper lifts with no lit way up stay off, and you don’t pay their power or crew. Thanks RowdyBreaker!',
     'Tapping a gladed run in the Trails list opens it again, with the ‹ Trails button to go back. Thanks RowdyBreaker!'] },
