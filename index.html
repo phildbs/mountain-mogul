@@ -6867,10 +6867,10 @@ function syncLinks() {
 }
 // Which lifts and trails a guest arriving at the base can reach, and which bring them back to it. With `ok`, only
 // trails it passes count, and a hub at the top of a base lift isn't home (spring: skied down, not ridden).
-function flowSets(ok) {
+function flowSets(ok, okL = () => true) { // okL: which lifts are running (at night, only the lit ones)
   // Which lifts and trails a guest arriving at the base can reach.
   const T0 = ok ? world.trails.filter(ok) : world.trails, good = ok || (() => true);
-  const liftR = new Set(world.lifts.filter((L) => L.fromBase));
+  const liftR = new Set(world.lifts.filter((L) => L.fromBase && okL(L)));
   const trailR = new Set(), hubR = new Set(world.areas.filter((A) => isHub(A) && A.basePoint));
   for (let changed = true; changed;) {
     changed = false;
@@ -6878,7 +6878,7 @@ function flowSets(ok) {
     for (const L of [...liftR]) if (L.midUp && !liftR.has(L.midLo)) { liftR.add(L.midLo); liftR.add(L.midUp); changed = true; } // riders pass the mid-station
     for (const T of trailR) if (T.to && T.to.kind === 'hub' && !hubR.has(T.to.obj)) { hubR.add(T.to.obj); changed = true; }
     for (const A of hubR) {
-      for (const L of A.loads) if (!liftR.has(L)) { liftR.add(L); changed = true; }
+      for (const L of A.loads) if (!liftR.has(L) && okL(L)) { liftR.add(L); changed = true; }
       for (const T of A.starts) if (!trailR.has(T) && good(T)) { trailR.add(T); changed = true; }
     }
     for (const L of liftR) for (const t of L.departing) if (!trailR.has(t) && good(t)) { trailR.add(t); changed = true; }
@@ -6886,29 +6886,29 @@ function flowSets(ok) {
       if (trailR.has(t) || !t.from) continue;
       if ((t.from.kind === 'lift' && liftR.has(t.from.obj)) || (t.from.kind === 'trail' && trailR.has(t.from.obj))) { trailR.add(t); changed = true; }
     }
-    for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
+    for (const L of [...liftR]) for (const M of L.transfers) if (!liftR.has(M) && okL(M)) { liftR.add(M); changed = true; }
     for (const t of trailR) {
       if (t.link === 'top' && !trailR.has(t.parent) && good(t.parent)) { trailR.add(t.parent); changed = true; }
-      if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
+      if (t.to && t.to.kind === 'lift' && !liftR.has(t.to.obj) && okL(t.to.obj)) { liftR.add(t.to.obj); changed = true; }
       if (t.to && t.to.kind === 'top') {
         for (const D of t.to.obj.departing) if (!trailR.has(D) && good(D)) { trailR.add(D); changed = true; }
-        for (const M of t.to.obj.transfers) if (!liftR.has(M)) { liftR.add(M); changed = true; }
+        for (const M of t.to.obj.transfers) if (!liftR.has(M) && okL(M)) { liftR.add(M); changed = true; }
       }
-      if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L)) { liftR.add(L); changed = true; }
+      if (t.to && t.to.kind === 'base') for (const L of world.lifts) if (L.fromBase && !liftR.has(L) && okL(L)) { liftR.add(L); changed = true; }
     }
   }
   // Which trails eventually bring skiers back to the base area, directly, via other
   // trails, or via a lift whose own trails do.
-  const ret = new Set(), hubRet = new Set(world.areas.filter((A) => isHub(A) && A.basePoint)), liftRet = new Set(world.lifts.filter((L) => L.fromBase));
+  const ret = new Set(), hubRet = new Set(world.areas.filter((A) => isHub(A) && A.basePoint)), liftRet = new Set(world.lifts.filter((L) => L.fromBase && okL(L)));
   for (let changed = true; changed;) {
     changed = false;
-    for (const A of world.areas.filter(isHub)) if (!hubRet.has(A) && (A.starts.some((T) => ret.has(T)) || A.loads.some((L) => liftRet.has(L)) || (!ok && A.tops.some((L) => liftRet.has(L))))) { hubRet.add(A); changed = true; }
+    for (const A of world.areas.filter(isHub)) if (!hubRet.has(A) && (A.starts.some((T) => ret.has(T)) || A.loads.some((L) => liftRet.has(L)) || (!ok && A.tops.some((L) => liftRet.has(L) && okL(L))))) { hubRet.add(A); changed = true; }
     for (const t of T0) {
       if (ret.has(t) || !t.to) continue;
       if ((t.to.kind === 'hub' && hubRet.has(t.to.obj)) || t.to.kind === 'base' || (t.to.kind === 'trail' && ret.has(t.to.obj)) || ((t.to.kind === 'lift' || t.to.kind === 'top') && liftRet.has(t.to.obj))) { ret.add(t); changed = true; }
     }
     for (const L of [...world.lifts, ...midParts()]) {
-      if (!liftRet.has(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)) || (L.midLo && liftRet.has(L.midLo)))) { liftRet.add(L); changed = true; }
+      if (!liftRet.has(L) && okL(L) && ((L.hubTop && hubRet.has(L.hubTop)) || L.departing.some((t) => ret.has(t)) || L.transfers.some((M) => liftRet.has(M)) || (L.midLo && liftRet.has(L.midLo)))) { liftRet.add(L); changed = true; }
     }
   }
   return { liftR, trailR, hubR, ret, hubRet, liftRet };
@@ -8102,7 +8102,7 @@ function renderSheet() {
   else if (state.tool === 'midstn') html = midToolSheet();
   else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, pond: pondSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
   if (html && state.tool === 'explore' && selected && matchPending(selected.kind, selected.obj)) html = html.replace(/(<div class="sheet-title">[\s\S]*?<\/div>)/, '$1<p class="help"><b>Blueprint:</b> built tonight, opens tomorrow morning.</p>');
-  if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
+  if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan', 'area'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
   syncBizFly();
   document.querySelectorAll('#manage [data-m]').forEach((b) => b.setAttribute('aria-current', String(b.dataset.m === m || (b.dataset.m === 'biz' && (bizOpen || BIZ.some(([k]) => k === m))))));
@@ -9341,7 +9341,7 @@ function updateLabels() {
   for (const B of world.buildings) placeLabel(B.labelEl, B.x, B.baseY + 1.6 + B.tier * 0.4, B.z, (show && labelsOn.bld) || (selected && selected.obj === B));
   for (const A of world.areas) {
     if (!A.labelEl) continue;
-    if (!A.center) { let x = 0, z = 0; for (const k of A.cells) { x += keyX(k); z += keyZ(k); } A.center = { x: x / A.cells.length, z: z / A.cells.length }; }
+    areaCenter(A);
     placeLabel(A.labelEl, A.center.x, heightAt(A.center.x, A.center.z) + 0.8, A.center.z, (show && labelsOn.trail) || (selected && selected.obj === A));
   }
   for (const t of realTrails()) {
@@ -12435,7 +12435,7 @@ function pondResults() {
 
 /* ---------- Night skiing ----------
    Light a trail (from its panel, overnight) and the night plan can keep it open after the lifts close:
-   until 7, 8 or 9 PM. Only lit trails run at night, and only lifts with a lit trail off the top. A
+   until 7, 8 or 9 PM. Only lit trails run at night, and only lifts that lit trails reach (see liftLit). A
    night crowd of locals drives up after work and buys night tickets; some day guests stay on. Lights,
    night staff and lift power are the costs. It's reported on its own page of the day report. */
 const LIGHT_COST_UNIT = 420, LIGHT_HOUR_UNIT = 0.8, NIGHT_BASE_HR = 160, NIGHT_LIFT_HR = 120;
@@ -12447,7 +12447,26 @@ const nightClearout = () => !!(state.phase === 'open' && nightEnd() && state.tim
   && (guests.some((g) => g.night && !g.gone && g.st !== 'incar' && (g.st === 'ski' || !isBase(g)))
     || world.lifts.some((L) => !isVillage(L) && L.riders.some((r) => r.length))));
 const nightLightsOn = () => nightNow() || nightClearout();
-const liftLit = (L) => L.departing.some((t) => t.lit && t.open && t.snowOk !== false);
+// A lift runs for night skiing when a lit trail leaves its top, night skiers can get to it from the base (by lit
+// trails and other night lifts) and that lit trail brings them home (RowdyBreaker, Nov 7: upper lifts with a lit trail
+// but no lit way up to them ran all evening). Worked out at most once a game minute.
+const litTrail = (t) => t.lit && t.open && t.snowOk !== false;
+let nightSetKey = '', nightSet = new Set();
+function liftLit(L) {
+  const key = `${state.day}:${Math.floor(state.time)}:${world.lifts.length}:${world.trails.length}`;
+  if (key !== nightSetKey) {
+    nightSetKey = key;
+    let on = new Set([...world.lifts, ...midParts()].filter((M) => M.departing.some(litTrail)));
+    for (let n = 0; n < 10; n++) { // dropping a lift can strand another, so again until nothing changes
+      const { liftR, ret } = flowSets(litTrail, (M) => on.has(M));
+      const next = new Set([...on].filter((M) => liftR.has(M) && M.departing.some((t) => litTrail(t) && ret.has(t))));
+      if (next.size === on.size) break;
+      on = next;
+    }
+    nightSet = on;
+  }
+  return nightSet.has(L);
+}
 const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
 // The night crowd: a share of a day's demand, more on weeknights (after work), fewer when it's bitter
 // cold, and more the more lit terrain there is to ski.
@@ -20625,11 +20644,17 @@ function flyTo(x, z) {
   const px = x + Math.sin(cam.azGoal) * Math.cos(EL) * s, pz = z + Math.cos(cam.azGoal) * Math.cos(EL) * s;
   camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to: { x: px, z: pz, az: cam.azGoal, viewH: Math.min(cam.viewH, defaultView() * 0.7) } };
 }
+// The middle of an area's ground, worked out when first needed. Glades have no map label, so they used to have no
+// middle until something else asked, and tapping one in the Trails list did nothing (RowdyBreaker, Nov 7).
+function areaCenter(A) {
+  if (!A.center && A.cells.length) { let x = 0, z = 0; for (const k of A.cells) { x += keyX(k); z += keyZ(k); } A.center = { x: x / A.cells.length, z: z / A.cells.length }; }
+  return A.center || { x: 0, z: 0 };
+}
 function goToFeature(kind, id) {
   if (kind === 'glade') kind = 'area';
   const obj = kind === 'trail' ? trailById(id) : kind === 'lift' ? liftById(id) : kind === 'area' ? areaById(id) : bldById(id);
   if (!obj) return;
-  const p = kind === 'area' ? obj.center : kind === 'trail' ? obj.samples[Math.floor(obj.samples.length / 2)] : kind === 'lift' ? { x: (obj.a.x + obj.b.x) / 2, z: (obj.a.z + obj.b.z) / 2 } : obj.door;
+  const p = kind === 'area' ? areaCenter(obj) : kind === 'trail' ? obj.samples[Math.floor(obj.samples.length / 2)] : kind === 'lift' ? { x: (obj.a.x + obj.b.x) / 2, z: (obj.a.z + obj.b.z) / 2 } : obj.door;
   flyTo(p.x, p.z);
   if (visiting) return; // visits stay on the list: panels are read only
   const back = selected && selected.kind === 'manage' ? selected.obj : null;
@@ -24223,7 +24248,7 @@ async function matchPause(b) {
 }
 // Lifts, trails, areas and buildings are found again by id, checked against where they stand.
 const matchListOf = (kind) => ({ trail: world.trails, lift: world.lifts, area: world.areas, bld: world.buildings })[kind] || null;
-const matchAt = (kind, o) => (kind === 'trail' ? o.pts[0] : kind === 'lift' ? o.a : kind === 'area' ? o.center || { x: 0, z: 0 } : o);
+const matchAt = (kind, o) => (kind === 'trail' ? o.pts[0] : kind === 'lift' ? o.a : kind === 'area' ? areaCenter(o) : o);
 const matchRef = (kind, o) => { const p = matchAt(kind, o); return { kind, id: o.id, x: Math.round(p.x * 100) / 100, z: Math.round(p.z * 100) / 100 }; };
 function matchFind(r) {
   const list = r && matchListOf(r.kind);
@@ -25024,6 +25049,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.13.2', date: 'Nov 7, 2026', title: 'Night lifts and glades in the Trails list', small: true, items: [
+    'At night, a lift now runs only if night skiers can get to it: by lit trails and other night lifts from the base, with a lit trail from its top that leads home. Upper lifts with no lit way up stay off, and you don’t pay their power or crew. Thanks RowdyBreaker!',
+    'Tapping a gladed run in the Trails list opens it again, with the ‹ Trails button to go back. Thanks RowdyBreaker!'] },
   { v: '3.13.1', date: 'Nov 7, 2026', title: 'Fairer Ridgeline, parking and condo sales in matches', kotm: true, items: [
     'King of the Mountain: Ridgeline’s first valley (on the left) had far less steep ground than the others and no expert terrain. Its steep pitch is now bigger, so it has a real black and expert run like its neighbours, with the same vertical. Thanks mswoeb!',
     'King of the Mountain: the same for Willow Valley’s north-west slice, which had about half the steep ground of the others. Crown Peak’s slices were already the same.',
