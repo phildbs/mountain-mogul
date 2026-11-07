@@ -6954,7 +6954,9 @@ function flowSets(ok, okL = () => true) { // okL: which lifts are running (at ni
   }
   return { liftR, trailR, hubR, ret, hubRet, liftRet };
 }
+let netGen = 0; // counts network rebuilds, so caches built on lift and trail links know when to start again
 function computeNetwork() {
+  netGen++;
   syncAreaLines();
   syncLinks();
   hubStations();
@@ -11777,7 +11779,7 @@ function styleLot() {
 
 /* ---------- The day ---------- */
 function simStep(dt) {
-  xBases = null; xStep = true;
+  xBases = null; xStep = true; simTick++;
   try { simRun(dt); } finally { xBases = null; xStep = false; }
 }
 function simRun(dt) {
@@ -12490,12 +12492,16 @@ const nightClearout = () => !!(state.phase === 'open' && nightEnd() && state.tim
 const nightLightsOn = () => nightNow() || nightClearout();
 // A lift runs for night skiing when a lit trail leaves its top, night skiers can get to it from the base (by lit
 // trails and other night lifts) and that lit trail brings them home (RowdyBreaker, Nov 7: upper lifts with a lit trail
-// but no lit way up to them ran all evening). Worked out again each game minute, or when a trail's lights, opening or snow change.
+// but no lit way up to them ran all evening). Worked out again when a trail's lights, opening or snow change, or the
+// lifts and trails themselves. canLoad asks for every guest at a lift, so within a sim step the answer is reused
+// as is: checking every trail on each ask made big night-skiing resorts crawl (Adum888, Nov 7).
 const litTrail = (t) => t.lit && t.open && t.snowOk !== false;
-let nightSetKey = '', nightSet = new Set();
+let nightSetKey = '', nightSet = new Set(), nightTick = -1, simTick = 0;
 function liftLit(L) {
+  if (xStep && nightTick === simTick) return nightSet.has(L);
+  nightTick = xStep ? simTick : -1;
   let h = 0; for (const t of world.trails) h = (h * 31 + (t.lit ? 1 : 0) + (t.open ? 2 : 0) + (t.snowOk !== false ? 4 : 0) + t.id * 8) | 0; // lights switched mid-minute count at once
-  const key = `${state.day}:${Math.floor(state.time)}:${world.lifts.length}:${h}`;
+  const key = `${state.day}:${netGen}:${world.lifts.length}:${h}`;
   if (key !== nightSetKey) {
     nightSetKey = key;
     let on = new Set([...world.lifts, ...midParts()].filter((M) => M.departing.some(litTrail)));
