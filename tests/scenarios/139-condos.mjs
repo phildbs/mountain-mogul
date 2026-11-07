@@ -1,4 +1,4 @@
-// Condos: a chalet, duplex and townhomes in three themes; base or slopeside (low on the mountain, beside a trail);
+// Condos: a chalet, duplex and townhomes in four themes; base or slopeside (low on the mountain, beside a trail);
 // homes sell for cash, owners pay dues, ski out of the door and back to it; empty homes rent by the night;
 // owners' mood moves slowly and has real effects; saved and reloaded; the Lodging tab on a phone.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
@@ -12,7 +12,7 @@ export default async function ({ browser, url }) {
     return { key, tier, seats: k.seats.length, glow: k.parts.some(([, m]) => m === BM.glow),
       fits: box.min.x >= -s.w / 2 - 0.05 && box.max.x <= s.w / 2 + 0.05 && box.min.z >= -s.d / 2 - 0.05 && box.max.z <= s.d / 2 + 0.05 };
   })))()`);
-  eq(models.length, 9, 'three sizes in each of the three themes');
+  eq(models.length, 12, 'three sizes in each of the four themes');
   for (const m of models) assert(m.fits && m.glow && m.seats === 0, `${m.key} ${m.tier}: fits, lit windows, no seats`);
   eq(await g.ev(`[0, 1, 2].map((t) => sizeCost('condo', t))`), [220000, 360000, 800000], 'prices by size');
   eq(await g.ev(`BTYPES.condo.tiers.map((s) => s.units)`), [1, 2, 5], 'a chalet, a duplex, a row of five townhomes');

@@ -1,4 +1,4 @@
-// Hotels: three sizes in three themes, rooms booked each morning, guests out of the door for the first chair
+// Hotels: three sizes in four themes, rooms booked each morning, guests out of the door for the first chair
 // and back in at the end of the day, room revenue on the report, and the card on a phone.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -11,7 +11,7 @@ export default async function ({ browser, url }) {
     return { key, tier, seats: k.seats.length, glow: k.parts.some(([, m]) => m === BM.glow),
       fits: box.min.x >= -s.w / 2 - 0.05 && box.max.x <= s.w / 2 + 0.05 && box.min.z >= -s.d / 2 - 0.05 && box.max.z <= s.d / 2 + 0.05, h: Math.round(box.max.y * 10) / 10 };
   })))()`);
-  eq(models.length, 9, 'three sizes in each of the three themes');
+  eq(models.length, 12, 'three sizes in each of the four themes');
   for (const m of models) {
     assert(m.fits, `${m.key} ${m.tier} fits its footprint`);
     assert(m.glow && m.seats === 0, `${m.key} ${m.tier}: lit windows, no seats`);

@@ -16,6 +16,16 @@ export default async function ({ browser, url }) {
     const out = ['food', 'shops', 'services', 'transport'].map((tab) => { setBTab(tab); renderSheet();
       return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
     setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], []], 'only food trucks lack the Scandinavian look');
+  eq(await g.ev(`(() => { setBTheme('retro'); setTool('bld'); draft.btype = null;
+    const out = ['food', 'shops', 'services', 'transport', 'stay'].map((tab) => { setBTab(tab); renderSheet();
+      return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
+    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], [], []], 'only food trucks lack the Retro look');
+  // every retro model seats guests exactly like the classic one, in every size, and lights its windows at night
+  const retro = await g.ev(`Object.keys(MODELS_RETRO).flatMap((t) => Array.from({ length: BTYPES[t].tiers?.length || 1 }, (_, i) => {
+    const a = MODELS[t](i), b = MODELS_RETRO[t](i); return { t, seats: JSON.stringify(a.seats) === JSON.stringify(b.seats), glow: b.parts.some(([, m]) => m === BM.glow) }; }))`);
+  eq(retro.length, 31, 'every retro model and size');
+  assert(retro.every((r) => r.seats), 'retro seats match classic');
+  assert(retro.every((r) => r.glow || ['restroom', 'shuttle'].includes(r.t)), 'retro windows light up');
   const r = await g.ev(`(() => { state.cash = 1e8; const L = world.lifts[0], out = {};
     const put = (type, theme, dx) => { for (let k = 0; k < 60; k++) { const x = L.a.x + dx + (k % 6) * 1.5, z = L.a.z - 6 + Math.floor(k / 6) * 1.5, v = evalBuilding(type, x, z, 0, false); if (!v.problems.length) return commitBuilding(v, type, x, z, 0, theme); } };
     const a = put('cafe', 'modern', -20), b = put('truck', 'scandi', -30), c = put('bar', 'scandi', -12);
