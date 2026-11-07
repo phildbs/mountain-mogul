@@ -424,6 +424,9 @@ Once a note's work has shipped, fold anything lasting into Decisions and lessons
   past a creek, a gentler shoulder out to its edge (`VALLEY.s`): 0.75 wide, 489 acres (Ridgeline 358). The west
   slices' main lots grow west (`lotsWest`, as `MOUNTAIN.lotWest`; only `viewLots` reads it so far), so every slice
   gets 8 free sections in row 0 and 4 on the parcels.
+- Phil, Nov 7: mountains and valley to the edge of what's drawn. Past each end of a side (`VALLEY.s`), `range` repeats
+  the mountain shape (`fe`, the same width as a slice's face, out of sight) at 88% height, instead of easing down.
+  No change inside the slices.
 - Creeks: new map fields `creeks: [[points, width], ...]` and `creekW` (the river is 1.6 creeks wide: CREEKD is
   measured in widths, so the carve, water colour, bridges and tree clearing all scale). `groundAt` takes the nearest.
   Six creeks: one between the two mountains on each side, one down each outer side, each across the floor to the river.
