@@ -2677,6 +2677,89 @@ MATCH_MAPS.ridge = {
     return h;
   },
 };
+// Granite Range (draft, only in the map viewer for now): a long New England range, five resort spots side by side,
+// each its own mountain, and not equal: a little family hill, two mid-size mountains, a steep one and a big
+// flagship peak with a bare alpine summit. A better spot will cost more to claim (`price`, taken from the starting
+// cash), so a cheap hill is a real choice. Between the spots, the notches (low passes) are land nobody owns at the
+// start, for sale (`chunks`). Rounded, wooded summits, ravines down the faces, and on the flagship a glacial cirque
+// with a steep headwall. All in u, v like the other maps: the valley road runs along v -0.1, bases at v 0.065.
+const RANGE = {
+  // each spot: its west and east edge (u), summit (u, v), height, how its face falls (above 1: steeper up high),
+  // a name for the viewer and its price
+  spots: [
+    { u0: -0.85, u1: -0.5, top: [-0.68, 0.55], H: 20, k: 1, name: 'Family hill', price: 300000 },
+    { u0: -0.32, u1: 0.12, top: [-0.1, 0.78], H: 30, k: 1, name: 'Mid mountain', price: 700000 },
+    { u0: 0.3, u1: 0.85, top: [0.58, 0.95], H: 50, k: 1.1, name: 'Big peak', price: 1400000 },
+    { u0: 1.03, u1: 1.45, top: [1.24, 0.82], H: 36, k: 1.5, name: 'Steep mountain', price: 900000 },
+    { u0: 1.63, u1: 1.98, top: [1.8, 0.65], H: 25, k: 1, name: 'Little mountain', price: 450000 },
+  ],
+  base: 0.065, // where each base road ends
+};
+// the notches between the spots: the land for sale
+RANGE.chunks = RANGE.spots.slice(1).map((S, k) => { const P = RANGE.spots[k]; return { u0: P.u1, u1: S.u0, v0: 0, v1: 0.9, name: `Notch ${k + 1}` }; });
+MATCH_MAPS.range = {
+  id: 'range',
+  name: 'Granite Range',
+  match: true, slices: RANGE.spots.length, draft: true,
+  level: 'Intermediate', dot: 'var(--blue)',
+  blurb: 'A long New England range: five resort spots, from a family hill to a big alpine peak, priced to match.',
+  cash: 3000000,
+  weather: { storm: 1, wind: 1.1, warm: 1 },
+  skiers: [0.33, 0.35, 0.22, 0.1],
+  draw: 1, costs: 1,
+  seed: 9127,
+  baseFt: 1500,
+  treeline: 38, // wooded nearly everywhere; only the big peak's summit stands above the trees
+  spots: RANGE.spots, fullRing: true,
+  // each spot's land: its strip from the valley up to just past its summit
+  sliceAreas: RANGE.spots.map((S) => [[S.u0, 0], [S.u1, 0], [S.u1, S.top[1] + 0.1], [S.u0, S.top[1] + 0.1]]),
+  bases: RANGE.spots.map((S) => [S.top[0], RANGE.base]),
+  summits: RANGE.spots.map((S) => [S.top[0], S.top[1] - 0.03]),
+  chunks: RANGE.chunks,
+  runTurns: 0.1,
+  // and an example black: off the summit, straight down the fall line to the base
+  blackRuns: RANGE.spots.map((S) => [[S.top[0], S.top[1] - 0.03], [S.top[0], RANGE.base + 0.04]]),
+  viewCentre: [0.56, 0.5], viewSpan: 520, viewAz: 0.1, farX: 140, farZ: 120, // ground far enough behind for the range to fall away
+  get area() { return this.sliceAreas[2]; },
+  // The valley road from town (off the east end), and a straight road up to each base. The map as it stands (the
+  // viewer) is seen from the big peak.
+  roadFor(slot) {
+    const V = [[2.4, -0.15], [1.9, -0.11], [1.3, -0.1], [0.7, -0.1], [0.1, -0.1], [-0.5, -0.1], [-1.2, -0.12]], [c] = this.bases[slot];
+    const road = catmull([...V.filter(([u]) => u > c + 0.07), [c + 0.07, -0.1], [c + 0.02, -0.098], [c + 0.001, -0.085], [c, -0.06], [c, RANGE.base]], 10);
+    const west = [[c + 0.07, -0.1], ...V.filter(([u]) => u < c + 0.07)];
+    return { road, roads: [...(west.length > 1 ? [catmull(west, 10)] : []), ...this.bases.filter((_, k) => k !== slot).map(([u]) => catmull([[u, -0.1], [u, RANGE.base]], 4))] };
+  },
+  get road() { return (this.r2 = this.r2 || this.roadFor(2)).road; },
+  get roads() { return (this.r2 = this.r2 || this.roadFor(2)).roads; },
+  creek: catmull([[-1.2, -0.21], [-0.4, -0.2], [0.4, -0.22], [1.2, -0.19], [2.0, -0.21], [2.4, -0.24]], 14),
+  height(u, v) {
+    const s = this.seed;
+    let h = 2 + 0.6 * fbm(u * 3, v * 3, s + 1, 3);
+    // The range's long crest behind every spot, higher and lower along its length, with notches between.
+    const crest = 9 + 9 * fbm(u * 2.6, 4.1, s + 3, 4) + 6 * ridged(u * 6, 2.3, s + 4, 3), cv = 1.22 + 0.06 * fbm(u * 2, 7.3, s + 6, 3);
+    let m = crest * sstep(0.7, cv, v) * (1 - sstep(cv, cv + 0.4, v) * 0.7); // rising to a wandering crest, falling away behind
+    // Each spot's own mountain: a rounded dome from its summit down to the valley floor, the face below reaching
+    // right down to the base, the back merging into the crest. Joined to the crest and its neighbours smoothly.
+    let near = 1; // how far from the nearest summit (0 on it, 1 at the foot)
+    for (const S of RANGE.spots) {
+      const [cu, cv] = S.top, ru = (S.u1 - S.u0) * 0.5 + 0.32, rv = v < cv ? cv - 0.02 : 0.45; // broad and rounded, as the old, worn mountains are
+      const d = Math.hypot((u - cu) / ru, (v - cv) / rv), p = 1 - sstep(0, 1, Math.pow(Math.min(1, d), 1 / S.k));
+      near = Math.min(near, d);
+      m = Math.log(Math.exp(m / 3) + Math.exp(S.H * p / 3)) * 3; // a soft max: saddles where two meet, not creases
+    }
+    h += Math.max(0, m - 3 * Math.log(2));
+    // Ravines and spurs down the faces, stretched down the slope, and lumps; deeper on the bigger mountains. The
+    // summits stay rounded and the valley floor smooth.
+    const face = sstep(0.06, 0.2, v) * sstep(2, 10, m) * sstep(0.12, 0.35, near);
+    h += face * (0.04 + 0.04 * m / 50) * m * (ridged(u * 11 + 0.8 * fbm(u * 3, v * 2, s + 33, 3), v * 1.7, s + 31, 3) - 0.45);
+    h += sstep(0.08, 0.2, v) * (1.1 * fbm(u * 6, v * 6, s + 5, 4) - 0.2) * sstep(2, 10, m);
+    // The big peak's cirque: a bowl scooped out of its east shoulder, under a steep headwall.
+    { const dc = Math.hypot((u - 0.72) / 0.11, (v - 0.74) / 0.14); h -= 6 * (1 - sstep(0.15, 1, dc)) * sstep(0.35, 0.6, v); }
+    // Wooded hills south of the valley.
+    h += 7 * sstep(-0.28, -0.55, v) * (0.6 + 0.6 * fbm(u * 4, v * 4, s + 13, 3));
+    return h;
+  },
+};
 MOUNTAINS.lonepine.is3d = MOUNTAINS.ridgeback.is3d = true;
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
@@ -3040,7 +3123,7 @@ function generateFar(M) {
     cellStart[c] = X.length;
     const gx0 = ci - FAR_X, gz0 = cj - FAR_Z;
     if (gx0 >= 0 && gz0 >= 0 && gx0 < WN && gz0 < WN) continue; // the map has its own trees
-    const full = MAP_VIEW && sliceAt(gx0 + 0.5, gz0 + 0.5) >= 0; // the map viewer: a slice out here gets the full forest
+    const full = MAP_VIEW && (MOUNTAIN.fullRing || sliceAt(gx0 + 0.5, gz0 + 0.5) >= 0); // (a range: its woods behind too, or the back of it looks bare) // the map viewer: a slice out here gets the full forest
     for (let tr = 0; tr < (full ? 2 : 1); tr++) {
     const gx = gx0 + rng(), gz = gz0 + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
     const u = vu(gx), v = vv(gz), h = farAt(gx, gz), k = cj * FNVX + ci;
@@ -23036,8 +23119,9 @@ function viewRuns() {
 // its size and how flat it is.
 function viewParcels() {
   const grp = new THREE.Group(), out = [];
-  (MOUNTAIN.parcels || []).forEach((list, k) => {
-    const col = new THREE.Color(VIEW_COLS[k % VIEW_COLS.length]);
+  const lists = [...(MOUNTAIN.parcels || []).map((list, k) => [list, VIEW_COLS[k % VIEW_COLS.length]]), ...(MOUNTAIN.chunks ? [[MOUNTAIN.chunks, '#7b8494']] : [])]; // (a range's notches: nobody's, grey)
+  lists.forEach(([list, c]) => {
+    const col = new THREE.Color(c);
     out.push(list.map((P) => {
       const a = uvWorld([P.u0, P.v1]), b = uvWorld([P.u1, P.v0]), N = 24, pos = [], idx = [], edge = [];
       for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
@@ -23060,7 +23144,7 @@ function viewParcels() {
       for (let x = Math.min(a.x, b.x) + 0.5; x < Math.max(a.x, b.x); x += 1) for (let z = Math.min(a.z, b.z) + 0.5; z < Math.max(a.z, b.z); z += 1) {
         n++; g += Math.hypot(heightAt(x + 0.5, z) - heightAt(x - 0.5, z), heightAt(x, z + 0.5) - heightAt(x, z - 0.5)) / VEX;
       }
-      return { name: P.name, acres: n * ACRES_PER_CELL, grade: g / Math.max(1, n), at: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 } };
+      return { name: P.name, acres: n * ACRES_PER_CELL, grade: g / Math.max(1, n), at: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, col: c };
     }));
   });
   grp.visible = out.length > 0; scene.add(grp);
@@ -23097,8 +23181,9 @@ function viewTags() {
   const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
   const C = viewCentre();
   if (!MOUNTAIN.sliceAreas) add(C, 'Summit · shared');
-  for (let k = 0; k < MOUNTAIN.slices; k++) add(viewBase(k), `<i></i>Base ${k + 1}`, VIEW_COLS[k % VIEW_COLS.length]);
-  mapViewer.parcels.out.forEach((list, k) => list.forEach((P) => add(P.at, `For sale · ${fmtAcres(P.acres)}`, VIEW_COLS[k % VIEW_COLS.length])));
+  const spot = (k) => (MOUNTAIN.spots ? ` · ${MOUNTAIN.spots[k].name} · ${money(MOUNTAIN.spots[k].price)}` : '');
+  for (let k = 0; k < MOUNTAIN.slices; k++) add(viewBase(k), `<i></i>Base ${k + 1}${spot(k)}`, VIEW_COLS[k % VIEW_COLS.length]);
+  mapViewer.parcels.out.forEach((list) => list.forEach((P) => add(P.at, `For sale · ${fmtAcres(P.acres)}`, P.col)));
 }
 const _vt = new THREE.Vector3();
 function viewTagsTick() {
@@ -23147,12 +23232,12 @@ function viewPanel() {
   const runLine = (r, kind) => { const x = r[kind], want = { green: 0, blue: 1, black: 2 }[kind], ok = (kind === 'black' ? x.rating >= 2 : x.rating <= want) && !x.uphill;
     return `${ratingSymbol(x.rating, 11)} ${kind[0].toUpperCase() + kind.slice(1)} from the top: ${fmtFt(Math.round(x.len * FT_PER_UNIT / 10) * 10)}, steepest ${Math.round(x.max * 100)}%${ok ? '' : kind === 'black' ? ' <b class="warn">not steep enough</b>' : ' <b class="warn">too steep</b>'}`; };
   const maps = Object.values(MATCH_MAPS);
-  const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}</b>
+  const rows = S.map((s, k) => `<div class="vrow"><b style="--c:${VIEW_COLS[k % VIEW_COLS.length]}"><i></i>Slice ${k + 1}${MOUNTAIN.spots ? ` · ${MOUNTAIN.spots[k].name} · ${money(MOUNTAIN.spots[k].price)}` : ''}</b>
       <span>${fmtAcres(s.cells * ACRES_PER_CELL)} · ${fmtFt(ft(s.lo))} to ${fmtFt(ft(s.hi))} · ${fmtFt(Math.round((s.hi - s.lo) * FT_PER_UNIT / 10) * 10)} vertical · flat summit ${fmtAcres(s.flatTop * ACRES_PER_CELL)} · ${(Math.round((s.trees || 0) / 100) * 100).toLocaleString('en-US')} trees</span>
       <div class="vmix" title="${DIFF.map((D, i) => `${D.name} ${pct(s, i)}%`).join(', ')}">${DIFF.map((D, i) => `<em style="flex:${s.mix[i]};background:rgb(${D.col.map((c) => Math.round(c * 255)).join(',')})"></em>`).join('')}</div>
       <small>${DIFF.map((D, i) => `${pct(s, i)}%`).join(' · ')}</small>
       ${lots[k] ? `<small>Parking: first row ${lots[k].free} sections (${lots[k].free * SPACES_PER_SECTION} spaces) on your own land; a second row of ${lots[k].bought} on the land for sale</small>` : ''}
-      ${land[k] ? `<small>Land for sale below: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
+      ${MOUNTAIN.parcels && land[k] ? `<small>Land for sale below: ${land[k].map((P) => `${P.name.toLowerCase()} ${fmtAcres(P.acres)} (${Math.round(P.grade * 100)}% grade)`).join(', ')}</small>` : ''}
       ${runs[k] ? `<small class="vrun">${Object.keys(runs[k]).map((kind) => runLine(runs[k], kind)).join('<br>')}</small>` : ''}</div>`).join('');
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'mapView';
@@ -23171,6 +23256,7 @@ function viewPanel() {
         ${mapViewer.parcels.out.length ? '<button id="vLand" aria-pressed="true">Land for sale</button>' : ''}
       </div>
       <h3>Each slice</h3>${rows}
+      ${MOUNTAIN.chunks ? `<h3>Land for sale</h3><div class="vrow"><small>${land.at(-1).map((P) => `${P.name}: ${fmtAcres(P.acres)}, ${Math.round(P.grade * 100)}% grade`).join('<br>')}</small></div>` : ''}
       <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
       ${MOUNTAIN.id === 'match' ? '<p class="vhelp"><a href="?matchDemo=1">See it with starter resorts</a></p>' : ''}
     </div>`;

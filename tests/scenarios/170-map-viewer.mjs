@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
       trees: S.map((x) => x.trees || 0),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
-  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
+  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 3, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker (Crown Peak, Ridgeline, Granite Range)');
   assert(Math.max(...q.acres) - Math.min(...q.acres) <= 2, `the strips are the same size (${q.acres})`);
   assert(Math.max(...q.vert) / Math.min(...q.vert) < 1.2, `no slice has much more vertical than another (${q.vert})`);
   assert(q.top.every((a) => a >= 15), `every slice has a flat summit to build on (${q.top} acres)`);
@@ -65,4 +65,20 @@ export default async function ({ browser, url }) {
   assert(Math.min(...q.trees) > 5000 && Math.max(...q.trees) / Math.min(...q.trees) < 1.05, `every slice has about as many trees to clear (${q.trees})`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
+  // Granite Range (draft): five resort spots of different sizes, priced to match, and the notches between for sale.
+  const gr = await openGame(browser, url, { query: '?mapView=range', mountain: 'fresh' });
+  await gr.page.waitForFunction(() => !!document.getElementById('mapView'), null, { timeout: 30000 });
+  const o = await gr.ev(`(() => { const S = viewStats();
+    return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, prices: MOUNTAIN.spots.map((x) => x.price),
+      bases: [0, 1, 2, 3, 4].map((k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
+      vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)), land: mapViewer.parcels.out.at(-1).map((P) => Math.round(P.acres)),
+      tags: [...document.querySelectorAll('#viewTags .vtag')].filter((e) => /For sale/.test(e.textContent)).length,
+      greens: mapViewer.runs.out.map((r) => r.green.rating), alpine: S[2].hi > MOUNTAIN.treeline && S.every((x, k) => k === 2 || x.hi < MOUNTAIN.treeline) }; })()`);
+  eq([o.mt, o.rows, o.bases, o.tags], ['range', 6, [0, 1, 2, 3, 4], 4], 'Granite Range: five spots with a base each, and four notches for sale');
+  const byVert = o.vert.map((v, k) => k).sort((a, b) => o.vert[a] - o.vert[b]), byPrice = o.prices.map((v, k) => k).sort((a, b) => o.prices[a] - o.prices[b]);
+  eq(byPrice, byVert, `a bigger mountain costs more (${o.vert} ft, ${o.prices.map((p) => "$" + p.toLocaleString("en-US"))})`);
+  assert(o.vert[0] > 400 && o.vert[2] > 1300 && o.land.every((a) => a > 80), `from a family hill to a big peak, and big notches (${o.vert} ft, ${o.land} acres)`);
+  assert(o.greens[0] === 0 && o.alpine, `the family hill has a green from the top, and only the big peak stands above the trees (${o.greens})`);
+  eq(gr.errors, [], 'no page errors on Granite Range');
+  await gr.page.close();
 }
