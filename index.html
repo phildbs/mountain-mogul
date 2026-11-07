@@ -2677,64 +2677,6 @@ MATCH_MAPS.ridge = {
     return h;
   },
 };
-// Mount Ember (draft, only in the map viewer and the match demo for now): a giant volcano shared by up to four
-// resorts, each with a quarter of the cone from its own base up to its own stretch of the crater rim. The crater
-// belongs to nobody: out of bounds, with a hot lake, as on real volcanoes with ski areas (Ruapehu has two, on
-// opposite sides). Like Crown Peak the cone is the same all the way round and each slice mirrors about its middle,
-// so every player gets the same ground. Its profile is a real volcano's: steep under the rim, flaring out gently
-// towards the base, so on every slice the blacks are up high and the greens low down.
-// rim: the crater's edge; inner: where each slice's land starts; shelf: the flat ground below the rim for the
-// summit stations; foot: where the cone meets the valley; H: the cone's height.
-const VOLC = { c: [0.5, 0.86], n: 4, rim: 0.09, inner: 0.105, shelf: 0.17, foot: 0.8, H: 36, crater: 9 };
-const volcDir = (a, r) => [VOLC.c[0] + r * Math.sin(a), VOLC.c[1] - r * Math.cos(a)];
-// A spot folded onto one half of one slice: the same on every slice, mirrored about its middle. [across, along, r, angle]
-const volcFold = (u, v) => { const dx = u - VOLC.c[0], dy = v - VOLC.c[1], r = Math.hypot(dx, dy), sec = 2 * Math.PI / VOLC.n;
-  const b = Math.abs(((Math.atan2(dx, -dy) + sec / 2) % sec + sec) % sec - sec / 2); return [r * Math.sin(b), r * Math.cos(b), r, b]; };
-MATCH_MAPS.volcano = {
-  id: 'volcano',
-  name: 'Mount Ember',
-  match: true, slices: VOLC.n, draft: true, hub: VOLC, crater: true,
-  level: 'Advanced', dot: 'var(--black)',
-  blurb: 'A giant volcano shared by up to four resorts, each with a quarter of the cone up to its own stretch of the crater rim.',
-  cash: 2500000,
-  weather: { storm: 1, wind: 1.2, warm: 1 },
-  skiers: [0.33, 0.35, 0.22, 0.1],
-  draw: 1, costs: 1,
-  seed: 4417,
-  baseFt: 3000,
-  treeline: 23, // the upper cone stands bare: ash, rock and snow
-  area: (() => { const w = Math.PI / VOLC.n, t = (1 - VOLC.c[0]) / Math.sin(w); // from the crater's edge out along both edges to the property line
-    return [volcDir(-w, VOLC.inner), volcDir(w, VOLC.inner), volcDir(w, t), [1, 0], [0, 0], volcDir(-w, t)]; })(),
-  road: catmull([[0.56, -0.34], [0.53, -0.16], [0.5, -0.04], [0.49, 0.055]], 10),
-  creek: catmull([[-0.04, 0.22], [-0.1, 0.06], [-0.18, -0.1], [-0.36, -0.3]], 10),
-  // the rivals' bases sit further out than on Crown Peak: the one opposite is past the far side of the cone
-  farX: 76, farZ: 116, viewSpan: 340,
-  // the example runs the viewer lays on slice 1 (the same on every slice): from the shelf below the rim to the base,
-  // zig-zagging round the cone
-  runTop: [0.5, 0.86 - 0.16], runTurns: 0.5, // turning back this far (radians) either side of the slice's middle
-  forestUV: (u, v) => volcFold(u, v), // the same woods on every slice, as the ground is
-  height(u, v) {
-    const s = this.seed, sec = 2 * Math.PI / VOLC.n, [px, py, r, b] = volcFold(u, v); // the same spot on every slice, mirrored about its middle
-    let h = 2 + 0.6 * fbm(px * 3, py * 3, s + 1, 3);
-    // The cone: rounded off into a flat shelf below the rim (no lip), steepest just below it, flaring out to the foot.
-    const x = clamp((r - VOLC.shelf) / (VOLC.foot - VOLC.shelf), 0, 1), k = 0.2, xr = (x < k ? x * x / (2 * k) : x - k / 2) / (1 - k / 2);
-    h += VOLC.H * Math.pow(1 - xr, 1.8);
-    // The rim: a low lip round the crater, then sheer walls down to its floor and the lake.
-    h += 2 * Math.exp(-(((r - VOLC.rim) / 0.02) ** 2)) - VOLC.crater * (1 - sstep(VOLC.rim - 0.03, VOLC.rim, r));
-    // A ridge down each edge between slices, fading out before the shelf and the base.
-    const edge = r * Math.sin(Math.max(0, sec / 2 - b));
-    h += 5 * Math.exp(-((edge / 0.05) ** 2)) * sstep(VOLC.shelf + 0.03, VOLC.shelf + 0.14, r) * (1 - sstep(0.5, VOLC.foot, r));
-    // Lava ribs and gullies running straight down the flanks; the shelf and the valley floor stay smooth.
-    const flank = sstep(VOLC.shelf + 0.01, VOLC.shelf + 0.09, r) * (1 - sstep(VOLC.foot - 0.14, VOLC.foot, r));
-    h += flank * (1.0 * ridged(b * 7, r * 2.4, s + 9, 3) + 1.0 * fbm(px * 6, py * 6, s + 5, 4) - 0.6);
-    // Two old cinder cones low on each slice, either side of its middle.
-    const cd = Math.hypot(px - 0.62 * Math.sin(0.5), py - 0.62 * Math.cos(0.5));
-    h += 4.5 * Math.exp(-((cd / 0.045) ** 2)) - 1.6 * Math.exp(-((cd / 0.014) ** 2));
-    // Wooded hills far out round the valley.
-    h += 8 * sstep(0.98, 1.35, r) * (0.6 + 0.6 * fbm(px * 4, py * 4, s + 13, 3));
-    return h;
-  },
-};
 MOUNTAINS.lonepine.is3d = MOUNTAINS.ridgeback.is3d = true;
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
@@ -2848,7 +2790,6 @@ function stripFrame(M, slot) {
 // Leaderboards: one per built-in mountain, and one for every custom mountain together.
 const boardOf = (mt) => (isCustomId(mt) ? 'custom' : mt || 'juniper');
 const MOUNTAIN = mountainDef(bootMountainId());
-const HUB = MOUNTAIN.hub || CROWN; // a round match map's middle and slice count (Crown Peak, Mount Ember)
 const START_CASH = MOUNTAIN.cash;
 
 /* =====================================================================
@@ -2917,7 +2858,7 @@ if (MOUNTAIN.parcels) { // a strip map: only the valley land below your own slic
   PARCELS.length = 0;
   MOUNTAIN.parcels[MOUNTAIN.slot ?? 1].forEach((P, k) => PARCELS.push({ id: `V${k}`, name: `${P.name} valley`, i0: Math.round(PLAY0 + P.u0 * PN), i1: Math.round(PLAY0 + P.u1 * PN), j0: Math.round(PLAY1 - P.v1 * PN), j1: Math.round(PLAY1 - P.v0 * PN) }));
 } else if (MOUNTAIN.match) {
-  const sec = Math.PI / MOUNTAIN.slices, ok = (gx, gz) => { const u = (gx - PLAY0) / PN, v = (PLAY1 - gz) / PN; return Math.abs(Math.atan2(u - HUB.c[0], HUB.c[1] - v)) < sec - 0.06; };
+  const sec = Math.PI / MOUNTAIN.slices, ok = (gx, gz) => { const u = (gx - PLAY0) / PN, v = (PLAY1 - gz) / PN; return Math.abs(Math.atan2(u - CROWN.c[0], CROWN.c[1] - v)) < sec - 0.06; };
   for (let k = PARCELS.length - 1; k >= 0; k--) { const p = PARCELS[k]; if (![[p.i0, p.j0], [p.i1, p.j0], [p.i0, p.j1], [p.i1, p.j1]].every(([i, j]) => ok(i, j))) PARCELS.splice(k, 1); }
 } else if (MOUNTAIN.townParcel) PARCELS.splice(PARCELS.findIndex((p) => p.id === MOUNTAIN.townParcel), 1); // the town stands there
 let landRects = []; // parcels that are yours (bought or leased, permits through)
@@ -2962,10 +2903,10 @@ function hazeAt(gx, gz) {
   if (MOUNTAIN.strip && AREA) { // a strip map: every valley, and the land your rivals have bought, slid onto theirs
     for (const P of SLICES) d = Math.min(d, polyDist(P, gx, gz));
     for (const R of rivalLand) { const px = gx - R.dx; for (const p of R.rects) d = Math.min(d, Math.hypot(Math.max(p.i0 - px, px - p.i1, 0), Math.max(p.j0 - gz, gz - p.j1, 0))); }
-  } else if (MOUNTAIN.match && AREA) {
-    const cx = PLAY0 + HUB.c[0] * PN, cz = PLAY1 - HUB.c[1] * PN;
-    for (let k = 1; k < HUB.n; k++) {
-      const a = k * 2 * Math.PI / HUB.n, c = Math.cos(a), sn = Math.sin(a), x = gx - cx, z = gz - cz;
+  } else if (MOUNTAIN.id === 'match' && AREA) {
+    const cx = PLAY0 + CROWN.c[0] * PN, cz = PLAY1 - CROWN.c[1] * PN;
+    for (let k = 1; k < CROWN.n; k++) {
+      const a = k * 2 * Math.PI / CROWN.n, c = Math.cos(a), sn = Math.sin(a), x = gx - cx, z = gz - cz;
       d = Math.min(d, areaDist(cx + x * c - z * sn, cz + x * sn + z * c));
     }
     // and the land your rivals have bought, turned onto their slices (drawRivals fills rivalLand)
@@ -2984,7 +2925,7 @@ function hazeAt(gx, gz) {
 // A map lists its slices (sliceAreas, in u, v), or they're Crown Peak's wedge turned round the summit. In grid coordinates.
 const SLICES = !MOUNTAIN.match ? [] : MOUNTAIN.sliceAreas ? MOUNTAIN.sliceAreas.map((P) => P.map(([u, v]) => [PLAY0 + u * PN, PLAY1 - v * PN]))
   : Array.from({ length: MOUNTAIN.slices }, (_, k) => {
-    const cx = PLAY0 + HUB.c[0] * PN, cz = PLAY1 - HUB.c[1] * PN, a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
+    const cx = PLAY0 + CROWN.c[0] * PN, cz = PLAY1 - CROWN.c[1] * PN, a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
     return AREA.map(([gx, gz]) => [cx + (gx - cx) * c - (gz - cz) * s, cz + (gx - cx) * s + (gz - cz) * c]);
   });
 function inPoly(P, gx, gz) {
@@ -3042,9 +2983,9 @@ function generate(M) {
         const gx = ci + rng(), gz = cj + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
         const u = (gx - PLAY0) / PN, v = (PLAY1 - gz) / PN;
         const h = sampleGrid(HT, gx, gz), g = sampleGrid(GR, gx, gz);
-        const [nu, nv] = M.forestUV ? M.forestUV(u, v) : [u + (M.du || 0), v]; // a slid strip map's woods stay where they are on the ridge
-        let p = 0.04 + 0.96 * sstep(-0.22, 0.28, fbm(nu * 4.5, nv * 4.5, M.seed + 21, 4));
-        const tl = M.treeline + 3 * fbm(nu * 8, nv * 8, M.seed + 23, 3);
+        const nu = u + (M.du || 0); // a slid strip map's woods stay where they are on the ridge
+        let p = 0.04 + 0.96 * sstep(-0.22, 0.28, fbm(nu * 4.5, v * 4.5, M.seed + 21, 4));
+        const tl = M.treeline + 3 * fbm(nu * 8, v * 8, M.seed + 23, 3);
         p *= 1 - sstep(tl - 3, tl + 1.5, h);
         p *= 1 - sstep(0.55, 0.85, g);
         const rd = sampleGrid(ROADD, gx, gz), cd = sampleGrid(CREEKD, gx, gz);
@@ -3104,9 +3045,9 @@ function generateFar(M) {
     const gx = gx0 + rng(), gz = gz0 + rng(), r1 = rng(), r2 = rng(), r3 = rng(), r4 = rng(), r5 = rng();
     const u = vu(gx), v = vv(gz), h = farAt(gx, gz), k = cj * FNVX + ci;
     const g = Math.hypot(FAR[k + 1] - FAR[k], FAR[k + FNVX] - FAR[k]);
-    const [nu, nv] = M.forestUV ? M.forestUV(u, v) : [u + (M.du || 0), v];
-    let p = 0.04 + 0.96 * sstep(-0.22, 0.28, fbm(nu * 4.5, nv * 4.5, M.seed + 21, 4));
-    const tl = M.treeline + 3 * fbm(nu * 8, nv * 8, M.seed + 23, 3);
+    const nu = u + (M.du || 0);
+    let p = 0.04 + 0.96 * sstep(-0.22, 0.28, fbm(nu * 4.5, v * 4.5, M.seed + 21, 4));
+    const tl = M.treeline + 3 * fbm(nu * 8, v * 8, M.seed + 23, 3);
     p *= 1 - sstep(tl - 3, tl + 1.5, h);
     p *= 1 - sstep(0.55, 0.85, g);
     if (FARRD[k] < 2.6 || FARCD[k] < 2.2) p = 0;
@@ -3524,38 +3465,6 @@ function buildTrees() {
 
 // The dashed line round your property: the outline of every 16-unit tile you hold.
 let boundaryLine = null;
-// A volcano's crater (Mount Ember): a warm turquoise lake on its floor, never frozen, with steam drifting up out of it.
-const STEAM_N = 36, steam = { pts: null, pos: new Float32Array(STEAM_N * 3), age: new Float32Array(STEAM_N), c: null, R: 0 };
-function buildCrater() {
-  const C = uvWorld(HUB.c), R = (HUB.rim - 0.025) * PN;
-  let top = -Infinity; // the lake fills the floor to its highest point, so no island shows through
-  for (let r = 0; r <= R; r += 1) for (let a = 0; a < 6.28; a += 0.4) top = Math.max(top, heightAt(C.x + r * Math.cos(a), C.z + r * Math.sin(a)));
-  const lake = new THREE.Mesh(new THREE.CircleGeometry(R + 2, 40), new THREE.MeshLambertMaterial({ color: 0x5aaea3, emissive: 0x0a2c29, transparent: true, opacity: 0.92 }));
-  lake.rotation.x = -Math.PI / 2; lake.position.set(C.x, top + 0.3, C.z); lake.receiveShadow = true;
-  scene.add(lake);
-  steam.c = { x: C.x, y: top + 0.3, z: C.z }; steam.R = R;
-  const geo = new THREE.BufferGeometry(), a = new Float32Array(STEAM_N), sz = new Float32Array(STEAM_N);
-  for (let i = 0; i < STEAM_N; i++) { steam.age[i] = Math.random(); sz[i] = 0.7 + Math.random() * 0.8; }
-  geo.setAttribute('position', new THREE.BufferAttribute(steam.pos, 3));
-  geo.setAttribute('a', new THREE.BufferAttribute(a, 1));
-  geo.setAttribute('sz', new THREE.BufferAttribute(sz, 1));
-  steam.pts = new THREE.Points(geo, pointMaterial(0xf4f6f6, 30));
-  steam.pts.frustumCulled = false; steam.pts.renderOrder = 11;
-  scene.add(steam.pts);
-}
-function updateSteam(dt) {
-  if (!steam.pts) return;
-  const P = steam.pos, A = steam.pts.geometry.attributes.a.array, c = steam.c, w = clock * 0.15;
-  for (let i = 0; i < STEAM_N; i++) {
-    let t = steam.age[i] + dt / 16; // each wisp takes about 16 seconds to rise and fade
-    if (t >= 1 || !P[i * 3 + 1]) { t %= 1; const r = steam.R * Math.sqrt(Math.random()) * 0.9, q = Math.random() * 6.28; P[i * 3] = c.x + r * Math.cos(q); P[i * 3 + 2] = c.z + r * Math.sin(q); P[i * 3 + 1] = c.y; }
-    steam.age[i] = t;
-    P[i * 3 + 1] = c.y + 2 + t * 60; P[i * 3] += Math.cos(w) * dt * 0.8; P[i * 3 + 2] += Math.sin(w) * dt * 0.8; // drifting with a slow wind
-    A[i] = 0.2 * Math.sin(Math.PI * t) * sstep(0, 0.25, t) * (state.summer ? 0.6 : 1); // faint over the lake, so it shows through
-  }
-  steam.pts.material.uniforms.uSize.value = clamp(3600 / cam.viewH, 6, 48); // wisps the same size on the ground at any zoom
-  steam.pts.geometry.attributes.position.needsUpdate = true; steam.pts.geometry.attributes.a.needsUpdate = true;
-}
 function buildBoundary() {
   if (boundaryLine) { scene.remove(boundaryLine); boundaryLine.geometry.dispose(); boundaryLine.material.dispose(); }
   const T = PD, n = WN / T, held = (ti, tj) => landRects.some((p) => inRect(p, ti * T + T / 2, tj * T + T / 2)),
@@ -23020,7 +22929,7 @@ function matchDemo() {
 const VIEW_COLS = ['#df562c', '#2f7de1', '#1f9d63', '#a65fd6', '#d9a21b', '#e0457b'];
 const mapViewer = { lines: null, tags: [], summer: false, ns: null };
 const uvWorld = ([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF });
-const viewCentre = () => uvWorld(MOUNTAIN.viewCentre || HUB.c);
+const viewCentre = () => uvWorld(MOUNTAIN.viewCentre || CROWN.c);
 const viewBase = (k) => (MOUNTAIN.bases ? uvWorld(MOUNTAIN.bases[k]) : viewTurn(k)(roadEnd()));
 function viewTurn(k) { // a spot on slice 0 (world x, z) turned onto slice k, as drawRivals turns a rival's resort
   const C = viewCentre(), a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
@@ -23072,31 +22981,8 @@ function viewLines() {
 // each step taking the heading (from straight across the slope to straight down it) whose drop is closest to
 // `grade`, crossing to `a` either side of the middle and turning back. So the pitch stays even over bumps and
 // tilted ground alike. Returns points in world x, z, one every few units.
-// On a round map (Mount Ember) the same, but turning round the cone: across the slope is round the summit, and it
-// turns back a angle either side of the slice's middle. On slice 1, from runTop to the base.
-function viewRouteRound(grade, A) {
-  const C = viewCentre(), p0 = uvWorld(MOUNTAIN.runTop), end = roadEnd(), R1 = Math.hypot(end.x - C.x, end.z - C.z) - 6, step = 1;
-  let x = p0.x, z = p0.z, side = 1;
-  const pts = [{ x, z }];
-  for (let i = 0; i < 3000 && Math.hypot(x - C.x, z - C.z) < R1; i++) {
-    const r = Math.hypot(x - C.x, z - C.z), ox = (x - C.x) / r, oz = (z - C.z) / r, ang = Math.atan2(x - C.x, z - C.z); // 0 down the middle of slice 1
-    if ((side > 0 && ang >= A) || (side < 0 && ang <= -A)) side = -side;
-    const tx = oz * side, tz = -ox * side, y = trueY(x, z); // round the cone, towards this side
-    let best = null;
-    for (let t = -4; t <= 16; t++) { // from a little uphill, through straight round (0), to straight down
-      const q = t / 16 * Math.PI / 2, dx = tx * Math.cos(q) + ox * Math.sin(q), dz = tz * Math.cos(q) + oz * Math.sin(q);
-      const near = (y - trueY(x + dx * 1.5, z + dz * 1.5)) / 1.5, far = (y - trueY(x + dx * 4, z + dz * 4)) / 4;
-      const err = Math.max(Math.abs(near - grade), Math.abs(far - grade)) + (t < 2 ? 0.02 : 0) + (Math.min(near, far) < -0.03 ? 1 : 0);
-      if (!best || err < best.err) best = { err, nx: x + dx * step, nz: z + dz * step };
-    }
-    x = best.nx; z = best.nz;
-    if (i % 4 === 3) pts.push({ x, z });
-  }
-  pts.push(end);
-  return pts;
-}
 function viewRoute(k, grade, a) {
-  const [c0, top] = MOUNTAIN.summits ? MOUNTAIN.summits[k] : MOUNTAIN.runTop, base = MOUNTAIN.bases ? MOUNTAIN.bases[k][1] : (PLAY1 - roadEnd().z - HALF) / PN, c = MOUNTAIN.runLanes ? MOUNTAIN.runLanes[k] : c0;
+  const [c0, top] = MOUNTAIN.summits[k], [, base] = MOUNTAIN.bases[k], c = MOUNTAIN.runLanes ? MOUNTAIN.runLanes[k] : c0;
   const p0 = uvWorld([c0, top]), end = uvWorld([c0, base + 0.04]);
   const xL = uvWorld([c - a, 0]).x, xR = uvWorld([c + a, 0]).x, step = 1;
   let x = p0.x, z = p0.z, side = k % 2 ? -1 : 1;
@@ -23125,13 +23011,10 @@ function viewRoute(k, grade, a) {
 // player would get on that line.
 function viewRuns() {
   const grp = new THREE.Group(), out = [];
-  // A round map (Mount Ember) is the same on every slice: the runs are laid on the first and turned onto the others.
-  const round = !MOUNTAIN.summits && MOUNTAIN.runTop, laid = {};
-  if (MOUNTAIN.summits || round) for (let k = 0; k < MOUNTAIN.slices; k++) {
+  if (MOUNTAIN.summits) for (let k = 0; k < MOUNTAIN.slices; k++) {
     const res = {};
-    for (const kind of MOUNTAIN.blackRuns || round ? ['green', 'blue', 'black'] : ['green', 'blue']) {
-      const route = round ? (laid[kind] = laid[kind] || (kind === 'black' ? [uvWorld(MOUNTAIN.runTop), uvWorld([MOUNTAIN.runTop[0], (PLAY1 - roadEnd().z - HALF) / PN + 0.04])] : viewRouteRound(kind === 'green' ? 0.1 : 0.3, MOUNTAIN.runTurns))).map(viewTurn(k))
-        : kind === 'green' ? viewRoute(k, 0.1, MOUNTAIN.runTurns) : kind === 'blue' ? viewRoute(k, 0.3, MOUNTAIN.runTurns * 0.8) : MOUNTAIN.blackRuns[k].map(uvWorld);
+    for (const kind of MOUNTAIN.blackRuns ? ['green', 'blue', 'black'] : ['green', 'blue']) {
+      const route = kind === 'green' ? viewRoute(k, 0.1, MOUNTAIN.runTurns) : kind === 'blue' ? viewRoute(k, 0.3, MOUNTAIN.runTurns * 0.8) : MOUNTAIN.blackRuns[k].map(uvWorld);
       const sm = trailSamples(route, 2), an = analyzeTrail(sm), pos = [], idx = [];
       res[kind] = { len: an.len, rating: an.rating, max: an.maxGrade, uphill: an.problems.some((p) => /uphill/.test(p)) };
       for (let i = 0; i < sm.length; i++) {
@@ -23213,7 +23096,7 @@ function viewTags() {
   const layer = document.createElement('div'); layer.className = 'layer'; layer.id = 'viewTags'; $('hud').appendChild(layer);
   const add = (p, html, col) => { const el = document.createElement('div'); el.className = 'vtag'; el.innerHTML = html; if (col) el.style.setProperty('--c', col); layer.appendChild(el); mapViewer.tags.push({ el, p: { ...p, y: heightAt(p.x, p.z) + 3 } }); };
   const C = viewCentre();
-  if (!MOUNTAIN.sliceAreas) add(C, MOUNTAIN.crater ? 'Crater · out of bounds' : 'Summit · shared');
+  if (!MOUNTAIN.sliceAreas) add(C, 'Summit · shared');
   for (let k = 0; k < MOUNTAIN.slices; k++) add(viewBase(k), `<i></i>Base ${k + 1}`, VIEW_COLS[k % VIEW_COLS.length]);
   mapViewer.parcels.out.forEach((list, k) => list.forEach((P) => add(P.at, `For sale · ${fmtAcres(P.acres)}`, VIEW_COLS[k % VIEW_COLS.length])));
 }
@@ -23289,7 +23172,7 @@ function viewPanel() {
       </div>
       <h3>Each slice</h3>${rows}
       <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
-      ${!MOUNTAIN.sliceAreas ? `<p class="vhelp"><a href="?matchDemo=${MOUNTAIN.id === 'match' ? 1 : MOUNTAIN.id}">See it with starter resorts</a></p>` : ''}
+      ${MOUNTAIN.id === 'match' ? '<p class="vhelp"><a href="?matchDemo=1">See it with starter resorts</a></p>' : ''}
     </div>`;
   $('hud').appendChild(el);
   for (const b of el.querySelectorAll('[data-go]')) b.onclick = () => viewGo(+b.dataset.go);
@@ -23354,12 +23237,12 @@ function drawRivals() {
       for (let k = s0; k < e; k++) if (trees.alive[k] && (trees.x[k] - x) ** 2 + (trees.z[k] - z) ** 2 < r2 && !inProperty(trees.x[k], trees.z[k])) cut.add(k);
     }
   };
-  const [cu, cv] = HUB.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
+  const [cu, cv] = CROWN.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
   matchView.drawn = 0; RIVAL_SKI.slices = [];
   for (const r of matchView.resorts) {
     if (r.slot === matchView.slot || !r.save || !r.save.world) continue;
     // Crown Peak turns a rival's resort round the summit; a strip map (Ridgeline) slides it along the ridge.
-    const slide = MOUNTAIN.strip ? stripDx(r.slot) : null, phi = slide == null ? (r.slot - matchView.slot) * 2 * Math.PI / HUB.n : 0, c = Math.cos(phi), sn = Math.sin(phi);
+    const slide = MOUNTAIN.strip ? stripDx(r.slot) : null, phi = slide == null ? (r.slot - matchView.slot) * 2 * Math.PI / CROWN.n : 0, c = Math.cos(phi), sn = Math.sin(phi);
     const turn = slide != null ? (p) => ({ x: p.x + slide, z: p.z }) : (p) => ({ x: cx + (p.x - cx) * c - (p.z - cz) * sn, z: cz + (p.x - cx) * sn + (p.z - cz) * c });
     const w = r.save.world, sl = { slot: r.slot, last: r.summary && r.summary.last, lifts: [], trails: [], lamps: [], blds: [], stalls: [], phi, eve: rivalEvening(r.save.clock || {}, w) };
     RIVAL_SKI.slices.push(sl);
@@ -24311,7 +24194,7 @@ $('visitSwitch').onclick = () => { if (!matchView) return; const S = matchView.r
 // Watching a match: the whole mountain, from above the summit.
 function matchOverview() {
   // (a strip map: your valley and its neighbours, from in front)
-  const [cu, cv] = MOUNTAIN.strip ? [0.5, 0.5] : HUB.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
+  const [cu, cv] = MOUNTAIN.strip ? [0.5, 0.5] : CROWN.c, cx = PLAY0 + cu * PN - HALF, cz = PLAY1 - cv * PN - HALF;
   camTween = null; cam.target.x = cx; cam.target.z = cz + 10; cam.viewH = Math.min(VIEW_MAX, 250); cam.viewGoal = null; updateCamera();
 }
 // The game for a lobby's map, seen from one slot: Crown Peak is the same from every slice; a strip map is slid.
@@ -24325,8 +24208,8 @@ function matchSwitch(slot) {
   // a strip map: each resort's game is the ridge slid to its valley, so follow it there (a reload)
   if (MOUNTAIN.strip) { reloadInto({ match: matchView.lobby.id, slot }, matchMt(matchView.lobby, slot)); return; }
   if (matchView.replay) stopReplay(true);
-  const phi = (slot - matchView.slot) * 2 * Math.PI / HUB.n, c = Math.cos(-phi), sn = Math.sin(-phi);
-  const cx = PLAY0 + HUB.c[0] * PN - HALF, cz = PLAY1 - HUB.c[1] * PN - HALF, dx = cam.target.x - cx, dz = cam.target.z - cz;
+  const phi = (slot - matchView.slot) * 2 * Math.PI / CROWN.n, c = Math.cos(-phi), sn = Math.sin(-phi);
+  const cx = PLAY0 + CROWN.c[0] * PN - HALF, cz = PLAY1 - CROWN.c[1] * PN - HALF, dx = cam.target.x - cx, dz = cam.target.z - cz;
   const view = { x: cx + dx * c - dz * sn, z: cz + dx * sn + dz * c, az: cam.az + phi, azGoal: cam.azGoal + phi, viewH: cam.viewH };
   const name = (matchView.players.find((p) => p.slot === slot) || {}).resort_name || (r.summary && r.summary.name) || 'A resort';
   matchView.slot = slot; matchView.nothing = null;
@@ -26259,7 +26142,6 @@ function frame(now) {
   if (!NO_RENDER) {
     updateSnow(dt, clock);
     updatePuffs(dt);
-    updateSteam(dt);
     updateFireworks(dt);
     updateDusk(); updateNightLights(); updateEveningGlow();
     syncRaceCourse();
@@ -26293,7 +26175,6 @@ function start(hot) {
   buildTown();
   buildTrees();
   if (FAR_E) buildFar();
-  if (MOUNTAIN.crater) buildCrater();
   buildBoundary();
   buildSnow();
   buildPuffs();

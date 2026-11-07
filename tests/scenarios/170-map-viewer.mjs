@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
       trees: S.map((x) => x.trees || 0),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
-  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 3, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker (Crown Peak, Ridgeline, Mount Ember)');
+  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
   assert(Math.max(...q.acres) - Math.min(...q.acres) <= 2, `the strips are the same size (${q.acres})`);
   assert(Math.max(...q.vert) / Math.min(...q.vert) < 1.2, `no slice has much more vertical than another (${q.vert})`);
   assert(q.top.every((a) => a >= 15), `every slice has a flat summit to build on (${q.top} acres)`);
@@ -65,31 +65,4 @@ export default async function ({ browser, url }) {
   assert(Math.min(...q.trees) > 5000 && Math.max(...q.trees) / Math.min(...q.trees) < 1.05, `every slice has about as many trees to clear (${q.trees})`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
-  // Mount Ember (draft): a volcano cut into four, the crater nobody's, every slice the same ground and woods.
-  const m = await openGame(browser, url, { query: '?mapView=volcano', mountain: 'fresh' });
-  await m.page.waitForFunction(() => !!document.getElementById('mapView'), null, { timeout: 20000 });
-  const w = await m.ev(`(() => {
-    const S = viewStats(), C = viewCentre();
-    return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, crater: sliceAt(C.x + HALF, C.z + HALF), lake: !!steam.pts,
-      bases: [0, 1, 2, 3].map((k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
-      same: S.map((x) => [x.cells / S[0].cells, ...x.mix.map((n, i) => (n - S[0].mix[i]) / S[0].cells)]),
-      runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill]),
-      trees: S.map((x) => x.trees || 0), acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)),
-      vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
-  })()`);
-  eq([w.mt, w.rows, w.crater, w.lake, w.bases], ['volcano', 4, -1, true, [0, 1, 2, 3]], 'Mount Ember: four slices, a base on each, the crater nobody’s, with its lake');
-  assert(w.same.every(([n, ...r]) => Math.abs(n - 1) < 0.01 && r.every((x) => Math.abs(x) < 0.01)), `every slice has the same ground (${JSON.stringify(w.same.map((r) => r.map((x) => +x.toFixed(3))))})`);
-  eq(w.runs, [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every stretch of rim, rated by the game');
-  assert(Math.min(...w.trees) > 5000 && Math.max(...w.trees) / Math.min(...w.trees) < 1.05, `every slice has about as many trees to clear (${w.trees})`);
-  assert(w.acres.every((a) => a > 360) && w.vert.every((v) => v > 1150) && w.top.every((a) => a >= 8), `big slices, a tall cone, a flat shelf below the rim (${w.acres} acres, ${w.vert} ft, ${w.top} acres flat)`);
-  eq(m.errors, [], 'no page errors on Mount Ember');
-  await m.page.close();
-  // and its match demo: three pretend rivals turned round the cone
-  const dd = await openGame(browser, url, { query: '?matchDemo=volcano', mountain: 'fresh' });
-  await dd.page.waitForFunction(() => window.__dbg('!!(matchView && matchView.demo)'), null, { timeout: 30000 });
-  const dm = await dd.ev(`({ mt: MOUNTAIN.id, rivals: matchView.resorts.map((r) => r.slot), drawn: matchView.drawn })`);
-  eq([dm.mt, dm.rivals], ['volcano', [0, 2, 3]], 'the match demo on Mount Ember has a rival on every other slice');
-  assert(dm.drawn >= 3, `their lifts are drawn (${dm.drawn})`);
-  eq(dd.errors, [], 'no page errors in the Mount Ember demo');
-  await dd.page.close();
 }
