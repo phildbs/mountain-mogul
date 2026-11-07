@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Building styles viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+:root { --ink: #1c2430; --ink-2: #4a5566; --line: #d5dce5; --paper: #ffffffee; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #c9d6e2; font: 14px Figtree, system-ui, sans-serif; color: var(--ink); touch-action: none; }
+canvas { display: block; }
+#ui { position: absolute; z-index: 2; top: 10px; left: 10px; right: 10px; max-width: 380px; background: var(--paper); border-radius: 14px; padding: 10px 12px; box-shadow: 0 4px 18px #0002; }
+#ui h1 { font: 800 22px 'Big Shoulders Display', 'Arial Narrow', sans-serif; text-transform: uppercase; margin: 0; flex: 1; }
+.top { display: flex; align-items: center; gap: 8px; }
+#fold { border: 0; background: none; font-size: 18px; padding: 4px 8px; cursor: pointer; color: var(--ink-2); }
+#ui.folded .body { display: none; }
+.lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); margin: 10px 0 4px; }
+select { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chips button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 10px; font: 600 12px Figtree, sans-serif; color: var(--ink-2); cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.help { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); }
+#tags { position: absolute; inset: 0; pointer-events: none; }
+.tag { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); background: #fffe; border-radius: 8px; padding: 3px 7px; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px #0002; }
+.tag small { display: block; font-weight: 500; color: var(--ink-2); }
+.tag.miss { background: #fff9; color: var(--ink-2); font-style: italic; }
+#err { position: absolute; bottom: 10px; left: 10px; right: 10px; background: #fee; color: #900; padding: 10px; border-radius: 10px; display: none; white-space: pre-wrap; }
+</style>
+</head><body>
+<div id="ui">
+  <div class="top"><h1>Building styles</h1><button id="fold" aria-label="Fold the panel">–</button></div>
+  <div class="body">
+    <div class="lbl">Building</div>
+    <select id="pick"></select>
+    <div class="lbl">Themes side by side</div>
+    <div class="chips" id="themes"></div>
+    <div class="lbl">Light</div>
+    <div class="chips"><button id="day" aria-pressed="true">Day</button><button id="eve" aria-pressed="false">Evening</button></div>
+    <p class="help" id="count"></p>
+    <p class="help">Drag to turn · pinch or scroll to zoom · two fingers or right-drag to move · tap a building to fly to it.</p>
+  </div>
+</div>
+<div id="tags"></div>
+<div id="err"></div>
+<script src="vendor/three.min.js"></script>
+<script>
+// A viewer for the building models, in every theme. The models come straight from index.html (the slice from
+// BTYPES to the theme list), so this page always shows what the game draws. Nothing here saves or goes online.
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const $ = (id) => document.getElementById(id);
+const fail = (e) => { $('err').style.display = 'block'; $('err').textContent = 'Could not load the buildings: ' + (e && e.message || e); };
+
+fetch('index.html').then((r) => r.text()).then((src) => {
+  const a = src.indexOf('const BTYPES = {'), b0 = src.indexOf('function setBTheme('), b = src.indexOf('\n', b0);
+  if (a < 0 || b0 < 0) throw new Error('index.html has changed shape: BTYPES or setBTheme is missing');
+  const STEEL = new THREE.MeshLambertMaterial({ color: 0x6b7380 }); // as in index.html
+  // Small helpers defined elsewhere in the game (a random generator, say) are pulled in by name when missing.
+  const extra = [];
+  const grab = (n) => {
+    let i = src.indexOf(`\nfunction ${n}(`);
+    if (i >= 0) return src.slice(i, src.indexOf('\n}\n', i) + 3);
+    i = src.search(new RegExp(`\\n(const|let) ${n} = `));
+    if (i >= 0) return src.slice(i, src.indexOf(';\n', i) + 2);
+  };
+  for (let tries = 0; ; tries++) {
+    try {
+      const G = new Function('THREE', 'renderer', 'STEEL', 'DEV', extra.join('') + src.slice(a, b) + '\nreturn { BTYPES, BGROUPS, MODELS, THEMES, BM };')(THREE, renderer, STEEL, false);
+      return start(G);
+    } catch (e) {
+      const m = e instanceof ReferenceError && /^(\w+) is not defined/.exec(e.message), more = m && tries < 20 && grab(m[1]);
+      if (!more) throw e;
+      extra.push(more);
+    }
+  }
+}).catch(fail);
+
+function start({ BTYPES, BGROUPS, MODELS, THEMES, BM }) {
+  const WIN_ON = 0xffcf7a, WIN_DAY = 0x93b3cc; // as in index.html
+  const q = new URLSearchParams(location.search);
+  const types = BGROUPS.filter(([k]) => k !== 'decor').flatMap(([, , list]) => list).filter((t) => MODELS[t]);
+  let picked = q.get('b') && types.includes(q.get('b')) ? q.get('b') : 'all';
+  let shown = (q.get('t') || 'classic,retro').split(',').filter((k) => THEMES[k]);
+  if (!shown.length) shown = ['classic'];
+  let evening = false;
+
+  const scene = new THREE.Scene();
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x7d8ca0, 0.7); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(-20, 40, 25); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); scene.add(sun); scene.add(sun.target);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0xf2f5fa }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  const cam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 1000);
+  const view = { yaw: 0.45, pitch: 0.55, dist: 30, target: new THREE.Vector3(), goal: null };
+  let root = new THREE.Group(), tags = [];
+  scene.add(root);
+
+  // the pickers
+  const name = (t) => BTYPES[t].name;
+  $('pick').innerHTML = `<option value="all">All buildings</option>` + BGROUPS.filter(([k]) => k !== 'decor').map(([, label, list]) =>
+    `<optgroup label="${label}">${list.filter((t) => MODELS[t]).map((t) => `<option value="${t}">${name(t)}</option>`).join('')}</optgroup>`).join('');
+  $('pick').value = picked;
+  $('pick').onchange = (e) => { picked = e.target.value; build(true); };
+  const drawThemes = () => {
+    $('themes').innerHTML = Object.entries(THEMES).map(([k, T]) => `<button data-k="${k}" aria-pressed="${shown.includes(k)}" title="${T.note}">${T.label}</button>`).join('');
+  };
+  $('themes').onclick = (e) => {
+    const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+    shown = shown.includes(k) ? (shown.length > 1 ? shown.filter((x) => x !== k) : shown) : Object.keys(THEMES).filter((x) => shown.includes(x) || x === k);
+    drawThemes(); build(true);
+  };
+  const light = (on) => {
+    evening = on; $('day').setAttribute('aria-pressed', !on); $('eve').setAttribute('aria-pressed', on);
+    BM.glow.color.setHex(on ? WIN_ON : WIN_DAY);
+    scene.background = new THREE.Color(on ? 0x34406a : 0xc9d6e2);
+    hemi.intensity = on ? 0.5 : 0.7; hemi.color.setHex(on ? 0x9fb0d8 : 0xffffff); sun.intensity = on ? 0.12 : 0.8;
+  };
+  $('day').onclick = () => light(false); $('eve').onclick = () => light(true);
+  $('fold').onclick = () => { const f = $('ui').classList.toggle('folded'); $('fold').textContent = f ? '+' : '–'; };
+
+  const bounds = (bs) => {
+    const lo = new THREE.Vector3(Infinity, 0, Infinity), hi = new THREE.Vector3(-Infinity, 3, -Infinity);
+    for (const b of bs) { lo.x = Math.min(lo.x, b.x - b.w / 2); hi.x = Math.max(hi.x, b.x + b.w / 2); lo.z = Math.min(lo.z, b.z - b.d / 2); hi.z = Math.max(hi.z, b.z + b.d / 2); }
+    return { lo, hi, mid: lo.clone().add(hi).multiplyScalar(0.5).setY(0.8), size: Math.max(hi.x - lo.x, hi.z - lo.z) };
+  };
+  // the closest distance at which every corner of the box is on screen, below the panel on a phone
+  function frameOn(B) {
+    const corners = []; for (const x of [B.lo.x, B.hi.x]) for (const y of [0, 3]) for (const z of [B.lo.z, B.hi.z]) corners.push(new THREE.Vector3(x, y, z));
+    const fits = (d) => { place(B.mid, d); return corners.every((c) => { const p = c.clone().project(cam); return Math.abs(p.x) < 0.9 && p.y < 0.9 && p.y > -0.92; }); };
+    let a = 3, b = 400; for (let i = 0; i < 30; i++) { const m = (a + b) / 2; if (fits(m)) b = m; else a = m; }
+    place(view.target, view.dist);
+    view.goal = { target: B.mid, dist: b };
+  }
+  function place(t, d) {
+    const cp = Math.cos(view.pitch);
+    cam.position.set(t.x + Math.sin(view.yaw) * cp * d, t.y + Math.sin(view.pitch) * d, t.z + Math.cos(view.yaw) * cp * d);
+    cam.lookAt(t);
+    const below = $('ui').getBoundingClientRect().bottom, sh = innerWidth < 700 ? -below / 2 : 0;
+    if (sh !== cam.view?.offsetY) cam.setViewOffset(innerWidth, innerHeight, 0, sh, innerWidth, innerHeight);
+    cam.updateMatrixWorld();
+  }
+  // A grid: one line per building size, one per theme. Wide screens put the themes side by side; tall ones
+  // (phones) stack them, so the themes you're comparing fit across the screen.
+  function build(fly) {
+    scene.remove(root); root.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    root = new THREE.Group(); scene.add(root);
+    $('tags').innerHTML = ''; tags = [];
+    const list = picked === 'all' ? types : [picked], rows = [], tall = innerWidth < innerHeight;
+    for (const t of list) for (let i = 0; i < (BTYPES[t].tiers?.length || 1); i++) rows.push([t, i]);
+    // each building is spaced by its own size, so a big hotel doesn't spread the café row out
+    const boxes = []; let run = 0;
+    rows.forEach(([t, i], r) => {
+      const spec = BTYPES[t].tiers?.[i] || BTYPES[t], gx = spec.w + 3, gz = spec.d + 3.5;
+      shown.forEach((k, c) => {
+        const x = tall ? run + gx / 2 : (c - (shown.length - 1) / 2) * gx, z = tall ? c * gz : run + gz / 2, fn = THEMES[k].models[t];
+        const label = `${name(t)}${BTYPES[t].tiers ? ' · ' + BTYPES[t].tiers[i].label : ''}`;
+        boxes.push({ r, x, z, w: spec.w, d: spec.d });
+        let top = 0.6;
+        if (fn) {
+          const g = fn(i).build(); g.position.set(x, 0, z); top = new THREE.Box3().setFromObject(g).max.y + 0.3;
+          g.traverse((o) => { if (o.isMesh) o.userData.at = { x, z, w: spec.w, d: spec.d }; });
+          root.add(g);
+        }
+        const el = document.createElement('div'); el.className = 'tag' + (fn ? '' : ' miss');
+        el.innerHTML = fn ? `${label}<small>${THEMES[k].label}</small>` : `No ${THEMES[k].label.toLowerCase()} version yet<small>${label}</small>`;
+        $('tags').appendChild(el); tags.push({ el, p: new THREE.Vector3(x, top, z) });
+      });
+      run += tall ? gx : gz;
+    });
+    const n = types.filter((t) => shown.every((k) => THEMES[k].models[t])).length;
+    $('count').textContent = shown.length > 1 ? `${n} of ${types.length} buildings come in all the themes shown.` : `${types.filter((t) => THEMES[shown[0]].models[t]).length} of ${types.length} buildings come in ${THEMES[shown[0]].label}.`;
+    const all = bounds(boxes);
+    sun.target.position.copy(all.mid); sun.position.set(all.mid.x - 20, 40, all.mid.z + 25);
+    const sc = sun.shadow.camera, half = all.size / 2 + 6; sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.far = 200; sc.updateProjectionMatrix();
+    if (fly) {
+      // one building: frame every size; all buildings: the first few, then drag along from there
+      view.yaw = tall ? 0.15 : 0.45;
+      frameOn(bounds(picked === 'all' ? boxes.filter((b) => b.r < 3) : boxes));
+    }
+    const u = new URL(location.href); u.searchParams.set('b', picked); u.searchParams.set('t', shown.join(',')); history.replaceState(null, '', u);
+  }
+
+  // orbit, zoom and pan with mouse or fingers
+  const pts = new Map(); let last = null, moved = 0;
+  const cv = renderer.domElement;
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, b: e.button }); last = null; moved = 0; view.goal = null; });
+  const panBy = (dx, dy) => {
+    const s = view.dist * 0.0016, fx = Math.cos(view.yaw), fz = -Math.sin(view.yaw);
+    view.target.x -= (dx * fx + dy * Math.sin(view.yaw)) * s; view.target.z -= (dx * fz + dy * Math.cos(view.yaw)) * s;
+  };
+  cv.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y; moved += Math.abs(dx) + Math.abs(dy);
+    p.x = e.clientX; p.y = e.clientY;
+    if (pts.size === 1) {
+      if (p.b === 2 || e.shiftKey) panBy(dx, dy);
+      else { view.yaw -= dx * 0.006; view.pitch = Math.min(1.45, Math.max(0.08, view.pitch + dy * 0.005)); }
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      if (last) { view.dist = Math.min(300, Math.max(3, view.dist * last.d / d)); panBy(mx - last.mx, my - last.my); }
+      last = { d, mx, my };
+    }
+  });
+  const up = (e) => {
+    const p = pts.get(e.pointerId); pts.delete(e.pointerId); last = null;
+    if (p && moved < 6 && pts.size === 0) focusAt(e.clientX, e.clientY);
+  };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', (e) => { pts.delete(e.pointerId); last = null; });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); view.goal = null; view.dist = Math.min(300, Math.max(3, view.dist * Math.exp(e.deltaY * 0.0012))); }, { passive: false });
+  const ray = new THREE.Raycaster();
+  function focusAt(x, y) {
+    ray.setFromCamera({ x: x / innerWidth * 2 - 1, y: -(y / innerHeight) * 2 + 1 }, cam);
+    const hit = ray.intersectObjects(root.children, true)[0];
+    if (hit && hit.object.userData.at) { const a = hit.object.userData.at; frameOn(bounds([{ ...a, w: a.w + 1, d: a.d + 1 }])); }
+  }
+
+  let wasTall = innerWidth < innerHeight;
+  addEventListener('resize', () => {
+    renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.clearViewOffset(); cam.updateProjectionMatrix();
+    if ((innerWidth < innerHeight) !== wasTall) { wasTall = !wasTall; build(true); } // a phone turned sideways
+  });
+  const v = new THREE.Vector3();
+  function frame() {
+    if (view.goal) {
+      view.target.lerp(view.goal.target, 0.12); view.dist += (view.goal.dist - view.dist) * 0.12;
+      if (view.target.distanceTo(view.goal.target) < 0.01 && Math.abs(view.dist - view.goal.dist) < 0.01) view.goal = null;
+    }
+    place(view.target, view.dist);
+    renderer.render(scene, cam);
+    for (const T of tags) {
+      v.copy(T.p).project(cam);
+      const near = cam.position.distanceTo(T.p) < 45, on = v.z < 1 && near;
+      T.el.style.display = on ? '' : 'none';
+      if (on) T.el.style.transform = `translate(${(v.x + 1) / 2 * innerWidth}px, ${(1 - v.y) / 2 * innerHeight}px) translate(-50%, -100%)`; // projection includes the view offset
+    }
+    requestAnimationFrame(frame);
+  }
+  drawThemes(); light(false); build(true);
+  view.target.copy(view.goal.target); view.dist = view.goal.dist; view.goal = null;
+  window.viewer = { build, light, get rows() { return root.children.length; } }; // for the tests
+  requestAnimationFrame(frame);
+}
+</script>
+</body></html>

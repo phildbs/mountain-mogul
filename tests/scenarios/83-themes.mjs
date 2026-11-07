@@ -42,4 +42,15 @@ export default async function ({ browser, url }) {
   eq(await gallery.locator('#pick option').count(), 10, 'gallery shows all nine new Scandinavian buildings');
   eq(galleryErrors, [], 'gallery has no page errors');
   await gallery.close();
+  // the building styles viewer borrows the game's own models, so a change to index.html can't quietly break it
+  const viewer = await browser.newPage(), viewerErrors = [];
+  viewer.on('pageerror', (error) => viewerErrors.push(error.message));
+  await viewer.goto(new URL('building-preview.html?b=lodge&t=classic,modern,scandi,retro', url).href);
+  await viewer.waitForFunction(() => window.viewer || document.getElementById('err').style.display === 'block');
+  eq(await viewer.evaluate(() => document.getElementById('err').textContent), '', 'viewer loads the models');
+  eq(await viewer.evaluate(() => window.viewer.rows), 12, 'viewer shows three lodge sizes in four themes');
+  eq(await viewer.locator('#themes button').count(), 4, 'viewer offers every theme');
+  await viewer.click('#eve'); await viewer.selectOption('#pick', 'all');
+  eq(viewerErrors, [], 'viewer has no page errors');
+  await viewer.close();
 }
