@@ -8,7 +8,7 @@ export default async function ({ browser, url }) {
   const r = await g.ev(`(() => {
     setTool('explore'); openDay(); state.speed = 0;
     const base = { type: 'restaurant', id: -1, isBase: true }, mtn = { type: 'restaurant', id: -2, isBase: false };
-    const store = { type: 'store', id: -3, isBase: true }, fine = { type: 'fine', id: -4, isBase: false };
+    const store = { type: 'store', id: -3, isBase: true }, fine = { type: 'fine', id: -4, isBase: true };
     const at = (night, apres, t) => { runOps.night = night; runOps.apres = apres; state.time = t; return [base, mtn, store, fine].map(bldOpenNow); };
     const out = {
       nightOnly: at(1260, 'off', 1200), nightApres: at(1260, 'on', 1200), afterNight: at(1260, 'on', 1300),

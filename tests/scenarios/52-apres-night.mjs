@@ -59,6 +59,13 @@ export default async function ({ browser, url }) {
   // cafés and food trucks: base ones serve après, mountain ones don't; night skiers get cold and peckish
   eq(await g.ev(`[apresType({ type: 'truck', isBase: true }), apresType({ type: 'cafe', isBase: true }), apresType({ type: 'truck', isBase: false }), apresType({ type: 'cafe', isBase: false }), apresSvc({ type: 'cafe' }), apresSvc({ type: 'truck' })]`),
     [true, true, false, false, 'warm', 'snack'], 'base cafés and trucks are après venues; mountain ones are not');
+  // a lodge, bar or fine dining up the mountain does après only beside a village gondola station (RowdyBreaker's report)
+  eq(await g.ev(`(() => { const sv = world.lifts; const far = { x: 9999, z: 9999 }, up = { x: 0, z: 0 }, mk = (type) => ({ type, isBase: false, door: up });
+    world.lifts = []; const lone = ['lodge', 'bar', 'fine', 'restaurant'].map((t) => apresType(mk(t)));
+    world.lifts = [{ type: 'village', a: far, b: { x: 3, z: 4 } }]; const byGondola = ['lodge', 'bar', 'fine', 'restaurant'].map((t) => apresType(mk(t)));
+    world.lifts = [{ type: 'quad', a: far, b: { x: 3, z: 4 } }]; const byChair = apresType(mk('lodge'));
+    world.lifts = sv; return [lone, byGondola, byChair, apresType({ type: 'lodge', isBase: true, door: up })]; })()`),
+    [[false, false, false, false], [true, true, true, false], false, true], 'up the mountain, après needs a village gondola station beside the venue');
   eq(await g.ev(`(() => { const sv = [state.phase, state.time, runOps]; state.phase = 'open'; runOps = { ...(runOps || {}), night: 1260 }; state.time = closeTime() + 60;
     const n = needs({ night: true, leaving: false, warmed: false, fat: 50, stam: 100, bl: 0, ate: true, snackAt: closeTime() + 30, lunchAt: 720 });
     const done = needs({ night: true, leaving: false, warmed: true, fat: 50, stam: 100, bl: 0, ate: true, snacked: true, snackAt: closeTime() + 30, lunchAt: 720 });

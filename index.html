@@ -16318,7 +16318,10 @@ const BASE_APRES = ['cafe', 'truck'];
 // A café or truck needs a far smaller evening crew than a lodge or bar.
 const APRES_CREW = { cafe: 0.5, truck: 0.3 };
 // A casual restaurant up the mountain feeds night skiers, but après is for the base and village ones.
-const apresType = (B) => (APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase) || hotelDines(B);
+// Once the lifts close the only way up or down is the village gondola, so a lodge, bar or fine dining up the
+// mountain stays open (and staffed) for après only beside one of its stations. Otherwise nobody can get there.
+const apresReach = (B) => B.isBase || world.lifts.some((L) => isVillage(L) && (distXZ(L.a, B.door) < 14 || distXZ(L.b, B.door) < 14 || (!!L.hubBottom && hubAt(B.door) === L.hubBottom) || (!!L.hubTop && hubAt(B.door) === L.hubTop)));
+const apresType = (B) => ((APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase) || hotelDines(B)) && apresReach(B);
 const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' || B.type === 'hotel' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
@@ -21096,7 +21099,7 @@ function apresOpsHtml(P) {
   const closes = venues.filter((B) => VENUE_CLOSE[B.type] && VENUE_CLOSE[B.type] < lc).map((B) => `${esc(B.name)} at ${clockLabel(VENUE_CLOSE[B.type])}`);
   return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On']], 'Après-ski')}
     ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map(([k, l]) => [String(k), l]), 'Last call')}` : ''}
-    <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base for guests to go to after skiing.'
+    <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base (or by a village gondola station) for guests to go to after skiing. Up the mountain, nobody can reach one once the lifts close.'
       : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? ', with late-night pay and security after 10' : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
       : 'Keep the bar, lodge, fine dining and base restaurants, cafés and food trucks open after the lifts close for guests heading home.'}</p>
     ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after 10 PM</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
@@ -25099,6 +25102,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.14.3', date: 'Nov 7, 2026', title: 'Après only where guests can get', small: true, items: [
+    'A lodge, bar or fine dining up the mountain no longer stays open (and staffed) for après when nobody can reach it after the lifts close. Up the mountain, après venues now need a village gondola station beside them. Thanks RowdyBreaker!' ] },
   { v: '3.14.2', date: 'Nov 7, 2026', title: 'Clearer How it works', kotm: true, small: true, items: [
     'King of the Mountain: How it works is rewritten to be shorter and clearer, and now names all three mountains. It explains that selling condo homes gives you cash but not profit, so condos don’t win matches, while their dues and rentals do count. The guide’s King of the Mountain page is rewritten too, and How it works links to it.'] },
   { v: '3.14.1', date: 'Nov 7, 2026', title: 'Fast evenings again on big resorts', small: true, items: [
