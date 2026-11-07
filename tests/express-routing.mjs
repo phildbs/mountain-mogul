@@ -8,7 +8,7 @@ const types=runInNewContext(src.slice(src.indexOf('const LIFT_TYPES ='),src.inde
 const noop=()=>{};
 const world={lifts:[],trails:[],buildings:[],areas:[]};
 const state={started:false,phase:'open',time:600};
-const ctx={world,state,STATION_R:6,TRANSFER_R:22,PACE:4,SLOW:{speed:0.65},
+const ctx={world,state,netGen:0,STATION_R:6,TRANSFER_R:22,PACE:4,SLOW:{speed:0.65},
  LIFT_TYPES:types,
  distXZ:(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),trueY:()=>0,inProperty:()=>true,lerp:(a,b,f)=>a+(b-a)*f,
  isVillage:()=>false,isBase:p=>p.z>50,TRAIL_WIDTHS:{medium:{hw:2}},trailHW:t=>2,sampleHW:()=>2,
