@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
       trees: S.map((x) => x.trees || 0),
       acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
   })()`);
-  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 2, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
+  eq([q.mt, q.rows, q.picker, q.bases], ['ridge', 4, 3, [0, 1, 2, 3]], 'Long Ridge: four slices, each base on its own, and the map picker');
   assert(Math.max(...q.acres) - Math.min(...q.acres) <= 2, `the strips are the same size (${q.acres})`);
   assert(Math.max(...q.vert) / Math.min(...q.vert) < 1.2, `no slice has much more vertical than another (${q.vert})`);
   assert(q.top.every((a) => a >= 15), `every slice has a flat summit to build on (${q.top} acres)`);
@@ -65,4 +65,35 @@ export default async function ({ browser, url }) {
   assert(Math.min(...q.trees) > 5000 && Math.max(...q.trees) / Math.min(...q.trees) < 1.05, `every slice has about as many trees to clear (${q.trees})`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
+  // Willow Valley (draft): two resorts each side of a valley, the far side turned round; a river weaving across the
+  // road (bridged) and a creek down every slice edge. Every slice about as good as the others.
+  const w = await openGame(browser, url, { query: '?mapView=valley', mountain: 'fresh' });
+  await w.page.waitForFunction(() => !!document.getElementById('mapView'), null, { timeout: 30000 });
+  const y = await w.ev(`(() => {
+    const S = viewStats();
+    return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, faces: [0, 1, 2, 3].map(viewFace),
+      bases: [0, 1, 2, 3].map((k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
+      runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill, Math.round(r.green.len * FT_PER_UNIT)]),
+      lots: mapViewer.lots.out.map((l) => [l.free, l.bought]),
+      land: mapViewer.parcels.out.map((l) => l.map((P) => [Math.round(P.acres), P.grade < 0.1])),
+      trees: S.map((x) => x.trees || 0), acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)),
+      top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)), vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)),
+      // the river at each base road's foot is on the far side of the valley road, so no base road crosses it
+      dry: MOUNTAIN.bases.map(([u, v]) => Math.sign(VALLEY.river(u) - VALLEY.c) !== Math.sign(v - VALLEY.c)),
+      bridges: roadDecks().length, creek: (() => { const p = uvWorld([VALLEY.b[1], VALLEY.c + VALLEY.edge + 0.3]), q = uvWorld([VALLEY.gully(VALLEY.b[1], 0.3), VALLEY.c + VALLEY.edge + 0.3]); return +sampleGrid(CREEKD, q.x + HALF, q.z + HALF).toFixed(2); })() };
+  })()`);
+  eq([y.mt, y.rows, y.faces, y.bases], ['valley', 4, [1, 1, -1, -1], [0, 1, 2, 3]], 'Willow Valley: four slices, two facing each way, each base on its own');
+  eq(y.acres.every((a) => a === y.acres[0]), true, `the slices are the same size (${y.acres})`);
+  assert(Math.max(...y.vert) / Math.min(...y.vert) < 1.1, `no slice has much more vertical than another (${y.vert})`);
+  assert(y.acres[0] > 450 && y.top.every((a) => a >= 40), `every slice is wide (${y.acres[0]} acres) with a flat summit (${y.top} acres)`);
+  eq(y.runs.map((x) => x.slice(0, 4)), [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every summit, the far side too');
+  assert(y.runs.every((x) => x[4] > 7000), `the greens are long (${y.runs.map((x) => x[4])} ft)`);
+  eq(y.land, [0, 1, 2, 3].map(() => [[16, true], [16, true]]), 'two flat parcels for sale below every slice, on both sides of the valley');
+  assert(y.lots.every(([a, b]) => a === y.lots[0][0] && a >= 6 && b >= 4), `the same parking on every slice (west ones growing west), the far side's turned round (${JSON.stringify(y.lots)})`);
+  assert(Math.max(...y.trees) / Math.min(...y.trees) < 1.05, `every slice has about as many trees (${y.trees})`);
+  eq(y.dry, [true, true, true, true], 'no base road crosses the river');
+  assert(y.bridges >= 4, `the valley road bridges the river where it weaves across (${y.bridges})`);
+  assert(y.creek < 0.5, `a creek runs down between the two north slices (${y.creek})`);
+  eq(w.errors, [], 'no page errors on Willow Valley');
+  await w.page.close();
 }

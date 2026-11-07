@@ -2677,6 +2677,136 @@ MATCH_MAPS.ridge = {
     return h;
   },
 };
+// Willow Valley (draft, only in the map viewer for now): a valley with the road and a river down the middle and
+// two mountains on each side, up to four resorts, two facing two across the valley (staggered, so no base looks
+// straight at another). Each side is a range like Ridgeline's, two slices wide; the south range is the north one
+// turned round (u = VALLEY.k - u, v mirrored about the river), so both sides use one shape, `range`, in their own
+// local u, v (v up from the slice's foot). Each slice is its mountain's face (VALLEY.b) and, past a creek on its
+// outer side, a gentler shoulder out to its edge (VALLEY.s), so it's half as wide again as a Ridgeline strip. A creek
+// comes down a gully between the two mountains on each side (the edge two slices share) and one down each outer
+// side, and across the valley floor into the river: every slice has the same, a creek down each side of its face.
+// The river weaves across the road between the bases, never under a base road.
+// Slices: 0 north-west, 1 north-east, 2 south-east, 3 south-west (round the valley).
+const VALLEY = { c: 0.5, edge: 0.18, k: 1.09, b: [-0.18, 0.4, 0.98], s: [-0.35, 0.4, 1.15], crest: 1.0, top: 0.94, base: 0.065, amp: 0.045,
+  // each slice's steep ground (as Ridgeline's): [slice, local u, half-width, from v, to v, drop], on its outer side
+  pitches: [[0, -0.01, 0.05, 0.27, 0.36, 4], [1, 0.83, 0.05, 0.67, 0.82, 5], [2, -0.01, 0.055, 0.45, 0.56, 4.5], [3, 0.81, 0.05, 0.51, 0.6, 4]],
+  uv: (k, lu, lv) => (k < 2 ? [lu, VALLEY.c + VALLEY.edge + lv] : [VALLEY.k - lu, VALLEY.c - VALLEY.edge - lv]), // slice k's local u, v on the map
+  river: (u) => VALLEY.c + VALLEY.amp * Math.sin(2 * Math.PI * (u - 0.255) / 0.58), // north of the road at the south bases, south of it at the north ones
+  roadV: (u) => VALLEY.c + 0.006 * Math.sin(u * 5.3 + 1),
+  gully: (b, lv) => b + 0.018 * Math.sin(lv * 8 + b * 7) + 0.008 * Math.sin(lv * 21 + b * 3) }; // a creek's line down the mountain
+MATCH_MAPS.valley = {
+  id: 'valley',
+  name: 'Willow Valley',
+  match: true, slices: 4, draft: true,
+  level: 'Intermediate', dot: 'var(--blue)',
+  blurb: 'A valley shared by up to four resorts, two on each side, with the road and a river between them.',
+  cash: 2500000,
+  weather: { storm: 1, wind: 1, warm: 1 },
+  skiers: [0.33, 0.35, 0.22, 0.1],
+  draw: 1, costs: 1,
+  seed: 9111,
+  baseFt: 3000,
+  treeline: 31,
+  faces: [1, 1, -1, -1], // which way is up each slice: north (+v) or south
+  lotsWest: [true, false, true, false], // each main lot grows toward its slice's outer shoulder (as MOUNTAIN.lotWest), so all four have the same room
+  sliceAreas: [0, 1, 2, 3].map((k) => { const [a, b] = [VALLEY.s[k % 2], VALLEY.s[k % 2 + 1]], t = VALLEY.crest + 0.03; return [[a, 0], [b, 0], [b, t], [a, t]].map(([u, v]) => VALLEY.uv(k, u, v)); }),
+  bases: [0, 1, 2, 3].map((k) => VALLEY.uv(k, (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, VALLEY.base)),
+  summits: [0, 1, 2, 3].map((k) => VALLEY.uv(k, (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, VALLEY.top)),
+  // the valley floor below each slice down toward the road, either side of its base road (as Ridgeline's), named as
+  // that resort's owner sees them (the south side's west is the map's east)
+  parcels: [0, 1, 2, 3].map((k) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, a = c - 0.25, b = c + 0.25;
+    return [[a, c], [c, b]].map(([l0, l1], i) => { const [p, q] = [VALLEY.uv(k, l0, -0.1), VALLEY.uv(k, l1, 0)];
+      return { name: i ? 'East' : 'West', u0: Math.min(p[0], q[0]), u1: Math.max(p[0], q[0]), v0: Math.min(p[1], q[1]), v1: Math.max(p[1], q[1]) }; }); }),
+  runTurns: 0.11,
+  runLanes: VALLEY.pitches.map(([k, pu]) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2; return VALLEY.uv(k, c - Math.sign(pu - c) * 0.05, 0)[0]; }),
+  blackRuns: VALLEY.pitches.map(([k, pu, , v1, v2]) => { const c = (VALLEY.b[k % 2] + VALLEY.b[k % 2 + 1]) / 2, T = VALLEY.top;
+    return [[c, T - 0.04], [lerp(c, pu, 0.7), Math.min(T - 0.1, v2 + 0.06)], [pu, (v1 + v2) / 2], [lerp(c, pu, 0.4), v1 - 0.1], [c, VALLEY.base + 0.04]].map(([u, v]) => VALLEY.uv(k, u, v)); }),
+  viewCentre: [0.545, 0.5], viewSpan: 420, viewAz: 0.2, farX: 92, farZ: 128, // the far ring reaches both crests and the ends of the valley
+  get area() { return this.sliceAreas[1]; },
+  // every slice's forest evened out, as Ridgeline's (see its treeK): expected trees per slice from a coarse sample
+  treeK(u, v) {
+    if (!this.treeBal) {
+      const E = this.sliceAreas.map((P) => { let e = 0; const us = P.map((p) => p[0]), vs = P.map((p) => p[1]);
+        for (let x = Math.min(...us) + 0.004; x < Math.max(...us); x += 0.008) for (let y = Math.min(...vs) + 0.004; y < Math.max(...vs); y += 0.008) {
+          if (!inPoly(P, x, y)) continue;
+          const tl = this.treeline + 3 * fbm(x * 8, y * 8, this.seed + 23, 3);
+          const h = this.height(x, y), g = Math.hypot(this.height(x + 1 / PN, y) - h, this.height(x, y + 1 / PN) - h);
+          const cd = Math.min(...this.creeks.map(([Q, w]) => distPoly(x, y, Q)[0] * PN / w)); // and the creeks' banks, as generate clears them
+          e += (0.04 + 0.96 * sstep(-0.22, 0.28, fbm(x * 4.5, y * 4.5, this.seed + 21, 4))) * (1 - sstep(tl - 3, tl + 1.5, h)) * (1 - sstep(0.55, 0.85, g)) * (cd < 2.2 ? 0 : 0.3 + 0.7 * sstep(2, 10, cd));
+        }
+        return e; });
+      const mean = E.reduce((a, b) => a + b, 0) / 4;
+      this.treeBal = E.map((e) => mean / e);
+    }
+    const n = v > VALLEY.c, lu = n ? u : VALLEY.k - u, w = sstep(VALLEY.b[1] - 0.03, VALLEY.b[1] + 0.03, lu), T = this.treeBal;
+    return n ? lerp(T[0], T[1], w) : lerp(T[2], T[3], w);
+  },
+  // The valley road from town (off the east end), and a short road off it up (or down) to each base. A player's own
+  // road comes along the valley and turns tightly onto theirs; the rest are drawn as roads too.
+  roadFor(slot) {
+    const R = VALLEY.roadV, [c, bv] = this.bases[slot], s = bv > VALLEY.c ? 1 : -1;
+    const V = [1.9, 1.5, 1.1, 0.7, 0.3, -0.1, -0.5, -0.9].map((u) => [u, R(u)]);
+    const road = catmull([...V.filter(([u]) => u > c + 0.07), [c + 0.07, R(c + 0.07)], [c + 0.02, R(c + 0.02) + 0.002 * s], [c + 0.001, R(c) + 0.015 * s], [c, R(c) + 0.04 * s], [c, bv]], 10);
+    const west = [[c + 0.07, R(c + 0.07)], ...V.filter(([u]) => u < c + 0.07)];
+    return { road, roads: [...(west.length > 1 ? [catmull(west, 10)] : []), ...this.bases.filter((_, k) => k !== slot).map(([u, v]) => catmull([[u, R(u)], [u, v]], 4))] };
+  },
+  get road() { return (this.r1 = this.r1 || this.roadFor(1)).road; }, // the viewer sees it from the north-east resort
+  get roads() { return (this.r1 = this.r1 || this.roadFor(1)).roads; },
+  // the river, wider than a creek, and a creek down every slice edge into it
+  creek: Array.from({ length: 113 }, (_, i) => { const u = -0.75 + i * 0.025; return [u, VALLEY.river(u)]; }),
+  creekW: 1.6,
+  get creeks() {
+    return this.ck || (this.ck = [0, 2].flatMap((k) => VALLEY.b.map((b) => {
+      const P = []; for (let lv = 0.66; lv > 0; lv -= 0.03) P.push(VALLEY.uv(k, VALLEY.gully(b, lv), lv));
+      const [u0, v0] = VALLEY.uv(k, VALLEY.gully(b, 0), 0), u1 = u0 + 0.015 * Math.sign(VALLEY.c - v0);
+      P.push([u0, v0], [lerp(u0, u1, 0.5), lerp(v0, VALLEY.river(u1), 0.5)], [u1, VALLEY.river(u1)]);
+      return [P, 1];
+    })));
+  },
+  height(u, v) {
+    const C = VALLEY.c, d = Math.abs(v - C);
+    // the valley floor, rising gently from the river to the foot of each side
+    let h = 2 + 0.6 * fbm(u * 3, v * 3, this.seed + 1, 3) + 0.9 * sstep(0.03, VALLEY.edge + 0.03, d);
+    h += this.range(u, v - C - VALLEY.edge, 0) + this.range(VALLEY.k - u, C - VALLEY.edge - v, 1);
+    return h;
+  },
+  // One side's mountains, in its own local u, v (v up from the foot of the slices, 0 on the valley floor and below):
+  // two slices like Ridgeline's valleys (an even pitch to a broad flat top, smooth sides, rougher middles, a steep
+  // pitch off to one side), with a creek's gully down each slice edge instead of Ridgeline's spurs.
+  range(lu, lv, r) {
+    if (lv <= -0.02) return 0;
+    const s = this.seed + r * 101, B = VALLEY.b, cv = VALLEY.crest + 0.02 * Math.sin(lu * 4.3 + r * 2) + 0.015 * fbm(lu * 2.5, 3.3, s + 7, 3);
+    const w1 = sstep(B[1] - 0.06, B[1] + 0.06, lu), wk = (k) => (k >> 1 !== r ? 0 : k & 1 ? w1 : 1 - w1); // how much slice k's character applies here
+    const ch = (a) => a[r * 2] * (1 - w1) + a[r * 2 + 1] * w1;
+    // 0 North-west: gentlest, a long easy runout. 1 North-east: a headwall under the summit. 2 South-east: rugged,
+    // gullies and rock. 3 South-west: a flat mid-mountain bench.
+    const H = ch([29, 30, 31, 30]) + 2 * fbm(lu * 3, 7.7, s + 3, 3), rough = ch([0.4, 0.7, 0.9, 0.7]);
+    const fr = (k) => clamp((lu - B[k]) / (B[k + 1] - B[k]), 0, 1), mid = Math.sin(Math.PI * fr(0)) + Math.sin(Math.PI * fr(1));
+    const bay = Math.pow(Math.sin(Math.PI * fr(0)), 1.4) + Math.pow(Math.sin(Math.PI * fr(1)), 1.4);
+    const ce = cv - 0.12, v0 = 0.03 + 0.1 * bay + 0.04 * fbm(lu * 5, 1.7, s + 17, 3), t = clamp((lv - v0) / (ce - v0), 0, 1), even = 0.8 * t + 0.2 * t * t * (3 - 2 * t);
+    const rise = lv < ce ? even : lv < cv ? 1 : 1 - 0.55 * sstep(cv, cv + 0.25, lv);
+    const ends = 1 - 0.45 * sstep(0, 0.32, Math.max(VALLEY.s[0] - lu, lu - VALLEY.s[2], 0)); // each side eases down past its two slices (lower hills on along the valley)
+    let h = H * rise * ends;
+    for (const [k, pu, pw, p1, p2, A] of VALLEY.pitches) {
+      const lat = Math.exp(-(((lu - pu) / pw) ** 2)) * wk(k);
+      if (lat > 0.01) h += lat * A * (sstep(p1, p2, lv) - 1) * sstep(0.06, 0.3, lv);
+    }
+    h += wk(3) * 2 * (sstep(0.35, 0.5, lv) - sstep(0.53, 0.68, lv)); // slice 4's bench
+    for (let k = 0; k < 2; k++) h -= 1.2 * Math.pow(Math.sin(Math.PI * fr(k)), 1.5) * sstep(0.12, 0.35, lv) * (1 - sstep(0.7, cv, lv));
+    // a shoulder each side of the creek between the two slices (Ridgeline's spur, with the gully cut down it)
+    h += 2.2 * Math.exp(-(((lu - B[1]) / 0.09) ** 2)) * sstep(0.12, 0.4, lv) * (lv < cv ? 1 : 1 - sstep(cv, cv + 0.15, lv));
+    const relief = sstep(0.08, 0.2, lv) * (1 - sstep(ce - 0.08, ce, lv)) * rough * (0.25 + 1.1 * mid * mid);
+    h += relief * (1.6 * fbm(lu * 6, lv * 6, s + 5, 4) + 0.8 * ridged(lu * 8, lv * 8, s + 9, 3) - 0.45);
+    const rib = sstep(0.12, 0.3, lv) * (1 - sstep(ce - 0.1, ce, lv)) * ch([0.9, 1.1, 1.8, 1.2]) * (0.35 + 0.65 * mid);
+    h += rib * (ridged(lu * 13 + 0.8 * fbm(lu * 4, lv * 2, s + 33, 3), lv * 1.6, s + 31, 3) - 0.45);
+    const sky = sstep(cv + 0.03, cv + 0.11, lv) * (1 - sstep(cv + 0.2, cv + 0.42, lv)) * ends;
+    h += sky * (6 + 7 * ch([0.7, 1.2, 1, 0.9]) * mid + 4 * ridged(lu * 7, lv * 5, s + 41, 4));
+    h += 2.5 * Math.max(0, fbm(lu * 7, lv * 7, s + 51, 3) - 0.15) * sstep(0.03, 0.12, lv) * (1 - sstep(0.3, 0.45, lv));
+    // the gullies: deepest halfway down, gone on the valley floor and up by the flat summits (the creek starts below them)
+    for (const b of B) { const g = Math.exp(-(((lu - VALLEY.gully(b, lv)) / 0.03) ** 2)); if (g > 0.01) h -= 2.6 * g * sstep(0, 0.14, lv) * (1 - sstep(ce - 0.32, ce - 0.12, lv)); }
+    return h;
+  },
+};
 MOUNTAINS.lonepine.is3d = MOUNTAINS.ridgeback.is3d = true;
 /* ---------- Custom mountains: a recipe of a few settings and a seed ----------
    A custom mountain's id is its recipe ("c:" + one digit per setting + a seed), so everything that
@@ -2822,10 +2952,10 @@ function sampleGrid(arr, gx, gz) {
 }
 function heightAt(x, z) { const gx = x + HALF, gz = z + HALF; return (FAR && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz) : sampleGrid(HT, gx, gz)) * VEX; }
 // Past the map's edge (Crown Peak): the ring of ground round it, in the same grid coordinates.
-function farAt(gx, gz) {
+function farAt(gx, gz, A = FAR) { // (or another of the ring's grids: FARCD, FARRD)
   gx = clamp(gx + FAR_X, 0, FNX - 0.0001); gz = clamp(gz + FAR_Z, 0, FNZ - 0.0001);
   const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j;
-  const a = FAR[j * FNVX + i], b = FAR[j * FNVX + i + 1], c = FAR[(j + 1) * FNVX + i], d = FAR[(j + 1) * FNVX + i + 1];
+  const a = A[j * FNVX + i], b = A[j * FNVX + i + 1], c = A[(j + 1) * FNVX + i], d = A[(j + 1) * FNVX + i + 1];
   return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
 }
 // The height of the drawn ground: its triangles, which can sit above heightAt's smooth blend on a sharp bank.
@@ -2947,7 +3077,8 @@ function groundAt(M, u, v) {
   for (const R of M.roads || []) { const q = distPoly(u, v, R); if (q[0] < dr) [dr, ru, rv] = q; } // a match map's other roads
   const drc = dr * PN;
   if (drc < 4.5) h = lerp(h, M.height(ru, rv) - 0.15, 1 - sstep(1.5, 4.5, drc));
-  const dcc = distPoly(u, v, M.creek)[0] * PN;
+  let dcc = distPoly(u, v, M.creek)[0] * PN / (M.creekW || 1); // a wider river: everything about the creek measured in its widths
+  for (const [P, w] of M.creeks || []) dcc = Math.min(dcc, distPoly(u, v, P)[0] * PN / w); // more creeks (Willow Valley's)
   if (dcc < 2) h -= 0.8 * (1 - sstep(0.3, 1.9, dcc));
   return [h, drc, dcc];
 }
@@ -4688,7 +4819,7 @@ function trailSamples(pts, hw = 0, ws = null) {
 const BRIDGE_D = 2.3;      // creek-centre distance (cells) the bridge spans; the creek bed is carved within 1.9
 const BRIDGE_MAX = 12;     // longest span; more than this and the trail is running along the creek
 const BRIDGE_APPROACH = 8; // samples (4 units) of levelled trail bed either side of a bridge
-const overCreek = (x, z) => sampleGrid(CREEKD, x + HALF, z + HALF) < BRIDGE_D;
+const overCreek = (x, z) => { const gx = x + HALF, gz = z + HALF; return (FARCD && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz, FARCD) : sampleGrid(CREEKD, gx, gz)) < BRIDGE_D; }; // the ring past the map too (a rival's road)
 // A stretch is bridged wherever any part of the trail's width is over the creek, so the deck
 // spans the whole crossing even when a wide trail meets the creek at an angle.
 function bridgeOver(samples, hw) {
@@ -9818,17 +9949,19 @@ function roadOutPath() {
 let roadBridges = null, roadBridgeGroup = null;
 function roadDecks() {
   if (roadBridges) return roadBridges;
-  const P = roadPath(), over = P.map((p, k) => {
-    const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)], d = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / d, nz = (b.x - a.x) / d;
-    return [-1.4, -0.7, 0, 0.7, 1.4].some((f) => overCreek(p.x + nx * f * ROAD_HW, p.z + nz * f * ROAD_HW));
-  });
   roadBridges = [];
-  for (let k = 0; k < P.length; k++) {
-    if (!over[k]) continue;
-    let j = k; while (j + 1 < P.length && over[j + 1]) j++;
-    const i0 = Math.max(0, k - 2), i1 = Math.min(P.length - 1, j + 2), ya = heightAt(P[i0].x, P[i0].z), yb = heightAt(P[i1].x, P[i1].z);
-    roadBridges.push({ i0, i1, pts: P.slice(i0, i1 + 1).map((p, n) => ({ x: p.x, z: p.z, y: lerp(ya, yb, n / (i1 - i0)) })) });
-    k = j;
+  for (const P of [roadPath(), ...mapRoadPaths()]) { // and a match map's other roads (Willow Valley's river crosses its valley road)
+    const over = P.map((p, k) => {
+      const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)], d = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / d, nz = (b.x - a.x) / d;
+      return [-1.4, -0.7, 0, 0.7, 1.4].some((f) => overCreek(p.x + nx * f * ROAD_HW, p.z + nz * f * ROAD_HW));
+    });
+    for (let k = 0; k < P.length; k++) {
+      if (!over[k]) continue;
+      let j = k; while (j + 1 < P.length && over[j + 1]) j++;
+      const i0 = Math.max(0, k - 2), i1 = Math.min(P.length - 1, j + 2), ya = heightAt(P[i0].x, P[i0].z), yb = heightAt(P[i1].x, P[i1].z);
+      roadBridges.push({ i0, i1, pts: P.slice(i0, i1 + 1).map((p, n) => ({ x: p.x, z: p.z, y: lerp(ya, yb, n / (i1 - i0)) })) });
+      k = j;
+    }
   }
   return roadBridges;
 }
@@ -9963,13 +10096,16 @@ function buildRoad() {
   // a match map's other roads (Ridgeline: the rest of the valley road, and the road up to each other base), a
   // point every unit so they follow the ground, a touch under yours where they meet
   for (const m of mapRoadMeshes) { scene.remove(m); m.geometry.dispose(); }
-  mapRoadMeshes = (MOUNTAIN.roads || []).map((R) => {
+  mapRoadMeshes = mapRoadPaths().map((P) => roadRibbon(P, 0.04));
+  buildRoadBridges();
+}
+let mapRoadCache = null;
+function mapRoadPaths() {
+  return mapRoadCache || (mapRoadCache = (MOUNTAIN.roads || []).map((R) => {
     const W = R.map(([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF })), P = [W[0]];
     for (let k = 1; k < W.length; k++) { const a = W[k - 1], b = W[k], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z))); for (let i = 1; i <= n; i++) P.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) }); }
-    const on = P.filter((q) => !farOut(q));
-    return on.length > 1 ? roadRibbon(on, 0.04) : null;
-  }).filter(Boolean);
-  buildRoadBridges();
+    return P.filter((q) => !farOut(q));
+  }).filter((P) => P.length > 1));
 }
 function roadRibbon(P, lift, mat = ROAD_MAT, hwAt = () => ROAD_HW) {
   const pos = [], uv = [], hz = [], idx = [];
@@ -23334,6 +23470,7 @@ const mapViewer = { lines: null, tags: [], summer: false, ns: null };
 const uvWorld = ([u, v]) => ({ x: PLAY0 + u * PN - HALF, z: PLAY1 - v * PN - HALF });
 const viewCentre = () => uvWorld(MOUNTAIN.viewCentre || CROWN.c);
 const viewBase = (k) => (MOUNTAIN.bases ? uvWorld(MOUNTAIN.bases[k]) : viewTurn(k)(roadEnd()));
+const viewFace = (k) => (MOUNTAIN.faces || [])[k] || 1; // 1: slice k rises north (up the map), -1: it rises south (Willow Valley's far side)
 function viewTurn(k) { // a spot on slice 0 (world x, z) turned onto slice k, as drawRivals turns a rival's resort
   const C = viewCentre(), a = k * 2 * Math.PI / MOUNTAIN.slices, c = Math.cos(a), s = Math.sin(a);
   return (p) => ({ x: C.x + (p.x - C.x) * c - (p.z - C.z) * s, z: C.z + (p.x - C.x) * s + (p.z - C.z) * c });
@@ -23386,18 +23523,18 @@ function viewLines() {
 // tilted ground alike. Returns points in world x, z, one every few units.
 function viewRoute(k, grade, a) {
   const [c0, top] = MOUNTAIN.summits[k], [, base] = MOUNTAIN.bases[k], c = MOUNTAIN.runLanes ? MOUNTAIN.runLanes[k] : c0;
-  const p0 = uvWorld([c0, top]), end = uvWorld([c0, base + 0.04]);
+  const f = viewFace(k), p0 = uvWorld([c0, top]), end = uvWorld([c0, base + 0.04 * f]); // down the slice: +z on one rising north, -z on one rising south
   const xL = uvWorld([c - a, 0]).x, xR = uvWorld([c + a, 0]).x, step = 1;
   let x = p0.x, z = p0.z, side = k % 2 ? -1 : 1;
   const pts = [{ x, z }];
-  for (let i = 0; i < 2000 && z < end.z; i++) {
+  for (let i = 0; i < 2000 && (end.z - z) * f > 0; i++) {
     if ((side > 0 && x >= xR) || (side < 0 && x <= xL)) side = -side; // turn back across
     const y = trueY(x, z);
     let best = null;
     // heading up the map is only for where even straight across drops too fast (the ground tilting sideways)
     const tilt = (y - trueY(x + side * 1.5, z)) / 1.5 > grade + 0.04;
     for (let t = tilt ? -8 : 1; t <= 16; t++) { // from 45 degrees up the map, through straight across (0), to straight down it
-      const ang = t / 16 * Math.PI / 2, dx = side * Math.cos(ang), dz = Math.sin(ang);
+      const ang = t / 16 * Math.PI / 2, dx = side * Math.cos(ang), dz = f * Math.sin(ang);
       // judged over the next few units, so it sees a knob or a dip coming; worst of the near and far drops
       const near = (y - trueY(x + dx * 1.5, z + dz * 1.5)) / 1.5, far = (y - trueY(x + dx * 4, z + dz * 4)) / 4;
       const err = Math.max(Math.abs(near - grade), Math.abs(far - grade)) + (t < 2 ? 0.02 : 0) // keep heading down the map
@@ -23478,15 +23615,16 @@ function viewLots() {
   const inLand = (x, z, k) => sliceAt(x + HALF, z + HALF) === k;
   const onSale = (x, z, k) => ((MOUNTAIN.parcels || [])[k] || []).some((P) => { const a = uvWorld([P.u0, P.v1]), b = uvWorld([P.u1, P.v0]); return x >= a.x - 0.01 && x <= b.x + 0.01 && z >= a.z - 0.01 && z <= b.z + 0.01; });
   if (MOUNTAIN.sliceAreas) for (let k = 0; k < MOUNTAIN.slices; k++) {
-    const e = viewBase(k), n = [0, 0];
+    const e = viewBase(k), n = [0, 0], f = viewFace(k), at = (lx, lz) => [e.x + f * lx, e.z + f * lz]; // a slice facing south: its lot turned round too
+    const west = (MOUNTAIN.lotsWest || [])[k]; // growing west from the road's end, as slotOrigin lays a lotWest lot
     for (let row = 0; row < 2; row++) for (let col = 0; col < 8; col++) {
-      const x0 = e.x + 0.9 + col * (LOT.w + 0.7), z0 = e.z - 1.2 + row * (LOT.d + 0.7), C = [[x0, z0], [x0 + LOT.w, z0], [x0, z0 + LOT.d], [x0 + LOT.w, z0 + LOT.d]];
+      const x0 = west ? -0.9 - LOT.w - col * (LOT.w + 0.7) : 0.9 + col * (LOT.w + 0.7), z0 = -1.2 + row * (LOT.d + 0.7), C = [[x0, z0], [x0 + LOT.w, z0], [x0, z0 + LOT.d], [x0 + LOT.w, z0 + LOT.d]].map(([a, b]) => at(a, b));
       const own = C.every(([x, z]) => inLand(x, z, k)), buy = !own && C.every(([x, z]) => inLand(x, z, k) || onSale(x, z, k));
       if (!own && !buy) break;
       if (row === 0 && !own) break; // the first row has to be on your own land, as in the game
       n[row]++;
       const pos = [], idx = [], N = 4;
-      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const x = x0 + LOT.w * i / N, z = z0 + LOT.d * j / N; pos.push(x, heightAt(x, z) + 0.2, z); if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); } }
+      for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const [x, z] = at(x0 + LOT.w * i / N, z0 + LOT.d * j / N); pos.push(x, heightAt(x, z) + 0.2, z); if (i < N && j < N) { const q = j * (N + 1) + i; idx.push(q, q + N + 1, q + 1, q + 1, q + N + 1, q + N + 2); } }
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
       const m = new THREE.Mesh(geo, own ? dark : light); m.renderOrder = 5.5; grp.add(m);
     }
@@ -23529,7 +23667,7 @@ function viewGo(k) {
     // halfway up the slice, from its base towards the middle of its land
     const P = SLICES[k], b = viewBase(k), mx = P.reduce((a, q) => a + q[0], 0) / P.length - HALF, mz = P.reduce((a, q) => a + q[1], 0) / P.length - HALF;
     const m = { x: lerp(b.x, mx, 0.7), z: lerp(b.z, mz, 0.7) };
-    let az = MOUNTAIN.sliceAreas ? MOUNTAIN.viewAz || 0 : -k * 2 * Math.PI / n, d = ((az - cam.az) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+    let az = MOUNTAIN.sliceAreas ? (MOUNTAIN.viewAz || 0) + (viewFace(k) < 0 ? Math.PI : 0) : -k * 2 * Math.PI / n, d = ((az - cam.az) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
     to = { x: m.x, z: m.z, az: cam.az + d, viewH: clamp(Math.max(190, 150 / (W / H)), 190, VIEW_MAX) };
   }
   cam.azGoal = to.az; cam.viewGoal = null;

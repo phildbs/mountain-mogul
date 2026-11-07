@@ -239,6 +239,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 | Branch | Who | What | Started |
 |---|---|---|---|
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
+| `ccr-e2bcd06d-dlgosa` | Claude | **Willow Valley, a new 4-player match map (draft, viewer only, `?mapView=valley`).** Phil's sketch (Nov 7): a valley with the road and a river down the middle, two resorts each side facing each other (staggered), creeks down the mountains. Not playable in a match yet. See the note below. | Nov 7, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
@@ -410,6 +411,35 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.
 Once a note's work has shipped, fold anything lasting into Decisions and lessons and delete the note.
+
+### 2026-11-07 · Claude · Willow Valley, a valley map from Phil's sketch (`?mapView=valley`, not published)
+
+- Phil's sketch: a valley with the road and a river through the middle, resorts on opposite sides, creeks down the
+  mountains, up to 4 players. `MATCH_MAPS.valley` (`draft: true`) with shape constants in `VALLEY`. Slices 0 NW, 1 NE,
+  2 SE, 3 SW. The south side is the north side turned 180° (`VALLEY.uv(k, lu, lv)`: south u = `VALLEY.k` − lu, v
+  mirrored about the river), so one shape function, `range(lu, lv, r)`, makes both sides (Ridgeline's slope with two
+  slices a side, `r` picks the side's characters and seed). Characters as Ridgeline's: NW gentle, NE headwall, SE
+  rugged, SW bench.
+- Phil, Nov 7: "a larger area" (red boxes out past the outer creeks). A slice is its mountain's face (`VALLEY.b`) plus,
+  past a creek, a gentler shoulder out to its edge (`VALLEY.s`): 0.75 wide, 489 acres (Ridgeline 358). The west
+  slices' main lots grow west (`lotsWest`, as `MOUNTAIN.lotWest`; only `viewLots` reads it so far), so every slice
+  gets 8 free sections in row 0 and 4 on the parcels.
+- Creeks: new map fields `creeks: [[points, width], ...]` and `creekW` (the river is 1.6 creeks wide: CREEKD is
+  measured in widths, so the carve, water colour, bridges and tree clearing all scale). `groundAt` takes the nearest.
+  Six creeks: one between the two mountains on each side, one down each outer side, each across the floor to the river.
+- `VALLEY.river` weaves across the valley road (period 0.58) so it's on the far side of the road at every base: no base
+  road crosses water, and every creek meets the river without crossing the road. The valley road bridges it.
+  `roadDecks` now bridges a map's other roads too (`mapRoadPaths`, shared with `buildRoad`), and `overCreek` reads
+  `FARCD` past the map's edge (`farAt` takes a grid). No change on other maps (their roads don't cross creeks).
+- Viewer: `viewFace(k)` (`faces`: 1 rises north, −1 south) for example runs, lots (turned round) and flying to a slice.
+  `farX` 92, `farZ` 128; ~88k trees drawn (Ridgeline's viewer ~59k): watch phones.
+- Numbers now (scenario 170): every slice 489 acres, 1,070–1,110 ft vertical, flat summit 55–58 acres, trees
+  15,600–15,900 (seed 9111, picked because its forest starts out even, so `treeK` barely has to correct), example
+  green 9,300–9,800 ft (17–20%), blue 4,700–5,400 ft, black 4,400–4,700 ft (two rate expert), two 16-acre parcels each.
+- To make it playable: a frame per slot like `stripFrame` but with a turn for the south side (rotate 180° and shift),
+  `drawRivals`/`rivalLot`/`hazeAt`/rival land turned for the far side, `roadFor(slot)` is ready, `lotWest` from
+  `lotsWest`, `matchMt`, `MP_SLOTS.valley`, the server's `mapQuery`, and `match_create_on` allowing `valley` (SQL,
+  additive). Then a picture for the match window.
 
 ### 2026-11-03 · Claude · Map viewer for a new multiplayer mountain (`?mapView=1`, not published)
 
