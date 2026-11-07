@@ -4821,7 +4821,9 @@ function trailSamples(pts, hw = 0, ws = null) {
 const BRIDGE_D = 2.3;      // creek-centre distance (cells) the bridge spans; the creek bed is carved within 1.9
 const BRIDGE_MAX = 12;     // longest span; more than this and the trail is running along the creek
 const BRIDGE_APPROACH = 8; // samples (4 units) of levelled trail bed either side of a bridge
-const overCreek = (x, z) => { const gx = x + HALF, gz = z + HALF; return (FARCD && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz, FARCD) : sampleGrid(CREEKD, gx, gz)) < BRIDGE_D; }; // the ring past the map too (a rival's road)
+// how far a spot is from the creek, in creek widths, the ring past the map's edge included (a rival's road or lot)
+const creekDist = (x, z) => { const gx = x + HALF, gz = z + HALF; return FARCD && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz, FARCD) : sampleGrid(CREEKD, gx, gz); };
+const overCreek = (x, z) => creekDist(x, z) < BRIDGE_D;
 // A stretch is bridged wherever any part of the trail's width is over the creek, so the deck
 // spans the whole crossing even when a wide trail meets the creek at an angle.
 function bridgeOver(samples, hw) {
@@ -23623,6 +23625,11 @@ function viewLots() {
       const x0 = west ? -0.9 - LOT.w - col * (LOT.w + 0.7) : 0.9 + col * (LOT.w + 0.7), z0 = -1.2 + row * (LOT.d + 0.7), C = [[x0, z0], [x0 + LOT.w, z0], [x0, z0 + LOT.d], [x0 + LOT.w, z0 + LOT.d]].map(([a, b]) => at(a, b));
       const own = C.every(([x, z]) => inLand(x, z, k)), buy = !own && C.every(([x, z]) => inLand(x, z, k) || onSale(x, z, k));
       if (!own && !buy) break;
+      // as lotLandBlock: a lot stops at the creek, or where it gets too steep (checked here past the map's edge too)
+      const xs = C.map((c) => c[0]), zs = C.map((c) => c[1]); let wet = false, lo = Infinity, hi = -Infinity;
+      for (let z = Math.min(...zs); z <= Math.max(...zs) + 0.01; z += 0.5) for (let x = Math.min(...xs); x <= Math.max(...xs) + 0.01; x += 0.5) {
+        if (creekDist(x, z) < 1.4) wet = true; const h = heightAt(x, z) / VEX; lo = Math.min(lo, h); hi = Math.max(hi, h); }
+      if (wet || hi - lo > 3.2) break;
       if (row === 0 && !own) break; // the first row has to be on your own land, as in the game
       n[row]++;
       const pos = [], idx = [], N = 4;
