@@ -65,38 +65,31 @@ export default async function ({ browser, url }) {
   assert(Math.min(...q.trees) > 5000 && Math.max(...q.trees) / Math.min(...q.trees) < 1.05, `every slice has about as many trees to clear (${q.trees})`);
   eq(r.errors, [], 'no page errors on Long Ridge');
   await r.page.close();
-  // Mount Ember (draft): a volcano cut into halves, thirds or quarters for 2, 3 or 4 resorts, the crater nobody's.
-  // Natural ground, not mirrored, so each slice is about as good as the others rather than the same.
-  for (const n of [2, 3, 4]) {
-    const m = await openGame(browser, url, { query: `?mapView=volcano${n}`, mountain: 'fresh' });
-    await m.page.waitForFunction(() => !!document.getElementById('mapView'), null, { timeout: 30000 });
-    const w = await m.ev(`(() => {
-      const S = viewStats(), C = viewCentre();
-      return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, crater: sliceAt(C.x + HALF, C.z + HALF), lake: !!steam.pts,
-        bases: Array.from({ length: MOUNTAIN.slices }, (_, k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
-        mix: S.map((x) => x.mix.map((c) => c / x.cells * 100)),
-        runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill]),
-        trees: S.map((x) => x.trees || 0), acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)),
-        vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
-    })()`);
-    const ks = Array.from({ length: n }, (_, k) => k), spread = (a) => Math.max(...a) - Math.min(...a);
-    eq([w.mt, w.rows, w.crater, w.lake, w.bases], [`volcano${n}`, n, -1, true, ks], `Mount Ember for ${n}: ${n} slices, a base on each, the crater nobody’s, with its lake`);
-    assert(spread(w.acres) <= 4 && w.acres.every((a) => a > 360), `the slices are the same size (${w.acres} acres)`);
-    assert([0, 1, 2, 3].every((i) => spread(w.mix.map((x) => x[i])) < 6), `every slice has about the same mix of easy and steep ground (${JSON.stringify(w.mix.map((x) => x.map(Math.round)))})`);
-    assert(spread(w.vert) < 60 && w.vert.every((v) => v > 1150) && w.top.every((a) => a >= 8), `a tall cone, a flat shelf below the rim on every slice (${w.vert} ft, ${w.top} acres flat)`);
-    eq(w.runs, ks.map(() => [0, 1, true, false]), 'a green, a blue and a black from every stretch of rim, rated by the game');
-    // (the viewer's own road and creek cut a few trees from the slices beside them)
-    assert(Math.min(...w.trees) > 5000 && Math.max(...w.trees) / Math.min(...w.trees) < 1.15, `every slice has about as many trees to clear (${w.trees})`);
-    eq(m.errors, [], `no page errors on Mount Ember for ${n}`);
-    await m.page.close();
-  }
-  // and its match demo: each game turns the whole mountain so its own slice is in front, the rivals on the others
-  const dd = await openGame(browser, url, { query: '?matchDemo=volcano3', mountain: 'fresh' });
+  // Mount Ember (draft): a volcano cut into four, the crater nobody's, every slice the same ground and woods.
+  const m = await openGame(browser, url, { query: '?mapView=volcano', mountain: 'fresh' });
+  await m.page.waitForFunction(() => !!document.getElementById('mapView'), null, { timeout: 20000 });
+  const w = await m.ev(`(() => {
+    const S = viewStats(), C = viewCentre();
+    return { mt: MOUNTAIN.id, rows: document.querySelectorAll('#mapView .vrow').length, crater: sliceAt(C.x + HALF, C.z + HALF), lake: !!steam.pts,
+      bases: [0, 1, 2, 3].map((k) => { const b = viewBase(k); return sliceAt(b.x + HALF, b.z + HALF); }),
+      same: S.map((x) => [x.cells / S[0].cells, ...x.mix.map((n, i) => (n - S[0].mix[i]) / S[0].cells)]),
+      runs: mapViewer.runs.out.map((r) => [r.green.rating, r.blue.rating, r.black.rating >= 2, r.green.uphill || r.blue.uphill]),
+      trees: S.map((x) => x.trees || 0), acres: S.map((x) => Math.round(x.cells * ACRES_PER_CELL)), top: S.map((x) => Math.round(x.flatTop * ACRES_PER_CELL)),
+      vert: S.map((x) => Math.round((x.hi - x.lo) * FT_PER_UNIT)) };
+  })()`);
+  eq([w.mt, w.rows, w.crater, w.lake, w.bases], ['volcano', 4, -1, true, [0, 1, 2, 3]], 'Mount Ember: four slices, a base on each, the crater nobody’s, with its lake');
+  assert(w.same.every(([n, ...r]) => Math.abs(n - 1) < 0.01 && r.every((x) => Math.abs(x) < 0.01)), `every slice has the same ground (${JSON.stringify(w.same.map((r) => r.map((x) => +x.toFixed(3))))})`);
+  eq(w.runs, [0, 1, 2, 3].map(() => [0, 1, true, false]), 'a green, a blue and a black from every stretch of rim, rated by the game');
+  assert(Math.min(...w.trees) > 5000 && Math.max(...w.trees) / Math.min(...w.trees) < 1.05, `every slice has about as many trees to clear (${w.trees})`);
+  assert(w.acres.every((a) => a > 360) && w.vert.every((v) => v > 1150) && w.top.every((a) => a >= 8), `big slices, a tall cone, a flat shelf below the rim (${w.acres} acres, ${w.vert} ft, ${w.top} acres flat)`);
+  eq(m.errors, [], 'no page errors on Mount Ember');
+  await m.page.close();
+  // and its match demo: three pretend rivals turned round the cone
+  const dd = await openGame(browser, url, { query: '?matchDemo=volcano', mountain: 'fresh' });
   await dd.page.waitForFunction(() => window.__dbg('!!(matchView && matchView.demo)'), null, { timeout: 30000 });
-  const dm = await dd.ev(`({ mt: MOUNTAIN.id, rivals: matchView.resorts.map((r) => r.slot), drawn: matchView.drawn,
-    turned: Math.abs(MOUNTAIN.height(0.3, 0.4) - MATCH_MAPS.volcano3.height(...MATCH_MAPS.volcano3.turn(0.3, 0.4, 1))) < 1e-9 })`);
-  eq([dm.mt, dm.rivals, dm.turned], ['volcano3@1', [0, 2], true], 'the Mount Ember demo is slot 2’s game, the mountain turned to it, a rival on each other slice');
-  assert(dm.drawn >= 2, `their lifts are drawn (${dm.drawn})`);
+  const dm = await dd.ev(`({ mt: MOUNTAIN.id, rivals: matchView.resorts.map((r) => r.slot), drawn: matchView.drawn })`);
+  eq([dm.mt, dm.rivals], ['volcano', [0, 2, 3]], 'the match demo on Mount Ember has a rival on every other slice');
+  assert(dm.drawn >= 3, `their lifts are drawn (${dm.drawn})`);
   eq(dd.errors, [], 'no page errors in the Mount Ember demo');
   await dd.page.close();
 }
