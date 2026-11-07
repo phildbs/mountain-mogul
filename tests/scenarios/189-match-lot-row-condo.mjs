@@ -1,6 +1,6 @@
 // From Snowy and mswoeb (Nov 6). 1) On the match maps the access road climbs to the main lot right where its second row goes, so
 // "A row below" always said the road was in the way. The second row now sits a little further along, clear of the
-// road, with its own drive. 2) Condo home sales no longer count as match profit (cash, yes; profit, no). 3) Fair Ridgeline valleys.
+// road, with its own drive. 2) Condo home sales no longer count as match profit (cash, yes; profit, no). 3) Fair Ridgeline and Willow Valley slices.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 import { pagePlay } from '../../match/market.mjs';
 export default async function ({ browser, url }) {
@@ -21,10 +21,15 @@ export default async function ({ browser, url }) {
   }
   // From mswoeb (Nov 6): Ridgeline's first valley had 3% black ground and no expert ground, against 10 to 14% and 1 to
   // 5% in the others. Every valley now has a fair share of both.
-  { const v = await openGame(browser, url, { query: '?mapView=ridge', mountain: 'fresh' }); await v.wait(3000);
-    const mix = await v.ev(`viewStats().map((s) => [s.mix[2] / s.cells * 100, s.mix[3] / s.cells * 100].map((x) => +x.toFixed(1)))`);
-    assert(mix.every(([b, x]) => b >= 7 && x >= 1), `every Ridgeline valley has black (7%+) and expert (1%+) ground (${JSON.stringify(mix)})`);
-    eq(v.errors, [], 'map viewer: no page errors'); await v.page.close(); }
+  // Willow Valley's north-west slice was the same. Every slice of each map: black and expert ground, an example black
+  // that rates black or harder, and its vertical within 5% of the map's tallest slice.
+  for (const q of ['ridge', 'valley']) {
+    const v = await openGame(browser, url, { query: `?mapView=${q}`, mountain: 'fresh' }); await v.wait(3000);
+    const S = await v.ev(`viewStats().map((s, k) => ({ b: +(s.mix[2] / s.cells * 100).toFixed(1), x: +(s.mix[3] / s.cells * 100).toFixed(1), vert: s.hi - s.lo, black: mapViewer.runs.out[k].black.rating }))`);
+    const top = Math.max(...S.map((s) => s.vert));
+    assert(S.every((s) => s.b >= 6.5 && s.x >= 1 && s.black >= 2 && s.vert >= top * 0.95), `${q}: every slice has black (6.5%+) and expert (1%+) ground, a black run and about the same vertical (${JSON.stringify(S)})`);
+    eq(v.errors, [], `${q} map viewer: no page errors`); await v.page.close();
+  }
   // Single-player mountains keep their second row where it always was.
   const s = await openGame(browser, url, { mountain: 'juniper' });
   eq(await s.ev('rowShift(0)'), 0, 'Juniper Ridge: the second row is where it was');
