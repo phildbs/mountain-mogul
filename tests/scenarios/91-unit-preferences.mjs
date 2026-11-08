@@ -22,16 +22,25 @@ export default async function ({ browser, url }) {
     await g.page.locator('#mTemp').click();
     eq(await values(), ['1,000 ft','12″','32°F','68°F','10 mph','10 acres'], 'both toggles round-trip without changing values');
     assert(await g.ev(`window.__unitBefore===JSON.stringify({world:serializeWorld(),cash:state.cash,wx:state.wx,prices:state.prices,ops:opsState(),snow:Array.from(NS)})`), 'display choices do not change physical values, weather, cash or operating plans');
+    // clock and money: display only
+    const clk=()=>g.ev(`[clockLabel(480),clockLabel(960+5),clockLabel(1500),hourLabel(1320),money(130748),shortMoney(250000),nightLabel(1200)]`);
+    eq(await clk(), ['8:00 AM','4:05 PM','1:00 AM','10 PM','$130,748','$250k','Until 8'], '12-hour clock and dollars by default');
+    await g.page.locator('#mClock').click(); await g.page.locator('#mEuro').click();
+    eq(await clk(), ['08:00','16:05','01:00','22:00','€130,748','€250k','Until 20:00'], '24-hour clock and euros');
+    assert((await g.ev(`$('cash').textContent`)).startsWith('€'), 'the cash readout switches at once');
+    assert(!/ (AM|PM)\b/.test(await g.ev(`(P=>nightOpsHtml(P)+apresOpsHtml(P))({...Object.values(opsState().plans)[0],apres:'on',lastCall:1500,night:1260})`)), 'evening plans use the 24-hour clock');
+    await g.page.locator('#mClock').click(); await g.page.locator('#mEuro').click();
+    eq(await clk(), ['8:00 AM','4:05 PM','1:00 AM','10 PM','$130,748','$250k','Until 8'], 'clock and money round-trip');
     await g.page.locator('#mUnits').click(); await g.page.locator('#mTemp').click();
     eq(await g.ev(`[$('mUnits').getAttribute('aria-checked'),$('mTemp').getAttribute('aria-checked')]`), ['true','true'], 'toggles expose their state accessibly');
     const fits=await g.ev(`(() => {const r=$('menu').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth;})()`);
     assert(fits, `menu fits the ${width}px viewport and scrolls as needed`);
     await g.ev('saveNow()'); await g.page.reload(); await g.reloaded();
-    eq(await g.ev('units'), {metric:true,celsius:true}, 'preferences survive reload');
+    eq(await g.ev('units'), {metric:true,celsius:true,clock24:false,euro:false}, 'preferences survive reload');
     await g.click('#mTitle'); await g.click('[data-slot=new]'); await g.click('[data-slot=pick][data-mt=raven]'); await g.reloaded();
     eq(await g.ev('[MOUNTAIN.id,units.metric,units.celsius]'), ['raven',true,true], 'the same preferences follow the player to another resort');
     await g.ev(`localStorage.setItem('mm.units','broken-json')`); await g.page.reload(); await g.reloaded();
-    eq(await g.ev('units'), {metric:false,celsius:false}, 'invalid stored preferences fall back safely');
+    eq(await g.ev('units'), {metric:false,celsius:false,clock24:false,euro:false}, 'invalid stored preferences fall back safely');
     const blocked=await g.ev(`(() => {const old=Storage.prototype.setItem;try {Storage.prototype.setItem=()=>{throw Error('blocked')};setUnits('metric',true);setUnits('celsius',true);return [inch(12),tempF(32)];}finally {Storage.prototype.setItem=old;}})()`);
     eq(blocked,['30 cm','0°C'],'toggles still work when saving preferences is blocked');
     eq(g.errors, [], 'no page errors');

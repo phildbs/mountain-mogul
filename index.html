@@ -1653,6 +1653,8 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           <button id="mGfx">Graphics <span class="mval" id="mGfxV"></span></button>
           <button id="mUnits" role="switch" aria-checked="false" aria-label="Metric units" title="Distances, land area, snow depth and wind speed">Units <span class="mval" id="mUnitsV">Imperial</span></button>
           <button id="mTemp" role="switch" aria-checked="false" aria-label="Celsius temperatures">Temperature <span class="mval" id="mTempV">°F</span></button>
+          <button id="mClock" role="switch" aria-checked="false" aria-label="24-hour clock">Clock <span class="mval" id="mClockV">12-hour</span></button>
+          <button id="mEuro" role="switch" aria-checked="false" aria-label="Show money in euros" title="Only the sign changes: prices and cash stay the same">Money <span class="mval" id="mEuroV">$ Dollars</span></button>
           <button id="mMusic" role="switch" aria-checked="false" aria-label="Music">Music <span class="mval" id="mMusicV">Off</span></button>
           <div class="mmusic" id="mMusicBox" hidden>
             <button id="musPlay" type="button" aria-label="Pause music" title="Pause"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3" width="3" height="10" rx=".6"/><rect x="9.5" y="3" width="3" height="10" rx=".6"/></svg></button>
@@ -2098,7 +2100,7 @@ const ERRQ_KEY = 'mm.errq', ALIVE_KEY = 'mm.alive', BOOT_MARK = 'mm.booting';
 const readJSON = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
 // Display preferences belong to this device, independently of resorts and online saves.
 const savedUnits = readJSON('mm.units');
-const units = { metric: savedUnits?.metric === true, celsius: savedUnits?.celsius === true };
+const units = { metric: savedUnits?.metric === true, celsius: savedUnits?.celsius === true, clock24: savedUnits?.clock24 === true, euro: savedUnits?.euro === true };
 const errQueue = readJSON(ERRQ_KEY) || [], errSeen = new Set(errQueue.map((r) => r.message));
 let errSent = 0;
 const storeErrs = () => { try { localStorage.setItem(ERRQ_KEY, JSON.stringify(errQueue.slice(0, 8))); } catch (e) { /* ignore */ } };
@@ -4393,7 +4395,8 @@ function endStroke() {
    UI
    ===================================================================== */
 const $ = (id) => document.getElementById(id);
-const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
+const cur = () => (units.euro ? '€' : '$'); // only the sign: game money is the same either way
+const money = (n) => cur() + Math.round(n).toLocaleString('en-US');
 const ft = (h) => Math.round((MOUNTAIN.baseFt + (h - MOUNTAIN.baseH) * FT_PER_UNIT) / 10) * 10;
 const ftVis = (y) => ft(y / VEX);
 
@@ -8004,7 +8007,7 @@ function chainTap(p) {
   const C = draft.chain || (draft.chain = []), q = { x: Math.round(p.x * 4) / 4, z: Math.round(p.z * 4) / 4 }, last = C[C.length - 1], c = CHAIN[draft.btype];
   if (last && distXZ(q, last) < 0.6) return;
   if (C.length >= c.max) { toast(`A ${draft.btype === 'mfence' ? 'fence' : 'chain'} can have up to ${c.max} ${c.post}s. Build it, then start another.`, true); return; }
-  if (last && distXZ(q, last) > CHAIN_SPAN) { toast(`${c.post === 'post' ? 'Posts' : 'Poles'} can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart. Tap a little closer to the last one.`, true); return; }
+  if (last && distXZ(q, last) > CHAIN_SPAN) { toast(`${c.post === 'post' ? 'Posts' : 'Poles'} can be up to ${fmtFt(CHAIN_SPAN * FT_PER_UNIT)} apart. Tap a little closer to the last one.`, true); return; }
   C.push(q); draft.bpos = { x: C[0].x, z: C[0].z };
   recomputeBldDraft(); renderSheet();
 }
@@ -9085,7 +9088,7 @@ const landOpen = () => MATCH_PREVIEW || state.sandbox || state.season > 1 || ((s
 const landHeld = (id) => (state.land || []).find((l) => l.id === id);
 const landPrice = (p) => Math.round(parcelInfo(p).base * (1 + LAND_STEP * (state.land || []).length) / 10000) * 10000;
 const leaseOf = (price) => Math.round(price * LEASE_RATE / 10) * 10;
-const shortMoney = (v) => (v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 0 : 2).replace(/\.?0+$/, '')}M` : `$${Math.round(v / 1000)}k`);
+const shortMoney = (v) => (v >= 1e6 ? `${cur()}${(v / 1e6).toFixed(v >= 1e7 ? 0 : 2).replace(/\.?0+$/, '')}M` : `${cur()}${Math.round(v / 1000)}k`);
 // Every side parcel touches the property; a corner needs one of the parcels beside it first.
 const landReachable = (p) => !p.corner || landRects.some((q) => !(q.i1 < p.i0 || q.i0 > p.i1 || q.j1 < p.j0 || q.j0 > p.j1));
 // Anything of yours on a parcel: a lease can't be handed back while there is.
@@ -9697,8 +9700,11 @@ function holidayOf(d) {
 function dateLabel(i) { const d = dateOf(i); return `${DOW[d.getUTCDay()]}, ${MON[d.getUTCMonth()]} ${d.getUTCDate()}`; }
 function clockLabel(min) {
   const h = Math.floor(min / 60) % 24, m = Math.floor(min % 60); // past midnight on a late last call
+  if (units.clock24) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
+// An hour on its own, as players read it: "4 PM", or "16:00" on a 24-hour clock.
+const hourLabel = (min) => { const h = Math.floor(min / 60) % 24; return units.clock24 ? `${String(h).padStart(2, '0')}:00` : `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
 const LIFT_OP_HOUR = { carpet: 35, tbar: 85, double: 180, triple: 230, quad: 300, hsq: 420, six: 520, gondola: 900, village: 600 };
 // Staff on an open day: a core crew, plus lift operators, building staff and more for busy days.
 const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_PER_GUEST = 8, GROOM_PER_UNIT = 4;
@@ -12484,6 +12490,7 @@ function pondResults() {
    night staff and lift power are the costs. It's reported on its own page of the day report. */
 const LIGHT_COST_UNIT = 420, LIGHT_HOUR_UNIT = 0.8, NIGHT_BASE_HR = 160, NIGHT_LIFT_HR = 120;
 const NIGHT_HOURS = [[0, 'Off'], [1140, 'Until 7'], [1200, 'Until 8'], [1260, 'Until 9']];
+const nightLabel = (k) => (!k ? 'Off' : units.clock24 ? `Until ${hourLabel(k)}` : NIGHT_HOURS.find(([n]) => n === k)[1]);
 const lightCost = (t) => Math.round(t.len * LIGHT_COST_UNIT * MOUNTAIN.costs / 500) * 500;
 const nightNow = () => !!nightEnd() && state.phase === 'open' && state.time >= closeTime() && state.time < nightEnd();
 // Keep terrain and lift terminal lights on for the last night guests while they clear the mountain.
@@ -16309,7 +16316,7 @@ function maybeVisit(g, here, radius, baseToo, resume) {
 const APRES_END = 1140, APRES_STAFF_HR = 95, SECURITY_HR = 160, LATE_FROM = 1320; // 10 PM: late-night pay, and security
 // Last call, per plan: the bar and fire pits stay open until then. The lodge stops serving at 8 and the
 // restaurants at 10, like a real base village, so a late last call is all about the bar.
-const LAST_CALLS = [[1140, '7 PM'], [1260, '9 PM'], [1380, '11 PM'], [1500, '1 AM']];
+const LAST_CALLS = [1140, 1260, 1380, 1500]; // 7 PM, 9 PM, 11 PM, 1 AM
 const VENUE_CLOSE = { lodge: 1200, restaurant: 1320, hotel: 1320, fine: 1320, cafe: 1140, truck: 1140 };
 const APRES_VENUES = ['bar', 'lodge', 'restaurant', 'fine', 'firepit'];
 // Cafés and food trucks in the base area serve the après crowd too (hot drinks, a bite for the drive)
@@ -17629,7 +17636,7 @@ function evalChain(chain, type = 'strlight') {
   for (const q of chain) footprintTrees({ x: q.x, z: q.z, rot: 0 }, 0.3, 0.3, 0.15, treeSet);
   for (let i = 1; i < chain.length; i++) {
     const a = chain[i - 1], b = chain[i], L = distXZ(a, b);
-    if (L > CHAIN_SPAN + 0.01) { problems.push(`${post === 'post' ? 'Posts' : 'Poles'} can be up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft apart.`); break; }
+    if (L > CHAIN_SPAN + 0.01) { problems.push(`${post === 'post' ? 'Posts' : 'Poles'} can be up to ${fmtFt(CHAIN_SPAN * FT_PER_UNIT)} apart.`); break; }
     treesInBrush({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, L / 2 + 0.3, (k) => { if (distToSeg({ x: trees.x[k], z: trees.z[k] }, a, b) < 0.3) treeSet.add(k); });
   }
   if (chain.length < 2) problems.push(`Add at least one more ${post}.`);
@@ -17716,7 +17723,7 @@ function bldDraftSheet() {
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? tierName(t, s) : t.name;
   const chain = isChain(draft.btype) ? (draft.chain || []) : null, post = chain && CHAIN[draft.btype].post;
-  const help = chain ? (chain.length ? `${chain.length} ${post}${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${Math.round(CHAIN_SPAN * FT_PER_UNIT)} ft from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first ${post} goes, then each ${post} after it. ${draft.btype === 'mfence' ? 'The mesh is strung between them.' : 'The lights hang between them.'}`)
+  const help = chain ? (chain.length ? `${chain.length} ${post}${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${fmtFt(CHAIN_SPAN * FT_PER_UNIT)} from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first ${post} goes, then each ${post} after it. ${draft.btype === 'mfence' ? 'The mesh is strung between them.' : 'The lights hang between them.'}`)
     : draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
     : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door right by a trail, in the lower third of the mountain.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
   let body = '';
@@ -19532,7 +19539,7 @@ function loanSection() {
       <div><dt>Interest</dt><dd>${Math.round(LOAN_RATE * 100)}% a year${owe ? ` · ${money(dailyInterest())}/day` : ''}</dd></div>
       <div><dt>Can borrow</dt><dd>${money(avail)} more</dd></div>
     </dl>
-    <div class="row">${b(250000, 'Borrow $250k')}${b(500000, '$500k')}${b(1000000, '$1M')}</div>
+    <div class="row">${b(250000, `Borrow ${shortMoney(250000)}`)}${b(500000, shortMoney(500000))}${b(1000000, shortMoney(1000000))}</div>
     ${owe ? `<div class="row"><button class="btn secondary" data-action="repay" data-v="${LOAN_STEP}" ${state.cash >= Math.min(LOAN_STEP, owe) ? '' : 'disabled'}>Repay ${money(Math.min(LOAN_STEP, owe))}</button><button class="btn secondary" data-action="repay" data-v="${owe}" ${state.cash > 0 ? '' : 'disabled'}>${state.cash >= owe || state.cash <= 0 ? 'Repay all' : `Repay ${money(state.cash)}`}</button></div>` : ''}
     ${state.investor ? `<p class="help"><b>${INVESTOR_SHORT}</b> takes ${Math.round(state.investor.share * 100)}% of every day’s revenue.</p>
     <button class="btn secondary" data-action="buyout" ${state.cash >= state.investor.paid * BUYOUT ? '' : 'disabled'}>Buy ${INVESTOR_SHORT} out · ${money(state.investor.paid * BUYOUT)}</button>` : ''}
@@ -19541,7 +19548,7 @@ function loanSection() {
 // Why the season ended, said once on the season report.
 const seasonEndWhy = (s) => state.summer || state.day <= SEASON_LAST ? '' : s.shut ? 'You ended the season in spring. '
   : state.day > SPRING_LAST ? 'Spring skiing ran all the way to May 31. '
-  : springOld() ? 'The average trail base dropped below 18 inches, which ended spring skiing. '
+  : springOld() ? `The average trail base dropped below ${units.metric ? inch(18) : '18 inches'}, which ended spring skiing. `
   : 'No lift and trail with enough snow could bring skiers back to the base any more, which ended spring skiing. ';
 function showSeasonReport() {
   if (simulating) return;
@@ -20511,12 +20518,11 @@ function apresPageHtml(r) {
   if (a.guests && top) tips.push(`${esc(top.name)} was the busiest spot, with ${top.guests} visits.`);
   if (r.night && r.night.guests) tips.push('Night skiers stop in on their way home too: the bar stays open at least 45 minutes after the lights go out.');
   if (a.locals) tips.push(`${a.locals} locals drove up for the bar in the evening.`);
-  if (a.rowdy) tips.push('<b>A rowdy late night got talked about</b> with light security: your reputation slipped a little. Full security after 10 PM prevents it.');
+  if (a.rowdy) tips.push(`<b>A rowdy late night got talked about</b> with light security: your reputation slipped a little. Full security after ${hourLabel(LATE_FROM)} prevents it.`);
   // which hours paid: revenue against the staff on that hour
   const hrs = Object.entries(a.hours || {}).map(([h, v]) => [+h, v]).filter(([h]) => h * 60 >= DAY_CLOSE - 60).sort((x, y) => x[0] - y[0]);
-  const hourLabel = (h) => { const hh = h % 24, ap = hh >= 12 ? 'PM' : 'AM'; return `${hh % 12 || 12} ${ap}`; };
   const maxRev = Math.max(1, ...hrs.map(([, v]) => v.rev));
-  const hourHtml = hrs.length > 1 ? `<div class="field-label">Hour by hour</div><div class="rp-hours">${hrs.map(([h, v]) => `<div><span>${hourLabel(h)}</span><i style="width:${Math.round(v.rev / maxRev * 100)}%"></i><b>${money(v.rev)}</b><small>${v.guests} visits</small></div>`).join('')}</div>` : '';
+  const hourHtml = hrs.length > 1 ? `<div class="field-label">Hour by hour</div><div class="rp-hours">${hrs.map(([h, v]) => `<div><span>${hourLabel(h * 60)}</span><i style="width:${Math.round(v.rev / maxRev * 100)}%"></i><b>${money(v.rev)}</b><small>${v.guests} visits</small></div>`).join('')}</div>` : '';
   return `<dl class="rp-hero">
       <div><dt>Après profit</dt><dd class="${a.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(a.profit)}</dd></div>
       <div><dt>Guests</dt><dd>${a.guests.toLocaleString('en-US')}<small>${share}% of today's</small></dd></div>
@@ -20524,10 +20530,10 @@ function apresPageHtml(r) {
     </dl>
     <div class="rp-lines">
       <span class="h">Revenue</span>
-      ${a.venues.length ? a.venues.filter((v) => v.type !== 'firepit').map((v) => line(`${esc(v.name)} · ${v.guests} visits`, v.rev)).join('') + ((pits) => (pits.length ? `<span>Fire pits${pits.length > 1 ? ` × ${pits.length}` : ''} · ${pits.reduce((n, v) => n + v.guests, 0)} visits</span><span>free</span>` : ''))(a.venues.filter((v) => v.type === 'firepit')) : '<span>No sales</span><span>$0</span>'}
+      ${a.venues.length ? a.venues.filter((v) => v.type !== 'firepit').map((v) => line(`${esc(v.name)} · ${v.guests} visits`, v.rev)).join('') + ((pits) => (pits.length ? `<span>Fire pits${pits.length > 1 ? ` × ${pits.length}` : ''} · ${pits.reduce((n, v) => n + v.guests, 0)} visits</span><span>free</span>` : ''))(a.venues.filter((v) => v.type === 'firepit')) : `<span>No sales</span><span>${money(0)}</span>`}
       <span class="tot">Après revenue</span><span class="tot">${money(a.rev)}</span>
       <span class="h">Expenses</span>
-      ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after 4 PM`, a.staff - (a.security || 0))}${a.security ? line('Security after 10 PM', a.security) : ''}${line('Drinks and food', a.cogs)}
+      ${line(`Staff for ${a.open} venue${a.open === 1 ? '' : 's'} after ${hourLabel(960)}`, a.staff - (a.security || 0))}${a.security ? line(`Security after ${hourLabel(LATE_FROM)}`, a.security) : ''}${line('Drinks and food', a.cogs)}
       <span class="tot">Après profit</span><span class="tot ${a.profit >= 0 ? '' : 'neg'}">${signedMoney(a.profit)}</span>
     </div>
     ${hourHtml}
@@ -20551,7 +20557,7 @@ function nightPageHtml(r) {
       <span class="h">Revenue</span>
       ${line(`Night tickets · ${n.guests} guests`, n.rev)}
       <span class="h">Expenses</span>
-      ${line(`Lights on ${n.lit} trail${n.lit === 1 ? '' : 's'}`, n.lights)}${line('Night crew', n.staff)}${line('Lift power after 4 PM', n.lifts)}
+      ${line(`Lights on ${n.lit} trail${n.lit === 1 ? '' : 's'}`, n.lights)}${line('Night crew', n.staff)}${line(`Lift power after ${hourLabel(960)}`, n.lifts)}
       <span class="tot">Night profit</span><span class="tot ${n.profit >= 0 ? '' : 'neg'}">${signedMoney(n.profit)}</span>
     </div>
     ${tips.length ? `<ul class="rp-notes">${tips.map((t) => `<li>${t}</li>`).join('')}</ul>` : ''}
@@ -21068,7 +21074,7 @@ function bldsSum(P) {
 // The Evenings panel: après-ski and night skiing for each plan, the night ticket, lit trails, lamp posts and fire pits.
 function eveningsStatus() {
   const P = opsState().plans[planFor(state.phase === 'open' ? state.day + 1 : state.day)];
-  return [P.apres === 'on' ? 'Après on' : 'Après off', P.night ? `night skiing ${NIGHT_HOURS.find(([k]) => k === P.night)[1].toLowerCase()}` : realTrails().some((t) => t.lit) ? 'no night skiing' : ''].filter(Boolean).join(' · ');
+  return [P.apres === 'on' ? 'Après on' : 'Après off', P.night ? `night skiing ${nightLabel(P.night).toLowerCase()}` : realTrails().some((t) => t.lit) ? 'no night skiing' : ''].filter(Boolean).join(' · ');
 }
 function eveningsPanel() {
   const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day, kind = opsEdit || planFor(day), P = o.plans[kind];
@@ -21078,7 +21084,7 @@ function eveningsPanel() {
   const plural = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : '');
   const near = firesNearVenues(), r = state.lastReport;
   const last = r && (r.apres || r.night) ? `<div class="field-label">Last open day</div><p class="help">${[r.apres ? `Après ${signedMoney(r.apres.profit)} from ${r.apres.guests} guests` : '', r.night ? `night skiing ${signedMoney(r.night.profit)} from ${r.night.guests + r.night.stayed} skiers` : ''].filter(Boolean).join('; ')}. <button class="link" data-action="pastReport" data-i="${(state.history || []).length - 1}">See the report</button></p>` : '';
-  return `<p class="help">What happens after the lifts close at 4. Each plan has its own settings, like in Operations.</p>
+  return `<p class="help">What happens after the lifts close at ${units.clock24 ? hourLabel(960) : '4'}. Each plan has its own settings, like in Operations.</p>
     <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]}</button>`).join('')}</div>
     ${apresOpsHtml(P)}
     ${nightOpsHtml(P)}
@@ -21098,12 +21104,12 @@ function apresOpsHtml(P) {
   const cost = Math.round((venues.reduce((a, B) => a + APRES_STAFF_HR * (APRES_CREW[B.type] ?? 1) * hrs(B), 0) + SECURITY_HR * late * (P.security === 'light' ? 0.4 : 1)) * MOUNTAIN.costs);
   const closes = venues.filter((B) => VENUE_CLOSE[B.type] && VENUE_CLOSE[B.type] < lc).map((B) => `${esc(B.name)} at ${clockLabel(VENUE_CLOSE[B.type])}`);
   return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On']], 'Après-ski')}
-    ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map(([k, l]) => [String(k), l]), 'Last call')}` : ''}
+    ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map((k) => [String(k), hourLabel(k)]), 'Last call')}` : ''}
     <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base (or by a village gondola station) for guests to go to after skiing. Up the mountain, nobody can reach one once the lifts close.'
-      : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? ', with late-night pay and security after 10' : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
+      : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? `, with late-night pay and security after ${hourLabel(LATE_FROM)}` : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
       : 'Keep the bar, lodge, fine dining and base restaurants, cafés and food trucks open after the lifts close for guests heading home.'}</p>
-    ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after 10 PM</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
-      <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? 'Cheaper, but past 11 PM a rowdy night can cost you some reputation, more so on weeknights.' : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
+    ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after ${hourLabel(LATE_FROM)}</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
+      <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? `Cheaper, but past ${hourLabel(1380)} a rowdy night can cost you some reputation, more so on weeknights.` : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
 }
 function nightOpsHtml(P) {
   const lit = realTrails().filter((t) => t.lit);
@@ -21111,7 +21117,7 @@ function nightOpsHtml(P) {
   const hrs = P.night ? (P.night - DAY_CLOSE) / 60 : 0;
   const lights = Math.round(lit.reduce((a, t) => a + t.len, 0) * LIGHT_HOUR_UNIT * MOUNTAIN.costs);
   const lifts = world.lifts.filter((L) => L.departing && L.departing.some((t) => t.lit)).length;
-  return `<div class="field-label">Night skiing</div>${opsSeg('opsNight', 0, String(P.night || 0), NIGHT_HOURS.map(([k, l]) => [String(k), l]), 'Night skiing')}
+  return `<div class="field-label">Night skiing</div>${opsSeg('opsNight', 0, String(P.night || 0), NIGHT_HOURS.map(([k]) => [String(k), nightLabel(k)]), 'Night skiing')}
     <p class="help">${lit.length} lit trail${lit.length === 1 ? '' : 's'} on ${lifts} lift${lifts === 1 ? '' : 's'}. ${P.night ? `About ${money(Math.round((lights + (NIGHT_BASE_HR + NIGHT_LIFT_HR * lifts) * MOUNTAIN.costs) * hrs))} for lights and night crew, plus lift power.` : 'A night crowd of locals buys night tickets; some day guests stay on.'}</p>`;
 }
 // One line on a lift or building panel: how each plan runs it, with a link to change them.
@@ -21700,16 +21706,17 @@ $('mEdgesV').textContent = trailEdges ? 'On' : 'Off';
 function syncUnitMenu() {
   $('mUnitsV').textContent = units.metric ? 'Metric' : 'Imperial';
   $('mTempV').textContent = units.celsius ? '°C' : '°F';
-  $('mUnits').setAttribute('aria-checked', String(units.metric));
-  $('mTemp').setAttribute('aria-checked', String(units.celsius));
+  $('mClockV').textContent = units.clock24 ? '24-hour' : '12-hour';
+  $('mEuroV').textContent = units.euro ? '€ Euros' : '$ Dollars';
+  for (const [id, k] of [['mUnits', 'metric'], ['mTemp', 'celsius'], ['mClock', 'clock24'], ['mEuro', 'euro']]) $(id).setAttribute('aria-checked', String(units[k]));
 }
 function setUnits(kind, on) {
-  if (!['metric', 'celsius'].includes(kind)) return;
+  if (!['metric', 'celsius', 'clock24', 'euro'].includes(kind)) return;
   units[kind] = !!on;
   try { localStorage.setItem('mm.units', JSON.stringify(units)); } catch (e) { /* still works when storage is blocked */ }
   syncUnitMenu();
   hover.dirty = true; lastSheetHtml = ''; tbCache = '';
-  syncBadgeSub(); refreshTimebar(true);
+  syncBadgeSub(); refreshTimebar(true); if (state.started) updateCash(false);
   if (practice) $('resortSub').textContent = 'Tutorial · practice resort';
   if (draft.kind) recomputeDraft(); else renderSheet();
   if (!$('title').hidden) refreshTitle();
@@ -21717,6 +21724,8 @@ function setUnits(kind, on) {
 syncUnitMenu();
 $('mUnits').onclick = () => setUnits('metric', !units.metric);
 $('mTemp').onclick = () => setUnits('celsius', !units.celsius);
+$('mClock').onclick = () => setUnits('clock24', !units.clock24);
+$('mEuro').onclick = () => setUnits('euro', !units.euro);
 // The help bulb (What next?) can be put away, remembered on this device; the welcome card goes with it.
 let tipsOn = true;
 try { tipsOn = localStorage.getItem('mm.tips') !== 'off'; } catch (e) { /* storage blocked */ }
@@ -23336,7 +23345,7 @@ function renderMp() {
       const s = (MP.resorts.find((r) => r.lobby_id === l.id && r.slot === p.slot) || {}).summary || {};
       const facts = `Cash ${money(s.cash || 0)}${s.debt ? ` · owes ${money(s.debt)}` : ''} · season profit ${money(s.profit || 0)} · ${plural(s.lifts || 0, 'lift')}, ${plural(s.trails || 0, 'trail')}, ${(s.guests || 0).toLocaleString('en-US')} guests so far`;
       const note = p.rescued ? `It has had its fresh start already, so you take it over tonight as it is. ${win}`
-        : `You take it over tonight with a fresh start: its debt written off, cash topped up to at least ${money(MATCH_RESCUE)} and any season loss back to $0. It opens the next morning. ${win}`;
+        : `You take it over tonight with a fresh start: its debt written off, cash topped up to at least ${money(MATCH_RESCUE)} and any season loss back to ${money(0)}. It opens the next morning. ${win}`;
       let act = guest ? '<button class="btn join" type="button" data-mp="signin">Sign in to claim</button>'
         : inL(l).some((q) => (q.left_by || []).includes(me)) ? '<span class="help">You left this match, so you can’t claim a resort in it.</span>'
         : needName ? '<span class="help">Pick your player name above to claim it.</span>' : active >= 3 ? '<span class="help">You’re already in three matches.</span>'
@@ -24626,7 +24635,7 @@ function mcPatch() {
   for (const e of sheet.querySelectorAll('.mc-err')) e.remove();
   const err = tmp.querySelector('.mc-err'); if (err) $('mcForm').after(err);
 }
-const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+const mcTime = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: !units.clock24 });
 function matchChatSheet() {
   const l = matchView ? matchView.lobby : null, guest = CLOUD.guest || !CLOUD.uid, canSay = !guest && !mpNeedsName() && l && ['open', 'running'].includes(l.status);
   let hidden = 0;
@@ -24766,7 +24775,7 @@ function replayRewind() {
   if (r.event && !(state.event && state.event.days.includes(state.day))) state.event = { type: r.event, days: [state.day] };
   return undo;
 }
-const clockText = (t) => { const h = Math.floor(t / 60), m = Math.floor(t % 60); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+const clockText = (t) => clockLabel(t);
 // Keep the day in step with the clock: catch up when behind, then run at the speed that ends it on time.
 function replaySync() {
   if (!matchView || !matchView.replay || state.phase !== 'open') return;
@@ -25102,6 +25111,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.15', date: 'Nov 8, 2026', title: '24-hour clock and euros', items: [
+    'Open the resort menu and choose Clock to show times on a 24-hour clock (16:00 instead of 4 PM), everywhere from the time bar to last call.',
+    'Choose Money to show prices and cash in euros. Only the sign changes: your balance and prices stay exactly the same.',
+    'Metric measurements were already there: Units in the same menu shows heights in meters and snow in centimeters. Thanks Nejc!' ] },
   { v: '3.14.3', date: 'Nov 7, 2026', title: 'Après only where guests can get', small: true, items: [
     'A lodge, bar or fine dining up the mountain no longer stays open (and staffed) for après when nobody can reach it after the lifts close. Up the mountain, après venues now need a village gondola station beside them. Thanks RowdyBreaker!' ] },
   { v: '3.14.2', date: 'Nov 7, 2026', title: 'Clearer How it works', kotm: true, small: true, items: [
