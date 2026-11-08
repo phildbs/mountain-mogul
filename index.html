@@ -5644,7 +5644,8 @@ const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
 function liftLayout(a, b, type, mid) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
   const ya = heightAt(a.x, a.z), yb = heightAt(b.x, b.z);
-  const at = (s) => heightAt(a.x + dx * s, a.z + dz * s);
+  // Over a snowmaking pond the cable clears the water, not the pond's bed: towers stand in the water instead.
+  const at = (s) => { const x = a.x + dx * s, z = a.z + dz * s; return Math.max(heightAt(x, z), pondWaterAt(x, z)); };
   const vertM = (yb - ya) / VEX * 10, horizM = hlen * 10;
   const done = (sup) => ({ dx, dz, hlen, ya, yb, sup, heading: Math.atan2(dx, dz), slopeM: Math.hypot(vertM, horizM), vertM, horizM });
   // A magic carpet's belt lies on the snow, following every bump.
@@ -7478,6 +7479,8 @@ function evalLift(a0, b0, type, allowPlans, self) {
   const lineBlock = world.buildings.find((B) => segNearBox(a, b, boxOf(B), 0.8) || boxDist(a, boxOf(B)) < 2.5 || boxDist(b, boxOf(B)) < 2.5);
   if (lineBlock) problems.push(`Too close to ${lineBlock.name}.`);
   if (lotBoxes().some((lb) => boxDist(a, lb) < 1.5 || boxDist(b, lb) < 1.5)) problems.push('A station can’t go on the parking lot.');
+  if (world.ponds.some((P) => P.cells.some((k) => Math.hypot(keyX(k) - a.x, keyZ(k) - a.z) < 4.5 || Math.hypot(keyX(k) - b.x, keyZ(k) - b.z) < 4.5))) problems.push('A station can’t go in or right beside a snowmaking pond.');
+  else if (type === 'carpet' && world.ponds.length && Array.from({ length: Math.ceil(lay.hlen) + 1 }, (_, i) => i / Math.ceil(lay.hlen)).some((s) => pondAt(a.x + lay.dx * s, a.z + lay.dz * s))) problems.push('A magic carpet can’t cross a snowmaking pond.');
   if (roadDist(a.x, a.z) < ROAD_HW + 1.8 || roadDist(b.x, b.z) < ROAD_HW + 1.8) problems.push('A station can’t go on the access road.');
   else if (lay.sup.some((p) => !p.term && !p.belt && roadDist(a.x + lay.dx * p.s, a.z + lay.dz * p.s) < ROAD_HW + 0.4)) problems.push('A lift tower would stand on the access road. Move the line a little.');
   if (self && self.mid) for (const m of midProblems(self, self.mid.s, a, b, type)) problems.push(`Mid-station: ${m}`); // it stays the same share of the way up
@@ -9661,6 +9664,8 @@ function rebuildWorld(data) {
     for (const t of data.trails || []) addTrail({ ...t, pts: t.pts.map((p) => ({ x: p.x, z: p.z })) });
     for (const a of data.areas || []) addArea({ ...a });
     for (const P of data.ponds || []) addPond({ ...P }); // the ground was dug when it was made, and saved with the terrain
+    // lifts were laid out before their ponds were back: lay out again any that cross one, so cabins clear the water
+    for (const L of world.lifts) if (world.ponds.some((P) => segNearBox(L.a, L.b, { x0: P.box.i0 - HALF, x1: P.box.i1 - HALF, z0: P.box.j0 - HALF, z1: P.box.j1 - HALF }, 0.5))) rebuildLift(L);
   }
   computeNetwork();
   syncLabels();
@@ -18239,6 +18244,13 @@ function smGunsInstalled() {
 }
 const pondGroup = new THREE.Group();
 scene.add(pondGroup);
+// The water's height (as heightAt gives it) where a pond's water sheet covers the ground, else -Infinity.
+function pondWaterAt(x, z) {
+  if (!world.ponds.length) return -Infinity;
+  const idx = (Math.round(z) + HALF) * NV + Math.round(x) + HALF;
+  for (const P of world.ponds) if (P.mask && P.mask.get(idx) >= 0.06) return P.water * VEX;
+  return -Infinity;
+}
 function pondAt(x, z) { const k = cellKey(Math.round(x), Math.round(z)); return world.ponds.find((P) => P.set.has(k)) || null; }
 // The pond's smooth outline: each ground point near it, how much is pond (0 to 1), from a soft blur of its squares.
 function pondMask(P) {
@@ -18394,6 +18406,8 @@ function pondCellProblem(x, z, blocks) {
   if (roadDist(x, z) < 2.5) return 'too close to the road';
   if (sampleGrid(CREEKD, x + HALF, z + HALF) < 1.8) return 'in the creek';
   if (sampleGrid(GR, x + HALF, z + HALF) > POND_MAX_GRADE) return 'too steep for a pond';
+  // digging reaches a couple of squares past the paint, and a station can't sit on a bank or in the water
+  if (world.lifts.some((L) => distXZ({ x, z }, L.a) < 6 || distXZ({ x, z }, L.b) < 6.5 || (L.midUp && distXZ({ x, z }, L.midUp.a) < 6))) return 'too close to a lift station';
   return '';
 }
 function pondDraftInfo() {
@@ -25111,6 +25125,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.15.1', date: 'Nov 8, 2026', small: true, title: 'Lifts over ponds', items: [
+    'A gondola or chairlift over a snowmaking pond now hangs clear of the water, with its towers standing in the pond, instead of dipping its cabins in. Lifts already over a pond are fixed when you load. Thanks for the feedback!',
+    'Ponds can’t be dug right at a lift station, and a lift station can’t go in a pond.',
+  ] },
   { v: '3.15', date: 'Nov 8, 2026', title: '24-hour clock and euros', items: [
     'Open the resort menu and choose Clock to show times on a 24-hour clock (16:00 instead of 4 PM), everywhere from the time bar to last call.',
     'Choose Money to show prices and cash in euros. Only the sign changes: your balance and prices stay exactly the same.',

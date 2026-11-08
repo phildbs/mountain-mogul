@@ -44,6 +44,17 @@ export default async function ({ browser, url }) {
   const h1 = await g.ev(ht);
   assert(diff(h1, h0) > 0.5, 'the ground was dug');
 
+  // a gondola over it hangs clear of the water, not the bed (a player's gondola dipped into a pond, Nov 8)
+  const over = await g.ev(`(() => { const P = world.ponds[0], a = { x: ${x}, z: ${z} - 18 }, b = { x: ${x}, z: ${z} + 18 };
+    const lay = liftLayout(a, b, 'gondola'); let low = Infinity;
+    for (let k = 0; k < lay.sup.length - 1; k++) { const p = lay.sup[k], q = lay.sup[k + 1];
+      for (let j = 0; j <= 12; j++) { const s = lerp(p.s, q.s, j / 12), px = a.x + lay.dx * s, pz = a.z + lay.dz * s;
+        if (pondAt(px, pz)) low = Math.min(low, lerp(p.y, q.y, j / 12) - P.water * VEX); } }
+    return { low, station: evalLift({ x: ${x}, z: ${z} }, b, 'gondola', false).problems.some((m) => m.includes('pond')) }; })()`);
+  assert(over.low > 1.2 && over.low < Infinity, `the cable clears the water by ${over.low.toFixed(2)}`);
+  assert(over.station, 'a station in the pond is refused');
+  eq(await g.ev(`(() => { world.lifts.push({ a: { x: ${x} + 30, z: ${z} }, b: { x: ${x} + 30, z: ${z} + 40 } }); const why = pondCellProblem(${x} + 27, ${z}, null); world.lifts.pop(); return why; })()`), 'too close to a lift station', 'no pond dug at a lift station');
+
   // a trail can't run into it; a building can't sit in it
   eq(await g.ev(`analyzeTrail(trailSamples([{ x: ${x}, z: ${z} - 12 }, { x: ${x}, z: ${z} + 12 }], 2.6)).problems.some((p) => p.includes('pond'))`), true, 'a trail through it is refused');
 
