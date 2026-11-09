@@ -257,6 +257,11 @@ but stay invisible. Keep this section current: it is the only record of what is 
 behind it (or behind `state.sum`, which only exists with it). With the switch off the game must play exactly as before:
 `202-summer-days` checks that first. Preview links for Phil need `?summer=1` on the end.
 
+**The preview link.** `?summerDemo=1` (Phil asked for it, Nov 9) opens a starter resort on Juniper Ridge already in
+summer, with a small card (`summerDemo()`, `#sumDemo`) to jump to the Saturday of any stop, set the weather and play the
+day at 4×. `?summerDemo=maple`, `raven` or `twin` picks the mountain. It turns `SUMMER_ON` on and never saves
+(`NO_SAVE`). Give Phil this link for every summer piece, and add buttons to the card as pieces need them.
+
 **Rules for a hidden piece.** No `CHANGES` entry, no guide or roadmap change (players would read about something they
 can't see); all of that lands with 4.0. Full GitHub run green before Publish, as for any feature. 4.0 itself: remove
 the switch (or default it on), write the changelog, guide and roadmap card, re-check balance.

@@ -2093,7 +2093,11 @@ const MATCH_DEMO = !!MATCH_Q('matchDemo');
 // ?mapView=<id> opens another map in MATCH_MAPS (a draft, say).
 const MAP_VIEW = (() => { const v = new URLSearchParams(location.search).get('mapView'); return v ? (v === '1' ? 'match' : v) : null; })();
 const MATCH_PREVIEW = !!MATCH_Q('matchMap') || MATCH_DEMO || !!MAP_VIEW;
-const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW;
+// ?summerDemo=1 is a quick look at the summer season (hidden until 4.0): a starter resort on Juniper Ridge, already in
+// summer, with buttons to jump to any part of it, change the weather and play a day. ?summerDemo=maple, raven or twin
+// picks another mountain. Nothing is saved.
+const SUMMER_DEMO = (() => { const v = new URLSearchParams(location.search).get('summerDemo'); return !v ? null : ['maple', 'raven', 'twin'].includes(v) ? v : 'juniper'; })();
+const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW || !!SUMMER_DEMO;
 // Playing your own resort in a running match: you build on your copy and each change goes to the match server.
 let matchPlay = null;
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
@@ -2170,6 +2174,7 @@ const BOOT_KEY = SAVE_KEY + '.boot';
 const BOOT = (() => { try { return JSON.parse(sessionStorage.getItem(BOOT_KEY)) || {}; } catch (e) { return {}; } })();
 try { sessionStorage.removeItem(BOOT_KEY); } catch (e) { /* ignore */ }
 function bootMountainId() {
+  if (SUMMER_DEMO) return SUMMER_DEMO;
   if (MAP_VIEW) return MATCH_MAPS[MAP_VIEW] ? MAP_VIEW : 'match';
   if (MATCH_PREVIEW) { const id = MATCH_Q('matchMap') || MATCH_Q('matchDemo'); return MATCH_MAPS[id] && MATCH_MAPS[id].strip ? `${id}@1` : mountainDef(id).match ? id : 'match'; }
   if (BOOT.mt) return BOOT.mt;
@@ -9750,7 +9755,7 @@ const RUN_W = PACE * 0.7;
 const FATIGUE = 0.5;
 const SEASON_START = Date.UTC(2026, 11, 1);
 // Summer days (see SUMMER DAYS) are hidden until 4.0: only a link with ?summer=1 turns them on.
-const SUMMER_ON = /[?&]summer=1\b/.test(location.search);
+const SUMMER_ON = /[?&]summer=1\b/.test(location.search) || !!SUMMER_DEMO;
 const summerNow = () => !!state.summer && state.phase === 'open'; // a summer day is being played
 // Six stops through the summer; `day` is near each one's Saturday (day 0 is Dec 1), `pull` how busy it gets.
 const SUMMER_STOPS = [
@@ -21713,6 +21718,50 @@ function summerPanel() {
       : `<button class="btn secondary" data-action="sumSkip">Start season ${state.season + 1} now</button>
         <p class="help">The summer days you skip just pay their upkeep.</p>`}` : ''}`;
 }
+/* ---------- Summer preview (?summerDemo=1) ----------
+   A starter resort already in summer, with a small card to jump to any stop, change the weather and play a day.
+   For checking summer in previews without playing a winter first. Never saves. */
+function summerDemo() {
+  enterSummer();
+  const el = document.createElement('div');
+  el.id = 'sumDemo'; el.className = 'panel';
+  el.style.cssText = 'position:fixed;left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:30;width:300px;max-width:calc(100vw - 24px);padding:10px 12px;font-size:13px';
+  document.body.appendChild(el);
+  const WXS = [['sumsun', 'Sunny'], ['sumcloud', 'Cloudy'], ['sumrain', 'Rain']];
+  let folded = false;
+  const draw = () => {
+    const on = !!state.sum, S = on ? summerStop() : null;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><b style="flex:1">Summer preview</b><button class="btn secondary" data-d="fold" style="padding:4px 10px" aria-label="${folded ? 'Show' : 'Hide'} the preview buttons">${folded ? '+' : '−'}</button></div>`
+      + (folded ? '' : !on ? `<p class="help" style="margin:6px 0">Winter is back. Nothing here is saved.</p><button class="btn" data-d="again">Back to summer</button>`
+        : `<div class="field-label" style="margin-top:8px">Jump to</div><div class="tabs" style="flex-wrap:wrap">${SUMMER_STOPS.map((x, k) => `<button data-d="stop" data-v="${k}" aria-pressed="${x === S}">${x.name}</button>`).join('')}</div>
+          <div class="field-label" style="margin-top:8px">Weather</div><div class="tabs">${WXS.map(([k, l]) => `<button data-d="wx" data-v="${k}" aria-pressed="${todayWx().type === k}">${l}</button>`).join('')}</div>
+          <div class="row" style="margin-top:10px"><button class="btn" data-d="play" ${state.phase === 'closed' ? '' : 'disabled'}>Play this day</button></div>
+          <p class="help" style="margin:6px 0 0">Jumps to the Saturday of each stop. Nothing here is saved.</p>`);
+  };
+  el.onclick = (e) => {
+    const b = e.target.closest('[data-d]');
+    if (!b) return;
+    const d = b.dataset.d;
+    if (d === 'fold') folded = !folded;
+    else if (d === 'again') { if (state.phase === 'closed' && !state.summer) enterSummer(); }
+    else if (!state.sum || state.phase === 'open') toast('Finish the day first: Close early, or skip to the report.', true);
+    else if (d === 'stop') {
+      const sum = state.sum, S = SUMMER_STOPS[+b.dataset.v];
+      const k = sum.days.findIndex((x) => summerStop(x) === S && dateOf(x).getUTCDay() === 6);
+      if (k < 0) return;
+      $('report').hidden = true; state.phase = 'closed'; state.time = DAY_OPEN;
+      sum.k = k; state.day = sum.days[k]; sum.billed = k; // looking around is free
+      sum.wx = { ...summerWx(state.day), type: 'sumsun' }; sum.next = sum.days[k + 1] != null ? summerWx(sum.days[k + 1]) : null;
+      styleSnowVisuals(); applyWeatherLook(); refreshTimebar(true); renderSheet();
+    } else if (d === 'wx') { state.sum.wx = { ...state.sum.wx, type: b.dataset.v }; applyWeatherLook(); refreshTimebar(true); renderSheet(); }
+    else if (d === 'play' && state.phase === 'closed') { autoDays = 0; openDay(); if (state.phase === 'open') state.speed = 4; }
+    draw();
+  };
+  let key = '';
+  setInterval(() => { const k = [state.phase, state.summer, state.sum && state.sum.k, state.sum && state.sum.wx.type].join('|'); if (k !== key) { key = k; draw(); } }, 500);
+  draw();
+  toast('Summer preview: a starter resort in early summer. Jump to any part of the summer, change the weather, or play a day. Nothing here is saved.');
+}
 function enterSummer() {
   cancelStaleEvent(true);
   $('report').hidden = true;
@@ -28644,6 +28693,14 @@ function start(hot) {
     else toast(MOUNTAIN.base === 'valley' ? `Multiplayer map preview: your slice of ${MOUNTAIN.name} is inside the orange line, from your base up to the flat summit. Rivals have the slice beside yours and the two across the valley. Nothing here is saved.`
       : MOUNTAIN.strip ? `Multiplayer map preview: your valley of ${MOUNTAIN.name} is inside the orange line, from your base up to the flat summit. Rivals have the other valleys. Nothing here is saved.`
       : 'Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
+  }
+  if (SUMMER_DEMO) {
+    $('title').hidden = true; $('hud').hidden = false; state.started = true;
+    state.resortName = 'Summer preview'; state.welcomed = true;
+    $('resortName').textContent = state.resortName;
+    winterView = false; // the title screen's snowy look
+    buildStarter(true); select(null);
+    summerDemo();
   }
   if (REFERRAL_PREVIEW) {
     $('title').hidden = true; $('hud').hidden = false; state.started = true;

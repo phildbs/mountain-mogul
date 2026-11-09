@@ -67,5 +67,15 @@ export default async function ({ browser, url }) {
   await g.ev(toSummer);
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(false))); delete sv.clock.sum; delete sv.clock.sumLen; sv.clock.day = 150; applySave(sv); return [state.summer, !!state.sum, state.sum && state.sum.k, summerLeft()]; })()`), [true, true, 0, true], 'an older summer save starts the summer days');
   eq(g.errors, [], 'no page errors');
+  await g.page.close();
+
+  // --- ?summerDemo=1: a starter resort already in summer, with jump buttons; nothing saved ---
+  g = await openGame(browser, url, { query: '?summerDemo=1', mountain: 'fresh' });
+  eq(await g.ev(`[MOUNTAIN.id, state.summer, summerLeft(), world.lifts.length > 0, !!$('sumDemo'), $('title').hidden]`), ['juniper', true, true, true, true, true], 'the summer preview opens a starter resort in summer');
+  await g.click('#sumDemo [data-d=stop][data-v="5"]'); await g.click('#sumDemo [data-d=wx][data-v=sumrain]');
+  eq(await g.ev(`[summerStop().name, dateOf(state.day).getUTCDay(), todayWx().type, TREE_U.uFall.value]`), ['Fall colours', 6, 'sumrain', 1], 'it jumps to the fall colours and changes the weather');
+  await g.click('#sumDemo [data-d=wx][data-v=sumsun]'); await g.click('#sumDemo [data-d=play]');
+  eq(await g.ev(`(() => { const p = state.phase; let n = 0; while (state.phase === 'open' && n++ < 60000) simStep(1.5); saveNow(); return [p, state.phase, state.lastReport.guests > 0, Object.keys(localStorage).some((k) => /juniperRidge/.test(k) && !/boot/.test(k))]; })()`), ['open', 'report', true, false], 'it plays a day and saves nothing');
+  eq(g.errors, [], 'no page errors in the summer preview');
   return 'summer days: calendar, Summer plan, a scenic-ride day with a mid-day save, upkeep by the day, short summer, fall colours, skip to winter';
 }

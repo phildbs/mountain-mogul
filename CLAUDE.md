@@ -18,6 +18,9 @@ release checklist and shared notes, is `AI_HANDOFF.md`. Read it at the start of 
   A link is preferred over lots of screenshots.
   For multiplayer changes, add `?matchDemo=1` to the link: it opens Crown Peak with a starter resort and two
   pretend rivals, no match or sign-in needed, and never saves.
+  For summer changes (hidden until 4.0), add `?summerDemo=1`: it opens a starter resort already in summer, with buttons to
+  jump to any part of the summer, change the weather and play a day, and never saves. `?summer=1` turns summer on in a
+  normal game.
   For shaping a match map, `?mapView=1` is a viewer: every slice in full, fly to each base, tilt, steepness, each slice's numbers. Ask Phil to check the preview rather than sending screenshots.
 - **Only merge to `main` when Phil says "Publish".** Then `git merge --ff-only <branch>` and push. Approval
   for one change doesn't cover the next.
