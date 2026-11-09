@@ -29,7 +29,7 @@ export default async function ({ browser, url }) {
   const t = await openGame(browser, url, { mountain: 'twin' });
   await t.click('#startBtn'); await t.wait(300);
   await t.ev(build);
-  const s = await t.ev(`(() => { state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot(); computeNetwork();
+  const s = await t.ev(`(() => { state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; lotsFromSections(); computeNetwork();
     const east = baseOf(world.lifts[0].a) === 0 ? world.lifts[0] : world.lifts[1], west = east === world.lifts[0] ? world.lifts[1] : world.lifts[0];
     const signs = (L) => L.departing.map(trailSign);
     const sc = (a) => lotScores(a).map((v) => +v.toFixed(2));

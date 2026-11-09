@@ -1,7 +1,7 @@
 // Three fixes from player feedback. Hungry guests: someone eating a long restaurant lunch isn't
 // counted as hungry, each hungry guest has a reason, and What next? follows the biggest one instead of
 // always suggesting a café. Replant: a Landscape brush regrows cleared trees, never on trails or lift
-// lines. Parking: once the lot can't grow along the road, land bought below it takes a second row.
+// lines. Parking: land bought below the main lot lets it grow deeper.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -52,38 +52,15 @@ export default async function ({ browser, url }) {
   assert(/Plant trees/i.test(await g.ev(`$('sheet').innerText`)), 'Plant trees is in the Landscape panel');
   await g.ev(`setTool('explore')`);
 
-  // ---- a second row of parking
+  // ---- a deeper lot on land bought below it
   const lot = await g.ev(`(() => {
-    const add = () => { if (mainLotBlock()) return false; const b = document.createElement('button'); b.dataset.action = 'expandLot'; sheet.appendChild(b); b.click(); b.remove(); return true; };
-    let n = 0; while (n < 30 && add()) n++;
-    const row0 = rowLen(0), msg = mainLotBlock();
+    const deeper = (k) => { const P = { ...parks()[0] }; P.R += k; P.z += k * PK.bay / 2; return parkCheck(P, 0).problems; }; // keeps its top edge, grows toward the valley
+    let k = 1; while (k < 8 && !deeper(k).length) k++;
+    const msg = deeper(k);
     state.land = ['S2', 'S3', 'S4'].map((id) => ({ id, own: 'buy', wait: 0, price: 0, rent: 0 })); applyLand();
-    let m = 0; while (m < 30 && add()) m++;
-    return { row0, msg, row1: rowLen(1), sections: state.lotSections, cap: lotCapacity(), stalls: stalls.length, layout: state.lotLayout.slice(-2) }; })()`);
-  assert(/Buy the land below it/.test(lot.msg), `the full lot says to buy the land below: ${lot.msg}`);
-  eq([lot.row1, lot.sections, lot.cap, lot.stalls], [lot.row0, lot.row0 * 2, lot.row0 * 2 * 96, lot.row0 * 2 * 96], 'then a second row, one section under each');
-  const car = await g.ev(`(() => { const first = rowLen(0) * 96; openDay(); for (let i = 0; i < first; i++) stalls[i].car = -1; spawnCar(2); const c = cars[cars.length - 1]; for (let i = 0; i < first; i++) stalls[i].car = null; return { row: stalls[c.stall].row, path: c.path.length }; })()`);
-  eq(car.row, 1, 'with the first row full, cars park in the second');
-  eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(false))); applySave(sv); return [state.lotSections, rowLen(1), stalls.length]; })()`), [lot.sections, lot.row1, lot.stalls], 'the layout is saved');
-  // choosing the direction: 3 across and 2 down
-  const dir = await g.ev(`(() => {
-    state.lotSections = 1; state.lotLayout = null; buildLot(); openManage('parking'); renderSheet();
-    const press = (row) => { const b = document.querySelector('#sheet [data-action=expandLot][data-row="' + row + '"]'); if (b && !b.disabled) b.click(); renderSheet(); };
-    press(0); press(0); press(1); press(1); press(1); press(1);
-    const chip = document.querySelector('#sheet .chip');
-    return { layout: state.lotLayout, below: lotGrowBlock(1), pos: chip && getComputedStyle(chip).position }; })()`);
-  eq(dir.layout, [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]], 'two along the road, then a row below: 3 across, 2 down');
-  assert(/Add along the road first/.test(dir.below), 'the row below stops at the first row’s length');
-  assert(dir.pos !== 'absolute', `panel chips stay in the panel (map markers have their own class): ${dir.pos}`);
-  // choosing on the map: Grow the main lot puts a + on each spot, and tapping one adds a section there
-  const pick = await g.ev(`(() => { state.lotSections = 1; state.lotLayout = null; buildLot(); openManage('lotgrow'); updateLotMarks();
-    const tags = [...document.querySelectorAll('#lotTags button')].map((b) => b.textContent);
-    [...document.querySelectorAll('#lotTags button')].find((b) => /Below/.test(b.textContent)).click(); updateLotMarks();
-    return { tags, layout: state.lotLayout, after: [...document.querySelectorAll('#lotTags button')].map((b) => b.textContent) }; })()`);
-  eq(pick.tags, ['+ Along the road · $75k', '+ Below · $75k'], 'a + along the road and one below');
-  eq(pick.layout, [[0, 0], [1, 0]], 'tapping + Below adds a section under the first');
-  eq(pick.after, ['+ Along the road · $75k'], 'then only along the road, until the first row is longer');
-  eq(await g.ev(`(() => { select(null); updateLotMarks(); return document.querySelectorAll('#lotTags button').length; })()`), 0, 'gone when the panel closes');
+    return { k, msg, after: deeper(k) }; })()`);
+  assert(lot.k < 8 && lot.msg.some((m) => /property/.test(m)), `deeper than ${lot.k - 1} more aisles needs land below: ${lot.msg}`);
+  eq(lot.after.filter((m) => /property/.test(m)), [], 'with the land below bought, it can grow there');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

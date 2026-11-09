@@ -1,6 +1,6 @@
 // Two fixes from Snowy (Nov 5). (1) A hotel with a trail running past its door is ski-in, ski-out, as a condo is;
-// it used to need the trail to end there. (2) Removing a parking section asks first, and a tap on Remove right as
-// the box opens (the second tap of a quick double tap) is ignored. The match server presses Remove with no ask.
+// it used to need the trail to end there. (2) Removing a parking lot asks first, and a tap on Remove right as
+// the box opens (the second tap of a quick double tap) is ignored.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -17,19 +17,17 @@ export default async function ({ browser, url }) {
   assert(spot, 'found a spot beside the middle of a trail');
   eq([spot.ski, spot.far], [true, false], 'a door beside a trail running past is ski-in, ski-out; 400 m away it isn’t');
 
-  // Parking: two sections, then Remove asks first.
-  await g.ev(`(() => { state.cash = 1e6; growLot(0, 0); growLot(0, 0); select({ kind: 'manage', obj: 'parking' }); })()`);
-  const n0 = await g.ev(`state.lotSections`);
-  assert(n0 >= 3, `three sections (${n0})`);
-  const ask = await g.ev(`(() => { sheetAct({ dataset: { action: 'shrinkLotAsk' }, disabled: false }); const d = document.createElement('div'); d.innerHTML = parkingPanel();
-    const box = d.querySelector('.confirm-box'); sheetAct({ dataset: { action: 'shrinkLot' }, disabled: false }); // the second tap of a double tap
-    return { box: !!box && /Remove the newest parking section/.test(box.textContent), btn: !!(box && box.querySelector('[data-action=shrinkLot]')), n: state.lotSections }; })()`);
-  eq([ask.box, ask.btn, ask.n], [true, true, n0], 'Remove a section opens a confirm box, and a tap straight away removes nothing');
-  await g.wait(650);
-  eq(await g.ev(`(() => { sheetAct({ dataset: { action: 'shrinkLot' }, disabled: false }); return [state.lotSections, lotAsk]; })()`), [n0 - 1, 0], 'Remove in the box removes one section');
-  eq(await g.ev(`(() => { sheetAct({ dataset: { action: 'shrinkLotAsk' }, disabled: false }); sheetAct({ dataset: { action: 'shrinkLotNo' }, disabled: false }); return [state.lotSections, lotAsk]; })()`), [n0 - 1, 0], 'Keep it keeps it');
-  // The match server presses Remove itself, with no ask.
-  eq(await g.ev(`(() => { sheetAct({ dataset: { action: 'shrinkLot' }, disabled: false }); return state.lotSections; })()`), n0 - 2, 'pressed with no ask (the match server), it removes');
+  // Parking: removing a lot asks first, and a tap on Remove straight away removes nothing.
+  await g.ev(`(() => { state.cash = 1e6; openRoads('parking'); startLotEdit(0); })()`);
+  const n0 = await g.ev(`parks().length`);
+  const act = (a) => `sheetAct({ dataset: { action: '${a}' }, disabled: false })`;
+  const ask = await g.ev(`(() => { ${act('lotRemoveAsk')}; const d = document.createElement('div'); d.innerHTML = roadsToolSheet();
+    const box = d.querySelector('.confirm-box'); ${act('lotRemove')}; // the second tap of a double tap
+    return { box: !!box && /Remove Main lot/.test(box.textContent), btn: !!(box && box.querySelector('[data-action=lotRemove]')), n: parks().length }; })()`);
+  eq([ask.box, ask.btn, ask.n], [true, true, n0], 'Remove a lot opens a confirm box, and a tap straight away removes nothing');
+  eq(await g.ev(`(() => { ${act('shrinkLotNo')}; return [parks().length, lotAsk]; })()`), [n0, 0], 'Keep it keeps it');
+  await g.ev(act('lotRemoveAsk')); await g.wait(650);
+  eq(await g.ev(`(() => { ${act('lotRemove')}; return [parks().length, lotAsk]; })()`), [n0 - 1, 0], 'Remove in the box removes the lot');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

@@ -1,6 +1,6 @@
 // The access road stays clear: buildings and lots graded beside it bank down to it instead of lifting or
 // burying it, the drawn road is never under the ground, old saves with a buried road get it back, and the
-// road ends in a driveway that meets the main lot square on.
+// road ends at the main lot's entrance.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   for (const mountain of ['raven', 'ridgeback']) {
@@ -44,19 +44,10 @@ export default async function ({ browser, url }) {
     eq(old.moved, 0, `${mountain}: an old save's buried road is dug back out`);
     eq(old.bad, 0, `${mountain}: and drawn on top`);
 
-    // The driveway: it leaves the road where the road ends and meets the lot's edge head on, at its first aisle.
-    const drive = await g.ev(`(() => { const P = lotDrivePath(), T = P[P.length - 1], S = P[P.length - 2], o = slotOrigin(0, 0), w = !!MOUNTAIN.lotWest;
-      const R = roadPath(), end = R[R.length - 1], start = P[0];
-      const turn = Math.max(...P.slice(2).map((p, i) => { const a = P[i], b = P[i + 1], h1 = Math.atan2(b.z - a.z, b.x - a.x), h2 = Math.atan2(p.z - b.z, p.x - b.x); return Math.abs(Math.atan2(Math.sin(h2 - h1), Math.cos(h2 - h1))); }));
-      const path = carPath(stalls.find((s) => !s.lot && !s.row)).map((p) => [p.x, p.z]);
-      return { edge: w ? T.x - (o.x + LOT.w) : T.x - o.x, aisle: T.z - (o.z + 1.4), heading: Math.atan2(T.z - S.z, (T.x - S.x) * (w ? -1 : 1)), gap: Math.hypot(end.x - start.x, end.z - start.z), turn,
-        carOnDrive: path.filter(([x, z]) => P.some((p) => Math.hypot(p.x - x, p.z - z) < 0.3)).length };
-    })()`);
-    assert(Math.abs(drive.edge) < 0.1 && Math.abs(drive.aisle) < 0.01, `${mountain}: the drive meets the lot's edge at its first aisle (${JSON.stringify(drive)})`);
-    assert(Math.abs(drive.heading) < 0.05, `${mountain}: square on (${drive.heading})`);
-    assert(drive.gap < 0.6, `${mountain}: joined to the road (${drive.gap})`);
-    assert(drive.turn < 0.35, `${mountain}: a smooth bend (${drive.turn})`);
-    assert(drive.carOnDrive >= 3, `${mountain}: cars drive round it (${drive.carOnDrive})`);
+    // The main lot's entrance is where the road ends: cars come off the road into it and park.
+    const drive = await g.ev(`(() => { const P = parks()[0], d = gateDoor(P, P.ents[0]), h = roadHit(d), k = stalls.findIndex((s) => s.lot === 0), p = carPath(stalls[k]);
+      return { gap: h.d, reached: parkReached(0), ends: Math.hypot(p.at(-1).x - stalls[k].x, p.at(-1).z - stalls[k].z) < 0.01, end: Math.hypot(d.x - roadEnd().x, d.z - roadEnd().z) }; })()`);
+    assert(drive.gap < 3.15 && drive.end < 4 && drive.reached && drive.ends, `${mountain}: the main lot is entered where the road ends (${JSON.stringify(drive)})`);
     eq(g.errors, [], `${mountain}: no errors`);
     await g.page.close();
   }

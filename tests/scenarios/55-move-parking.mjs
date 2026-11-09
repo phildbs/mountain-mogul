@@ -1,4 +1,4 @@
-// Move a building overnight (for a fee, keeping its name and history), and remove parking sections and off-site parking.
+// Move a building overnight (for a fee, keeping its name and history), and change parking lots and remove off-site parking.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
@@ -26,23 +26,19 @@ export default async function ({ browser, url }) {
   eq(r, { moved: true, sameName: true, count: true, paid: true, feeOk: true, tool: 'explore' }, 'lodge moved, kept its name, paid the fee');
   // the move can be undone
   await g.ev(`undo()`).catch(() => {});
-  // parking: add a section, then remove it; set up off-site parking, then close it
+  // parking: make the main lot longer, then shorter (a quarter back on the spaces taken out); set up off-site parking, then close it
   const p = await g.ev(`(() => {
-    state.cash = 5e6; const s0 = state.lotSections;
-    openManage('parking');
-    document.querySelector('[data-action=expandLot]').click();
-    const added = state.lotSections === s0 + 1, stalls1 = stalls.length;
-    openManage('parking');
-    const c0 = state.cash;
-    document.querySelector('[data-action=shrinkLotAsk]').click(); lotAsk -= 1000; // it asks first; a tap in the first half second is ignored
-    document.querySelector('.confirm-box [data-action=shrinkLot]').click();
-    const removed = state.lotSections === s0 && stalls.length < stalls1 && state.cash - c0 === Math.round(LOT_EXPAND_COST * 0.25);
-    buyOffsite(); openManage('parking');
+    state.cash = 5e6; openRoads('parking'); startLotEdit(0);
+    ldraft.n += 8; ldraft.x += 2; ldraft.info = null; /* longer, its entrance end staying put */ const s1 = parkSpaces(ldraft); document.querySelector('#sheet [data-action=lotBuild]').click();
+    const added = stalls.length === s1;
+    startLotEdit(0); ldraft.n -= 8; ldraft.x -= 2; ldraft.info = null; const c0 = state.cash; document.querySelector('#sheet [data-action=lotBuild]').click();
+    const removed = stalls.length === s1 - 48 && state.cash - c0 === Math.round(48 * PARK_SPACE * 0.25);
+    setTool('explore'); buyOffsite(); openManage('parking');
     const had = state.offsite === 0;
     document.querySelector('[data-action=offsiteClose]').click();
     return { added, removed, had, closed: state.offsite === -1 };
   })()`);
-  eq(p, { added: true, removed: true, had: true, closed: true }, 'parking sections and off-site parking can be removed');
+  eq(p, { added: true, removed: true, had: true, closed: true }, 'lots can grow and shrink, and off-site parking can be removed');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }

@@ -8,7 +8,7 @@ export default async function ({ browser, url }) {
   // lodges: three sizes, each its own price, none upgradable
   eq(await g.ev(`[0, 1, 2].map((t) => sizeCost('lodge', t) > (t ? sizeCost('lodge', t - 1) : 0))`), [true, true, true], 'bigger lodges cost more');
   await g.ev(build);
-  const setup = await g.ev(`(() => { state.welcomed = true; select(null); state.lotLayout = [[0, 0, 0], [0, 1, 0], [0, 2, 0], [0, 0, 1], [0, 1, 1], [0, 2, 1]]; state.lotSections = 6; buildLot(); state.reputation = 1.2;
+  const setup = await g.ev(`(() => { state.welcomed = true; select(null); state.lotLayout = [[0, 0, 0], [0, 1, 0], [0, 2, 0], [0, 0, 1], [0, 1, 1], [0, 2, 1]]; state.lotSections = 6; lotsFromSections(); state.reputation = 1.2;
     const put = (type, u0, v0, tier) => { for (let dz = 0; dz < 14; dz += 2) for (let dx = -12; dx <= 12; dx += 2) { const x = 160 * u0 - 80 + dx, z = 80 - 160 * v0 - dz, v = evalBuilding(type, x, z, 0, false, null, null, tier); if (!v.problems.length) { commitBuilding(v, type, x, z, 0); computeNetwork(); return world.buildings[world.buildings.length - 1]; } } return null; };
     const A = put('lodge', 0.7, 0.16, 2), B = put('lodge', 0.3, 0.16, 0);
     return { tiers: [A && A.tier, B && B.tier], zones: [baseOf(world.lifts[0].a), baseOf(world.lifts[1].a)], link: crossCost(0, 1) }; })()`);

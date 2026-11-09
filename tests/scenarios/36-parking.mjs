@@ -1,5 +1,4 @@
-// The main lot grows section by section as far as the land allows, warning anyone who builds in its way.
-// When it's full, cars go to off-site parking and parking shuttles carry guests between it and the
+// Parking: lots are built in the Roads tool. When they're full, cars go to off-site parking and parking shuttles carry guests between it and the
 // stations; old satellite lots become off-site parking, and bigger old main lots are kept.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -7,26 +6,10 @@ export default async function ({ browser, url }) {
   await g.click('#startBtn'); await g.wait(400);
   await g.ev(SETUPS.juniperStarter);
   await g.ev(`state.cash = 5e6`);
-  // building where the main lot will grow is allowed, with a heads-up
-  const room = await g.ev(`lotReserve().length`);
-  assert(room >= 2, `there's room for the main lot to grow (${room} sections)`);
-  const site = await g.ev(`(() => { const b = lotReserve()[room - 1]; return { x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2 }; })()`.replace('room', room));
-  const cafe = await g.ev(`(() => { const v = evalBuilding('cafe', ${site.x}, ${site.z}, 0, false); return { ok: !v.problems.length, warn: v.lotWarn }; })()`);
-  assert(cafe.ok && cafe.warn, 'a café on the expansion ground can be built, with a warning');
-  await g.ev(`(() => { setTool('bld'); draft.btype = 'cafe'; draft.bpos = { x: ${site.x}, z: ${site.z} }; recomputeBldDraft(); renderSheet(); })()`);
-  assert(/where the main lot grows/.test(await g.ev(`$('sheet').innerText`)), 'the build panel says so');
-  eq(await g.ev(`reserveGroup.children.length`), room, 'and the expansion ground is marked out');
-  await g.ev(`buildBuildingDraft(); setTool('explore')`); await g.wait(100);
-  eq(await g.ev(`reserveGroup.children.length`), 0, 'the marks go away with the build tools');
-  // grow the main lot until the café is in the way: no fixed limit
+  // lots are drawn in the Roads tool now: no ground is held back for the main lot to grow onto
+  eq(await g.ev(`lotReserve().length`), 0, 'no expansion ground is reserved');
   await g.ev(`openManage('parking')`); await g.wait(100);
-  for (let i = 0; i < room + 2; i++) { await g.ev(`(() => { const b = $('sheet').querySelector('[data-action=expandLot]'); if (b) b.click(); })()`); await g.wait(100); }
-  const n = await g.ev(`state.lotSections`);
-  assert(n <= room, `the main lot stops before the café (${n})`);
-  const why = await g.ev(`mainLotBlock() || ''`);
-  const cafeName = await g.ev(`world.buildings.find((b) => b.type === 'cafe').name`);
-  if (n === room) assert(why.startsWith(`${cafeName} is where the main lot grows next`), `and says what's in the way: ${why}`);
-  else assert(why, 'and says why it can’t grow');
+  assert(await g.ev(`!!document.querySelector('#sheet [data-action=roadsOpen][data-v=parking]')`), 'Parking leads to the Roads tool to build lots');
   // off-site parking: set up under Parking (the Buildings list links there); it needs a shuttle station to work
   await g.ev(`(() => { select(null); openManage('blds'); })()`); await g.wait(100);
   assert(/Parking and buses/.test(await g.ev(`$('sheet').innerText`)), 'the Buildings list links to Parking');
@@ -66,16 +49,17 @@ export default async function ({ browser, url }) {
   const st = await g.ev(`world.buildings.find(isStation).id`);
   await g.ev(`select({ kind: 'bld', obj: bldById(${st}) })`); await g.wait(100);
   assert(!/Upgrade to a transit center/i.test(await g.ev(`$('sheet').innerText`)), 'a station no longer offers an upgrade');
-  await g.ev(`(() => { select(null); setTool('bld'); draft.btype = null; renderSheet(); })()`); await g.wait(50);
-  assert(await g.ev(`!!document.querySelector('#sheet [data-action=pickB][data-v=transit]')`), 'Transit center is in the build menu');
+  await g.ev(`(() => { select(null); openRoads('transit'); })()`); await g.wait(50);
+  assert(await g.ev(`!!document.querySelector('#sheet [data-action=transitPick][data-v=transit]')`), 'Transit center is under Roads › Transit');
   const tc = await g.ev(`(() => { state.cash = 5e6; for (let i = 0; i < 30; i++) { const sn = snapToRoad('transit', { x: -40 + i * 4, z: 60 }), v = evalBuilding('transit', sn.x, sn.z, sn.rot, false); if (!v.problems.length) { const b = commitBuilding(v, 'transit', sn.x, sn.z, sn.rot); computeNetwork(); return b.type; } } return null; })()`);
   eq(tc, 'transit', 'and it builds beside the road');
   await g.ev(`setTool('explore')`);
   // older resorts keep a bigger main lot
-  await g.ev(`(() => { select(null); state.lotSections = 6; buildLot(); saveNow(); })()`);
+  const six = await g.ev(`(() => { select(null); const sv = JSON.parse(JSON.stringify(saveData(false))); delete sv.clock.parks; sv.clock.lotSections = 6; sv.clock.lotLayout = null; // a save from before lots of any shape
+    applySave(sv); const out = [parks().length, parks()[0].n, stalls.length]; saveNow(); return out; })()`);
+  eq(six, [1, 96, 576], 'a six-section lot is kept, as one long lot with all its spaces');
   await g.page.reload(); await g.reloaded();
-  eq(await g.ev(`state.lotSections`), 6, 'a six-section lot is kept');
-  eq(await g.ev(`stalls.length`), 576, 'with all its spaces');
+
   eq(await g.ev(`state.offsite`), 0, 'off-site parking is saved');
   // a resort saved with satellite lots gets off-site parking instead
   await g.ev(`(() => { window.removeEventListener('pagehide', saveNow); const k = saveKey(); // no save on the way out: it would overwrite the old one

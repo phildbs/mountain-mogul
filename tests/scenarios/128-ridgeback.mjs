@@ -9,7 +9,7 @@ export default async function ({ browser, url }) {
     // the crest falls all the way from one summit to the other, never climbing
     let rises = 0, prev = Infinity; for (let f = 0; f <= 1.0001; f += 0.05) { const h = y({ x: lerp(E.x, B.x, f), z: lerp(E.z, B.z, f) }); if (h > prev + 0.05) rises++; prev = h; }
     const fork = BRANCH_WORLD.findIndex((p, i) => p !== ROAD_WORLD[i]);
-    return { id: MOUNTAIN.id, cash: state.cash, goals: goalList().map((G) => G.id), lots: [lotCount(), lotName(1)], vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH),
+    return { id: MOUNTAIN.id, cash: state.cash, goals: goalList().map((G) => G.id), lots: [baseCount(), mapLotName(1)], vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH),
       b: y(B) - MOUNTAIN.baseH, e: y(E) - MOUNTAIN.baseH, rises, bald: y(E) > MOUNTAIN.treeline + 8,
       town: !!townMesh, s3: PARCELS.some((p) => p.id === 'S3'), w2: PARCELS.some((p) => p.id === 'W2'),
       // one road in from the south, splitting in the valley
@@ -28,14 +28,14 @@ export default async function ({ browser, url }) {
   assert(m.main.x < m.B.x && m.main.z > m.B.z + 40 && m.east.x > m.E.x && m.east.z > m.E.z + 40, 'main lot below the beginner peak, East lot below the expert peak');
   eq(m.clear, ['', '', '', ''], 'room for the main lot to grow, and for the East lot');
   // the road runs straight into the end of the main lot, which grows west, away from it
-  const lot = await g.ev(`(() => { state.lotLayout = [[0, 0, 0], [0, 1, 0]]; state.lotSections = 2; buildLot(); const e = lotSite(0), b = [slotBox(0, 0), slotBox(0, 1)];
+  const lot = await g.ev(`(() => { state.lotLayout = [[0, 0, 0], [0, 1, 0]]; state.lotSections = 2; lotsFromSections(); const e = lotSite(0), b = [slotBox(0, 0), slotBox(0, 1)];
     const i = stalls.findIndex((s) => s.x < b[1].x1), p = carPath(stalls[i]), last = p[p.length - 1];
     return { west: b[0].x1 < e.x && b[1].x1 < b[0].x0, along: b[0].z0 < e.z && b[0].z1 > e.z, clearOfRoad: [0, 1].every((k) => !footprintStats(b[k]).road || k === 0),
       parks: Math.hypot(last.x - stalls[i].x, last.z - stalls[i].z) < 0.01, enters: p[ROAD_WORLD.length].x > stalls[i].x }; })()`);
   eq(lot, { west: true, along: true, clearOfRoad: true, parks: true, enters: true }, 'the main lot lines up with the end of the road and grows west; cars come into each section from its east side');
   await g.click('#startBtn'); await g.wait(400);
   const built = await g.ev(`(() => {
-    state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();
+    state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; lotsFromSections();
     const lift = (a, b) => { const i = evalLift(a, b, 'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i, 'double'); computeNetwork(); return world.lifts[world.lifts.length - 1]; };
     const trail = (w) => { const pts = w.map(([x, z]) => ({ x, z, y: heightAt(x, z) })), t = evalTrail(pts, 'wide'); if (t.an.problems.length) throw new Error('trail: ' + t.an.problems); commitTrail(t, pts, 'wide'); computeNetwork(); return realTrails().at(-1); };
     const LB = lift({ x: -36, z: 44 }, { x: -31, z: -10 }), LE = lift({ x: 40, z: 26 }, { x: 30, z: -22 });

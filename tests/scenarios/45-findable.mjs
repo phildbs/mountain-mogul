@@ -34,7 +34,7 @@ export default async function ({ browser, url }) {
   assert(!/Torchlight/.test(await g.ev(`$('sheet').innerText`)), 'and they’re no longer buried in Prices');
   // the main lot fills with no off-site parking: a nudge that opens Parking
   await g.ev(`(() => { select(null); state.cash = 5e6; openDay(); state.speed = 0; for (const s of stalls) s.car = -1; spawnCar(2); })()`); await g.wait(100);
-  assert(/main lot is full/.test(await g.ev(`$('toast').textContent`)), 'a full lot says so');
+  assert(/parking is full/.test(await g.ev(`$('toast').textContent`)), 'a full lot says so');
   await g.click('#toast button'); await g.wait(200);
   eq(await g.ev(`selected && selected.obj`), 'parking', 'and its button opens Parking');
   await g.ev(`(() => { select(null); for (const s of stalls) s.car = null; spawnCar(1); let k = 0; while (state.phase === 'open' && k < 90000) { simStep(1.5); k++; } if (state.phase === 'report') nextDay(); })()`);

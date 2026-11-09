@@ -10,12 +10,12 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[dayKind(10), dayKind(37), dayKind(40), dayKind(100)]`), ['quiet', 'weekday', 'weekend', 'quiet'], 'day kinds');
 
   // an all-open weekday as the baseline
-  await g.ev(`state.day = 37; state.lotSections = 2; buildLot()`);
+  await g.ev(`state.day = 37; state.lotLayout = [[0, 0], [1, 0]]; state.lotSections = 2; lotsFromSections()`); // two lots of one section each, the second joined behind the first
   await g.ev(`openDay()`);
   eq(await g.ev(`[today.ops.kind, Math.floor(state.time), closeTime(), today.letdown]`), ['weekday', 480, 960, 0], 'all-open weekday runs the full day');
   await g.ev(SETUPS.finishDay);
   const full = await g.ev(`({ staff: state.lastReport.exp.staff, upkeep: state.lastReport.exp.upkeep, parking: state.lastReport.exp.parking, saved: state.lastReport.ops.saved })`);
-  eq(full.parking, 700, 'two open parking sections cost $350 each');
+  eq(full.parking, 700, 'two open lots of 96 spaces cost $350 each');
   eq(full.saved, 0, 'nothing saved with everything open');
   await g.click('#rpNext'); await g.wait(200);
 
@@ -28,9 +28,9 @@ export default async function ({ browser, url }) {
   await g.click(`[data-action=opsBld][data-id="${lodge}"][data-v=lunch]`);
   await g.click('[data-action=opsStaff][data-v=lean]');
   await g.click('[data-action=opsHours][data-v=short]');
-  await g.click('[data-action=opsLots][data-d="-1"]');
+  await g.click('[data-action=opsLot][data-id="2"][data-v=closed]');
   const P = await g.ev(`state.ops.plans.weekday`);
-  eq([P.bld[lodge], P.staff, P.hours, P.lots], ['lunch', 'lean', 'short', 1], 'plan edits are stored');
+  eq([P.bld[lodge], P.staff, P.hours, P.lotsOff], ['lunch', 'lean', 'short', [2]], 'plan edits are stored');
   assert(/Guests will notice|A few guests/.test(await g.ev(`$('sheet').innerText`)), 'editor warns that guests notice');
 
   // the only base lift can't be switched off: the day won't open, and the lift is left running
@@ -54,7 +54,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[state.phase, runOps && runOps.kind, liftMode(world.lifts[0])]`), ['open', 'weekday', 'slow'], 'plan survives a reload mid-day');
   await g.ev(SETUPS.finishDay);
   const cut = await g.ev(`({ staff: state.lastReport.exp.staff, upkeep: state.lastReport.exp.upkeep, parking: state.lastReport.exp.parking, saved: state.lastReport.ops.saved })`);
-  eq(cut.parking, 350, 'one open parking section');
+  eq(cut.parking, 350, 'one open lot');
   assert(cut.upkeep < full.upkeep, `lunch-only lodge costs less (${cut.upkeep} < ${full.upkeep})`);
   assert(cut.saved > 1000, `report shows a saving (${cut.saved})`);
   const text = await g.ev(`$('rpBody').innerText`);

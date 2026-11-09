@@ -5,7 +5,7 @@ export default async function ({ browser, url }) {
   const g=await openGame(browser,url,{mountain:'twin'});
   await g.click('#startBtn');await g.wait(300);await g.ev(build);await g.ev(SETUPS.midwinter);
   const result=await g.ev(`(() => {
-    state.lotLayout=[[0,0,0],[0,0,1]];state.lotSections=2;buildLot();openDay();state.time=600;schedule=[];
+    state.lotLayout=[[0,0,0],[0,0,1]];state.lotSections=2; lotsFromSections();openDay();state.time=600;schedule=[];
     const E=world.lifts.find(L=>baseOf(L.a)===0),W=world.lifts.find(L=>baseOf(L.a)===1);
     if(!E||!W)throw Error('Need a lift at each base');
     const spot=stalls.findIndex(s=>s.lot===1);cars=[{id:990001,stall:spot,members:[]}];

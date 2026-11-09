@@ -13,7 +13,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { const cv = document.querySelector('#titleSlots canvas[data-mt=lonepine]'), px = cv.getContext('2d').getImageData(360, 300, 1, 1).data; return [photoCache.has('img/lonepine.jpg') && photoCache.get('img/lonepine.jpg').naturalWidth, px[3] > 0]; })()`), [720, true], 'its card shows the snapshot from the game');
   await g.click('[data-slot=pick][data-mt=lonepine]'); await g.reloaded();
   const m = await g.ev(`({ id: MOUNTAIN.id, cash: state.cash, vert: ft(MOUNTAIN.summitH) - ft(MOUNTAIN.baseH), goals: goalList().map((G) => G.id),
-    lots: lotCount(), names: [lotName(0), lotName(1)], town: !!townMesh, w2: PARCELS.some((p) => p.id === 'W2'), parcels: PARCELS.length,
+    lots: baseCount(), names: [mapLotName(0), mapLotName(1)], town: !!townMesh, w2: PARCELS.some((p) => p.id === 'W2'), parcels: PARCELS.length,
     summitZ: PLAY1 - LONE_S[1] * PN - HALF, main: lotSite(0), north: lotSite(1), branch: branchPath().length,
     // the two roads share the stretch through town, then part at the fork
     shared: BRANCH_WORLD.findIndex((p, i) => p !== ROAD_WORLD[i]), branchOnGround: branchPath().slice(0, -1).every((p) => roadDist(p.x, p.z) < 0.6) })`);
@@ -27,7 +27,7 @@ export default async function ({ browser, url }) {
   // the north lot: room for two sections and a row behind, and its cars take the second road
   const n = await g.ev(`(() => {
     const clear = [slotBox(0, 0, 1), slotBox(0, 1, 1), slotBox(0, 2, 1)].map(lotLandBlock);
-    state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; buildLot();
+    state.lotLayout = [[0, 0, 0], [0, 0, 1]]; state.lotSections = 2; lotsFromSections();
     const i = stalls.findIndex((s) => s.lot === 1), p = carPath(stalls[i]), last = p[p.length - 1];
     const fork = ROAD_WORLD[BRANCH_WORLD.findIndex((q, k) => q !== ROAD_WORLD[k]) - 1];
     return { clear, north: stalls.filter((s) => s.lot === 1).length, start: p[0] === ROAD_WORLD[0], viaFork: p.includes(fork), ends: Math.hypot(last.x - stalls[i].x, last.z - stalls[i].z) < 0.01,
@@ -43,7 +43,7 @@ export default async function ({ browser, url }) {
   // a starter resort on the sunny side: a chair from the south base to near the top, a green, a blue and a lodge
   await g.click('#startBtn'); await g.wait(400);
   const built = await g.ev(`(() => {
-    state.lotLayout = [[0, 0, 0]]; state.lotSections = 1; buildLot();
+    state.lotLayout = [[0, 0, 0]]; state.lotSections = 1; lotsFromSections();
     const i = evalLift({x:-8,z:62},{x:4,z:-6},'double'); if (i.problems.length) throw new Error('lift: ' + i.problems); commitLift(i,'double'); computeNetwork();
     const L = world.lifts[0];
     for (const w of [[[1,-4],[-5,6],[-3,23],[-14,32],[-31,48],[-13,64]], [[7,-4],[12,10],[10,30],[0,50],[-4,64]]]) {
