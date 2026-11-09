@@ -4647,7 +4647,7 @@ function processHover() {
   if (draft.kind === 'bld') hoverGhost(p);
   else if (draft.kind) updateBand(p && !dragHandle ? p : null);
   if (gesture && gesture.type !== 'paint') { readout.hidden = true; return; }
-  showReadout(p, hover.x, hover.y, hover.touch);
+  showReadout(state.tool === 'roads' ? null : p, hover.x, hover.y, hover.touch); // the ground's height and grade: not while drawing roads and lots
 }
 
 function hintText() {
@@ -8804,6 +8804,8 @@ function sheetAct(b) {
   else if (a === 'roadBuild') commitRoad();
   else if (a === 'roadRemove') { const R = rdraft ? rdraft.R : selected && selected.kind === 'proad' ? selected.obj : null; if (R) removeRoadNow(R); }
   else if (a === 'rCancel') { clearRDraft(); renderSheet(); }
+  else if (a === 'roadUndoPt' && rdraft && rdraft.pts.length > 1) { rdraft.pts.pop(); endAtLot(rdraft); rdraft.info = null; roadHandlesSig = null; showRGhost(); renderSheet(); }
+  else if (a === 'lotFull' || a === 'roadFull') { fullDraftPanel = true; renderSheet(); }
   else if (a === 'lotTurn' && ldraft) { ldraft.a += (+b.dataset.d) * Math.PI / 180; ldraft.turned = ldraft.a; ldraft.info = null; showRGhost(); renderSheet(); }
   else if (a === 'lotAlign' && ldraft) { const h = roadHit(ldraft); if (h) { const Q = h.P || h.R, p = Q[h.k], q = Q[h.k + 1]; ldraft.a = Math.atan2(q.z - p.z, q.x - p.x); ldraft.turned = ldraft.a; ldraft.info = null; showRGhost(); renderSheet(); } }
   else if (a === 'lotBuild') commitLot();
@@ -11033,13 +11035,13 @@ function cutOff(apply) {
 }
 
 /* ---------- The Roads tool: Roads, Parking and Transit ---------- */
-var rtab = null, rdraft = null, ldraft = null, rGhost = [], rWarn = { key: '', v: [] }; // var: setTool can run before this line on load
+var fullDraftPanel = false, rtab = null, rdraft = null, ldraft = null, rGhost = [], rWarn = { key: '', v: [] }; // var: setTool can run before this line on load
 const roadsTab = () => { if (!rtab) { try { rtab = localStorage.getItem('mm.rtab') || 'parking'; } catch (e) { rtab = 'parking'; } } return rtab; };
 function setRoadsTab(k) { rtab = k; try { localStorage.setItem('mm.rtab', k); } catch (e) { /* storage blocked */ } clearRDraft(); renderSheet(); }
 const ROAD_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 const ROAD_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8402f, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 function clearRGhost() { for (const m of rGhost) { scene.remove(m); m.geometry.dispose(); } rGhost = []; }
-function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = null; lotAsk = 0; }
+function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = null; lotAsk = 0; fullDraftPanel = false; }
 function openRoads(tab) {
   if (visiting) return;
   if (state.tool !== 'roads') setTool('roads');
@@ -11111,8 +11113,8 @@ function roadsGestureStart(p) {
   const tab = roadsTab();
   if (tab === 'parking' && !ldraft && parkIndexAt(p) < 0) return { type: 'rdraw', what: 'lot', a: { x: p.x, z: p.z }, moved: 0 };
   if (tab === 'roads') {
-    if (rdraft && !rdraft.R && rdraft.pts.length) { const e = rdraft.pts[rdraft.pts.length - 1]; if (Math.hypot(p.x - e[0], p.z - e[1]) < 2.5) return { type: 'rdraw', what: 'road', raw: rdraft.raw || rdraft.pts.map(([x, z]) => ({ x, z })), moved: 0, more: true }; }
-    if (!rdraft) { const h = roadHit(p); if (h && h.d < 2.2) return { type: 'rdraw', what: 'road', raw: [h.pt], moved: 0, start: h.pt }; }
+    if (rdraft && !rdraft.R && rdraft.pts.length) { const e = rdraft.pts[rdraft.pts.length - 1]; if (Math.hypot(p.x - e[0], p.z - e[1]) < Math.max(2.5, tapR(p, fingerPx(), 0))) return { type: 'rdraw', what: 'road', raw: rdraft.raw || rdraft.pts.map(([x, z]) => ({ x, z })), moved: 0, more: true }; }
+    if (!rdraft) { const h = roadHit(p); if (h && h.d < tapR(p, fingerPx(), 1.2) + ROAD_HW) return { type: 'rdraw', what: 'road', raw: [h.pt], moved: 0, start: h.pt }; }
   }
   return null;
 }
@@ -11124,7 +11126,7 @@ function roadsGestureMove(g, p) {
     const turned = ldraft && ldraft.turned; ldraft = { ...lotFromDrag(g.a, p), info: null, turned }; showRGhost(); return;
   }
   const last = g.raw[g.raw.length - 1];
-  if (distXZ(last, p) < 1.2) return;
+  if (distXZ(last, p) < Math.min(1.2, tapR(p, 6, 0.4))) return;
   g.raw.push({ x: p.x, z: p.z }); g.moved += 1;
   if (!rdraft) rdraft = { R: null, kind: lastKind, pts: [], info: null };
   rdraft.raw = g.raw; rdraft.pts = g.raw.map((q) => [Math.round(q.x * 100) / 100, Math.round(q.z * 100) / 100]); rdraft.info = null;
@@ -11139,18 +11141,33 @@ function simplifyPts(A, tol = 0.7) {
 }
 function roadsGestureEnd(g, p) {
   if (g.what === 'lot') { if (g.moved < 1.5) { roadsTap(p || g.a); return; } if (ldraft) { ldraft.info = null; showRGhost(); } renderSheet(); return; }
-  if (!g.moved) { if (!g.more) roadsTap(p || g.start); return; }
+  if (!g.moved) { if (!g.more) roadsTap(p || g.start); else if (p) roadsTap(p); return; }
   rdraft.pts = simplifyPts(rdraft.pts); endAtLot(rdraft);
   rdraft.raw = null; rdraft.info = null; roadHandlesSig = null;
   showRGhost(); renderSheet();
 }
 // A tap in the Roads tool: pick a road or a lot to change, add a point to a road being drawn, or an entrance to a lot.
+// How near a touch has to be, in ground units: a fingertip on screen (px), however far the camera is out; at least min.
+function tapR(p, px, min) {
+  const a = project(p.x, heightAt(p.x, p.z), p.z), b = project(p.x + 1, heightAt(p.x + 1, p.z), p.z), c = project(p.x, heightAt(p.x, p.z + 1), p.z + 1);
+  const per = Math.max(Math.hypot(b.x - a.x, b.y - a.y), Math.hypot(c.x - a.x, c.y - a.y)) || 1; // pixels a unit
+  return Math.max(min, px / per);
+}
+const fingerPx = () => (isCoarse ? 28 : 14);
 function roadsTap(p) {
   if (!p) return;
   const tab = roadsTab();
   if (tab === 'roads') {
+    if (!rdraft && roadsOk() && lotBuildable()) { // a tap on your own road changes it; a tap on any road starts a new one there (keep tapping to lay it out)
+      const r = tapR(p, fingerPx(), 1.2), R = proadAt(p);
+      if (R) { startRoadEdit(R); return; }
+      const h = roadHit(p);
+      if (h && h.d < r + ROAD_HW) { rdraft = { R: null, kind: lastKind, pts: [[Math.round(h.pt.x * 100) / 100, Math.round(h.pt.z * 100) / 100]], info: null }; showRGhost(); renderSheet(); return; }
+      toast(`Start on a road: ${isCoarse ? 'tap' : 'click'} the access road, or one of yours, where the new road should leave it.`);
+      return;
+    }
     if (rdraft && !rdraft.R) { const e = rdraft.pts[rdraft.pts.length - 1]; if (e && Math.hypot(p.x - e[0], p.z - e[1]) < 1) return; rdraft.pts.push([Math.round(p.x * 100) / 100, Math.round(p.z * 100) / 100]); endAtLot(rdraft); rdraft.info = null; roadHandlesSig = null; showRGhost(); renderSheet(); return; }
-    if (!rdraft) { const R = proadAt(p, true); if (R) { if (!roadsOk() || !lotBuildable()) { select({ kind: 'proad', obj: R }); setTool('explore'); return; } startRoadEdit(R); } }
+    if (!rdraft) { const R = proadAt(p); if (R) { select({ kind: 'proad', obj: R }); setTool('explore'); } } // overnight work: show the road
     return;
   }
   if (tab === 'parking') {
@@ -11179,7 +11196,7 @@ function commitLot() {
   if (cost.grading || !d.P) { const r = parkRect(P); gradeAndRefresh(levelRot(r, rectHeight(P), 1.5, false)); }
   buildLot(); styleLot(); updateCash(true);
   const i = parks().indexOf(P);
-  toast(`${d.P ? 'Changed' : 'Built'} ${P.name} · ${parkSpaces(P)} spaces · ${cost.total >= 0 ? '−' : '+'}${money(Math.abs(cost.total))}${parkReached(i) ? '' : '. No road reaches an entrance yet: draw one to its P tag.'}`);
+  toast(`${d.P ? 'Changed' : 'Built'} ${P.name} · ${parkSpaces(P)} spaces · ${cost.total >= 0 ? '−' : '+'}${money(Math.abs(cost.total))}${parkReached(i) ? '' : '. No road reaches it yet: draw one to its edge.'}`);
   clearRDraft(); renderSheet(); scheduleSave();
 }
 function removeLot(P) {
@@ -11241,6 +11258,7 @@ function roadsToolSheet() {
   const night = !closed && tab !== 'transit' ? '<p class="help">Roads and lots are built overnight, while the resort is closed.</p>' : '';
   if (tab === 'transit') return head + transitHtml();
   if (!newLots()) return head + (tab === 'parking' ? lotGrowPanel() : '<p class="help">Roads come to King of the Mountain later. Your lots still grow along the road, under Parking.</p>');
+  if (isPhone() && (rdraft || ldraft) && !fullDraftPanel) return compactDraftHtml(); // drawing on a phone: a small panel, so the map stays free to tap
   if (tab === 'parking') {
     if (ldraft) return head + lotDraftHtml();
     const rows = parks().map((P, i) => `<li class="lrow" data-action="lotPick" data-i="${i}"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(P.name)}</b><span class="pill ${parkReached(i) ? 'on' : 'warn'}">${parkReached(i) ? `${parkSpaces(P)} spaces` : 'No way in'}</span></div>
@@ -11252,10 +11270,28 @@ function roadsToolSheet() {
   if (rdraft) return head + roadDraftHtml();
   const rows = proads().map((R) => `<li class="lrow" data-action="roadPick" data-id="${R.id}"><div class="l1"><span class="swatch" style="background:#464b54"></span><b>${esc(R.name)}</b><span class="pill ${proadIn(R) ? 'on' : 'warn'}">${proadIn(R) ? rkind(R).label : 'Cut off'}</span></div>
     <div class="l2"><span>${ftOfU(pathLen(proadPath(R)))}</span><span>Plowing ${money(Math.round(pathLen(proadPath(R)) * rkind(R).run * MOUNTAIN.costs))} a day</span></div></li>`).join('');
-  return `${head}${night}<p class="help"><b>${drag} from a road to draw a new one:</b> start on the access road or one of yours, and end at a lot’s entrance (its <b>P</b> tag) to bring cars there. ${tap} a road, the access road too, to change its route.</p>
+  return `${head}${night}<p class="help"><b>${tap} the access road</b> (or one of yours) where a new road should leave it, then ${tap.toLowerCase()} where it goes, point by point; or ${drag.toLowerCase()} from the road to paint it. End it on a lot’s edge to bring cars there. ${tap} one of your roads to change it.</p>
     <div class="seg" role="group" aria-label="Road type">${Object.entries(RKIND).map(([k, v]) => `<button data-action="roadKind" data-v="${k}" aria-pressed="${k === lastKind}">${v.label} · ${money(v.cost)} per ${ftOfU(1)}</button>`).join('')}</div>
     ${rows ? `<ul class="llist">${rows}</ul>` : ''}
     <button class="link" data-action="roadMain">Change the access road’s route ›</button>`;
+}
+// On a phone while drawing: one line, the price and the buttons. The full panel covered the map being drawn on.
+function compactDraftHtml() {
+  const tap = isCoarse ? 'Tap' : 'Click';
+  if (ldraft) {
+    const d = ldraft, info = d.info || (d.info = parkCheck(d, d.P ? parks().indexOf(d.P) : -1)), cost = parkCost(d, d.P, info), short = cost.total > state.cash;
+    return `<div class="sheet-title"><h3>${d.P ? esc(d.P.name) : 'New lot'} · ${parkSpaces(d)} spaces</h3><button class="x" data-action="rCancel" aria-label="Cancel">✕</button></div>
+      ${info.problems.length ? `<p class="help warn">${esc(info.problems[0])}</p>` : '<p class="help">Drag the handles to move, turn or resize it.</p>'}
+      <div class="row"><button class="btn secondary" data-action="lotTurn" data-d="-15">↺</button><button class="btn secondary" data-action="lotTurn" data-d="15">↻</button>
+      <button class="btn" data-action="lotBuild" ${!info.problems.length && !short && lotBuildable() ? '' : 'disabled'}>${short ? 'Need more cash' : `${d.P ? 'Apply' : 'Build'} · ${money(Math.max(0, cost.total))}`}</button></div>
+      ${d.P ? '<button class="link" data-action="lotFull">More: entrances, remove</button>' : ''}`;
+  }
+  const d = rdraft, info = d.pts.length >= 2 ? d.info || (d.info = roadCheck(d)) : null, short = info && info.cost > state.cash;
+  return `<div class="sheet-title"><h3>${d.main ? 'The access road' : d.R ? esc(d.R.name) : 'New road'}${info ? ` · ${ftOfU(info.len)}` : ''}</h3><button class="x" data-action="rCancel" aria-label="Cancel">✕</button></div>
+    ${info && info.problems.length ? `<p class="help warn">${esc(info.problems[0])}</p>` : `<p class="help">${d.R ? 'Drag its points to change it.' : `${tap} where the road goes, or drag on from its end. End it on a lot’s edge.`}</p>`}
+    <div class="row">${!d.R && d.pts.length > 1 ? '<button class="btn secondary" data-action="roadUndoPt">Undo point</button>' : ''}
+    ${info ? `<button class="btn" data-action="roadBuild" ${!info.problems.length && !short && lotBuildable() ? '' : 'disabled'}>${short ? 'Need more cash' : `${d.R ? 'Apply' : 'Build'} · ${money(info.cost)}`}</button>` : ''}</div>
+    ${d.R && !d.main ? '<button class="link" data-action="roadFull">More: type, remove</button>' : ''}`;
 }
 function lotDraftHtml() {
   const d = ldraft, self = d.P ? parks().indexOf(d.P) : -1, info = d.info || (d.info = parkCheck(d, self)), cost = parkCost(d, d.P, info), short = cost.total > state.cash;
@@ -11280,7 +11316,7 @@ function roadDraftHtml() {
   const warns = info && !info.problems.length && rWarn.key === key ? rWarn.v : [];
   return `<div class="field-label">${d.main ? 'The access road' : d.R ? esc(d.R.name) : 'New road'}</div>
     ${!d.main ? `<div class="seg" role="group" aria-label="Road type">${Object.entries(RKIND).map(([k, v]) => `<button data-action="roadKind" data-v="${k}" aria-pressed="${k === d.kind}">${v.label}</button>`).join('')}</div>` : ''}
-    <p class="help">${d.main ? 'Drag its points to reroute it inside your land; drag a small dot to add a bend. Where it comes onto your land stays put.' : d.R ? 'Drag its points to change its route; drag a small dot to add a bend.' : `${tap} to add more road, or drag on from its end. End it at a lot’s entrance (its <b>P</b> tag) to bring cars there. Drag the points to adjust it.`}</p>
+    <p class="help">${d.main ? 'Drag its points to reroute it inside your land; drag a small dot to add a bend. Where it comes onto your land stays put.' : d.R ? 'Drag its points to change its route; drag a small dot to add a bend.' : `${d.pts.length < 2 ? `<b>${tap} where the road goes</b>, point by point, or drag on from here.` : `${tap} to add more road, or drag on from its end.`} End it on a lot’s edge to bring cars there. Drag the points to adjust it.`}</p>
     ${info ? problemsHtml(info.problems) : ''}
     ${warns.length ? `<p class="help warn">${esc(warns.join('. '))}.</p>` : ''}
     ${info ? `<div class="costs"><span>${d.R ? 'New road' : 'Road'} · ${ftOfU(info.fresh)}</span><span>${money(Math.round(info.build - info.bridge * BRIDGE_U))}</span>
@@ -26305,8 +26341,9 @@ const CHANGES = [
     'A new Roads tool (6), beside Buildings, with three tabs: Roads, Parking and Transit.',
     'Parking: drag on the map to draw a lot of any size. It lines up with the nearest road, and shows its spaces and price as you go. Turn it to any angle, move it, or drag its edges to make it bigger or smaller. Draw a lot against another one to add on to it: they join, and cars drive from one into the other.',
     'Your main lot is a lot like any other now, in the same place with the same spaces. You can change it, move it or remove it. With no lots at all, guests come only by bus, off-site shuttle or from your hotels.',
-    'Roads: drag from the access road (or one of your roads) to paint a new one, and end it at a lot. An entrance opens where it meets the lot, and cars drive in. Two-lane roads or narrower driveways, with rounded corners where they join, and a bridge where they cross the creek. Roads can climb 16% at most, so wind them across a slope.',
-    'Tap any road, the access road too, to change its route by dragging its points. The access road only moves inside your land.',
+    'Roads: tap the access road (or one of your roads) where a new road should leave it, then tap or drag to lay it out, and end it at a lot. An entrance opens where it meets the lot, and cars drive in. Two-lane roads or narrower driveways, with rounded corners where they join, and a bridge where they cross the creek. Roads can climb 16% at most, so wind them across a slope.',
+    'Tap a road of yours to change its route by dragging its points. The access road has its own button in the Roads tab, and only moves inside your land.',
+    'On a phone, tap the access road where a new road should start, then tap where it goes. The panel stays small while you draw, so the map stays free.',
     'Operations closes whole lots on quiet days now, instead of parking sections. Old plans carry over.',
     'Transit: shuttle stations, transit centers and off-site parking have moved to the Roads tool. Stations now sit on a proper bus pull-out: the road widens beside the platform and tapers back.',
     'Your lots park guests for the nearest base. Two-base mountains keep their two bases. King of the Mountain keeps its parking sections for now.',
