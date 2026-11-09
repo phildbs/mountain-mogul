@@ -38,14 +38,16 @@ release checklist and shared notes, is `AI_HANDOFF.md`. Read it at the start of 
    |---|---|
    | Docs, wording, roadmap, guide | nothing |
    | Quick bug fix | the related scenarios only (1–3 min) |
-   | Feature, gameplay, saves | green tick from the full GitHub run (~5 min) |
+   | Feature, gameplay, saves | green tick from the full GitHub run (~4 min) |
 
 ## Tests
 - `cd tests && npm install && node run.mjs <names>` runs the scenarios whose file names match. Tests use a fake
   database (`tests/fake-supabase.js`) and never touch the real one.
-- GitHub Actions runs the full suite on every push that touches the game, in four groups. A failure gets one
-  retry, so a red cross is a real failure. Check the commit's tick before asking Phil to publish.
+- GitHub Actions runs the full suite on every push that touches the game, in six groups evened out by
+  `tests/timings.json` (`TIMES=1 node run.mjs` rewrites it). A failure gets one retry, so a red cross is a real failure. Check the commit's tick before asking Phil to publish.
 - Read the output for `FAIL` and `RETRY`. Don't trust a command ending in `| tail`.
+- Don't lean on fixed pauses after a load or reload: `openGame` and `g.reloaded()` return as soon as the game is
+  ready, so wait for the thing itself (or set it up directly).
 - Add or extend a scenario for new behaviour. Run `32-old-saves` when saves or loading change.
 - Slow visual captures stay opt-in (`SHOTS=1 node run.mjs building-styles`) so the GitHub run stays quick.
 - In this container Chromium is preinstalled: `require('playwright')` works. Don't reinstall Playwright.
