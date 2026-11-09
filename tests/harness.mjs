@@ -73,7 +73,8 @@ export async function openGame(browser, url, { query = '', mountain: asked, widt
     click: (sel) => page.evaluate((s) => { const el = document.querySelector(s); if (!el) throw new Error('no element ' + s); el.click(); }, sel),
     wait: (ms) => page.waitForTimeout(ms),
     // Wait for a page load that the game triggers itself (switching mountains, visits).
-    reloaded: async () => { await page.waitForLoadState('load'); await waitReady(page); },
+    // The old page is marked once it's ready, so this waits for the new one even if the reload hasn't begun yet.
+    reloaded: async () => { await page.waitForFunction(() => !window.__mmSeen, null, { timeout: 15000 }).catch(() => {}); await page.waitForLoadState('load'); await waitReady(page); },
   };
   return g;
 }
@@ -82,6 +83,7 @@ async function waitReady(page) {
   // The online stand-in signs in shortly after start: wait for that, then a moment for the title's lists to fill.
   await page.waitForFunction(() => { try { return window.__dbg('NO_SAVE || CLOUD.ready || CLOUD.status === "offline"'); } catch (e) { return false; } }, null, { timeout: 60000 });
   await page.waitForTimeout(300);
+  await page.evaluate(() => { window.__mmSeen = true; });
 }
 
 // Shared setups, run inside the game.
