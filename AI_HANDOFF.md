@@ -242,10 +242,57 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-8e48ae82-8z11ac` | Claude | **Summer season (4.0): design only so far.** `SUMMER_BRAINSTORM.md` is the sketch: 12 playable summer days, scenic lift rides, weddings and events, a mountain coaster and mountain biking, all in one major release (Phil, Nov 9). Six questions are waiting on Phil; no game code changed yet. | Nov 9, 2026 |
+| `ccr-8e48ae82-8z11ac` | Claude | **Summer season (4.0), built in hidden pieces.** See "Summer 4.0: hidden pieces" below for what is in, what is next and the rules. Piece 1 (summer days, scenic rides, fall colours) is on this branch, waiting for Phil to try the preview and say Publish. | Nov 9, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
+
+## Summer 4.0: hidden pieces
+
+Phil wants the whole summer season (design and his decisions: `SUMMER_BRAINSTORM.md`) to reach players as **one major
+release, 4.0**. `main` moves too fast for a long-lived branch, so it is built in pieces that are published to `main`
+but stay invisible. Keep this section current: it is the only record of what is in.
+
+**The switch.** `SUMMER_ON` in `index.html` is true only when the link has `?summer=1`. Every summer behaviour must sit
+behind it (or behind `state.sum`, which only exists with it). With the switch off the game must play exactly as before:
+`202-summer-days` checks that first. Preview links for Phil need `?summer=1` on the end.
+
+**Rules for a hidden piece.** No `CHANGES` entry, no guide or roadmap change (players would read about something they
+can't see); all of that lands with 4.0. Full GitHub run green before Publish, as for any feature. 4.0 itself: remove
+the switch (or default it on), write the changelog, guide and roadmap card, re-check balance.
+
+| Piece | What | State |
+|---|---|---|
+| 1 | Summer days, scenic lift rides, fall colours | Built on `ccr-8e48ae82-8z11ac` (Nov 9). Not yet on `main`. |
+| 2 | Weddings and events: event pavilion, bookings, summer events | Not started |
+| 3 | Mountain coaster (runs in winter too), zip line | Not started |
+| 4 | Mountain biking: narrow dirt bike trails, bike carriers, trail crew | Not started |
+| 5 | Balance on every mountain, a proper end-of-summer report, guide, roadmap, changelog, switch on | Not started |
+
+**How piece 1 works** (section `SUMMER DAYS` in `index.html`):
+- `enterSummer` calls `startSummer`, which makes `state.sum = { k, days, paid, billed, stats, wx, next }` and moves
+  `state.day` to the first summer day (real day numbers: Jun 1 is day 182). `state.sumLen` is `'long'` (24 days) or
+  `'short'` (12). `summerLeft()` says whether there are days still to play; when it is false everything falls back to
+  the old build-phase summer. Never in a match or while visiting.
+- A summer day is `openDay` with `state.summer` still true (`summerNow()`): every guest is a sightseer (`g.sight`),
+  demand comes from `summerDemand`, and the winter-only steps are skipped (passes, grooming, hotels, condos, evening
+  guests, season stats, goals, records). `nextDay` and `waitDay` go to `summerNext`.
+- Guests: `summerBase` sends them to a scenic lift (`canScenic`: any base chair or gondola in summer), `topLinger` gets
+  them off at the top (lunch or restrooms within 8 units, or a wander: state `view`), `rideDown` puts them in the
+  lift's `L.topQ` (state `topq`), and `unloadTop` seats them for the ride down. `L.topQ` is saved with a day in progress.
+- Plans: a fourth plan, `summer` (added to `OPS_KINDS` only with the switch). Every plan now carries `kind`.
+  `liftModeIn` defaults the summer plan to one lift (`summerMainLift`), `bldModeIn` shuts `SUMMER_SHUT` types, staff
+  cost is times `SUMMER_STAFF`, and buildings shut for the summer cost no upkeep.
+- Money: the old lump (`dailyOverhead() * 199 * 0.35`) is charged a share a day by `summerBill`; `newSeason` charges
+  what is left. Summer totals are in `state.sum.stats`, apart from the season's. A starter resort (one double, one
+  lodge) covered 43% of its bill over a long summer in a test run.
+- Looks: `TREE_U.uFall` turns about four trees in ten gold at the last stop (`fallColours()`); summer weather types are
+  `sumsun`, `sumcloud`, `sumrain`.
+
+**Known gaps in piece 1, for later pieces:** hotels and condos are shut in summer; the Summer plan editor still shows
+après, night skiing and patrol rows that do nothing; guests wear winter clothes; day-report tips are switched off in
+summer; hunger notes still say "skiing"; no thunderstorms or lookout deck yet; summer profit is not in records or
+leaderboards (decide at piece 5).
 
 ## Known issues
 

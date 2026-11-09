@@ -4132,7 +4132,7 @@ function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, parks: state.parks, proads: state.proads, mainRoad: state.mainRoad, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
-        season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
+        season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, sum: state.sum, sumLen: state.sumLen, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, grads: state.grads || undefined, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
         goals: state.goals, passPrice: state.passPrice, passSale: state.passSale, ticketPeak: state.ticketPeak, event: state.event, eventsHeld: state.eventsHeld, ops: state.ops, history: state.history, land: state.land, offsite: state.offsite, sandbox: state.sandbox, nudges: state.nudges, owners: state.owners || undefined, springRule: state.springRule || undefined },
@@ -4192,6 +4192,7 @@ function applySave(sv) {
   if (!state.wx) state.wx = initWeather(state.day, !ok); // a new resort's first week is kind: no rain or wind holds
   if (!ok) state.wx.mild = false; // and after that, real weather
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
+  if (state.summer && !state.sum && state.phase === 'closed') startSummer(); // a summer saved before summer days existed starts at its first day
   state.prices = { ...PRICE_DEFAULTS, ...(ok && sv.clock && sv.clock.prices ? sv.clock.prices : {}) };
   if (state.speed > 4) state.speed = 4;
   if (newLots() && !Array.isArray(state.parks)) state.parks = convertLegacyLots(); // saves from before: the same lots, as lots of any shape
@@ -8933,6 +8934,9 @@ function sheetAct(b) {
   }
   else if (a === 'baseSmMode' && state.baseSm) { state.baseSm.mode = b.dataset.v; renderSheet(); scheduleSave(); }
   else if (a === 'waitWeek') waitWeek();
+  else if (a === 'sumSkip' || a === 'sumNo') { sheetConfirm = a === 'sumSkip'; renderSheet(); }
+  else if (a === 'sumYes' && summerLeft() && state.phase === 'closed') { sheetConfirm = false; select(null); summerEnd(); }
+  else if (a === 'sumLen' && summerLeft() && state.phase === 'closed') { summerLength(b.dataset.v); renderSheet(); }
   else if (a === 'seasonEnd' || a === 'seasonNo') { sheetConfirm = a === 'seasonEnd'; renderSheet(); }
   else if (a === 'seasonYes' && seasonEndOk() && state.phase === 'closed' && !matchPlay) {
     sheetConfirm = false; state.seasonStats.shut = true; select(null); endSeason();
@@ -9383,7 +9387,7 @@ function updateLabels() {
     for (const t of realTrails()) {
       if (!t.labelEl) continue; // just built: its label comes with the next sync
       const n = open ? (t.count || 0) * AGENT : 0;
-      setLabel(t.labelEl, `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : t.snowOk === false ? '<em>Needs snow</em>' : nightNow() && !t.lit ? '<em>Dark</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`);
+      setLabel(t.labelEl, `${ratingSymbol(trailSign(t), 12)}<span>${esc(t.name)}</span>${!t.open ? '<em>Closed</em>' : state.summer ? '' : t.snowOk === false ? '<em>Needs snow</em>' : nightNow() && !t.lit ? '<em>Dark</em>' : open ? `<span class="cnt"><b>${n}</b> skiing</span>` : ''}`);
       t.labelEl.classList.toggle('sel', !!(selected && selected.obj === t));
       t.labelEl.classList.toggle('off', !t.open || t.snowOk === false);
       t.labelEl._prio = 1;
@@ -9745,6 +9749,16 @@ const RUN_W = PACE * 0.7;
 // Each run tires a guest this much (relative to its scaled length), so most ski well into the afternoon.
 const FATIGUE = 0.5;
 const SEASON_START = Date.UTC(2026, 11, 1);
+// Summer days (see SUMMER DAYS) are hidden until 4.0: only a link with ?summer=1 turns them on.
+const SUMMER_ON = /[?&]summer=1\b/.test(location.search);
+const summerNow = () => !!state.summer && state.phase === 'open'; // a summer day is being played
+// Six stops through the summer; `day` is near each one's Saturday (day 0 is Dec 1), `pull` how busy it gets.
+const SUMMER_STOPS = [
+  { day: 208, name: 'Early summer', pull: 0.8 }, { day: 215, name: 'Fourth of July', pull: 1.3 }, { day: 236, name: 'High summer', pull: 1 },
+  { day: 257, name: 'Late summer', pull: 0.9 }, { day: 278, name: 'Labor Day', pull: 1.15 }, { day: 311, name: 'Fall colours', pull: 1.8, fall: true },
+];
+const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic', 'hotel', 'condo']; // nothing for them to do until the snow is back
+const SUMMER_GUESTS = 600, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dateOf = (i) => new Date(SEASON_START + ((state.season || 1) - 1) * 365 * 86400000 + i * 86400000);
@@ -12169,6 +12183,7 @@ function balk(g, L, resume) {
   return true;
 }
 function baseDecision(g, skipHub = false) {
+  if (g.sight && summerNow()) return summerBase(g);
   const A = hubAt(g); if (A && !skipHub) return hubDecision(g, A);
   updateLeaving(g);
   if (g.leaving) {
@@ -12515,13 +12530,14 @@ function makeGuest(car, x, z) {
   if (scenicGondola() && Math.random() < 0.06 * clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5)) {
     g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.family = false;
   }
+  if (summerNow()) { g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.wantsGear = false; g.family = false; g.owl = false; g.lunchAt += 75; } // they arrive later, so lunch is later too
   if (g.first) today.firsts += AGENT;
   if (g.sight) g.fs = false;
   if (g.fs) parkArrival(g);
   if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
-  if (ab >= 2 && !world.trails.some((t) => t.open && t.reachable && trailSign(t) >= ab - 1)) {
+  if (ab >= 2 && !summerNow() && !world.trails.some((t) => t.open && t.reachable && trailSign(t) >= ab - 1)) {
     g.sat -= 12; today.complaints.boring++;
     thought(g, 'Not much challenging terrain here.');
   }
@@ -12537,7 +12553,7 @@ function carArrived(car) {
     guests.push(g); gById.set(g.id, g); car.members.push(g.id);
     if (car.evening) { if (!anotherRound(g, true)) goCar(g); continue; } // straight to the bar
     payTicket(g); today.guests += AGENT;
-    thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
+    if (!summerNow()) thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
     arrivalFlow(g);
   }
@@ -12547,7 +12563,7 @@ function carArrived(car) {
 
 /* ---------- Lifts ---------- */
 function initLiftSim(L) {
-  L.queue = []; L.incoming = 0; L.qVersion = 0; L.xq = null; L.xBudget = null;
+  L.queue = []; L.incoming = 0; L.qVersion = 0; L.xq = null; L.xBudget = null; L.topQ = [];
   if (L.midUp) { L.midUp.queue = []; L.midUp.incoming = 0; L.midUp.qVersion = 0; }
   L.riders = Array.from({ length: L.chairCount }, () => []);
 }
@@ -12561,9 +12577,9 @@ function stepLift(L, dt, crew = patrolCrew()) {
     if (L.midUp && L.midUp.queue.length && !canLoad(L.midUp)) { L.midUp.qVersion++; for (const g of L.midUp.queue.splice(0)) hikeOut(g); }
   }
   const U = L.midUp, midQ = U ? U.queue.length + U.incoming : 0;
-  if (!(canLoad(L) || riding || (L.open && (L.queue.length || midQ)))) return;
+  if (!(canLoad(L) || riding || (L.open && (L.queue.length || midQ || L.topQ.length)))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
-  if (!riding && !staffWaiting && !L.queue.length && !L.incoming && !midQ && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
+  if (!riding && !staffWaiting && !L.queue.length && !L.incoming && !midQ && !L.topQ.length && state.time >= closeTime() && !isVillage(L) && !(nightNow() && liftLit(L))) return;
   const total = L.total, gap = total / L.chairCount;
   const slow = liftMode(L) === 'slow';
   const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
@@ -12585,7 +12601,7 @@ function stepLift(L, dt, crew = patrolCrew()) {
     if (p1 >= total) loadBottom(L, i, staff);
   }
   // Lifts draw power while they run: all day, then at night only for night skiing or to bring riders up.
-  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || midQ || riding || staffWaiting)) {
+  if (L.open && (state.time < closeTime() || (isVillage(L) && state.time < apresEnd() + 30) || (nightNow() && liftLit(L)) || L.queue.length || midQ || riding || staffWaiting || L.topQ.length)) {
     const c = LIFT_OP_HOUR[L.type] * (U ? 1 + MID_OP : 1) * dt / 3600 * (slow ? SLOW.cost : 1);
     today.exp.lifts += c; state.cash -= c;
     if (state.time >= closeTime()) today.night.lifts += c;
@@ -12602,6 +12618,8 @@ function unloadTop(L, i, staff = patrolCrew()) {
     if (!g) continue;
     const s = L.b;
     g.x = s.x; g.z = s.z; g.chair = -1;
+    // Summer guests get off for a while at the top.
+    if (g.sight && summerNow()) { topLinger(g, L); continue; }
     // Sightseers take in the view and ride straight back down.
     if (g.sight) { g.chair = i; keep.push(id); if (!g.sawView) { g.sawView = true; g.sat = clamp(g.sat + 10, 0, 100); thought(g, 'What a view from the top!'); } continue; }
     g.runs++;
@@ -12609,6 +12627,16 @@ function unloadTop(L, i, staff = patrolCrew()) {
     if (!topDecision(g, L)) { g.chair = i; keep.push(id); thought(g, 'No way down from up here! Riding back.'); }
   }
   L.riders[i] = keep;
+  // Summer guests waiting at the top take the free seats down.
+  if (L.topQ.length && L.open && !L.windHold) {
+    const used = new Set(keep.map((id) => (gById.get(id) || {}).seat));
+    for (let n = 0; n < LIFT_TYPES[L.type].seats && L.topQ.length; n++) {
+      if (used.has(n)) continue;
+      const g = L.topQ.shift();
+      g.st = 'ride'; g.L = L; g.chair = i; g.seat = n;
+      keep.push(g.id);
+    }
+  }
 }
 // A chair passing the mid-station: riders who'd rather ski from here get off, then the line there fills the free seats.
 function midStop(L, i, staff) {
@@ -12649,6 +12677,7 @@ function loadBottom(L, i, staff = patrolCrew()) {
     const g = gById.get(id);
     if (!g) continue;
     g.x = L.a.x; g.z = L.a.z; g.chair = -1;
+    if (g.sight && summerNow()) { today.sightseers += AGENT; summerBase(g); continue; }
     if (g.sight) { g.sight = false; g.leaving = true; today.sightseers += AGENT; baseDecision(g); continue; }
     g.sat -= 8;
     if (L.fromBase) baseDecision(g); else hikeOut(g);
@@ -12706,7 +12735,7 @@ function arrive(g) {
     if (!L) return baseDecision(g);
     L.incoming = Math.max(0, L.incoming - 1);
     if (!canLoad(L)) return L.fromBase ? baseDecision(g) : hikeOut(g);
-    g.onSkis = true;
+    g.onSkis = !summerNow();
     L.queue.push(g); g.st = 'queue'; g.L = L; g.qStart = state.time;
   } else if (t.k === 'ski') {
     const T = trailById(t.tid);
@@ -12723,6 +12752,12 @@ function arrive(g) {
     if (!B) return resumeGuest(g);
     if (rackStop(g, B, t)) return;
     joinBuildingQueue(g, B);
+  } else if (t.k === 'view') { // at the top in summer: a look around, then the ride down
+    g.st = 'view'; g.until = state.time + 10 + Math.random() * 25;
+  } else if (t.k === 'topq') {
+    const L = liftById(t.lid);
+    if (!L || !L.open) return hikeOut(g, 'The lift stopped, so I walked down.');
+    g.st = 'topq'; g.L = L; g.qStart = state.time; L.topQ.push(g);
   } else if (t.k === 'skis') {
     resumeGuest(g);
   } else if (t.k === 'hotel') { // back in their room: for a rest, or for the night
@@ -12844,6 +12879,8 @@ function updateGuest(g, dt) {
     case 'inside': case 'lesson': if (state.time >= g.until) finishVisit(g); break;
     case 'room': if (state.time >= g.until) hotelWake(g); break;
     case 'watch': if (state.time >= TORCH.parade[1] + 8) showOver(g); break;
+    case 'view': if (state.time >= g.until || state.time >= closeTime()) rideDown(g); break;
+    case 'topq': if (!g.L.open) { g.L.topQ = g.L.topQ.filter((x) => x !== g); hikeOut(g, 'The lift stopped, so I walked down.'); } break;
     default: break;
   }
   if (g.st !== 'incar' && g.st !== 'room' && g.st !== 'busq' && g.st !== 'pq' && g.st !== 'hurt' && g.st !== 'tow' && g.st !== 'xride' && g.st !== 'xbus') updateNeeds(g, dt);
@@ -12867,7 +12904,8 @@ const OPS_KINDS = [
   ['weekend', 'Weekends', 'Sat, Sun, holidays and event days'],
   ['quiet', 'Quiet season', 'Weekdays before Dec 20 and from March on'],
 ];
-const OPS_NAME = { weekday: 'Weekday', weekend: 'Weekend', quiet: 'Quiet season' };
+const OPS_NAME = { weekday: 'Weekday', weekend: 'Weekend', quiet: 'Quiet season', summer: 'Summer' };
+if (SUMMER_ON) OPS_KINDS.push(['summer', 'Summer', 'Every summer day, June to October']);
 const LOT_RUN_DAY = 350;           // plowing, lights and attendants for each open parking section
 const BLD_FIXED = 0.3;             // share of a building's upkeep paid even when it's closed
 const LUNCH_OPEN = 660, LUNCH_CLOSE = 840, LUNCH_RUN = 0.6; // lunch only: 11 to 2, at under half the running cost
@@ -12878,11 +12916,11 @@ const STAFF_LEVELS = {
   normal: { label: 'Normal', cost: 1, svc: 1, miss: 0, note: '' },
   extra: { label: 'Extra', cost: 1.12, svc: 1.25, miss: 0, note: 'Faster service; guests notice' },
 };
-const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45 }; // how much guests notice cutbacks on each kind of day
+const EXPECT = { weekend: 1.4, weekday: 0.8, quiet: 0.45, summer: 0 }; // how much guests notice cutbacks on each kind of day
 const blankPlan = () => ({ lifts: {}, bld: {}, lots: null, hours: 'full', staff: 'normal', patrolCount: null, shuttles: 'normal', townBus: 'on', apres: 'off', night: 0, lastCall: APRES_END, security: 'full' });
 function opsState() {
   if (!state.ops || !state.ops.plans) state.ops = { plans: {}, override: null };
-  for (const [k] of OPS_KINDS) { state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) }; delete state.ops.plans[k].patrol; } // obsolete Full/Skeleton setting
+  for (const [k] of OPS_KINDS) { state.ops.plans[k] = { ...blankPlan(), ...(state.ops.plans[k] || {}) }; delete state.ops.plans[k].patrol; state.ops.plans[k].kind = k; } // obsolete Full/Skeleton setting; kind tells the summer plan apart
   return state.ops;
 }
 // What kind of day this is, by the calendar alone.
@@ -12901,13 +12939,15 @@ function defaultPlanFor(day) {
 // (Single player never offers it.)
 function planShut() { return opsState().plans[planFor(state.day)].hours === 'closed'; }
 function planFor(day) {
+  if (state.summer && SUMMER_ON) return 'summer';
   const o = opsState().override, kind = defaultPlanFor(day);
   return o && o.day === day && !(state.event && state.event.days.includes(day)) ? o.plan : kind;
 }
 const hasBld = (type) => world.buildings.some((B) => B.type === type);
 const lunchOnlyOk = (B) => EATS.includes(B.type); // a hotel's rooms stay open all day
-const liftModeIn = (P, L) => P.lifts[L.id] || 'full';
-const bldModeIn = (P, B) => { const m = P.bld[B.id] || 'open'; return m === 'lunch' && !lunchOnlyOk(B) ? 'open' : m; };
+// The summer plan starts with one lift running, the base chair or gondola that climbs highest, and shuts what only skiers use.
+const liftModeIn = (P, L) => P.lifts[L.id] || (P.kind === 'summer' ? (L.id === summerMainLift() ? 'full' : 'off') : 'full');
+const bldModeIn = (P, B) => { if (P.kind === 'summer' && SUMMER_SHUT.includes(B.type)) return 'closed'; const m = P.bld[B.id] || 'open'; return m === 'lunch' && !lunchOnlyOk(B) ? 'open' : m; };
 const lotsIn = (P) => clamp(P.lots == null ? state.lotSections : P.lots, 1, state.lotSections);
 // The plan the resort is running right now (during an open day), or null.
 let runOps = null;
@@ -12929,14 +12969,14 @@ function resolvePlan(kind, dk) {
   const P = opsState().plans[kind];
   const ops = { kind, dayKind: dk || kind, lifts: {}, bld: {}, lots: lotsIn(P), lotsOff: [...(P.lotsOff || [])], hours: P.hours, staff: P.staff, patrolCount: patrolOverride(P), off: [],
     shuttles: state.offsite >= 0 && hasStation() ? P.shuttles || 'normal' : 'off', townBus: P.townBus || 'on',
-    apres: P.apres === 'on' && world.buildings.some(apresType) ? 'on' : 'off', night: nightOk(P),
+    apres: kind !== 'summer' && P.apres === 'on' && world.buildings.some(apresType) ? 'on' : 'off', night: kind === 'summer' ? 0 : nightOk(P),
     lastCall: P.lastCall || APRES_END, security: P.security || 'full' };
   for (const L of world.lifts) ops.lifts[L.id] = liftModeIn(P, L);
   for (const B of world.buildings) ops.bld[B.id] = bldModeIn(P, B);
   return ops;
 }
 function startOps(day) {
-  const ops = resolvePlan(planFor(day), dayKind(day));
+  const ops = resolvePlan(planFor(day), state.summer && SUMMER_ON ? 'summer' : dayKind(day));
   for (const L of world.lifts) if (ops.lifts[L.id] === 'off' && L.open && !isVillage(L)) { L.open = false; L.planOff = true; ops.off.push(L.id); }
   runOps = ops;
   styleLot();
@@ -12987,9 +13027,9 @@ function planCosts(P, guestCount = 0) {
     const m = bldModeIn(P, B);
     if (!isDecor(B) && B.type !== 'patrol') staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1);
     patrol += patrolWages(B, P);
-    upkeep += bldUpkeep(B, m, P);
+    if (!(P.kind === 'summer' && m === 'closed')) upkeep += bldUpkeep(B, m, P); // shut for the summer: the summer bill covers it
   }
-  const other = Math.round(staff * c * lv.cost * (short ? 0.94 : 1));
+  const other = Math.round(staff * c * lv.cost * (short ? 0.94 : 1) * (P.kind === 'summer' ? SUMMER_STAFF : 1)); // a summer crew is much smaller
   return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round((newLots() ? openSpaces(P) * parkRun() + roadRunCost() : lotsIn(P) * LOT_RUN_DAY) * c),
     shuttles: busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)) };
 }
@@ -13080,11 +13120,13 @@ function openDay() {
   if (state.phase !== 'closed' || refClaimBusy) return;
   levelKeep(true); // a leveling draft left open is kept, as leaving the tool does
   if (state.bankrupt && !visiting) return showGameOver();
-  if (state.summer) return newSeason();
+  if (state.summer && !summerLeft()) return newSeason();
+  const sm = !!state.summer;
   const ops = startOps(state.day);
-  const n = demandForDay();
+  const n = sm ? summerDemand() : demandForDay();
   if (!n) {
     endOps();
+    if (sm) { toast('Summer guests come for the ride up. Run a chairlift or gondola from the base in your Summer plan.', true, { label: 'Summer plan', fn: () => { opsEdit = 'summer'; resortTab = 'ops'; openManage('ops'); } }); return; }
     const hasNetwork = world.trails.some((t) => t.open && t.reachable && t.returns);
     if (hasNetwork) { toast('None of your connected trails have enough snow to open yet. Wait for a storm or make snow.', true); return; }
     toast(world.lifts.some((L) => L.fromBase)
@@ -13102,12 +13144,15 @@ function openDay() {
   today.expected = n;
   today.ops = ops; today.liftCost = {};
   if (short) today.closeAt = SHORT_CLOSE;
-  today.letdown = letdownFor(ops, state.day);
-  today.baseBare = baseBare(); today.baseDepth = Math.round(baseDepth());
-  sellPasses();
-  today.passShare = passShareToday(n);
-  finishNight();
-  today.exp.grooming = state.nightCost.grooming || 0; today.exp.park = state.nightCost.park || 0; // park shaping is part of the grooming bill
+  today.letdown = sm ? 0 : letdownFor(ops, state.day);
+  today.baseBare = !sm && baseBare(); today.baseDepth = Math.round(baseDepth());
+  if (sm) summerBill(); // this day's share of the summer upkeep
+  else {
+    sellPasses();
+    today.passShare = passShareToday(n);
+    finishNight();
+  }
+  today.exp.grooming = sm ? 0 : state.nightCost.grooming || 0; today.exp.park = sm ? 0 : state.nightCost.park || 0; // park shaping is part of the grooming bill
   today.exp.snowmaking = state.smAcc || 0; today.smNights = state.smNights || 0; state.smAcc = 0; state.smNights = 0;
   today.exp.interest = state.intAcc || 0; state.intAcc = 0; // already paid overnight; reported with the day
   today.exp.overhead = state.ohAcc || 0; state.ohAcc = 0;
@@ -13120,11 +13165,12 @@ function openDay() {
       : `Every base lift is on wind hold. Guests who can’t ride will get refunds. Winds may ease by noon.`, !baseOk);
   }
   for (const B of world.buildings) initBldSim(B);
-  const hotelN = bookHotels(n, short); // hotel guests come on top, up to the most the mountain can hold
-  const ownerN = condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners
+  const hotelN = sm ? 0 : bookHotels(n, short); // hotel guests come on top, up to the most the mountain can hold
+  const ownerN = sm ? 0 : condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners
   schedule = makeSchedule(Math.ceil(Math.max(0, Math.min(n, MAX_G * AGENT - hotelN - ownerN)) / AGENT));
   today.full = dayWant > MAX_G * AGENT - hotelN - ownerN; // more wanted to come than the day can hold: said in the report, as it looked like a bug
-  schedule.push(...today.hotelOut); today.hotelOut = null;
+  schedule.push(...(today.hotelOut || [])); today.hotelOut = null;
+  if (sm) for (const e of schedule) e.t = Math.min(e.t + 75, 850); // nobody chases first chair in summer
   if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
   schedule.sort((a, b) => b.t - a.t);
   // Town buses bring a share of the day's guests: half if any station is a transit center.
@@ -13132,7 +13178,7 @@ function openDay() {
   for (const e of schedule) e.bus = Math.random() < share;
   // The night crowd arrives from late afternoon, by car.
   if (ops.night) schedule.push(...nightSchedule(Math.ceil(nightDemand(n) / AGENT)));
-  schedule.push(...eveningSchedule(n));
+  if (!sm) schedule.push(...eveningSchedule(n));
   schedule.sort((a, b) => b.t - a.t);
   guests = []; cars = []; gById.clear(); buses = []; busPending = 0; nextBusAt = DAY_OPEN; nextParkAt = DAY_OPEN; offQueue = []; offCars = [];
   for (const L of world.lifts) initLiftSim(L);
@@ -13180,7 +13226,8 @@ function endDay() {
   const exp = today.exp.lifts + today.exp.grooming + today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + (today.exp.snowmaking || 0) + (today.exp.interest || 0) + (today.exp.overhead || 0) + (today.exp.lease || 0) + today.exp.investor + (today.exp.apres || 0) + (today.exp.night || 0);
   const sat = today.satN ? today.satSum / today.satN : 0;
   if (today.satN) changeReputation((sat - 66) / 900, 'Guest satisfaction', repDay.changes);
-  const ownerMood = condoEvening(repDay);
+  const sm = !!state.summer;
+  const ownerMood = sm ? null : condoEvening(repDay);
   // One coverage penalty per day; claims and glades do not multiply the same rescue failure.
   const rescueRep = rescueReputation(rescueClaims, today.injuries);
   rescueRep.before = state.reputation;
@@ -13240,22 +13287,23 @@ function endDay() {
   for (const s of stalls) s.car = null;
   state.phase = 'report';
   if (overlay.traffic) for (const t of world.trails) styleTrail(t);
-  recordDay(state.lastReport);
+  if (!sm) recordDay(state.lastReport);
   Object.assign(state.lastReport, { when: dateLabel(state.day), season: state.season });
+  if (sm) state.lastReport.summer = summerStop().name;
   const hist = state.history || (state.history = []);
   hist.push(state.lastReport);
   if (hist.length > HISTORY_DAYS) hist.splice(0, hist.length - HISTORY_DAYS);
-  state.lastReport.goals = checkGoals('day', state.lastReport).map((G) => G.title);
-  const st = state.seasonStats || (state.seasonStats = newSeasonStats());
+  state.lastReport.goals = sm ? [] : checkGoals('day', state.lastReport).map((G) => G.title);
+  const st = sm ? state.sum.stats : state.seasonStats || (state.seasonStats = newSeasonStats()); // summer keeps its own totals
   const rr = state.lastReport;
   st.visitors += rr.guests; st.revenue += rev; st.expenses += exp; st.profit += rev - exp; st.days++;
-  if (state.day > SEASON_LAST) st.bonus++;
+  if (state.day > SEASON_LAST && !sm) st.bonus++;
   if (rr.guests) { st.satSum += rr.sat; st.satN++; }
   if (!st.best || rr.profit > st.best.profit) st.best = { day: state.day, profit: rr.profit };
   if (!st.worst || rr.profit < st.worst.profit) st.worst = { day: state.day, profit: rr.profit };
   const sd = seasonDaily(), row = { d: state.day, g: rr.guests, p: rr.profit, s: rr.guests ? rr.sat : null, c: Math.round(state.cash), t: ticketOn(state.day) };
-  if (sd.length && sd[sd.length - 1].d === state.day) sd[sd.length - 1] = row; else sd.push(row); // once per day
-  endOfDaySnow();
+  if (sm) { /* the season's day-by-day chart is the winter's */ } else if (sd.length && sd[sd.length - 1].d === state.day) sd[sd.length - 1] = row; else sd.push(row); // once per day
+  if (!sm) endOfDaySnow();
   updateCash(true);
   showReport();
   // Every finished day is saved on this device straight away. Online, it goes up now unless an upload was
@@ -13264,7 +13312,8 @@ function endDay() {
 }
 function waitDay() {
   if (matchPlay) return;
-  if (state.phase !== 'closed' || state.summer) return;
+  if (state.summer) { if (state.phase === 'closed' && summerLeft() && !state.bankrupt) summerNext(); return; } // a summer day spent closed
+  if (state.phase !== 'closed') return;
   if (state.bankrupt && !visiting) return showGameOver();
   endOfDaySnow();
   nextDay();
@@ -13312,6 +13361,7 @@ function eventNudge() {
 }
 function nextDay() {
   if (state.phase === 'season') return enterSummer();
+  if (state.summer) return summerNext();
   socialBonus();
   state.day++; state.phase = 'closed'; state.time = DAY_OPEN;
   if (state.event && state.day > Math.max(...state.event.days)) state.event = null;
@@ -14367,7 +14417,7 @@ function serializeSim() {
     guests: guests.map(saveGuest),
     // A parked car finds its road again when it leaves (carLeave), so only moving cars keep a path.
     cars: cars.map((c) => { const { path, ...rest } = c; return c.st === 'parked' ? rest : { ...rest, path }; }),
-    lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), incoming: L.incoming, riders: L.riders, midQ: L.midUp ? L.midUp.queue.map((g) => g.id) : undefined, midIn: L.midUp ? L.midUp.incoming : undefined })),
+    lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), topQ: L.topQ.length ? L.topQ.map((g) => g.id) : undefined, incoming: L.incoming, riders: L.riders, midQ: L.midUp ? L.midUp.queue.map((g) => g.id) : undefined, midIn: L.midUp ? L.midUp.incoming : undefined })),
   };
 }
 function restoreSim(sim) {
@@ -14388,7 +14438,7 @@ function restoreSim(sim) {
   for (const B of world.buildings) initBldSim(B);
   for (const r of sim.guests) {
     const g = { ...r, T: r.T != null ? trailById(r.T) : null, L: r.L != null ? liftById(r.L) : null };
-    if ((g.st === 'ski' && !g.T) || ((g.st === 'ride' || g.st === 'queue') && !g.L)) { g.st = 'walk'; g.then = { k: 'car' }; }
+    if ((g.st === 'ski' && !g.T) || ((g.st === 'ride' || g.st === 'queue' || g.st === 'topq') && !g.L)) { g.st = 'walk'; g.then = { k: 'car' }; }
     if (g.st === 'tow') { g.st = 'hurt'; g.rescueLogged = true; } // pickup already happened, including in older saves
     if (g.st === 'hurt') g.rescuer = false;
     const B = g.bid != null ? bldById(g.bid) : null;
@@ -14412,6 +14462,7 @@ function restoreSim(sim) {
     if (!L) continue;
     L.phase = s.phase; L.incoming = s.incoming || 0;
     L.queue = s.queue.map((id) => gById.get(id)).filter(Boolean);
+    L.topQ = (s.topQ || []).map((id) => gById.get(id)).filter(Boolean);
     if (s.riders && s.riders.length === L.chairCount) L.riders = s.riders;
     if (L.midUp && s.midQ) { L.midUp.queue = s.midQ.map((id) => gById.get(id)).filter(Boolean); L.midUp.incoming = s.midIn || 0; }
   }
@@ -17395,12 +17446,12 @@ function priceOf(svc, prices) {
 const svcPrice = (svc) => priceOf(svc, state.prices);
 const svcRef = (svc) => priceOf(svc, PRICE_DEFAULTS);
 const MEAL_SVCS = ['food', 'dine', 'finedine', 'snack'];
-const wantsMeal = (g) => (!g.ate || g.skipped) && !g.leaving && !g.night && !g.apresGuest && !g.sight && state.time >= g.lunchAt && state.time < sessionEnd(g);
+const wantsMeal = (g) => (!g.ate || g.skipped) && !g.leaving && !g.night && !g.apresGuest && (!g.sight || summerNow()) && state.time >= g.lunchAt && state.time < sessionEnd(g);
 const sameFoodBase = (a, b) => baseCount() < 2 || baseOf(a) === baseOf(b);
 // Heading home at or after their lunch time without having eaten: grab something at the base before the drive,
 // rather than walk past an open lodge to the car (they were counted as leaving hungry, with "nowhere to eat").
 function lunchOnWayOut(g) {
-  if ((g.ate && !g.skipped) || g.night || g.apresGuest || g.sight || g.local || state.time < g.lunchAt || state.time >= closeTime()) return false;
+  if ((g.ate && !g.skipped) || g.night || g.apresGuest || (g.sight && !summerNow()) || g.local || state.time < g.lunchAt || state.time >= closeTime()) return false;
   const v = bestVisit(g, g, 14, true, world.buildings, ['lunch']);
   if (!v) return false;
   thought(g, `Grabbing a bite at ${v.B.name} before the drive home.`);
@@ -17416,7 +17467,7 @@ function rejectedMeal(g, svc) {
 }
 // Settle at actual departure, once, so a delayed lunch is never reported as leaving unfed.
 function recordMealOutcome(g) {
-  if (g.mealRecorded || g.night || g.local || g.sight || g.sawView || (g.homeAt ?? state.time) < g.lunchAt) return;
+  if (g.mealRecorded || g.night || g.local || ((g.sight || g.sawView) && !summerNow()) || (g.homeAt ?? state.time) < g.lunchAt) return;
   g.mealRecorded = true;
   const m = today.meals || (today.meals = { onTime: 0, delayed: 0, missed: 0 });
   const eating = g.st === 'inside' && MEAL_SVCS.includes(g.svc);
@@ -17803,7 +17854,7 @@ const RACK_TYPES = ['lodge', 'cafe', 'restaurant', 'fine', 'bar', 'store', 'rest
 const ownRack = (B) => RACK_TYPES.includes(B.type) || hotelDines(B); // a hotel restaurant's rack, by the door
 const RACK_R = 5, RACK_GRACE = 5, RACK_SHARE = 1; // a placed rack's reach from a door (50 m); a new resort's first days go easy
 const rackCap = (B) => { const s = bspec(B); return B.type === 'rack' ? s.racks : ownRack(B) ? Math.round(((s.seats || 0) + (s.stalls || 0)) * RACK_SHARE) : 0; };
-const needsRack = (g, B) => ownRack(B) && g.rack == null && !g.sight && !g.local && !g.needsRental;
+const needsRack = (g, B) => ownRack(B) && g.rack == null && !g.sight && !summerNow() && !g.local && !g.needsRental;
 const rackGrace = () => state.season <= 1 && ((state.seasonStats && state.seasonStats.days) || 0) < RACK_GRACE;
 // Pairs on each rack, keyed by rack id (a building's own rack has the building's id; skis in the snow by a
 // door are keyed by minus its id). Recounted from the guests every game minute, so nothing can drift.
@@ -18101,6 +18152,7 @@ function resumeGuest(g) {
   if (!r) return baseDecision(g);
   if (r.k === 'hub') return hubDecision(g, areaById(r.aid), true);
   if (r.k === 'arrive') return arrivalFlow(g);
+  if (r.k === 'view') return rideDown(g);
   if (r.k === 'car') { if (anotherRound(g)) return; return goCar(g); }
   if (r.k === 'top') { const L = liftById(r.lid); if (L && topDecision(g, L, true)) return; return baseDecision(g); }
   if (r.k === 'ski') {
@@ -18128,6 +18180,7 @@ function nearestOpen(types, p, svc) {
   return best;
 }
 function arrivalFlow(g) {
+  if (g.sight && summerNow()) return summerBase(g);
   if (g.sight) {
     const gon = scenicGondola(g);
     if (gon && canLoad(gon)) { thought(g, `Here for the scenic ride up ${gon.name}.`); return onFoot(g, gon.a) ? goQueue(g, gon, 'walk') : crossTo(g, baseOf(gon.a), { k: 'queue', lid: gon.id }); }
@@ -19356,12 +19409,13 @@ const WX = {
   wind: { label: 'High winds', icon: '🌬', demand: 0.85 },
   ice: { label: 'Freezing rain', icon: '🧊', demand: 0.55 },
   summer: { label: 'Summer', icon: '☀', demand: 0 },
+  sumsun: { label: 'Sunny', icon: '☀', demand: 1 }, sumcloud: { label: 'Cloudy', icon: '☁', demand: 0.85 }, sumrain: { label: 'Rain', icon: '🌧', demand: 0.4 }, // summer days
 };
 const SURFACE = {
   powder: 'Powder', packed: 'Packed powder', groomed: 'Groomed', moguls: 'Moguls', icy: 'Icy', firm: 'Firm',
   spring: 'Spring snow', variable: 'Variable', thin: 'Thin cover', closed: 'Not enough snow',
 };
-Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, referralPromptSeason: null, referralCredit: 0, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, baseSm: null });
+Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, referralPromptSeason: null, referralCredit: 0, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, sum: null, sumLen: 'long', baseSm: null });
 
 const midH = () => (MOUNTAIN.baseH + MOUNTAIN.summitH) / 2;
 const elevFrac = (h) => clamp((h - MOUNTAIN.baseH) / (MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -19422,7 +19476,7 @@ function initWeather(d, mild) {
   for (let k = 0; k < 6; k++) wx.days.push(genDay(d + k, wx));
   return wx;
 }
-const todayWx = () => (state.summer ? { type: 'summer', hi: 72, lo: 48, snow: 0, wind: 6 } : state.wx.days[0]);
+const todayWx = () => (state.summer ? (SUMMER_ON && state.sum && state.sum.wx) || { type: 'summer', hi: 72, lo: 48, snow: 0, wind: 6 } : state.wx.days[0]);
 function advanceWeather() {
   state.wx.days.shift();
   state.wx.days.push(genDay(state.day + state.wx.days.length, state.wx));
@@ -19808,7 +19862,7 @@ const GROUND = {
 function snowCover(idx) { return winterView ? 1 : sstep(0.4, 6, NS[idx]); }
 function groundColor(i, j, idx, out) {
   const n = 0.5 + 0.5 * vnoise(i * 0.21, j * 0.21, 61), n2 = vnoise(i * 0.9, j * 0.9, 62) * 0.03;
-  const g = state.summer ? 1 : 0.12;
+  const g = state.summer ? (fallColours() ? 0.45 : 1) : 0.12; // lush in summer, drying off by the fall
   const grass = [lerp(GROUND.dry[0], lerp(GROUND.green[0], GROUND.lush[0], n), g), lerp(GROUND.dry[1], lerp(GROUND.green[1], GROUND.lush[1], n), g), lerp(GROUND.dry[2], lerp(GROUND.green[2], GROUND.lush[2], n), g)];
   const dirtK = sstep(0.55, 0.9, n) * 0.5 * (1 - g * 0.6);
   for (let c = 0; c < 3; c++) out[c] = lerp(grass[c], GROUND.dirt[c], dirtK) + n2;
@@ -19817,15 +19871,16 @@ function groundColor(i, j, idx, out) {
   for (let c = 0; c < 3; c++) out[c] = lerp(out[c], GROUND.needles[c], TSH[idx] * 0.75);
   return out;
 }
-const TREE_U = { uTreeSnow: { value: 1 }, uSnowLine: { value: -100 } };
+const TREE_U = { uTreeSnow: { value: 1 }, uSnowLine: { value: -100 }, uFall: { value: 0 } };
 function treeMaterial() {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uHaze = { value: HAZE };
     shader.uniforms.uTreeSnow = TREE_U.uTreeSnow;
     shader.uniforms.uSnowLine = TREE_U.uSnowLine;
+    shader.uniforms.uFall = TREE_U.uFall;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float ihaze;\nvarying float vHaze;\nuniform float uTreeSnow;\nuniform float uSnowLine;')
+      .replace('#include <common>', '#include <common>\nattribute float ihaze;\nvarying float vHaze;\nuniform float uTreeSnow;\nuniform float uSnowLine;\nuniform float uFall;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvHaze = ihaze;')
       .replace('#include <color_vertex>', `#include <color_vertex>
 #ifdef USE_INSTANCING
@@ -19835,12 +19890,19 @@ function treeMaterial() {
 #endif
   float snowAmt = uTreeSnow * smoothstep(uSnowLine - 3.0, uSnowLine + 3.0, treeY);
   float whiteness = clamp((vColor.g - 0.32) / 0.6, 0.0, 1.0);
-  vColor.rgb = mix(vColor.rgb, vec3(0.13, 0.26, 0.19) * (0.85 + 0.3 * vColor.r), whiteness * (1.0 - snowAmt));`);
+  vColor.rgb = mix(vColor.rgb, vec3(0.13, 0.26, 0.19) * (0.85 + 0.3 * vColor.r), whiteness * (1.0 - snowAmt));
+#ifdef USE_INSTANCING
+  // Fall colours: about four trees in ten turn gold, orange or rust (needles only, not the trunk).
+  float fallPick = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
+  float fallHue = fract(fallPick * 7.31);
+  vec3 fallCol = fallHue < 0.5 ? mix(vec3(0.84, 0.62, 0.14), vec3(0.86, 0.45, 0.10), fallHue * 2.0) : mix(vec3(0.86, 0.45, 0.10), vec3(0.62, 0.24, 0.10), fallHue * 2.0 - 1.0);
+  vColor.rgb = mix(vColor.rgb, fallCol * (0.8 + 0.9 * vColor.g), uFall * step(fallPick, 0.42) * step(vColor.r, vColor.g));
+#endif`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vHaze;\nuniform vec3 uHaze;')
       .replace('#include <fog_fragment>', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, uHaze, vHaze);\n#include <fog_fragment>');
   };
-  m.customProgramCacheKey = () => 'trees-snow';
+  m.customProgramCacheKey = () => 'trees-snow-fall';
   return m;
 }
 const ROOF_SNOW = new THREE.Color(0xf2f5fa), ROOF_BARE = new THREE.Color(0x4a3832);
@@ -19856,6 +19918,7 @@ function styleSnowVisuals() {
   PAD_MAT.opacity = winterView ? 1 : bc;
   PAD_MAT.visible = PAD_MAT.opacity > 0.02;
   TREE_U.uTreeSnow.value = winterView ? 1 : state.treeSnow;
+  TREE_U.uFall.value = !winterView && fallColours() ? 1 : 0;
   if (!winterView && !state.summer) {
     const w = todayWx();
     TREE_U.uSnowLine.value = midH() + (w.hi - 32) / LAPSE - 4;
@@ -19883,6 +19946,9 @@ const LOOKS = {
   ice: { sun: 0.22, hemi: 0.66, sky: ['#a3acb6', '#cdd2d7'], haze: 0xcdd2d7, fall: 0.8, kind: 'rain' },
   wind: { sun: 0.55, hemi: 0.62, sky: ['#b6c6d8', '#e2e8ef'], haze: 0xe3e8ee, fall: 0.35, kind: 'snow', drift: 1 },
   summer: { sun: 0.85, hemi: 0.52, sky: ['#9cc4ec', '#e6f1f8'], haze: 0xe4eef4, fall: 0, kind: 'snow' },
+  sumsun: { sun: 0.85, hemi: 0.52, sky: ['#9cc4ec', '#e6f1f8'], haze: 0xe4eef4, fall: 0, kind: 'snow' },
+  sumcloud: { sun: 0.42, hemi: 0.7, sky: ['#bcc7d2', '#e0e5ea'], haze: 0xdfe4e9, fall: 0, kind: 'snow' },
+  sumrain: { sun: 0.24, hemi: 0.66, sky: ['#9aa4ae', '#c9ced3'], haze: 0xc8cdd2, fall: 1, kind: 'rain' },
 };
 let weatherFall = 0.15, weatherKind = 'snow', weatherDrift = 0;
 function applyWeatherLook() {
@@ -20211,7 +20277,8 @@ function advice() {
   if (visiting || state.bankrupt) return out;
   const net = realTrails().filter((t) => t.reachable && t.returns), baseLift = world.lifts.some((L) => L.fromBase);
   const ready = net.some((t) => t.open && t.snowOk !== false), r = state.lastReport;
-  if (state.summer) add(false, 'It’s summer: build and upgrade while it’s quiet. Start the next season from the top bar when you’re ready.', 'What’s my resort like?', () => openManage('trails'));
+  if (state.summer && summerLeft()) add(false, world.lifts.some(canScenic) ? 'It’s summer. Guests come for the ride up and the view: choose which lifts and buildings run in your Summer plan, then open for the day.' : 'It’s summer. A chairlift or gondola from the base would bring guests up for the view.', 'Summer', () => openManage('snow'));
+  else if (state.summer) add(false, 'It’s summer: build and upgrade while it’s quiet. Start the next season from the top bar when you’re ready.', 'What’s my resort like?', () => openManage('trails'));
   else if (!baseLift) add(true, 'Build your first chairlift. Put the bottom station in the cleared base area near the parking lot, and the top station partway up the mountain.', 'Build a lift', () => setTool('lift'));
   if (!baseLift && starterOffered()) add(false, 'Rather see skiers first? We can build a starter resort for you: a double chair, a green trail and a lodge. You can change or remove any of it later.', 'Build me a starter resort', buildStarter);
   else if (!net.length) add(true, 'Cut a trail from the top of your lift back down to the base area, so guests have something to ski.', 'Build a trail', () => setTool('trail'));
@@ -20333,8 +20400,8 @@ function wxCard(w, label) {
     <span class="wxw">${fmtWind(w.wind)}</span></div>`;
 }
 function weatherSheet(noHead) {
-  const head = noHead ? '' : `<div class="sheet-title"><h3>Weather & snow</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
-  if (state.summer) return `${head}<p class="help">It’s summer. The snow is gone and the mountain is green. Build and plan for next season, then start it from the time bar.</p>`;
+  const head = noHead ? '' : `<div class="sheet-title"><h3>${state.summer && summerLeft() ? 'Summer' : 'Weather & snow'}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
+  if (state.summer) return head + (summerLeft() ? summerPanel() : `<p class="help">It’s summer. The snow is gone and the mountain is green. Build and plan for next season, then start it from the time bar.</p>`);
   const w = todayWx(), days = state.wx.days;
   const open = realTrails().filter(runnable).length;
   const sm = state.nightCost || {};
@@ -20641,10 +20708,10 @@ function passShareToday(n) {
 function scenicGondola(p) {
   let best = null, bt = Infinity;
   for (const L of world.lifts) {
-    if (L.type !== 'gondola' || !L.fromBase || !L.open || L.windHold) continue;
+    if (!canScenic(L) || !L.open || L.windHold) continue;
     const far = p && !onFoot(p, L.a) ? crossCost(baseOf(p), baseOf(L.a)) : 0; // at another base: only with a way across
     if (far === Infinity) continue;
-    const t = p ? distXZ(L.a, p) / (WALK * 60) + liftWait(L) + far * 10 : 0;
+    const t = (p ? distXZ(L.a, p) / (WALK * 60) + liftWait(L) + far * 10 : 0) - (state.summer ? L.lay.vertM * 0.04 : 0); // in summer the higher ride is worth a longer walk
     if (t < bt) { bt = t; best = L; }
   }
   return best;
@@ -21265,10 +21332,10 @@ function refreshTimebar(force) {
       : apresOn() && state.time < apresEnd() && today.apres.guests ? `Après until ${clockLabel(apresEnd())} · <b>${onMtn}</b> here`
       : `Lifts closed · <b>${onMtn}</b> ${torchTonight() && state.time < TORCH.end ? 'staying for the show' : 'heading home'}`) : `Open · <b>${onMtn}</b> on the mountain`)
     : state.phase === 'report' ? 'Day complete' : state.phase === 'season' ? 'Season over'
-    : state.summer ? `Summer · season ${state.season + 1} starts in November`
+    : state.summer ? (summerLeft() ? `${summerStop().name} · summer day ${state.sum.k + 1} of ${state.sum.days.length}` : `Summer · season ${state.season + 1} starts in November`)
     : preOpening() && state.day <= SEASON_LAST ? preseasonLine()
     : `Season ${state.season} · ${state.day < 0 ? 'Pre-season' : state.day > SEASON_LAST ? 'Spring bonus day' : hol || 'Closed overnight'}`;
-  const plan = !world.lifts.length || state.summer || state.phase === 'report' || state.phase === 'season' ? ''
+  const plan = !world.lifts.length || (state.summer && !summerLeft()) || state.phase === 'report' || state.phase === 'season' ? ''
     : `<button class="tb-plan" ${visiting ? 'disabled' : ''} title="Operations plan for the day">${OPS_NAME[state.phase === 'open' && runOps ? runOps.kind : planFor(state.day)]} plan</button>`;
   const ev = state.phase === 'open' || state.phase === 'closed' ? eventToday() : null;
   const evLbl = !ev ? '' : ev.type === 'torch' ? (state.phase === 'open' && state.time >= TORCH.parade[0] ? (state.time >= TORCH.end ? 'Show over' : state.time >= TORCH.fireworks[0] ? 'Fireworks' : 'Parade under way') : 'Parade tonight')
@@ -21281,18 +21348,20 @@ function refreshTimebar(force) {
   sub = `<span class="tb-st">${sub}</span>${mc && mc.btn ? mc.btn : evChip + plan}`;
   const w = todayWx();
   const base = avgBase();
-  const wxKey = state.summer ? 'summer' : `${w.type}${w.hi}${Math.round(base)}${w.snow}`;
+  const wxKey = state.summer ? `summer${w.type}${w.hi}` : `${w.type}${w.hi}${Math.round(base)}${w.snow}`;
   const key = [state.day, state.phase, Math.floor(state.time), sub, state.speed, wxKey, showSlow()].join('|');
   if (key === tbCache && !force) return;
   tbCache = key;
   refreshTips();
-  $('tbDate').textContent = state.summer ? 'Summer' : dateLabel(state.day);
-  $('tbWx').innerHTML = state.summer ? `<span class="ic" aria-hidden="true">☀</span><b>${tempF(72)}</b>`
+  $('tbDate').textContent = state.summer && !summerLeft() ? 'Summer' : dateLabel(state.day);
+  $('tbWx').innerHTML = state.summer ? `<span class="ic" aria-hidden="true">${WX[w.type].icon}</span><b>${tempF(w.hi)}</b>`
     : `<span class="ic" aria-hidden="true">${WX[w.type].icon}</span><b>${tempF(w.hi)}</b><span class="lbl">·</span><b>${inch(base)}</b><span class="lbl">base</span>${w.snow >= 1 && w.type !== 'rain' ? `<span class="new">+${inch(w.snow)}</span>` : ''}`;
-  $('tbWait').hidden = state.phase !== 'closed' || state.summer;
+  $('tbWait').hidden = state.phase !== 'closed' || (state.summer && !summerLeft());
+  $('tbWait').textContent = state.summer ? 'Stay closed' : 'Wait a day';
+  $('tbWait').title = state.summer ? 'Stay closed today and skip to the next summer day' : 'Stay closed today and skip to tomorrow';
   $('tbSub').innerHTML = sub;
-  $('tbClock').textContent = mc ? mc.clock : state.phase === 'open' ? clockLabel(state.time) : state.summer ? '' : 'Night';
-  $('tbClock').hidden = state.summer;
+  $('tbClock').textContent = mc ? mc.clock : state.phase === 'open' ? clockLabel(state.time) : state.summer && !summerLeft() ? '' : 'Night';
+  $('tbClock').hidden = state.summer && !summerLeft();
   $('tbSpeed').hidden = state.phase !== 'open';
   const slow = showSlow();
   document.querySelectorAll('#tbSpeed button[data-s]').forEach((b) => {
@@ -21303,7 +21372,7 @@ function refreshTimebar(force) {
   $('tbSkip').hidden = state.phase !== 'open' || visiting || practice;
   const go = $('tbGo');
   go.hidden = state.phase === 'report' || state.phase === 'season';
-  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : canSkipToLastCall() ? 'Skip to last call' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
+  go.textContent = state.phase === 'open' ? (state.time >= closeTime() ? (nightNow() ? 'Night session' : canSkipToLastCall() ? 'Skip to last call' : 'Closing…') : visiting ? 'End the day' : 'Close early') : state.summer && !summerLeft() ? `Start season ${state.season + 1}` : visiting ? 'Watch a day' : 'Open for the day';
   go.disabled = state.phase === 'open' && state.time >= closeTime() && !canSkipToLastCall();
   // Before a first lift and trail exist, Open for the day steps back so the welcome's first step stands out.
   go.classList.toggle('calm', state.phase === 'open' || (state.phase === 'closed' && !state.summer && !visiting && preOpening() && !realTrails().some((t) => t.reachable && t.returns)));
@@ -21491,20 +21560,175 @@ $('rpAuto').onchange = () => setAuto($('rpAuto').checked);
 syncAuto();
 $('tbWait').onclick = waitDay;
 $('tbWx').onclick = () => openManage('snow');
+/* =====================================================================
+   SUMMER DAYS (hidden until 4.0: only with ?summer=1 in the link)
+   After the snow melts, summer is played as a handful of days at six stops from late June to the fall
+   colours: Thursday to Sunday at each (24 days), or just Friday and Saturday (12) for a shorter summer.
+   A summer day is an ordinary open day with summer guests instead of skiers. They buy a scenic ride, go up
+   a chairlift or gondola from the base, look around or eat at the top, ride down, and may eat or shop
+   before the drive home. The summer upkeep, once one lump when winter starts, is spread over the days.
+   `state.sum` = { k, days, paid, billed, stats, wx, next }; `state.sumLen` is 'long' or 'short'.
+   ===================================================================== */
+function summerDays(len = state.sumLen) {
+  const out = [];
+  for (const S of SUMMER_STOPS) {
+    let sat = S.day;
+    for (const o of [0, 1, -1, 2, -2, 3, -3]) if (dateOf(S.day + o).getUTCDay() === 6) { sat = S.day + o; break; }
+    out.push(...(len === 'short' ? [sat - 1, sat] : [sat - 2, sat - 1, sat, sat + 1]));
+  }
+  return out;
+}
+const summerLeft = () => SUMMER_ON && !!state.summer && !!state.sum && state.sum.k < state.sum.days.length && !matchPlay && !visiting;
+function summerStop(day = state.day) { return SUMMER_STOPS.reduce((b, S) => (Math.abs(S.day - day) < Math.abs(b.day - day) ? S : b)); }
+const fallColours = () => SUMMER_ON && !!state.summer && !!state.sum && !!summerStop().fall;
+function summerWx(day) {
+  const fall = summerStop(day).fall, r = Math.random(), type = r < 0.62 ? 'sumsun' : r < 0.85 ? 'sumcloud' : 'sumrain';
+  const hi = Math.round((fall ? 56 : 75) + (type === 'sumsun' ? 4 : type === 'sumcloud' ? -2 : -8) + Math.random() * 8 - 4);
+  return { type, hi, lo: hi - 22, snow: 0, wind: 4 + Math.round(Math.random() * 6) };
+}
+function startSummer() {
+  state.sum = null;
+  if (!SUMMER_ON || matchPlay || visiting) return;
+  const days = summerDays();
+  state.sum = { k: 0, days, paid: 0, billed: -1, stats: newSeasonStats(), wx: summerWx(days[0]), next: summerWx(days[1]) };
+  state.day = days[0]; state.time = DAY_OPEN;
+  for (const L of world.lifts) L.windHold = false; // last winter's wind is long gone
+}
+// A longer or shorter summer, chosen any morning: the days still to come are swapped, the ones played stay played.
+function summerLength(len) {
+  const sum = state.sum;
+  if (!sum || (len !== 'long' && len !== 'short') || len === state.sumLen) return;
+  state.sumLen = len;
+  const later = summerDays(len).filter((d) => d > state.day);
+  sum.days = [...sum.days.slice(0, sum.k + 1), ...later];
+  sum.next = later.length ? summerWx(later[0]) : null;
+  refreshTimebar(true); scheduleSave();
+}
+const summerBillTotal = () => Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE);
+// Today's share of the summer upkeep: paid once, open or closed, and shown on the next day report.
+function summerBill() {
+  const sum = state.sum;
+  if (!sum || sum.billed === sum.k) return;
+  sum.billed = sum.k;
+  const share = clamp(Math.round(summerBillTotal() / sum.days.length), 0, Math.max(0, summerBillTotal() - sum.paid));
+  state.cash -= share; sum.paid += share; state.ohAcc = (state.ohAcc || 0) + share;
+}
+// A lift summer guests ride for the view: any chair or gondola from the base (in winter, only a gondola).
+const canScenic = (L) => L.fromBase && (L.type === 'gondola' || (!!state.summer && !LIFT_TYPES[L.type].surface && !isVillage(L)));
+const scenicLift = (p) => scenicGondola(p);
+// The summer plan's one lift until the player says otherwise: the base chair or gondola that climbs highest.
+function summerMainLift() {
+  let best = null;
+  for (const L of world.lifts) if (L.fromBase && !LIFT_TYPES[L.type].surface && !isVillage(L) && (!best || L.lay.vertM > best.lay.vertM)) best = L;
+  return best ? best.id : null;
+}
+// How many come on a summer day: the height of the ride, lunch at the top, the day, the weather and the price.
+function summerDemand() {
+  dayWant = 0;
+  const lifts = world.lifts.filter((L) => canScenic(L) && L.open && !L.windHold);
+  if (!lifts.length) return 0;
+  const S = summerStop(), w = todayWx(), dow = dateOf(state.day).getUTCDay();
+  const vert = Math.max(...lifts.map((L) => L.lay.vertM)); // metres climbed by the best ride
+  const view = clamp(vert / 350, 0.6, 1.6) + (lifts.some((L) => L.type === 'gondola') ? 0.15 : 0);
+  const has = (t) => world.buildings.some((B) => B.type === t && bldMode(B) !== 'closed');
+  let amen = 1;
+  if (lifts.some((L) => world.buildings.some((B) => isEatery(B) && bldMode(B) !== 'closed' && distXZ(B.door, L.b) <= 8))) amen += 0.2; // lunch with a view
+  if (has('lodge') || has('restaurant') || has('cafe')) amen += 0.06;
+  if (has('gift') || has('store')) amen += 0.03;
+  const day = dow === 6 ? 1 : dow === 0 ? 0.9 : dow === 5 ? 0.6 : 0.4;
+  const priceF = clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5);
+  const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
+  dayPull = day;
+  dayWant = Math.round(SUMMER_GUESTS * MOUNTAIN.draw * view * amen * day * S.pull * WX[w.type].demand * priceF * parkF * state.reputation * (0.9 + Math.random() * 0.2));
+  return Math.min(MAX_G * AGENT, dayWant);
+}
+// A summer guest at the base: up the mountain first, then a bite or the shop, then home.
+function summerBase(g) {
+  if (!g.sawView) {
+    const L = !g.leaving && state.time < closeTime() ? scenicLift(g) : null;
+    if (L && canLoad(L)) {
+      if (!g.told) { g.told = true; thought(g, `Here for the ride up ${L.name}.`); }
+      return onFoot(g, L.a) ? goQueue(g, L, 'walk') : crossTo(g, baseOf(L.a), { k: 'queue', lid: L.id });
+    }
+    refundGuest(g, 'No lift was running for the ride up. I got my money back.');
+    g.leaving = true;
+  }
+  if (!g.leaving && state.time < closeTime() && maybeVisit(g, g, 14, true, { k: 'base' })) return;
+  g.leaving = true;
+  goCar(g);
+}
+// Off the lift at the top: lunch or the restrooms if they're close, or a wander to take in the view.
+function topLinger(g, L) {
+  g.viewL = L.id; g.sawView = true; g.sat = clamp(g.sat + 10, 0, 100);
+  thought(g, fallColours() ? 'The whole valley has turned gold from up here!' : 'What a view from the top!');
+  if (!g.leaving && state.time < closeTime() - 30 && maybeVisit(g, g, 8, false, { k: 'view' })) return;
+  const a = Math.random() * Math.PI * 2, r = 0.8 + Math.random() * 1.6;
+  setMove(g, { x: L.b.x + Math.cos(a) * r, z: L.b.z + Math.sin(a) * r }, 'walk', { k: 'view' });
+}
+function rideDown(g) {
+  const L = liftById(g.viewL);
+  if (!L || !L.open) return hikeOut(g, 'The lift stopped, so I walked down.');
+  const a = Math.random() * Math.PI * 2;
+  setMove(g, { x: L.b.x + Math.cos(a) * 0.5, z: L.b.z + Math.sin(a) * 0.5 }, 'walk', { k: 'topq', lid: L.id });
+}
+// On to the next summer day (after a day report, or a day spent closed), or into winter after the last one.
+function summerNext() {
+  const sum = state.sum;
+  if (!sum) return newSeason();
+  summerBill();
+  $('report').hidden = true;
+  sum.k++; state.phase = 'closed'; state.time = DAY_OPEN;
+  if (sum.k >= sum.days.length) return newSeason();
+  state.day = sum.days[sum.k];
+  sum.wx = sum.next || summerWx(state.day);
+  sum.next = sum.days[sum.k + 1] != null ? summerWx(sum.days[sum.k + 1]) : null;
+  coverOverdraft(); updateCash(false);
+  if (!state.bankrupt) { if (selected && selected.kind === 'plan') select(null); executePlans(); }
+  draft.dirty = !!draft.kind;
+  styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
+}
+// Skip the rest of the summer: the days not played just pay their upkeep, as a summer always has.
+function summerEnd() { if (summerLeft() && state.phase === 'closed') newSeason(); }
+function summerPanel() {
+  const sum = state.sum, st = sum.stats, w = todayWx(), S = summerStop(), left = sum.days.length - sum.k;
+  const share = Math.round(summerBillTotal() / sum.days.length);
+  const can = world.lifts.some((L) => canScenic(L) && L.open);
+  return `<div class="wxrow">${wxCard(w, 'Today')}${sum.next ? wxCard(sum.next, 'Next') : ''}</div>
+    <dl class="kv">
+      <div><dt>Summer day</dt><dd>${sum.k + 1} of ${sum.days.length}</dd></div>
+      <div><dt>Now</dt><dd>${S.name}</dd></div>
+      <div><dt>Days open</dt><dd>${st.days}</dd></div>
+      <div><dt>Summer visitors</dt><dd>${st.visitors.toLocaleString('en-US')}</dd></div>
+      <div><dt>Summer profit</dt><dd>${signedMoney(Math.round(st.profit))}</dd></div>
+      <div><dt>Upkeep each day</dt><dd>${money(share)}</dd></div>
+    </dl>
+    <p class="help">${can ? 'Summer guests buy a scenic ride, go up for the view, and eat and shop if you have somewhere open. Choose which lifts and buildings run in the Summer plan.' : 'Summer guests come for a ride up the mountain. You need a chairlift or gondola from the base, switched on in the Summer plan.'}
+      ${S.fall ? 'The trees have turned: this is the busiest time for scenic rides.' : 'The busiest days are the Fourth of July, Labor Day and the fall colours.'} Summer upkeep is paid day by day, open or closed.</p>
+    ${state.phase === 'closed' && !visiting ? `<div class="field-label">Length of summer</div>
+      <div class="seg"><button data-action="sumLen" data-v="long" aria-pressed="${state.sumLen !== 'short'}">Long (24 days)</button><button data-action="sumLen" data-v="short" aria-pressed="${state.sumLen === 'short'}">Short (12 days)</button></div>
+      <p class="help">Long plays Thursday to Sunday at each of six stops. Short plays Friday and Saturday. You can switch any morning.</p>
+      <div class="field-label">Skip to winter</div>
+      ${sheetConfirm ? `<p class="help">Skip the last ${left} summer ${left === 1 ? 'day' : 'days'} and start season ${state.season + 1}? You pay the rest of the summer upkeep and earn nothing more this summer.</p>
+        <div class="row"><button class="btn danger" data-action="sumYes">Start season ${state.season + 1}</button><button class="btn secondary" data-action="sumNo">Keep playing summer</button></div>`
+      : `<button class="btn secondary" data-action="sumSkip">Start season ${state.season + 1} now</button>
+        <p class="help">The summer days you skip just pay their upkeep.</p>`}` : ''}`;
+}
 function enterSummer() {
   cancelStaleEvent(true);
   $('report').hidden = true;
   $('rpNext').textContent = 'Start the next day';
   state.summer = true; state.phase = 'closed';
+  startSummer();
   NS.fill(0); state.treeSnow = 0;
   for (const t of world.trails) { t.machine = 0; updateTrailSnow(t, todayWx()); }
   styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
-  toast('Summer: the snow is gone. Build and plan, then start the next season.');
+  toast(summerLeft() ? 'Summer: the snow is gone. Open for summer guests, or build and plan for next season.' : 'Summer: the snow is gone. Build and plan, then start the next season.');
 }
 function newSeason() {
   state.grads = (state.grads || 0) / 2; // last season's learners mostly come back, but the effect fades without more lessons
   const summerInterest = chargeInterest(OFFSEASON_DAYS);
-  const summerCosts = Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE);
+  const sum = state.sum, summerCosts = Math.max(0, Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) - Math.round((sum && sum.paid) || 0)); // less what the summer days already paid
+  state.sum = null;
   state.cash -= summerCosts;
   coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
@@ -21515,7 +21739,7 @@ function newSeason() {
   for (const t of world.trails) t.machine = 0;
   refreshSnowState(todayWx());
   styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
-  toast(`Season ${state.season} begins. Watch the forecast and make snow. Summer upkeep: −${money(summerCosts)}${summerInterest ? `, plus ${money(summerInterest)} loan interest` : ''}.`);
+  toast(`Season ${state.season} begins. Watch the forecast and make snow. ${sum && sum.stats.days ? `Your summer made ${signedMoney(Math.round(sum.stats.profit))} over ${sum.stats.days} ${sum.stats.days === 1 ? 'day' : 'days'}. ` : ''}${sum && sum.paid ? 'The rest of the summer upkeep' : 'Summer upkeep'}: −${money(summerCosts)}${summerInterest ? `, plus ${money(summerInterest)} loan interest` : ''}.`);
 }
 $('cashBox').onclick = () => openManage('money');
 $('cashBox').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('cashBox').onclick(); } };
@@ -21622,6 +21846,11 @@ function hungryNote(r) {
 // Why the day went the way it did: guests against the last week of open days, what made the
 // difference, and the biggest thing that cost guests. One or two plain sentences at the top.
 function whyToday(r) {
+  if (r && r.summer) {
+    if (!r.guests) return '';
+    const dow = dateOf(r.day).getUTCDay(), wet = r.wx && r.wx.type === 'sumrain';
+    return `${r.guests.toLocaleString('en-US')} summer guests came for the ride up${wet ? ', fewer than usual in the rain' : r.summer === 'Fall colours' ? ', drawn by the fall colours' : dow === 0 || dow === 6 ? ' on a summer weekend' : ' on a quiet weekday'}.`;
+  }
   if (!r || !r.guests || (r.season || state.season) !== state.season) return '';
   const rows = seasonDaily(), prior = rows.filter((x) => x.d < r.day && x.g > 0).slice(-7), me = rows.find((x) => x.d === r.day);
   const d = dateOf(r.day), dow = d.getUTCDay(), hol = holidayOf(d), w = r.wx || {}, ups = [], downs = [];
@@ -21671,7 +21900,7 @@ function showReport(r = state.lastReport, past = false) {
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.lease + ex.investor + ex.apres + ex.night;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night + rv.lodging + rv.condo - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
-  const tip = past ? '' : adviceFor(r), NOTES_SHOWN = 5;
+  const tip = past || r.summer ? '' : adviceFor(r), NOTES_SHOWN = 5; // the tips are all about skiing
   // Notes are ranked so problems and money matters come first; routine ones fold away under More.
   const ranked = [];
   const note = (p, ...texts) => { for (const t of texts) ranked.push([p, ranked.length, t]); };
@@ -21685,7 +21914,8 @@ function showReport(r = state.lastReport, past = false) {
   if (r.pond && r.pond.runs) note(5, `${r.pond.runs} skiers in costume tried to skim the pond at the bottom of <b>${esc(r.pond.trail)}</b>. ${r.pond.dry ? `${r.pond.dry} made it across dry.` : 'Every one of them went in.'}`);
   if (r.event === 'torch' && r.showGuests) note(5, `${r.showGuests.toLocaleString()} guests stayed after the lifts closed to watch the torches come down and the fireworks.`);
   if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
-  if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
+  if (r.wx && r.summer) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}.`);
+  else if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
   if (r.holds && r.holds.length) {
     const still = r.pmHolds || r.holds;
     const eased = r.holds.filter((n) => !still.includes(n));
@@ -21698,7 +21928,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.popular) note(0, `${esc(r.popular.name)} was the most popular trail, skied ${r.popular.n} times.`);
   if (r.lunchPeak && r.lunchPeak.n) note(0, `The lunch rush peaked at ${clockLabel(r.lunchPeak.t)} with ${r.lunchPeak.n} guests eating.`);
   if (r.firsts) note(1, `${r.firsts} first-timers came today${r.learners ? `; ${r.learners} beginners skied the learning area` : ''}.`);
-  if (r.sightseers) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
+  if (r.sightseers && !r.summer) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
   if (r.bases && (r.bases.lots.some((n, k) => k && n) || r.bases.crossings)) note(1, `Guests by base: ${r.bases.lots.map((n, k) => `${esc((r.bases.names || [])[k] || mapLotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
@@ -21746,7 +21976,7 @@ function showReport(r = state.lastReport, past = false) {
   const td = r.trailsDay && r.trailsDay.top && r.trailsDay.top.length ? r.trailsDay : null;
   const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.park ? [['park', 'Park']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
   $('rpBody').innerHTML = `
-    <div class="rp-head"><div><div class="eyebrow">Day report · Season ${r.season || state.season}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
+    <div class="rp-head"><div><div class="eyebrow">${r.summer ? `Summer day report · ${esc(r.summer)}` : `Day report · Season ${r.season || state.season}`}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
       <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
     ${tabs.length > 1 ? `<div class="tabs rp-tabs" role="tablist">${tabs.map(([k, l], i) => `<button role="tab" data-rptab="${k}" aria-pressed="${!i}">${l}</button>`).join('')}</div>` : ''}
     <div class="rp-page" data-page="day">
@@ -21766,14 +21996,14 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-full">
     <div class="rp-lines">
       <span class="h">Revenue</span>
-      <span>Lift tickets</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
+      <span>${r.summer ? 'Scenic rides' : 'Lift tickets'}</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
       ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Hotel rooms', rv.lodging)}${line('Condo dues and rentals', rv.condo)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>
-      <span>Trail grooming</span><span>${money(ex.grooming - (ex.park || 0))}</span>${ex.park ? `<span>Terrain park shaping</span><span>${money(ex.park)}</span>` : ''}
+      ${r.summer ? '' : `<span>Trail grooming</span><span>${money(ex.grooming - (ex.park || 0))}</span>`}${ex.park ? `<span>Terrain park shaping</span><span>${money(ex.park)}</span>` : ''}
       ${r.payroll && r.payroll.other + r.payroll.patrol === ex.staff ? `<span>Other staff</span><span>${money(r.payroll.other)}</span>${line('Patroller wages', r.payroll.patrol)}` : `<span>Staff</span><span>${money(ex.staff)}</span>`}
-      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Land lease', ex.lease)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
+      ${line('Building upkeep', ex.upkeep)}${line('Parking lots', ex.parking)}${line(r.offsite ? 'Off-site parking and shuttles' : 'Town buses', ex.shuttles)}${line('Injury claims', ex.claims)}${line('Food and supplies', ex.cogs)}${line(r.smNights > 1 ? `Snowmaking (${r.smNights} nights)` : 'Snowmaking', ex.snowmaking)}${line(r.summer ? 'Summer upkeep' : r.exp.overhead > dailyOverhead() * 1.5 ? 'Overhead (incl. closed days)' : 'Overhead', ex.overhead)}${line('Land lease', ex.lease)}${line('Loan interest', ex.interest)}${line(`${INVESTOR_SHORT}’s 10%`, ex.investor)}${line('Après staff', ex.apres)}${line('Night lights and crew', ex.night)}
       <span class="tot">Total expenses</span><span class="tot">${money(exp)}</span>
     </div>
     ${opsReportHtml(r)}
@@ -22708,6 +22938,8 @@ function guestActivity(g) {
   if (g.st === 'pq') return 'Waiting for the parking shuttle';
   if (g.st === 'xbq') return 'Waiting for the base shuttle to the other base';
   if (g.st === 'watch') return 'Watching the torchlight parade';
+  if (g.st === 'view') return 'Taking in the view from the top';
+  if (g.st === 'topq') return 'Waiting for the ride down';
   if (t && t.k === 'pq') return 'Walking to the parking shuttle';
   if (t && t.k === 'bld' && B) return `Heading to ${B.name}`;
   if (t && t.k === 'bus') return 'Walking to the shuttle';

@@ -1,7 +1,12 @@
 # Summer season: brainstorm (Nov 9, 2026)
 
-**Phil's decisions so far (Nov 9):** a short playable summer (expand later if players like it); scenic lift rides,
-weddings and events, a mountain coaster and mountain biking all ship together as one major release (**4.0**).
+**Phil's decisions (Nov 9):** a playable summer of a handful of days (expand later if players like it); scenic lift
+rides, weddings and events, a mountain coaster and mountain biking all ship together as one major release (**4.0**).
+Then, on the six questions at the end: **1.** a longer summer, with a shorter one as an option (built as Long, 24 days,
+Thursday to Sunday at six stops, or Short, 12 days, Friday and Saturday). **2.** Bike trails are their own narrow dirt
+trails down the mountain, hidden under the snow in winter. **3.** The coaster runs in both seasons. **4.** Zip lines
+are in if they fit. **5.** King of the Mountain keeps today's summer for now. **6.** Hidden pieces on `main`, switched
+on together at 4.0, as long as they are tracked: the tracker is "Summer 4.0" in `AI_HANDOFF.md`.
 
 A design sketch for Phil to choose from. Nothing is built yet. Written by Claude after reading the season, demand,
 sightseer, events and tree code. Numbers marked *first guess* will be tuned in test resorts before release.
