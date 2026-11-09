@@ -4754,9 +4754,9 @@ let baseReachMemo = null;
 const BASE_HILL = 10; // more of a climb than this between a lot and a spot (in height units) puts the spot over the hill
 function baseReach() {
   const M = baseReachMemo;
-  if (M && M.rev === terrainRev && M.land === landRects) return M.R;
+  if (M && M.rev === terrainRev && M.land === landRects && M.net === netRev && M.ref === state.parks) return M.R;
   let sites;
-  try { sites = Array.from({ length: baseCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
+  try { sites = newLots() ? baseList().flatMap((b) => b.pts) : Array.from({ length: baseCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
   const low = (k) => HT[k] < MOUNTAIN.baseH + 3.5 && inGridLand(k % NV, Math.floor(k / NV));
   const R = new Uint8Array(NV * NV), stack = [];
   for (const s of sites) {
@@ -4786,7 +4786,7 @@ function baseReach() {
     return false;
   };
   for (let k = 0; k < R.length; k++) if (R[k] && sites.every((s) => hill(k, s))) R[k] = 0;
-  baseReachMemo = { rev: terrainRev, land: landRects, R };
+  baseReachMemo = { rev: terrainRev, land: landRects, net: netRev, ref: state.parks, R };
   return R;
 }
 
@@ -7491,7 +7491,11 @@ function evalLift(a0, b0, type, allowPlans, self) {
   if (lay.hlen < minLen) problems.push(`Too short. A ${t.long.toLowerCase()} needs at least ${ftOf(minLen)} between stations.`);
   if (lay.hlen > maxLen) problems.push(`Too long. Keep a ${t.long.toLowerCase()} under ${ftOf(maxLen)}.`);
   if (lay.vertM < minVert) problems.push(`The top station must be at least ${fmtFt(Math.round(minVert * 3.281))} higher than the bottom.`);
-  if (t.village && !(isBase(a) && isBase(b) && baseOf(a) !== baseOf(b))) problems.push('A village gondola links two bases: put one station at each base.');
+  if (t.village && !(isBase(a) && isBase(b) && baseOf(a) !== baseOf(b))) { // say which way it's wrong: a player couldn't tell why their own base didn't count (Adum888)
+    const off = !isBase(a) ? a : !isBase(b) ? b : null;
+    problems.push(off ? `A village gondola links two bases: put each station on the low ground by a parking lot.${baseCount() < 2 ? ' A lot of yours over a hill from the main lot, or well away from it, makes a base of its own.' : ''}`
+      : `Both stations are at the same base (${baseName(baseOf(a))}). Put one at another base: a lot of yours over a hill from the others, or well away from them, makes a base of its own.`);
+  }
   if (t.maxGrade && lay.vertM / lay.horizM > t.maxGrade) problems.push(`Too steep for a ${t.long.toLowerCase()}. Pick a gentler slope${type === 'carpet' ? ', or use a T-bar' : ', or a chairlift'}.`);
   const stations = world.lifts.filter((L) => L !== self).map((L) => [L.name, L.a, L.b]);
   if (allowPlans) for (const pl of world.plans) if (pl.kind === 'lift') stations.push(['a planned lift', pl.a, pl.b]);
@@ -10321,10 +10325,58 @@ function lotSite(lot) {
   }
   return lotSitesCache[lot] || lotSitesCache[0];
 }
-// The map's own lots are its bases; lots you place come after them and park guests for the nearest base.
-const baseCount = () => 1 + (MOUNTAIN.lots || []).length;
-const lotCount = () => (newLots() ? parks().length : baseCount());
-const baseOfLot = (lot) => (newLots() ? (parks()[lot] ? baseOf(parks()[lot]) : 0) : lot);
+// The map's own lot sites are its first bases. A lot of yours that a road reaches joins the base beside it; one over
+// a hill from every base, or far from them all, starts a base of its own, as many as you build (Adum888 built one
+// behind Ridgeback's ridge, with its own guest area, and couldn't link it by village gondola).
+const mapBaseCount = () => 1 + (MOUNTAIN.lots || []).length;
+const BASE_FAR = 60; // farther than this from every base (in units) and a lot is a base of its own
+let basesMemo = null;
+function baseList() {
+  const M = basesMemo;
+  if (M && M.rev === netRev && M.t === terrainRev && M.ref === state.parks) return M.B;
+  const B = Array.from({ length: mapBaseCount() }, (_, k) => { const q = lotSite(k); return { pts: [{ x: q.x, z: q.z }], lots: [], map: true }; });
+  const lotBase = [];
+  if (newLots()) {
+    const hill = (a, b) => { // more of a climb between two spots than base ground has
+      const d = Math.hypot(b.x - a.x, b.z - a.z), top = Math.max(trueY(a.x, a.z), trueY(b.x, b.z), MOUNTAIN.baseH) + BASE_HILL;
+      for (let i = 1, n = Math.ceil(d / 1.5); i < n; i++) if (trueY(a.x + (b.x - a.x) * i / n, a.z + (b.z - a.z) * i / n) > top) return true;
+      return false;
+    };
+    parks().forEach((P, i) => {
+      if (!parkReached(i)) return; // no road to it: no cars, so no base
+      const r = parkRect(P), c = { x: P.x, z: P.z };
+      let best = -1, bd = Infinity;
+      B.forEach((b, k) => { for (const q of b.pts) { const d = rectDist(q, r); if (d < bd && d <= BASE_FAR && !hill(q, c)) { bd = d; best = k; } } });
+      if (best < 0) { best = B.length; B.push({ pts: [], lots: [], map: false }); }
+      B[best].pts.push(c); B[best].lots.push(i); lotBase[i] = best;
+    });
+  }
+  const flat = []; B.forEach((b, k) => { for (const q of b.pts) flat.push({ x: q.x, z: q.z, k }); });
+  // A base of yours on the same low ground as another is a walk away: a lot built far along the valley used to be
+  // part of the base, and its guests walked over. The map's own bases still need a gondola or shuttle between them.
+  const top = MOUNTAIN.baseH + 3.5, walk = B.map(() => B.map(() => null));
+  for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
+    if (B[i].map && B[j].map) continue;
+    let w = null;
+    for (const p of B[i].pts) for (const q of B[j].pts) {
+      const d = Math.hypot(q.x - p.x, q.z - p.z); if (w && d >= w.d) continue;
+      let low = true; for (let s = 1, n = Math.ceil(d / 1.5); s < n && low; s++) low = trueY(p.x + (q.x - p.x) * s / n, p.z + (q.z - p.z) * s / n) < top;
+      if (low) w = { d, to: q, from: p };
+    }
+    walk[i][j] = w && { d: w.d, to: w.to }; walk[j][i] = w && { d: w.d, to: w.from };
+  }
+  basesMemo = { rev: netRev, t: terrainRev, ref: state.parks, B, lotBase, flat, walk };
+  return B;
+}
+function baseCount() { // asked thousands of times a sim step: the memo check first
+  const M = basesMemo; if (M && M.rev === netRev && M.t === terrainRev && M.ref === state.parks) return M.B.length;
+  if (!newLots()) return mapBaseCount();
+  try { return baseList().length; } catch (e) { return mapBaseCount(); } // the road may not be laid out yet
+}
+const lotCount = () => (newLots() ? parks().length : mapBaseCount());
+const baseOfLot = (lot) => { if (!newLots()) return lot; baseList(); const k = basesMemo.lotBase[lot]; return k ?? (parks()[lot] ? baseOf(parks()[lot]) : 0); };
+// A base's name: the map's name for its lot, or the first lot you built there.
+const baseName = (k) => (k < mapBaseCount() ? mapLotName(k) : (parks()[((baseList()[k] || {}).lots || [])[0]] || {}).name || `Base ${k + 1}`);
 const lotName = (lot) => (newLots() ? (parks()[lot] || {}).name || `Lot ${lot + 1}` : lot ? ((MOUNTAIN.lots || [])[lot - 1] || [])[2] || `Lot ${lot + 1}` : 'Main lot');
 const mapLotName = (k) => (k ? ((MOUNTAIN.lots || [])[k - 1] || [])[2] || `Lot ${k + 1}` : 'Main lot'); // a base's lot, as the map names it
 // Which way a lot's second row goes: below the main lot (toward the valley), behind the others (up the mountain).
@@ -11890,7 +11942,13 @@ function goCar(g) {
    neither, they don't head for the other base's lifts, and anyone who ends up there waits for a ride
    back to their car at closing: stranded, unhappy, and on the day report. */
 // Bases side by side along a valley go by how far east or west; bases on different sides of a hill by plain distance.
-const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < baseCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } } return best; };
+// With bases of your own, the nearest of any base's lots.
+const baseOf = (p) => {
+  let best = 0, bd = Infinity;
+  if (baseCount() > mapBaseCount()) { for (const q of basesMemo.flat) { const d = (p.x - q.x) * (p.x - q.x) + (p.z - q.z) * (p.z - q.z); if (d < bd) { bd = d; best = q.k; } } return best; }
+  for (let k = 0; k < mapBaseCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } }
+  return best;
+};
 // Guests weigh crossing to the other base thousands of times a game minute, so which village lifts join which
 // bases, which base each base lift and shuttle station is at are worked out once a sim step (nothing is built mid-step);
 // whether they're open is still checked every time. Outside a step they're worked out fresh.
@@ -11911,8 +11969,27 @@ const zoneStations = (z) => (crossSites().stns[z] || []).filter(bldOpenNow);
 const baseShuttle = (za, zb) => zoneStations(za).length > 0 && zoneStations(zb).length > 0;
 const LOOP_SEATS = 40, LOOP_WAIT = 8, LOOP_MAX = 6; // a base shuttle bus, about how long a wait for one feels, and the most on the road
 let loopWait = {}; // guests waiting for the base shuttle at each base, counted each step
-function crossCost(za, zb) {
-  let c = Infinity;
+// The way across between two bases, perhaps by way of others (the gondola to one, the shuttle on from there): what it
+// costs, and the first base to head for. Worked out once a sim step, like the sites.
+let xRoutes = null;
+function crossRoute(za, zb) {
+  const n = baseCount();
+  if (n < 3) return { c: linkCost(za, zb), hop: zb };
+  let R = xStep ? xRoutes : null;
+  if (!R) {
+    const d = [], nx = [];
+    for (let i = 0; i < n; i++) { d[i] = []; nx[i] = []; for (let j = 0; j < n; j++) { d[i][j] = i === j ? 0 : linkCost(i, j); nx[i][j] = j; } }
+    for (let k = 0; k < n; k++) for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (d[i][k] + d[k][j] < d[i][j]) { d[i][j] = d[i][k] + d[k][j]; nx[i][j] = nx[i][k]; }
+    R = { d, nx }; if (xStep) xRoutes = R;
+  }
+  return { c: (R.d[za] || [])[zb] ?? Infinity, hop: (R.nx[za] || [])[zb] ?? zb };
+}
+const crossCost = (za, zb) => crossRoute(za, zb).c;
+// A direct link: the village gondolas between two bases, or the base shuttle with a station at each.
+const baseWalk = (za, zb) => (baseCount() > mapBaseCount() && basesMemo.walk[za] ? basesMemo.walk[za][zb] : null);
+function linkCost(za, zb) {
+  const w = baseWalk(za, zb);
+  let c = w ? 1 + w.d / 40 : Infinity; // a walk over low ground to a base of yours
   for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? (L.xq[za] || []).length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
   if (baseShuttle(za, zb)) c = Math.min(c, 1.6 * (1 + (loopWait[za] || 0) / LOOP_SEATS / LOOP_MAX)); // a long line at the stops puts guests off crossing
   return c;
@@ -11920,6 +11997,14 @@ function crossCost(za, zb) {
 // A spot at the other base that's quicker to walk straight to than by the way across: a lift near the middle of the
 // valley counts as the far base, and guests rode the village gondola away from it, then walked all the way back
 // across the base (Adum888). Only with a way across (without one the bases stay apart), only over low ground.
+// Can a guest at the base walk straight from p to q: the same base, or low ground all the way? Shops, schools and the
+// scenic gondola at another base over a hill were walked to straight over it.
+function onFoot(p, q) {
+  if (baseCount() < 2 || baseOf(p) === baseOf(q)) return true;
+  const top = MOUNTAIN.baseH + 3.5, d = Math.hypot(q.x - p.x, q.z - p.z);
+  for (let i = 1, n = Math.ceil(d / 1.5); i < n; i++) if (trueY(p.x + (q.x - p.x) * i / n, p.z + (q.z - p.z) * i / n) >= top) return false;
+  return true;
+}
 function walkOver(g, p, zone) {
   const zg = baseOf(g), d = Math.hypot(p.x - g.x, p.z - g.z);
   let via = Infinity;
@@ -11932,12 +12017,15 @@ function walkOver(g, p, zone) {
 }
 // Head for the other base: the quicker of the gondola and the shuttle, then carry on with `next`.
 function crossTo(g, zone, next) {
-  const zg = baseOf(g);
-  g.xNext = next; g.xZone = zone;
+  const zg = baseOf(g), hop = zone === zg ? zone : crossRoute(zg, zone).hop; // by way of another base, if that's the way
+  g.xNext = next; g.xFinal = hop !== zone ? zone : undefined; zone = hop; g.xZone = zone;
   let best = null, bd = Infinity;
   for (const L of villageLifts(zg, zone)) { const end = baseOf(L.a) === zg ? 'a' : 'b', d = distXZ(L[end], g); if (d < bd) { bd = d; best = { kind: 'lift', L, end }; } }
   if (baseShuttle(zg, zone)) for (const B of zoneStations(zg)) { const d = distXZ(B.door, g) + 12; if (d < bd) { bd = d; best = { kind: 'bus', B }; } }
+  const w = baseWalk(zg, zone);
+  if (w && (!best || 1 + w.d / 40 < crossCost(zg, zone) + 0.01) && !villageLifts(zg, zone).length) best = { kind: 'walk', p: w.to };
   if (!best) return stranded(g);
+  if (best.kind === 'walk') return setMove(g, { x: best.p.x + (Math.random() - 0.5) * 3, z: best.p.z + (Math.random() - 0.5) * 3 }, g.onSkis ? 'glide' : 'walk', { k: 'xwalk' });
   if (best.kind === 'lift') { const p = best.L[best.end]; return setMove(g, { x: p.x + (Math.random() - 0.5) * 1.2, z: p.z + (Math.random() - 0.5) * 1.2 }, g.onSkis ? 'glide' : 'walk', { k: 'xlift', lid: best.L.id, end: best.end }); }
   g.stn = best.B.id;
   setMove(g, { x: best.B.door.x + (Math.random() - 0.5) * 1.6, z: best.B.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'xbus' });
@@ -11951,8 +12039,9 @@ function stranded(g) {
 }
 // Arrived at the other base: on with the plan.
 function crossDone(g) {
-  const n = g.xNext || { k: 'base' }; g.xNext = null; g.xZone = null;
+  const n = g.xNext || { k: 'base' }, fin = g.xFinal; g.xNext = null; g.xZone = null; g.xFinal = undefined;
   today.crossings = (today.crossings || 0) + AGENT;
+  if (fin != null && fin !== baseOf(g)) return crossTo(g, fin, n); // on to the next base
   if (n.k === 'car') return goCar(g);
   if (n.k === 'queue') { const L = liftById(n.lid); if (L && canLoad(L)) return goQueue(g, L, 'walk'); }
   baseDecision(g);
@@ -12414,7 +12503,7 @@ function makeGuest(car, x, z) {
     severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
-    xUntil: undefined, xZone: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined
+    xUntil: undefined, xZone: undefined, xFinal: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined
   };
   // Shoppers browse for souvenirs, each at their own time between 10:30 and 3 so they don't all queue at once; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.shopAt = 630 + Math.random() * 270; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -12649,8 +12738,10 @@ function arrive(g) {
     g.st = 'pq'; g.qSince = state.time;
   } else if (t.k === 'xlift') { // in line for the village gondola
     const L = liftById(t.lid);
-    if (!L || !L.open) return crossTo(g, g.xZone, g.xNext);
+    if (!L || !L.open) return crossTo(g, g.xFinal ?? g.xZone, g.xNext);
     L.xq = L.xq || { a: [], b: [] }; L.xq[t.end].push(g.id); g.st = 'xq'; g.qStart = state.time; g.xLid = L.id; g.xEnd = t.end;
+  } else if (t.k === 'xwalk') { // walked over to a base of yours
+    crossDone(g);
   } else if (t.k === 'xbus') { // waiting for the base shuttle
     g.st = 'xbq'; g.qSince = state.time;
   }
@@ -12935,8 +13026,8 @@ function styleLot() {
 
 /* ---------- The day ---------- */
 function simStep(dt) {
-  xBases = null; xStep = true; simTick++;
-  try { simRun(dt); } finally { xBases = null; xStep = false; }
+  xBases = null; xRoutes = null; xStep = true; simTick++;
+  try { simRun(dt); } finally { xBases = null; xRoutes = null; xStep = false; }
 }
 function simRun(dt) {
   state.time += dt / 60;
@@ -13122,7 +13213,8 @@ function endDay() {
     event: evToday ? evToday.type : null,
     liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
     lotCars: today.lotCars || null,
-    bases: baseCount() > 1 ? { lots: Array.from({ length: baseCount() }, (_, k) => (today.lotCars || {})[k] || 0), crossings: today.crossings || 0, stranded: today.crossStranded || 0, gondola: villageLifts(0, 1).length > 0, shuttle: baseShuttle(0, 1) } : null, // two bases: who parked where, and getting between them
+    bases: baseCount() > 1 ? { lots: Array.from({ length: baseCount() }, (_, k) => (today.lotCars || {})[k] || 0), names: Array.from({ length: baseCount() }, (_, k) => baseName(k)), crossings: today.crossings || 0, stranded: today.crossStranded || 0,
+      gondola: crossSites().lifts.some((e) => e.L.open), shuttle: crossSites().stns.filter((S) => S && S.some(bldOpenNow)).length > 1 } : null, // more than one base: who parked where, and getting between them
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     full: !!today.full, day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
@@ -14309,7 +14401,7 @@ function restoreSim(sim) {
     if (B && r.today) B.today = { ...B.today, ...r.today, services: { ...r.today.services } };
   }
   for (const g of guests.filter((x) => x.st === 'bq').sort((p, q) => p.qT - q.qT)) { const B = bldById(g.bid); B.q[POOL[g.svc]].push(g); g.qv = -1; }
-  for (const g of guests.filter((x) => x.st === 'xq').sort((p, q) => p.qStart - q.qStart)) { const L = liftById(g.xLid); if (L) { L.xq = L.xq || { a: [], b: [] }; L.xq[g.xEnd].push(g.id); } else crossTo(g, g.xZone, g.xNext); } // in line for the village gondola
+  for (const g of guests.filter((x) => x.st === 'xq').sort((p, q) => p.qStart - q.qStart)) { const L = liftById(g.xLid); if (L) { L.xq = L.xq || { a: [], b: [] }; L.xq[g.xEnd].push(g.id); } else crossTo(g, g.xFinal ?? g.xZone, g.xNext); } // in line for the village gondola
   cars = (sim.cars || []).filter((c) => stalls[c.stall]); // cars in lots that are gone (satellite lots before off-site parking)
   for (const c of cars) {
     if (stalls[c.stall]) stalls[c.stall].car = c.id;
@@ -18029,7 +18121,7 @@ function resumeGuest(g) {
 function nearestOpen(types, p, svc) {
   let best = null, bt = Infinity;
   for (const B of world.buildings) {
-    if (!types.includes(B.type) || !bldOpenNow(B)) continue;
+    if (!types.includes(B.type) || !bldOpenNow(B) || !onFoot(p, B.door)) continue;
     const t = distXZ(B.door, p) / (WALK * 60) + (svc ? estWait(B, svc) : 0);
     if (t < bt) { bt = t; best = B; }
   }
@@ -18038,7 +18130,7 @@ function nearestOpen(types, p, svc) {
 function arrivalFlow(g) {
   if (g.sight) {
     const gon = scenicGondola(g);
-    if (gon && canLoad(gon)) { thought(g, `Here for the scenic ride up ${gon.name}.`); return goQueue(g, gon, 'walk'); }
+    if (gon && canLoad(gon)) { thought(g, `Here for the scenic ride up ${gon.name}.`); return onFoot(g, gon.a) ? goQueue(g, gon, 'walk') : crossTo(g, baseOf(gon.a), { k: 'queue', lid: gon.id }); }
     g.sight = false; g.leaving = true; return baseDecision(g);
   }
   if (g.needsRental) {
@@ -20147,8 +20239,11 @@ function advice() {
   }
   if (!state.summer && baseCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
     const zoneLifts = (z) => world.lifts.some((L) => L.fromBase && !isVillage(L) && baseOf(L.a) === z), other = mapLotName(1);
+    // a base of your own with lifts and no way to or from the main base
+    const lone = Array.from({ length: baseCount() }, (_, k) => k).filter((k) => k >= mapBaseCount() && zoneLifts(k) && baseSpaces(k) && crossCost(0, k) === Infinity);
+    if (lone.length) add(!!(r && r.bases && r.bases.stranded), `Guests at ${esc(baseName(lone[0]))} can’t get to your other bases, so they only ski the lifts by where they parked, and anyone who ends up elsewhere waits a long time for a ride back. Link it with a village gondola, or a shuttle station at each base.`, 'Build a village gondola', () => { draft.liftType = 'village'; setTool('lift'); });
     if (zoneLifts(1) && !baseSpaces(1)) add(false, `You have lifts at the ${esc(other.replace(/ lot$/, ''))} base but no parking there. Build the ${esc(other)} so guests can park by those lifts.`, 'Parking', () => openManage('lotgrow'));
-    else if (baseSpaces(1) && zoneLifts(0) && zoneLifts(1) && !villageLifts(0, 1).length && !baseShuttle(0, 1)) add(!!(r && r.bases && r.bases.stranded), `Guests can’t get between your two bases, so they only ski the lifts by where they parked${r && r.bases && r.bases.stranded ? `, and ${r.bases.stranded} ended up stuck at the wrong one` : ''}. Link them with a village gondola, or a shuttle station at each base.`, 'Build a village gondola', () => { draft.liftType = 'village'; setTool('lift'); });
+    else if (baseSpaces(1) && zoneLifts(0) && zoneLifts(1) && crossCost(0, 1) === Infinity) add(!!(r && r.bases && r.bases.stranded), `Guests can’t get between your two bases, so they only ski the lifts by where they parked${r && r.bases && r.bases.stranded ? `, and ${r.bases.stranded} ended up stuck at the wrong one` : ''}. Link them with a village gondola, or a shuttle station at each base.`, 'Build a village gondola', () => { draft.liftType = 'village'; setTool('lift'); });
   }
   if (defaultName(state.resortName) && !practice) add(false, `Give your resort a name of its own, so it stands out on the leaderboards. Right now it’s just “${esc(state.resortName)}”.`, 'Name my resort', () => openCommunity('profile'));
   if (!out.length) add(false, 'Things are running smoothly. Read the day report each evening for ideas, and check your goals for what to aim at next.', 'Goals', () => openGoals());
@@ -20393,7 +20488,7 @@ const GOALS = {
 GOALS.twin = [
   { id: 'firstDay', title: 'First chair', how: 'Open for your first day.', day: (r) => r.guests > 0 },
   { id: 'bothPeaks', title: 'Twin summits', how: 'Run lifts to the top of both summits.', day: () => [0.25, 0.76].every((u0) => world.lifts.some((L) => L.open && heightFrac(L.b) > 0.85 && Math.abs((L.b.x + HALF - PLAY0) / PN - u0) < 0.15)) },
-  { id: 'linked', title: 'Two bases, one resort', how: 'Have guests park at both lots and cross between the bases 200 times in one day.', day: (r) => !!(r.bases && r.bases.lots.every((n) => n > 0) && r.bases.crossings >= 200),
+  { id: 'linked', title: 'Two bases, one resort', how: 'Have guests park at both lots and cross between the bases 200 times in one day.', day: (r) => !!(r.bases && r.bases.lots[0] > 0 && r.bases.lots[1] > 0 && r.bases.crossings >= 200),
     prog: () => { const b = state.lastReport && state.lastReport.bases; return !baseSpaces(1) ? `Build the ${mapLotName(1)} first.` : !villageLifts(0, 1).length && !baseShuttle(0, 1) ? 'Link the bases with a village gondola or a shuttle station at each.' : `Most recent day: ${b ? b.crossings : 0} of 200 crossings.`; } },
   { id: 'crowd500', title: 'Busy valley', how: 'Welcome 500 guests in one day.', day: (r) => r.guests >= 500, prog: () => `Best so far: ${bestGuests()} of 500 guests.` },
   { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
@@ -20408,7 +20503,7 @@ GOALS.ridgeback = [
     prog: () => { const has = [RB.b, RB.e].map((c) => world.lifts.some((L) => nearSummit(L.b, c))); return has[0] && has[1] ? 'Open both on the same day.' : has[0] ? 'Now one to the top of the expert peak.' : has[1] ? 'Now one to the top of the beginner peak.' : 'Build a lift to the top of each peak.'; } },
   { id: 'ridgeRun', title: 'Ridge run', how: 'Open a green trail along the ridge, from the expert summit to the top of the beginner peak.', day: () => realTrails().some(ridgeRun) && realTrails().some((t) => ridgeRun(t) && runnable(t) && t.reachable),
     prog: () => (realTrails().some(ridgeRun) ? 'Open it, and make sure a lift reaches its top.' : 'Cut a green from beside the expert summit along the top of the ridge, past the top of the beginner peak.') },
-  { id: 'twoBases', title: 'Two bases', how: 'Have guests park at both lots on the same day.', day: (r) => !!(r.bases && r.bases.lots.every((n) => n > 0)),
+  { id: 'twoBases', title: 'Two bases', how: 'Have guests park at both lots on the same day.', day: (r) => !!(r.bases && r.bases.lots[0] > 0 && r.bases.lots[1] > 0),
     prog: () => (!baseSpaces(1) ? `Build the ${mapLotName(1)} under the expert peak first.` : 'Give guests something to ride from the East lot.') },
   { id: 'profit', title: 'In the black', how: 'Finish a season with a profit.', season: (st) => st.profit > 0 },
 ];
@@ -20547,7 +20642,9 @@ function scenicGondola(p) {
   let best = null, bt = Infinity;
   for (const L of world.lifts) {
     if (L.type !== 'gondola' || !L.fromBase || !L.open || L.windHold) continue;
-    const t = p ? distXZ(L.a, p) / (WALK * 60) + liftWait(L) : 0;
+    const far = p && !onFoot(p, L.a) ? crossCost(baseOf(p), baseOf(L.a)) : 0; // at another base: only with a way across
+    if (far === Infinity) continue;
+    const t = p ? distXZ(L.a, p) / (WALK * 60) + liftWait(L) + far * 10 : 0;
     if (t < bt) { bt = t; best = L; }
   }
   return best;
@@ -21604,7 +21701,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.sightseers) note(1, `${r.sightseers} sightseers rode the gondola up for the view.`);
   if (r.campers) note(1, `${r.campers} kids spent the day at camp while their parents skied.`);
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
-  if (r.bases && (r.bases.lots[1] || r.bases.crossings)) note(1, `Guests by lot: ${r.bases.lots.map((n, k) => `${esc(lotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
+  if (r.bases && (r.bases.lots.some((n, k) => k && n) || r.bases.crossings)) note(1, `Guests by base: ${r.bases.lots.map((n, k) => `${esc((r.bases.names || [])[k] || mapLotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
   if (r.bases && r.bases.stranded) note(4, `${r.bases.stranded} guests ended up at the wrong base with no way back to their car and waited a long time for a ride.`);
   if (r.full) note(3, `Full house: more people wanted to ski here today than the mountain can hold. A day takes up to ${(MAX_G * AGENT).toLocaleString('en-US')} day skiers, hotel guests and condo owners, plus the night crowd. Raising ticket prices now earns more from the same crowd.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
@@ -26399,6 +26496,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.17', date: 'Nov 9, 2026', title: 'Bases of your own', items: [
+    'Build as many bases as you like: a parking lot you build with a road to it starts a new base when it’s over a hill from your other bases, or well away from them. A lot right beside a base is part of that base.',
+    'Link your bases with village gondolas or shuttle stations, on any mountain. Guests change bases more than once when that’s the way to their lift or their car, and bases of yours on the same low ground are a walk apart.',
+    'Guests no longer walk straight over a hill to a lift, shop, school or scenic gondola at another base. They take the gondola or shuttle, or stay at their own base.',
+    'A village gondola that can’t be built now says why: which station isn’t at a base, or that both stations are at the same one.',
+    'The day report lists guests by base, with each base’s name. Thanks Adum888!' ] },
   { v: '3.16.3', date: 'Nov 9, 2026', title: 'Full house', small: true, items: [
     'The day report now says when your mountain was full: more people wanted to ski than a day can hold (5,000 day skiers, hotel guests and condo owners, plus the night crowd). Lower prices and free parking can’t bring in more then, so it’s a good time to raise ticket prices. Thanks Adum888!' ] },
   { v: '3.16.2', date: 'Nov 9, 2026', title: 'Village gondola fix', small: true, items: [
