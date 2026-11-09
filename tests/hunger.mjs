@@ -10,7 +10,7 @@ let today = {};
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v)), lerp = (a,b,t) => a+(b-a)*t;
 const distXZ = (a,b) => Math.hypot(a.x-b.x,a.z-b.z);
 const staffLevel = () => ({svc:1}), learningOpen = () => false;
-let runOps = {bld:{}}; const closeTime = () => 960, sessionEnd = () => 960, bldMode = B => runOps.bld[B.id] || 'open', lotCount = () => 1, baseOf = () => 0;
+let runOps = {bld:{}}; const closeTime = () => 960, sessionEnd = () => 960, bldMode = B => runOps.bld[B.id] || 'open', lotCount = () => 1, baseCount = () => 1, baseOf = () => 0;
 const LUNCH_OPEN=660, LUNCH_CLOSE=840, PACE=4, WALK=0.13/PACE, SKI_SPEED=[0.38/PACE], SLOW={speed:0.7};
 const LIFT_TYPES={double:{speed:2}}, liftMode = () => 'full', isVillage = L => L.type==='village';
 const canLoad = L => L.open && !L.windHold, runnable = T => T.open && T.snowOk !== false, trailSign = T => T.sign;
