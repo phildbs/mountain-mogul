@@ -7,19 +7,19 @@ export default async function ({ browser, url }) {
   await g.ev(SETUPS.juniperStarter);
   // the menu shows the theme picker on tabs with themed buildings only
   const menu = await g.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('food'); renderSheet(); const food = !!document.querySelector('#sheet [data-action=bTheme]');
-    setBTab('transport'); renderSheet(); const tr = !!document.querySelector('#sheet [data-action=bTheme]'); setTool('explore'); return [food, tr]; })()`);
-  eq(menu, [true, true], 'Theme shows for food and transport');
+    sheetAct({ dataset: { action: 'transitPick', v: 'shuttle' }, disabled: false }); const tr = !!document.querySelector('#sheet [data-action=bTheme]'); setTool('explore'); return [food, tr]; })()`);
+  eq(menu, [true, true], 'Theme shows for food, and for a station picked under Roads › Transit');
   eq(await g.ev(`(() => { setBTheme('modern'); setTool('bld'); draft.btype = null; setBTab('food'); renderSheet();
     const only = [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v);
     setBTheme('classic'); setTool('explore'); return only; })()`), ['truck'], 'buildings without a modern look say “Classic look only”');
   eq(await g.ev(`(() => { setBTheme('scandi'); setTool('bld'); draft.btype = null;
-    const out = ['food', 'shops', 'services', 'transport'].map((tab) => { setBTab(tab); renderSheet();
+    const out = ['food', 'shops', 'services'].map((tab) => { setBTab(tab); renderSheet();
       return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
-    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], []], 'only food trucks lack the Scandinavian look');
+    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], []], 'only food trucks lack the Scandinavian look'); // stations are under Roads › Transit now
   eq(await g.ev(`(() => { setBTheme('retro'); setTool('bld'); draft.btype = null;
-    const out = ['food', 'shops', 'services', 'transport', 'stay'].map((tab) => { setBTab(tab); renderSheet();
+    const out = ['food', 'shops', 'services', 'stay'].map((tab) => { setBTab(tab); renderSheet();
       return [...document.querySelectorAll('#sheet .bpick:not([hidden]) button')].filter((b) => b.querySelector('.only')).map((b) => b.dataset.v); });
-    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], [], []], 'only food trucks lack the Retro look');
+    setBTheme('classic'); setTool('explore'); return out; })()`), [['truck'], [], [], []], 'only food trucks lack the Retro look');
   // every retro model seats guests exactly like the classic one, in every size, and lights its windows at night
   const retro = await g.ev(`Object.keys(MODELS_RETRO).flatMap((t) => Array.from({ length: BTYPES[t].tiers?.length || 1 }, (_, i) => {
     const a = MODELS[t](i), b = MODELS_RETRO[t](i); return { t, seats: JSON.stringify(a.seats) === JSON.stringify(b.seats), glow: b.parts.some(([, m]) => m === BM.glow) }; }))`);
