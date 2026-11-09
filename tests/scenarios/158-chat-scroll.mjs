@@ -28,7 +28,7 @@ export default async function ({ browser, url }) {
       const r = li.getBoundingClientRect(), l = document.getElementById('mcList').getBoundingClientRect(), s = document.getElementById('sheet').getBoundingClientRect();
       return r.bottom <= Math.min(l.bottom, s.bottom, innerHeight) + 2 && r.top >= Math.max(l.top, s.top, 0) - 2 ? 'in view' : `out of view (${Math.round(r.top)}-${Math.round(r.bottom)}, list ${Math.round(l.top)}-${Math.round(l.bottom)}, card ${Math.round(s.top)}-${Math.round(s.bottom)})`;
     }, text);
-    await g.ev("document.getElementById('updCard').hidden = true");
+    await g.ev("localStorage.setItem('mm.seenVersion', VERSION); document.getElementById('updCard').hidden = true"); // seen, so the What's new card doesn't pop up over the chat a moment later
     await tap('#mpFab'); await g.wait(200); await tap('#visitChat'); await g.wait(600);
     eq(await newest('Message number 40'), 'in view', `${who}: the chat opens on the newest message`);
     const clear = () => g.page.evaluate(() => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const x of d.match.messages) x.created_at = new Date(Date.now() - 60000).toISOString(); localStorage.setItem('FAKE_DB', JSON.stringify(d)); });
