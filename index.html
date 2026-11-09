@@ -11672,9 +11672,9 @@ const learningOpen = () => {
   return learnCache.v;
 };
 function trailFit(T, g, idx = 0) {
+  if (T.link) return 0; // a few metres between a trail and a station: what counts is where it leads
   const r = trailSign(T);
   // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
-  if (T.link) return 0; // a few metres between a trail and a station: what counts is where it leads
   if (T.virtual && !T.glade) {
     if (g.ab >= 2) return -14;
     if (g.ab === 1) return -6;
@@ -11696,8 +11696,12 @@ function trailFit(T, g, idx = 0) {
   else if (seen >= 2 && v > 2) v += 0.8;
   return v;
 }
+// Route values are worked out thousands of times a game minute on a big resort, so their notes are kept under a
+// number (quick to make and look up) rather than a piece of text: each trail and lift gets a small number of its own.
+let vkN = 0;
+const vkOf = (o) => o.vk || Object.defineProperty(o, 'vk', { value: ++vkN }).vk; // not enumerable: never saved or copied
 function vTrail(T, idx, g, depth, memo) {
-  const key = `t${T.id}:${idx}:${depth}`;
+  const key = (vkOf(T) * 65536 + idx) * 8 + depth;
   if (memo.has(key)) return memo.get(key);
   memo.set(key, -99);
   const v = (runnable(T) ? trailFit(T, g, idx) : -60) + 0.85 * vRest(T, idx, g, depth, memo);
@@ -11724,7 +11728,7 @@ function vEnd(T, g, depth, memo) {
   return to.obj.fromBase ? vBase(g, depth + 1, memo, T.samples[T.samples.length - 1]) : vLift(to.obj, g, depth + 1, memo);
 }
 function vLift(L, g, depth, memo) {
-  const key = `l${L.id}:${depth}`;
+  const key = vkOf(L) * 524288 + depth;
   if (memo.has(key)) return memo.get(key);
   memo.set(key, -99);
   let v;
@@ -12450,7 +12454,16 @@ function stepLift(L, dt, crew = patrolCrew()) {
   const dp = dt * LIFT_TYPES[L.type].speed / 10 / PACE * (slow ? SLOW.speed : 1);
   const old = L.phase;
   L.phase = (L.phase + dp) % total;
-  for (let i = 0; i < L.chairCount; i++) {
+  // Only the chair or two about to pass a station can do anything this step, so only those are looked at (a big
+  // resort has thousands of chairs). The check on each is the same as ever, in the same order.
+  const n = L.chairCount, near = [];
+  for (const at of U ? [L.midP, L.upLen, total] : [L.upLen, total]) {
+    const lo = Math.floor((at - dp - old) / gap) - 1, hi = Math.ceil((at - old) / gap) + 1;
+    if (!(hi - lo < n)) { near.length = 0; for (let i = 0; i < n; i++) near.push(i); break; } // a huge step: every chair
+    for (let j = lo; j <= hi; j++) { const i = (j % n + n) % n; if (!near.includes(i)) near.push(i); }
+  }
+  near.sort((p, q) => p - q);
+  for (const i of near) {
     const p0 = ((old + i * gap) % total + total) % total, p1 = p0 + dp;
     if (U && p0 < L.midP && p1 >= L.midP) midStop(L, i, staff);
     if (p0 < L.upLen && p1 >= L.upLen) unloadTop(L, i, staff);
@@ -19332,7 +19345,7 @@ function applyDayMelt(w) {
 }
 
 /* ---------- Trail snow: natural cover plus machine snow ---------- */
-const runnable = (t) => t.open && t.snowOk !== false && (t.lit || !nightLightsOn());
+const runnable = (t) => { if (t.link) t = t.parent; return t.open && t.snowOk !== false && (t.lit || !nightLightsOn()); }; // a link borrows all three from its trail; asking the trail itself is much quicker
 const needOf = (t) => OPEN_NEED[trailSign(t)];
 function trailNatural(t) {
   let s = 0, n = 0;
