@@ -11880,7 +11880,7 @@ function goCar(g) {
   // Up in a guest area that touches the base: walk inside it down to the base edge first.
   const A = hubAt(g); if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
   // Parked at the other base, or the only open station is there. With no way across, a bus rider just walks.
-  if ((car || st) && baseCount() > 1 && baseOf(g) !== baseOf(s) && (!st || crossCost(baseOf(g), baseOf(s)) < Infinity)) return crossTo(g, baseOf(s), { k: 'car' });
+  if ((car || st) && baseCount() > 1 && baseOf(g) !== baseOf(s) && (!st || crossCost(baseOf(g), baseOf(s)) < Infinity) && !walkOver(g, s, baseOf(s))) return crossTo(g, baseOf(s), { k: 'car' });
   if (st) return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' });
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
 }
@@ -11916,6 +11916,19 @@ function crossCost(za, zb) {
   for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? (L.xq[za] || []).length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
   if (baseShuttle(za, zb)) c = Math.min(c, 1.6 * (1 + (loopWait[za] || 0) / LOOP_SEATS / LOOP_MAX)); // a long line at the stops puts guests off crossing
   return c;
+}
+// A spot at the other base that's quicker to walk straight to than by the way across: a lift near the middle of the
+// valley counts as the far base, and guests rode the village gondola away from it, then walked all the way back
+// across the base (Adum888). Only with a way across (without one the bases stay apart), only over low ground.
+function walkOver(g, p, zone) {
+  const zg = baseOf(g), d = Math.hypot(p.x - g.x, p.z - g.z);
+  let via = Infinity;
+  for (const L of villageLifts(zg, zone)) { const e = baseOf(L.a) === zg ? 'a' : 'b', f = e === 'a' ? 'b' : 'a'; via = Math.min(via, distXZ(L[e], g) + distXZ(L[f], p)); }
+  if (baseShuttle(zg, zone)) for (const A of zoneStations(zg)) for (const B of zoneStations(zone)) via = Math.min(via, distXZ(A.door, g) + distXZ(B.door, p));
+  if (!(d < via)) return false;
+  const top = MOUNTAIN.baseH + 3.5; // as low as base ground (the ends of a big lot can be off it)
+  for (let i = 1, n = Math.ceil(d / 1.5); i < n; i++) if (trueY(g.x + (p.x - g.x) * i / n, g.z + (p.z - g.z) * i / n) >= top) return false;
+  return true;
 }
 // Head for the other base: the quicker of the gondola and the shuttle, then carry on with `next`.
 function crossTo(g, zone, next) {
@@ -12082,12 +12095,13 @@ function baseDecision(g, skipHub = false) {
   const zg = baseCount() > 1 ? baseOf(g) : 0;
   for (const L of world.lifts) {
     if (!L.fromBase || !canLoad(L) || isVillage(L)) continue;
-    const cross = zg === (baseCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
+    let cross = zg === (baseCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
     if (cross === Infinity) continue;
+    if (cross && walkOver(g, L.a, baseOf(L.a))) cross = 0; // or just walk over, if that's quicker
     const v = noisy(vLift(L, g, 0, memo) - (cross ? cross : Math.hypot(L.a.x - g.x, L.a.z - g.z) * 0.02));
     if (v > bv) { bv = v; best = L; }
   }
-  if (best && baseCount() > 1 && baseOf(best.a) !== zg && !g.leaving) return crossTo(g, baseOf(best.a), { k: 'queue', lid: best.id });
+  if (best && baseCount() > 1 && baseOf(best.a) !== zg && !g.leaving && !walkOver(g, best.a, baseOf(best.a))) return crossTo(g, baseOf(best.a), { k: 'queue', lid: best.id });
   if (!best) { refundGuest(g, world.lifts.some((L) => L.fromBase && L.windHold) ? 'Wind hold on the lifts. Getting my money back.' : null); return goCar(g); }
   if (balk(g, best, { k: 'base' })) return;
   if (g.leaving) return baseDecision(g);
@@ -26380,6 +26394,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.16.2', date: 'Nov 9, 2026', title: 'Village gondola fix', small: true, items: [
+    'Fixed: on a resort with two bases and a village gondola, guests heading for a lift near the middle of the valley no longer ride the gondola away from it and then walk all the way back across the base. When walking straight there is shorter, they just walk. Thanks Adum888!' ] },
   { v: '3.16.1', date: 'Nov 9, 2026', title: 'Faster big resorts', small: true, items: [
     'Big resorts run faster: a busy day on a resort with lots of lifts and trails takes about half the work, so it plays more smoothly and skips to the end of the day sooner.',
     'Building on a big resort is snappier too: the short freeze after placing a trail, lift or building is about a third as long.',
