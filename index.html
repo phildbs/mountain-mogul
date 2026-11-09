@@ -12233,7 +12233,9 @@ function fairTicket() {
 const trailsCount = (open) => (MOUNTAIN.match ? open.reduce((a, t) => a + clamp((t.an?.len || 0) / 60, 0.5, 2), 0) : open.length);
 const pullOf = (open, cap, variety) => (110 + 140 * Math.pow(trailsCount(open), 0.65) + cap / 14 + variety * 40) * MOUNTAIN.draw;
 let dayPull = 1; // today's draw relative to an ordinary weekend day (weekdays less, holidays and powder more)
+let dayWant = 0; // how many wanted to come today, before the most a day can hold
 function demandForDay() {
+  dayWant = 0;
   const open = realTrails().filter((t) => runnable(t) && t.reachable && t.returns);
   if (!open.length || !world.lifts.some((L) => L.open && L.fromBase)) return 0;
   const cap = world.lifts.filter((L) => L.open && L.reachable).reduce((a, L) => a + L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1), 0);
@@ -12285,7 +12287,8 @@ function demandForDay() {
   if (ev) dayPull *= EVENTS[ev.type].boost;
   if (runOps && runOps.hours === 'short') amen *= 0.9; // a shorter day tempts fewer people to make the drive
   if (runOps && runOps.apres === 'on') amen *= has('bar') ? 1.05 : 1.02; // a lively base after skiing draws a crowd
-  return Math.min(MAX_G * AGENT, Math.round(base * f * season * priceF * amen * parkF * state.reputation * (ev ? EVENTS[ev.type].boost : 1) * (0.9 + Math.random() * 0.2)));
+  dayWant = Math.round(base * f * season * priceF * amen * parkF * state.reputation * (ev ? EVENTS[ev.type].boost : 1) * (0.9 + Math.random() * 0.2));
+  return Math.min(MAX_G * AGENT, dayWant);
 }
 function gaussian() { return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random()); }
 function makeSchedule(n) {
@@ -13029,6 +13032,7 @@ function openDay() {
   const hotelN = bookHotels(n, short); // hotel guests come on top, up to the most the mountain can hold
   const ownerN = condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners
   schedule = makeSchedule(Math.ceil(Math.max(0, Math.min(n, MAX_G * AGENT - hotelN - ownerN)) / AGENT));
+  today.full = dayWant > MAX_G * AGENT - hotelN - ownerN; // more wanted to come than the day can hold: said in the report, as it looked like a bug
   schedule.push(...today.hotelOut); today.hotelOut = null;
   if (short) for (const e of schedule) if (e.t < SHORT_OPEN - 5) e.t = SHORT_OPEN - 5 + Math.random() * 40;
   schedule.sort((a, b) => b.t - a.t);
@@ -13121,7 +13125,7 @@ function endDay() {
     bases: baseCount() > 1 ? { lots: Array.from({ length: baseCount() }, (_, k) => (today.lotCars || {})[k] || 0), crossings: today.crossings || 0, stranded: today.crossStranded || 0, gondola: villageLifts(0, 1).length > 0, shuttle: baseShuttle(0, 1) } : null, // two bases: who parked where, and getting between them
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
-    day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
+    full: !!today.full, day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, park: today.exp.park || 0, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
@@ -21602,6 +21606,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.patched) note(1, `${r.patched} injured guests were patched up at the clinic and went back out.`);
   if (r.bases && (r.bases.lots[1] || r.bases.crossings)) note(1, `Guests by lot: ${r.bases.lots.map((n, k) => `${esc(lotName(k))} ${n.toLocaleString('en-US')}`).join(', ')}.${r.bases.crossings ? ` Guests crossed between the bases ${r.bases.crossings.toLocaleString('en-US')} times${r.bases.gondola && r.bases.shuttle ? ' by gondola and shuttle' : r.bases.gondola ? ' on the village gondola' : ' on the base shuttle'}.` : ''}`);
   if (r.bases && r.bases.stranded) note(4, `${r.bases.stranded} guests ended up at the wrong base with no way back to their car and waited a long time for a ride.`);
+  if (r.full) note(3, `Full house: more people wanted to ski here today than the mountain can hold. A day takes up to ${(MAX_G * AGENT).toLocaleString('en-US')} day skiers, hotel guests and condo owners, plus the night crowd. Raising ticket prices now earns more from the same crowd.`);
   if (r.busGuests) note(1, `${r.busGuests} guests arrived by town bus without needing a parking space.`);
   if (r.hotel && r.hotel.all) note(2, `Your hotels were ${Math.round(r.hotel.rooms / r.hotel.all * 100)}% full: ${r.hotel.rooms} of ${r.hotel.all} rooms. ${r.hotel.guests} hotel guests skied today without needing a parking space${r.hotel.naps ? `, and ${r.hotel.naps} went back to their rooms for a rest, then out again` : ''}.`);
   if (r.condo) {
@@ -26394,6 +26399,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.16.3', date: 'Nov 9, 2026', title: 'Full house', small: true, items: [
+    'The day report now says when your mountain was full: more people wanted to ski than a day can hold (5,000 day skiers, hotel guests and condo owners, plus the night crowd). Lower prices and free parking can’t bring in more then, so it’s a good time to raise ticket prices. Thanks Adum888!' ] },
   { v: '3.16.2', date: 'Nov 9, 2026', title: 'Village gondola fix', small: true, items: [
     'Fixed: on a resort with two bases and a village gondola, guests heading for a lift near the middle of the valley no longer ride the gondola away from it and then walk all the way back across the base. When walking straight there is shorter, they just walk. Thanks Adum888!' ] },
   { v: '3.16.1', date: 'Nov 9, 2026', title: 'Faster big resorts', small: true, items: [

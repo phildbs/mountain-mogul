@@ -242,6 +242,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-6c10e337-ygifer` | Claude | **3.16.3 candidate (Full house note), then 3.17: as many bases as players build.** See the Nov 9 notes. | Nov 9, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
@@ -410,6 +411,10 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
   Skip run at the same pace, which is what a Firefox player reported.
 
 ## AI collaboration notes
+
+### 2026-11-09 · Claude · 3.16.3 Full house note (branch `ccr-6c10e337-ygifer`, not published)
+Adum888: "a limit stopping more than 8400 people... prices down to 10, free parking, events, it gets stuck at 8400". It's `MAX_G` (5,000 figures): `demandForDay` caps day skiers at it and `openDay` gives day skiers what's left after hotel guests and condo owners; night skiers come on top (their day: 7,775 = ~5,000 + 2,774 night). Not raised: it's the figure buffer and the sim cost on big resorts. Now `dayWant` keeps the uncapped demand, `today.full` / `report.full` say when it went over, and the day report has a Full house note. Scenario `200-full-house`.
+Phil chose (Nov 9) to let players have as many bases as they build (3.17, next). Their second report: a lot behind Ridgeback's ridge (with its own road and guest area) can't take a village gondola, because bases are only the map's lot sites and that lot counts as the East base.
 
 ### 2026-11-09 · Claude · 3.16.2 village gondola walk-back (branch `ccr-6c10e337-ygifer`, published Nov 9; full GitHub run green on 7c2986c)
 Adum888 (Ridgeback, 18 lifts, village gondola from the East base to the main base): "after using the village gondola people just walk across the map". `baseOf` splits the valley halfway between the map's two lot sites, so a lift near the middle counts as the far base. Guests at the near base rode the gondola away from it, then walked straight back 50 units across the base. Rebuilt their lots, gondola and three of their lifts on fresh Ridgeback: 1,258 crossings a day, 1,041 of them followed by a 25+ unit walk; most were these walk-backs.
