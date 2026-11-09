@@ -2,8 +2,9 @@
 
 **Phil's decisions (Nov 9):** a playable summer of a handful of days (expand later if players like it); scenic lift
 rides, weddings and events, a mountain coaster and mountain biking all ship together as one major release (**4.0**).
-Then, on the six questions at the end: **1.** a longer summer, with a shorter one as an option (built as Long, 24 days,
-Thursday to Sunday at six stops, or Short, 12 days, Friday and Saturday). **2.** Bike trails are their own narrow dirt
+Then, on the six questions at the end: **1.** a longer summer, with a shorter one as an option. Settled later the same day as
+**Full** (every day from late June to the fall colours, about 108 days) or **Condensed** (Friday to Sunday at six
+stops, 18 days, each counting 2.5 times so the two come out about the same). **2.** Bike trails are their own narrow dirt
 trails down the mountain, hidden under the snow in winter. **3.** The coaster runs in both seasons. **4.** Zip lines
 are in if they fit. **5.** King of the Mountain keeps today's summer for now. **6.** Hidden pieces on `main`, switched
 on together at 4.0, as long as they are tracked: the tracker is "Summer 4.0" in `AI_HANDOFF.md`.

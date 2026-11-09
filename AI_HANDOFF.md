@@ -276,8 +276,14 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 
 **How piece 1 works** (section `SUMMER DAYS` in `index.html`):
 - `enterSummer` calls `startSummer`, which makes `state.sum = { k, days, paid, billed, stats, wx, next }` and moves
-  `state.day` to the first summer day (real day numbers: Jun 1 is day 182). `state.sumLen` is `'long'` (24 days) or
-  `'short'` (12). `summerLeft()` says whether there are days still to play; when it is false everything falls back to
+  `state.day` to the first summer day (real day numbers: Jun 1 is day 182). `state.sumLen` is `'full'` (every day
+  from the Friday of the first stop to the Sunday of the last, about 108 days; Phil's choice, Nov 9) or `'short'`
+  (Condensed: Friday to Sunday at the six stops, 18 days). A condensed day's takings and running costs count
+  `SUMMER_COND` (2.5) times (`summerStandIn`, at the end of the day), so both lengths come out about the same: in the
+  starter resort a full summer open only Fri to Sun made $178k before upkeep, open every day $161k, condensed $156k,
+  against a $198k bill. That is richer than the design's "about half the bill": retune at piece 5. `summerStop(day)`
+  gives the part of the summer (the six stops, plus a quiet "Early fall" after Labor Day); `fallAmount()` turns the
+  trees from mid-September. `summerLeft()` says whether there are days still to play; when it is false everything falls back to
   the old build-phase summer. Never in a match or while visiting.
 - A summer day is `openDay` with `state.summer` still true (`summerNow()`): every guest is a sightseer (`g.sight`),
   demand comes from `summerDemand`, and the winter-only steps are skipped (passes, grooming, hotels, condos, evening
@@ -289,8 +295,7 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
   `liftModeIn` defaults the summer plan to one lift (`summerMainLift`), `bldModeIn` shuts `SUMMER_SHUT` types, staff
   cost is times `SUMMER_STAFF`, and buildings shut for the summer cost no upkeep.
 - Money: the old lump (`dailyOverhead() * 199 * 0.35`) is charged a share a day by `summerBill`; `newSeason` charges
-  what is left. Summer totals are in `state.sum.stats`, apart from the season's. A starter resort (one double, one
-  lodge) covered 43% of its bill over a long summer in a test run.
+  what is left. Summer totals are in `state.sum.stats`, apart from the season's.
 - Looks: `TREE_U.uFall` turns about four trees in ten gold at the last stop (`fallColours()`); summer weather types are
   `sumsun`, `sumcloud`, `sumrain`.
 

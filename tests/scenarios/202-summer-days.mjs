@@ -1,5 +1,5 @@
-// Summer days (hidden until 4.0 behind ?summer=1): after the snow melts the summer is played as 24 days (or 12) at six
-// stops from June to the fall colours. Guests buy a scenic ride, get off at the top, ride down and may eat at the base.
+// Summer days (hidden until 4.0 behind ?summer=1): after the snow melts the summer is played day by day from late June to
+// the fall colours (Full), or as 18 days, Friday to Sunday at six stops (Condensed). Guests buy a scenic ride, get off at the top, ride down and may eat at the base.
 // The summer upkeep is spread over the days. Without the switch, summer is the quiet build phase it always was.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 const toSummer = `(() => { state.day = 150; state.phase = 'season'; nextDay(); })()`;
@@ -21,9 +21,9 @@ export default async function ({ browser, url }) {
   await g.click('#startBtn'); await g.wait(300);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
   await g.ev(toSummer);
-  const s0 = await g.ev(`({ n: state.sum.days.length, dows: state.sum.days.map((d) => dateOf(d).getUTCDay()).slice(0, 4), first: dateOf(state.day).getUTCMonth(), last: dateOf(state.sum.days[23]).getUTCMonth(), plan: planFor(state.day), go: $('tbGo').textContent, wait: $('tbWait').textContent, sub: $('tbSub').innerText })`);
-  eq([s0.n, s0.dows, s0.first, s0.last, s0.plan, s0.go, s0.wait], [24, [4, 5, 6, 0], 5, 9, 'summer', 'Open for the day', 'Stay closed'], 'a long summer: Thursday to Sunday at six stops, June to October');
-  assert(/Early summer · summer day 1 of 24/.test(s0.sub) && /Summer plan/.test(s0.sub), `the time bar says where the summer is (${s0.sub})`);
+  const s0 = await g.ev(`({ n: state.sum.days.length, dows: state.sum.days.map((d) => dateOf(d).getUTCDay()).slice(0, 4), first: dateOf(state.day).getUTCMonth(), last: dateOf(state.sum.days[state.sum.days.length - 1]).getUTCMonth(), span: state.sum.days[state.sum.days.length - 1] - state.sum.days[0] + 1, plan: planFor(state.day), go: $('tbGo').textContent, wait: $('tbWait').textContent, sub: $('tbSub').innerText })`);
+  eq([s0.n === s0.span, s0.dows, s0.first, s0.last, s0.plan, s0.go, s0.wait], [true, [5, 6, 0, 1], 5, 9, 'summer', 'Open for the day', 'Stay closed'], 'a full summer: every day from a Friday in June to October');
+  assert(s0.n > 100 && s0.n < 115 && new RegExp(`Early summer · summer day 1 of ${s0.n}`).test(s0.sub) && /Summer plan/.test(s0.sub), `the time bar says where the summer is (${s0.sub})`);
   // the Summer plan starts with the one base chair running and the ski-only buildings shut
   await g.ev(`(() => { const L = world.buildings[0]; for (const [dx, dz] of [[5, 0], [-5, 0], [0, 4], [0, -4], [8, 0], [-8, 0]]) { const i = evalBuilding('rental', L.x + dx, L.z + dz, 0); if (!i.problems.length) { commitBuilding(i, 'rental', L.x + dx, L.z + dz, 0); break; } } })()`);
   const plan = await g.ev(`(() => { const P = opsState().plans.summer; return { lift: liftModeIn(P, world.lifts[0]), blds: world.buildings.map((B) => [B.type, bldModeIn(P, B)]) }; })()`);
@@ -38,7 +38,7 @@ export default async function ({ browser, url }) {
   const q = await g.ev(`(() => { const before = world.lifts[0].topQ.length; applySave(JSON.parse(JSON.stringify(saveData(true)))); return [before > 0, world.lifts[0].topQ.length === before, state.phase, summerNow()]; })()`);
   eq(q, [true, true, 'open', true], 'a save in the middle of a summer day keeps the line for the ride down');
   await g.ev(`(() => { let n = 0; while (state.phase === 'open' && n++ < 60000) simStep(1.5); })()`);
-  const r = await g.ev(`(() => { const r = state.lastReport, bill = Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE); return { phase: state.phase, summer: r.summer, guests: r.guests, sight: r.sightseers, refunded: r.refunded || 0, tickets: r.rev.tickets, price: svcPrice('scenic'), oh: r.exp.overhead, share: Math.round(bill / 24), groom: r.exp.grooming, days: state.sum.stats.days, winterDays: state.seasonStats.days, left: guests.length, txt: $('rpBody').innerText }; })()`);
+  const r = await g.ev(`(() => { const r = state.lastReport, bill = Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE); return { phase: state.phase, summer: r.summer, guests: r.guests, sight: r.sightseers, refunded: r.refunded || 0, tickets: r.rev.tickets, price: svcPrice('scenic'), oh: r.exp.overhead, share: Math.round(bill / state.sum.days.length), groom: r.exp.grooming, days: state.sum.stats.days, winterDays: state.seasonStats.days, left: guests.length, txt: $('rpBody').innerText }; })()`);
   eq([r.phase, r.summer, r.left, r.groom, r.days], ['report', 'Early summer', 0, 0, 1], 'the day ends in a summer day report, everyone home');
   assert(r.guests > 20 && r.sight + r.refunded === r.guests, `every guest rode up and back (${r.guests} guests, ${r.sight} rode, ${r.refunded} refunded)`);
   eq(r.tickets, (r.guests - r.refunded) * r.price, 'each paid for a scenic ride');
@@ -48,14 +48,24 @@ export default async function ({ browser, url }) {
 
   // on to the next day; a day spent closed still pays its share
   await g.ev(`nextDay()`);
-  const d2 = await g.ev(`(() => { const c = state.cash, k = state.sum.k; waitDay(); return [k, state.sum.k, Math.round(c - state.cash) === Math.round(Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) / 24), state.phase]; })()`);
+  const d2 = await g.ev(`(() => { const c = state.cash, k = state.sum.k; waitDay(); return [k, state.sum.k, Math.round(c - state.cash) === Math.round(Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) / state.sum.days.length), state.phase]; })()`);
   eq(d2, [1, 2, true, 'closed'], 'staying closed moves on a day and pays that day’s upkeep');
   // a shorter summer, switched in the Summer panel
   await g.ev(`openManage('snow')`); await g.wait(150);
-  assert(/Summer day\s+3 of 24/i.test(await g.ev(`$('sheet').innerText`)), 'the Summer panel counts the days');
+  assert(new RegExp(`Summer day\\s+3 of ${s0.n}`, 'i').test(await g.ev(`$('sheet').innerText`)), 'the Summer panel counts the days');
+  // weekdays are quiet: skip to Friday
+  await g.ev(`waitDay()`); await g.ev(`openManage('snow')`); await g.wait(150);
+  await g.ev(`$('sheet').querySelector('[data-action=sumWeekend]').click()`); await g.wait(100);
+  eq(await g.ev(`[state.sum.k, dateOf(state.day).getUTCDay(), Math.round(state.sum.paid) === Math.round(Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) / state.sum.days.length) * 7]`), [7, 5, true], 'Stay closed until Friday pays each day skipped');
   await g.ev(`$('sheet').querySelector('[data-action=sumLen][data-v=short]').click()`); await g.wait(100);
-  const sh = await g.ev(`[state.sumLen, state.sum.days.length, state.sum.k, state.sum.days.slice(state.sum.k + 1).every((d) => [5, 6].includes(dateOf(d).getUTCDay()))]`);
-  eq(sh, ['short', 13, 2, true], 'short: the days still to come are Fridays and Saturdays');
+  const sh = await g.ev(`[state.sumLen, state.sum.days.length - state.sum.k - 1, state.sum.days.slice(state.sum.k + 1).every((d) => [5, 6, 0].includes(dateOf(d).getUTCDay()))]`);
+  eq(sh, ['short', 14, true], 'condensed: the days still to come are Fridays to Sundays at the stops left');
+  // a condensed day counts 2.5 times
+  await g.ev(`(() => { waitDay(); state.sum.wx = { type: 'sumsun', hi: 78, lo: 55, snow: 0, wind: 5 }; })()`);
+  eq(await g.ev(playDay), 'report', 'a condensed day plays');
+  const c = await g.ev(`(() => { const r = state.lastReport; return [r.standIn, r.rev.tickets === Math.round((r.guests - (r.refunded || 0)) * svcPrice('scenic') * 2.5), /count 2.5 times/.test($('rpBody').innerText)]; })()`);
+  eq(c, [2.5, true, true], 'its takings count 2.5 times, and the report says so');
+  await g.ev(`nextDay()`);
   // fall colours at the last stop
   eq(await g.ev(`(() => { const a = TREE_U.uFall.value; while (!summerStop().fall) waitDay(); return [a, TREE_U.uFall.value, fallColours()]; })()`), [0, 1, true], 'the trees turn for the last stop');
   // skip to winter: the days not played pay their upkeep, so the summer costs exactly the old bill less what it earned
@@ -77,5 +87,5 @@ export default async function ({ browser, url }) {
   await g.click('#sumDemo [data-d=wx][data-v=sumsun]'); await g.click('#sumDemo [data-d=play]');
   eq(await g.ev(`(() => { const p = state.phase; let n = 0; while (state.phase === 'open' && n++ < 60000) simStep(1.5); saveNow(); return [p, state.phase, state.lastReport.guests > 0, Object.keys(localStorage).some((k) => /juniperRidge/.test(k) && !/boot/.test(k))]; })()`), ['open', 'report', true, false], 'it plays a day and saves nothing');
   eq(g.errors, [], 'no page errors in the summer preview');
-  return 'summer days: calendar, Summer plan, a scenic-ride day with a mid-day save, upkeep by the day, short summer, fall colours, skip to winter';
+  return 'summer days: calendar, Summer plan, a scenic-ride day with a mid-day save, upkeep by the day, condensed summer, fall colours, skip to winter, the summer preview';
 }

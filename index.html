@@ -8941,6 +8941,7 @@ function sheetAct(b) {
   else if (a === 'waitWeek') waitWeek();
   else if (a === 'sumSkip' || a === 'sumNo') { sheetConfirm = a === 'sumSkip'; renderSheet(); }
   else if (a === 'sumYes' && summerLeft() && state.phase === 'closed') { sheetConfirm = false; select(null); summerEnd(); }
+  else if (a === 'sumWeekend' && summerLeft() && state.phase === 'closed') { summerToWeekend(); renderSheet(); }
   else if (a === 'sumLen' && summerLeft() && state.phase === 'closed') { summerLength(b.dataset.v); renderSheet(); }
   else if (a === 'seasonEnd' || a === 'seasonNo') { sheetConfirm = a === 'seasonEnd'; renderSheet(); }
   else if (a === 'seasonYes' && seasonEndOk() && state.phase === 'closed' && !matchPlay) {
@@ -9759,9 +9760,11 @@ const SUMMER_ON = /[?&]summer=1\b/.test(location.search) || !!SUMMER_DEMO;
 const summerNow = () => !!state.summer && state.phase === 'open'; // a summer day is being played
 // Six stops through the summer; `day` is near each one's Saturday (day 0 is Dec 1), `pull` how busy it gets.
 const SUMMER_STOPS = [
-  { day: 208, name: 'Early summer', pull: 0.8 }, { day: 215, name: 'Fourth of July', pull: 1.3 }, { day: 236, name: 'High summer', pull: 1 },
-  { day: 257, name: 'Late summer', pull: 0.9 }, { day: 278, name: 'Labor Day', pull: 1.15 }, { day: 311, name: 'Fall colours', pull: 1.8, fall: true },
+  { day: 208, name: 'Early summer', pull: 0.8 }, { day: 215, name: 'Fourth of July', pull: 1.3, holiday: true }, { day: 236, name: 'High summer', pull: 1 },
+  { day: 257, name: 'Late summer', pull: 0.9 }, { day: 278, name: 'Labor Day', pull: 1.15, holiday: true }, { day: 311, name: 'Fall colours', pull: 1.8, fall: true },
 ];
+const SUMMER_EARLY_FALL = { name: 'Early fall', pull: 0.75 }; // the quiet weeks after Labor Day (a full summer only)
+const SUMMER_COND = 2.5; // a condensed summer plays 18 of the busy days: each stands in for this many
 const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic', 'hotel', 'condo']; // nothing for them to do until the snow is back
 const SUMMER_GUESTS = 600, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -13219,6 +13222,7 @@ function endDay() {
   // Claims follow missed help or a substantial wait, never the injury itself.
   const rescueClaims = patrolClaimReview(ops), claims = rescueClaims.unhelpedClaims + rescueClaims.delayedClaims;
   today.exp.claims = Math.round(claims * 9000 * MOUNTAIN.costs);
+  if (state.summer && state.sumLen === 'short') summerStandIn(costs);
   // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
   for (const B of world.buildings) {
@@ -13294,7 +13298,7 @@ function endDay() {
   if (overlay.traffic) for (const t of world.trails) styleTrail(t);
   if (!sm) recordDay(state.lastReport);
   Object.assign(state.lastReport, { when: dateLabel(state.day), season: state.season });
-  if (sm) state.lastReport.summer = summerStop().name;
+  if (sm) { state.lastReport.summer = summerStop().name; if (today.standIn) state.lastReport.standIn = today.standIn; }
   const hist = state.history || (state.history = []);
   hist.push(state.lastReport);
   if (hist.length > HISTORY_DAYS) hist.splice(0, hist.length - HISTORY_DAYS);
@@ -19420,7 +19424,7 @@ const SURFACE = {
   powder: 'Powder', packed: 'Packed powder', groomed: 'Groomed', moguls: 'Moguls', icy: 'Icy', firm: 'Firm',
   spring: 'Spring snow', variable: 'Variable', thin: 'Thin cover', closed: 'Not enough snow',
 };
-Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, referralPromptSeason: null, referralCredit: 0, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, sum: null, sumLen: 'long', baseSm: null });
+Object.assign(SIM_DEFAULTS, { day: PRESEASON_DAY, season: 1, referralPromptSeason: null, referralCredit: 0, wx: null, treeSnow: 0.4, seasonStats: null, nightCost: null, summer: false, sum: null, sumLen: 'full', baseSm: null });
 
 const midH = () => (MOUNTAIN.baseH + MOUNTAIN.summitH) / 2;
 const elevFrac = (h) => clamp((h - MOUNTAIN.baseH) / (MOUNTAIN.summitH - MOUNTAIN.baseH), 0, 1);
@@ -19867,7 +19871,7 @@ const GROUND = {
 function snowCover(idx) { return winterView ? 1 : sstep(0.4, 6, NS[idx]); }
 function groundColor(i, j, idx, out) {
   const n = 0.5 + 0.5 * vnoise(i * 0.21, j * 0.21, 61), n2 = vnoise(i * 0.9, j * 0.9, 62) * 0.03;
-  const g = state.summer ? (fallColours() ? 0.45 : 1) : 0.12; // lush in summer, drying off by the fall
+  const g = state.summer ? lerp(1, 0.45, fallAmount()) : 0.12; // lush in summer, drying off by the fall
   const grass = [lerp(GROUND.dry[0], lerp(GROUND.green[0], GROUND.lush[0], n), g), lerp(GROUND.dry[1], lerp(GROUND.green[1], GROUND.lush[1], n), g), lerp(GROUND.dry[2], lerp(GROUND.green[2], GROUND.lush[2], n), g)];
   const dirtK = sstep(0.55, 0.9, n) * 0.5 * (1 - g * 0.6);
   for (let c = 0; c < 3; c++) out[c] = lerp(grass[c], GROUND.dirt[c], dirtK) + n2;
@@ -19923,7 +19927,7 @@ function styleSnowVisuals() {
   PAD_MAT.opacity = winterView ? 1 : bc;
   PAD_MAT.visible = PAD_MAT.opacity > 0.02;
   TREE_U.uTreeSnow.value = winterView ? 1 : state.treeSnow;
-  TREE_U.uFall.value = !winterView && fallColours() ? 1 : 0;
+  TREE_U.uFall.value = winterView ? 0 : fallAmount();
   if (!winterView && !state.summer) {
     const w = todayWx();
     TREE_U.uSnowLine.value = midH() + (w.hi - 32) / LAPSE - 4;
@@ -21567,25 +21571,39 @@ $('tbWait').onclick = waitDay;
 $('tbWx').onclick = () => openManage('snow');
 /* =====================================================================
    SUMMER DAYS (hidden until 4.0: only with ?summer=1 in the link)
-   After the snow melts, summer is played as a handful of days at six stops from late June to the fall
-   colours: Thursday to Sunday at each (24 days), or just Friday and Saturday (12) for a shorter summer.
+   After the snow melts, summer is played day by day from late June to the fall colours in October (Full, about
+   108 days), or as 18 days, Friday to Sunday at six stops (Condensed, where each day counts SUMMER_COND times).
    A summer day is an ordinary open day with summer guests instead of skiers. They buy a scenic ride, go up
    a chairlift or gondola from the base, look around or eat at the top, ride down, and may eat or shop
    before the drive home. The summer upkeep, once one lump when winter starts, is spread over the days.
-   `state.sum` = { k, days, paid, billed, stats, wx, next }; `state.sumLen` is 'long' or 'short'.
+   `state.sum` = { k, days, paid, billed, stats, wx, next }; `state.sumLen` is 'full' or 'short' (condensed).
    ===================================================================== */
+// The Saturday of each stop, this year.
+function summerSats() {
+  return SUMMER_STOPS.map((S) => { for (const o of [0, 1, -1, 2, -2, 3, -3]) if (dateOf(S.day + o).getUTCDay() === 6) return S.day + o; return S.day; });
+}
+// Full: every day from the Friday of the first stop to the Sunday of the last. Condensed: Friday to Sunday at each stop.
 function summerDays(len = state.sumLen) {
-  const out = [];
-  for (const S of SUMMER_STOPS) {
-    let sat = S.day;
-    for (const o of [0, 1, -1, 2, -2, 3, -3]) if (dateOf(S.day + o).getUTCDay() === 6) { sat = S.day + o; break; }
-    out.push(...(len === 'short' ? [sat - 1, sat] : [sat - 2, sat - 1, sat, sat + 1]));
-  }
+  const sats = summerSats(), out = [];
+  if (len === 'short') return sats.flatMap((d) => [d - 1, d, d + 1]);
+  for (let d = sats[0] - 1; d <= sats[5] + 1; d++) out.push(d);
   return out;
 }
 const summerLeft = () => SUMMER_ON && !!state.summer && !!state.sum && state.sum.k < state.sum.days.length && !matchPlay && !visiting;
-function summerStop(day = state.day) { return SUMMER_STOPS.reduce((b, S) => (Math.abs(S.day - day) < Math.abs(b.day - day) ? S : b)); }
-const fallColours = () => SUMMER_ON && !!state.summer && !!state.sum && !!summerStop().fall;
+// The part of the summer a day is in.
+function summerStop(day = state.day) {
+  const sats = summerSats(), S = SUMMER_STOPS;
+  if (day >= 304) return S[5]; // October: the trees have turned
+  if (day > sats[4] + 2) return SUMMER_EARLY_FALL;
+  if (day >= sats[4] - 2) return S[4]; // Labor Day, Thursday to Monday
+  if (day >= 250) return S[3];
+  if (day > sats[1] + 1) return S[2];
+  if (day >= sats[1] - 2) return S[1]; // the Fourth, Thursday to Sunday
+  return S[0];
+}
+// How far the trees have turned: starting in the second half of September, all the way by October.
+const fallAmount = () => (SUMMER_ON && state.summer && state.sum ? sstep(290, 304, state.day) : 0);
+const fallColours = () => fallAmount() >= 1;
 function summerWx(day) {
   const fall = summerStop(day).fall, r = Math.random(), type = r < 0.62 ? 'sumsun' : r < 0.85 ? 'sumcloud' : 'sumrain';
   const hi = Math.round((fall ? 56 : 75) + (type === 'sumsun' ? 4 : type === 'sumcloud' ? -2 : -8) + Math.random() * 8 - 4);
@@ -21599,10 +21617,10 @@ function startSummer() {
   state.day = days[0]; state.time = DAY_OPEN;
   for (const L of world.lifts) L.windHold = false; // last winter's wind is long gone
 }
-// A longer or shorter summer, chosen any morning: the days still to come are swapped, the ones played stay played.
+// A full or a condensed summer, chosen any morning: the days still to come are swapped, the ones played stay played.
 function summerLength(len) {
   const sum = state.sum;
-  if (!sum || (len !== 'long' && len !== 'short') || len === state.sumLen) return;
+  if (!sum || (len !== 'full' && len !== 'short') || len === (state.sumLen === 'short' ? 'short' : 'full')) return;
   state.sumLen = len;
   const later = summerDays(len).filter((d) => d > state.day);
   sum.days = [...sum.days.slice(0, sum.k + 1), ...later];
@@ -21640,7 +21658,7 @@ function summerDemand() {
   if (lifts.some((L) => world.buildings.some((B) => isEatery(B) && bldMode(B) !== 'closed' && distXZ(B.door, L.b) <= 8))) amen += 0.2; // lunch with a view
   if (has('lodge') || has('restaurant') || has('cafe')) amen += 0.06;
   if (has('gift') || has('store')) amen += 0.03;
-  const day = dow === 6 ? 1 : dow === 0 ? 0.9 : dow === 5 ? 0.6 : 0.4;
+  const day = Math.max(dow === 6 ? 1 : dow === 0 ? 0.9 : dow === 5 ? 0.6 : 0.4, S.holiday ? 0.8 : 0); // a holiday is busy whatever the day
   const priceF = clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5);
   const parkF = clamp(1.03 - state.prices.parking / 120, 0.7, 1.03);
   dayPull = day;
@@ -21692,11 +21710,27 @@ function summerNext() {
   draft.dirty = !!draft.kind;
   styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
 }
+// Stay closed until Friday (a full summer's weekdays are quiet), paying each day's upkeep.
+function summerToWeekend() {
+  let n = 0;
+  while (summerLeft() && state.phase === 'closed' && !state.bankrupt && n++ < 7) { summerNext(); if (state.summer && dateOf(state.day).getUTCDay() === 5) break; }
+}
+// A condensed summer plays 18 busy days in place of the whole season, so each day's takings and running costs
+// count SUMMER_COND times. Called as the day ends, before the day's bills are paid.
+function summerStandIn(costs) {
+  const m = SUMMER_COND - 1, t = today;
+  for (const k of Object.keys(t.rev)) if (typeof t.rev[k] === 'number') { state.cash += t.rev[k] * m; t.rev[k] = Math.round(t.rev[k] * SUMMER_COND); }
+  if (t.refunds) { state.cash -= t.refunds * m; t.refunds = Math.round(t.refunds * SUMMER_COND); }
+  state.cash -= t.exp.lifts * m; t.exp.lifts *= SUMMER_COND;
+  for (const k of ['staff', 'upkeep', 'parking', 'shuttles', 'cogs']) t.exp[k] = Math.round((t.exp[k] || 0) * SUMMER_COND); // not paid yet
+  for (const k of ['other', 'patrol', 'staff']) costs[k] = Math.round((costs[k] || 0) * SUMMER_COND);
+  t.standIn = SUMMER_COND;
+}
 // Skip the rest of the summer: the days not played just pay their upkeep, as a summer always has.
 function summerEnd() { if (summerLeft() && state.phase === 'closed') newSeason(); }
 function summerPanel() {
   const sum = state.sum, st = sum.stats, w = todayWx(), S = summerStop(), left = sum.days.length - sum.k;
-  const share = Math.round(summerBillTotal() / sum.days.length);
+  const share = Math.round(summerBillTotal() / sum.days.length), short = state.sumLen === 'short';
   const can = world.lifts.some((L) => canScenic(L) && L.open);
   return `<div class="wxrow">${wxCard(w, 'Today')}${sum.next ? wxCard(sum.next, 'Next') : ''}</div>
     <dl class="kv">
@@ -21708,10 +21742,12 @@ function summerPanel() {
       <div><dt>Upkeep each day</dt><dd>${money(share)}</dd></div>
     </dl>
     <p class="help">${can ? 'Summer guests buy a scenic ride, go up for the view, and eat and shop if you have somewhere open. Choose which lifts and buildings run in the Summer plan.' : 'Summer guests come for a ride up the mountain. You need a chairlift or gondola from the base, switched on in the Summer plan.'}
-      ${S.fall ? 'The trees have turned: this is the busiest time for scenic rides.' : 'The busiest days are the Fourth of July, Labor Day and the fall colours.'} Summer upkeep is paid day by day, open or closed.</p>
-    ${state.phase === 'closed' && !visiting ? `<div class="field-label">Length of summer</div>
-      <div class="seg"><button data-action="sumLen" data-v="long" aria-pressed="${state.sumLen !== 'short'}">Long (24 days)</button><button data-action="sumLen" data-v="short" aria-pressed="${state.sumLen === 'short'}">Short (12 days)</button></div>
-      <p class="help">Long plays Thursday to Sunday at each of six stops. Short plays Friday and Saturday. You can switch any morning.</p>
+      ${S.fall ? 'The trees have turned: this is the busiest time for scenic rides.' : 'The busiest days are weekends, the Fourth of July, Labor Day and the fall colours in October.'} Summer upkeep is paid day by day, open or closed.</p>
+    ${state.phase === 'closed' && !visiting ? `${short || dateOf(state.day).getUTCDay() === 5 ? '' : `<button class="btn secondary" data-action="sumWeekend">Stay closed until Friday</button>
+      <p class="help">Weekdays are quiet. Each closed day still pays its upkeep.</p>`}
+      <div class="field-label">Length of summer</div>
+      <div class="seg"><button data-action="sumLen" data-v="full" aria-pressed="${!short}">Full</button><button data-action="sumLen" data-v="short" aria-pressed="${short}">Condensed</button></div>
+      <p class="help">Full plays every day from late June to the fall colours. Condensed plays 18 days, Friday to Sunday at six points in the summer, and each counts ${SUMMER_COND} times so the summer comes out about the same. You can switch any morning.</p>
       <div class="field-label">Skip to winter</div>
       ${sheetConfirm ? `<p class="help">Skip the last ${left} summer ${left === 1 ? 'day' : 'days'} and start season ${state.season + 1}? You pay the rest of the summer upkeep and earn nothing more this summer.</p>
         <div class="row"><button class="btn danger" data-action="sumYes">Start season ${state.season + 1}</button><button class="btn secondary" data-action="sumNo">Keep playing summer</button></div>`
@@ -21746,8 +21782,8 @@ function summerDemo() {
     else if (d === 'again') { if (state.phase === 'closed' && !state.summer) enterSummer(); }
     else if (!state.sum || state.phase === 'open') toast('Finish the day first: Close early, or skip to the report.', true);
     else if (d === 'stop') {
-      const sum = state.sum, S = SUMMER_STOPS[+b.dataset.v];
-      const k = sum.days.findIndex((x) => summerStop(x) === S && dateOf(x).getUTCDay() === 6);
+      const sum = state.sum;
+      const k = sum.days.indexOf(summerSats()[+b.dataset.v]);
       if (k < 0) return;
       $('report').hidden = true; state.phase = 'closed'; state.time = DAY_OPEN;
       sum.k = k; state.day = sum.days[k]; sum.billed = k; // looking around is free
@@ -21963,6 +21999,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.pond && r.pond.runs) note(5, `${r.pond.runs} skiers in costume tried to skim the pond at the bottom of <b>${esc(r.pond.trail)}</b>. ${r.pond.dry ? `${r.pond.dry} made it across dry.` : 'Every one of them went in.'}`);
   if (r.event === 'torch' && r.showGuests) note(5, `${r.showGuests.toLocaleString()} guests stayed after the lifts closed to watch the torches come down and the fireworks.`);
   if (r.passGuests) note(1, `${r.passGuests} guests skied on season passes.`);
+  if (r.standIn) note(3, `Condensed summer: today’s takings and running costs count ${r.standIn} times, standing in for the summer days you don’t play.`);
   if (r.wx && r.summer) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}.`);
   else if (r.wx) note(2, `${WX[r.wx.type].label}, high of ${tempF(r.wx.hi)}${r.wx.snow >= 1 && r.wx.type !== 'rain' ? ` after ${inch(r.wx.snow)} of new snow` : ''}. ${r.trailsOpen} of ${r.trailsTotal} trails had enough snow; average base ${inch(r.base)}.`);
   if (r.holds && r.holds.length) {
