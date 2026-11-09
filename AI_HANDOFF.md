@@ -240,6 +240,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-34ff233f-ei1b89` | Claude | **3.16 your own lots and roads (not published).** Phil asked (Nov 9) for editable roads; release 1 is lots placed anywhere plus roads drawn to them. Release 2 (planned): rerouting the original road, bridges. See the Nov 9 note. | Nov 9, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
@@ -408,6 +409,15 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
   Skip run at the same pace, which is what a Firefox player reported.
 
 ## AI collaboration notes
+
+### 2026-11-09 · Claude · 3.16 your own lots and roads (`ccr-34ff233f-ei1b89`, not published)
+Phil's design calls: players can edit roads (the original one too, in a later release), no traffic jams for now, free lot placement with a road painted to it.
+- **Data:** `state.plots` `[{ id, name, x, z, west, up }]` (x, z = the entrance, level with the first aisle; `west` grows west with the entrance on the east; `up` puts a second row north) and `state.proads` `[{ id, name, pts: [[x, z]…], cost }]` (tapped points; `proadPath` smooths them with `catmull` and resamples every 0.5). Both in `clock`, default null; old saves load unchanged.
+- **Lots vs bases:** plot lots come after the map's own lots in lot numbering (`lotCount() = baseCount() + plots`). Everything about bases (zones, crossings, base shuttles, village gondola types, `baseReach`, report `bases`) now uses `baseCount()`/`baseOf` over the map's lots only. `isPlot(lot)`, `baseOfLot(lot)`. A plot's `lotSite` has `free: true` and `slotOrigin` has a branch for it.
+- **Routing:** each road joins one older road (or the access road) at its first point; `roadHit(q, before)` finds the nearest drivable road point, `driveTo`/`proadIn` build the drive in (access road `ROUTES` up to `LOT_DRIVE.k`, then each road's path, thinned to every 1.5). A plot is reached when a road comes within `PROAD_SNAP` (1.6) of its entrance; unreached plots score -1 in `lotScores`, so no cars. `proadRev` keys every cache; call `plotsChanged()` after any change.
+- **Ground:** `PROADD` grid like `ROADD`; `roadDist` is now the min of both (`mapRoadDist` for the access road only). Trees, guest areas, ponds, lift stations, buildings (`fs.proad`) and lot growth (`lotLandBlock`) keep off your roads. Grading doesn't freeze them (`roadKeep` is the access road only); `refreshOnTerrain` rebuilds their ribbons.
+- **Rules:** $2,000 a unit plus trees, plowing $4 a unit a day (in `planCosts().parking`), max grade 16% over 2-unit windows, no creek (bridges later), no crossing buildings, lots, stations, towers, areas, ponds or other roads; trails may cross, like the access road. Can't remove a road a lot or another road needs (`roadNeeds`). Not in matches (`ownRoadsOk`).
+- **Tools:** `state.tool` `'plot'` (tap to place, Turn it round) and `'proad'` (tap road, tap points, P tags at entrances snap). Parking panel has New lot / Draw a road and a roads list; tap a road in Explore for its panel. Scenario `193-roads-and-lots`.
 
 Newest first. Start each note with the date and who wrote it. Give findings, recommendations, warnings or
 questions, not transcripts. Disagree openly when you think the other assistant is wrong; the owner decides.

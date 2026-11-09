@@ -1621,6 +1621,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     <div class="layer" id="chips"></div>
     <div class="layer" id="landTags"></div>
     <div class="layer" id="lotTags"></div>
+    <div class="layer" id="roadTags"></div>
     <div class="layer" id="handles"></div>
     <div class="layer" id="hints"><button class="lifthint" id="liftHint" type="button" hidden><i aria-hidden="true"></i><span></span></button></div>
     <div class="top-left">
@@ -2961,6 +2962,7 @@ const START_CASH = MOUNTAIN.cash;
 const HT = new Float32Array(NV * NV);     // height per vertex
 const GR = new Float32Array(NV * NV);     // grade (rise/run) per vertex
 const ROADD = new Float32Array(NV * NV);  // distance to road centre, cells
+const PROADD = new Float32Array(NV * NV).fill(99); // distance to the nearest road you built (YOUR ROADS AND LOTS), units
 const CREEKD = new Float32Array(NV * NV); // distance to creek centre, cells
 const PM = new Float32Array(NV * NV); // how much of each ground point is snowmaking pond (0 to 1), for its banks' colour
 const HAZEV = new Float32Array(NV * NV);  // haze mix per vertex
@@ -4120,7 +4122,7 @@ function useSlotIn(id, sv, then) {
 function saveData(withSim) {
   return {
       v: 3, mt: MOUNTAIN.id, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
-      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
+      clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, plots: state.plots, proads: state.proads, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, grads: state.grads || undefined, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
         investor: state.investor, investorUsed: state.investorUsed, bankrupt: state.bankrupt, devRun: state.devRun, welcomed: state.welcomed, social: state.social,
@@ -4183,6 +4185,7 @@ function applySave(sv) {
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
   state.prices = { ...PRICE_DEFAULTS, ...(ok && sv.clock && sv.clock.prices ? sv.clock.prices : {}) };
   if (state.speed > 4) state.speed = 4;
+  plotsChanged(); // your roads and lots: their routes, the ground they keep clear, their meshes
   buildLot();
   restoreSim(ok ? sv.sim : null);
   $('report').hidden = true;
@@ -4237,7 +4240,7 @@ function replantable(k, blocks) { return plantableAt(trees.x[k], trees.z[k], blo
 function plantableAt(x, z, blocks) {
   const p = { x, z };
   if (blocks.has(cellKey(Math.round(x), Math.round(z)))) return false;
-  if (sampleGrid(ROADD, x + HALF, z + HALF) < 3) return false;
+  if (roadDist(x, z) < 3) return false;
   return !world.lifts.some((L) => distToSeg(p, L.a, L.b) < 2.2 || distXZ(p, L.a) < 4.4 || distXZ(p, L.b) < 4.8 || (L.midUp && distXZ(p, L.midUp.a) < 4.4));
 }
 function clearedInBrush(p, r, cb) {
@@ -4264,7 +4267,7 @@ function newTreeSpots(p, r, blocks, fn) {
     if (plantHash(i * 7 + 3, j * 13 + 5) > NEW_TREE_KEEP) continue;
     const x = i + 0.3 + 0.4 * plantHash(i, j), z = j + 0.3 + 0.4 * plantHash(j, i + 1), dx = x - p.x, dz = z - p.z;
     if (dx * dx + dz * dz > r2 || !inProperty(x, z) || blocks.has(cellKey(Math.round(x), Math.round(z)))) continue;
-    if (sampleGrid(ROADD, x + HALF, z + HALF) < 3 || sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4 || pondAt(x, z)) continue;
+    if (roadDist(x, z) < 3 || sampleGrid(CREEKD, x + HALF, z + HALF) < 1.4 || pondAt(x, z)) continue;
     let near = false; // a tree of the mountain's own, standing or cleared (Replant regrows those), or one planted
     treesInBrush({ x, z }, 0.9, () => { near = true; });
     if (!near) clearedInBrush({ x, z }, 0.9, () => { near = true; });
@@ -4483,7 +4486,7 @@ function setTool(tool) {
     toast(state.landMode === 'pond' ? 'Ponds are dug overnight, while the resort is closed.' : state.landMode === 'hub' ? 'Guest areas are painted overnight, while the resort is closed.' : state.landMode === 'area' ? 'Learning areas are painted overnight, while the resort is closed.' : state.landMode === 'glade' ? 'Glades are cut overnight, while the resort is closed.' : state.landMode === 'doze' ? 'Bulldozing happens overnight, while the resort is closed.' : 'Trees can only be cleared overnight. Trails, lifts and buildings can be planned now.', true);
     return;
   }
-  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') { clearAreaDraft(); levelKeep(true); } if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } }
+  if (tool !== state.tool) { endLiftMove(); resetDraft(); draft.btype = null; draft.moving = null; if (state.tool === 'clear') { clearAreaDraft(); levelKeep(true); } if (state.tool === 'tpark') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); } if (state.tool === 'midstn') { clearMidGhost(); midDraft = null; } if (state.tool === 'proad') { clearRoadGhost(); roadDraft = null; } if (state.tool === 'plot') { clearPlotGhost(); plotDraft = null; } }
   if (tool === 'lift' && tool !== state.tool && !world.lifts.length) { draft.liftType = 'double'; setTimeout(revealLiftHint, 60); } // a first lift: the affordable chair
   state.tool = tool;
   if (tool !== 'explore' && typeof setBuildTray === 'function') setBuildTray(true);
@@ -4742,7 +4745,7 @@ function baseReach() {
   const M = baseReachMemo;
   if (M && M.rev === terrainRev && M.land === landRects) return M.R;
   let sites;
-  try { sites = Array.from({ length: lotCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
+  try { sites = Array.from({ length: baseCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
   const low = (k) => HT[k] < MOUNTAIN.baseH + 3.5 && inGridLand(k % NV, Math.floor(k / NV));
   const R = new Uint8Array(NV * NV), stack = [];
   for (const s of sites) {
@@ -8086,6 +8089,8 @@ function pickFeature(p) {
   if (best) return best;
   const P = pondAt(p.x, p.z);
   if (P) return { kind: 'pond', obj: P };
+  const R = proadAt(p);
+  if (R) return { kind: 'proad', obj: R };
   const A = areaAt(p.x, p.z);
   if (A) return { kind: 'area', obj: A };
   for (const t of realTrails()) {
@@ -8150,7 +8155,9 @@ function renderSheet() {
   else if (state.tool === 'shape') html = shapeSheet();
   else if (state.tool === 'tpark') html = parkToolSheet();
   else if (state.tool === 'midstn') html = midToolSheet();
-  else if (state.tool === 'explore' && selected) html = ({ trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, pond: pondSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
+  else if (state.tool === 'proad') html = roadToolSheet();
+  else if (state.tool === 'plot') html = plotToolSheet();
+  else if (state.tool === 'explore' && selected) html = ({ proad: proadSheet, trail: trailSheet, lift: liftSheet, guest: guestSheet, resort: resortSheet, bld: bldSheet, area: areaSheet, pond: pondSheet, plan: planSheet, weather: weatherSheet, community: communitySheet, manage: managePanel, advice: adviceSheet, match: matchSheet, mchat: matchChatSheet })[selected.kind](selected.obj);
   if (html && state.tool === 'explore' && selected && matchPending(selected.kind, selected.obj)) html = html.replace(/(<div class="sheet-title">[\s\S]*?<\/div>)/, '$1<p class="help"><b>Blueprint:</b> built tonight, opens tomorrow morning.</p>');
   if (html && listBack && selected && ['trail', 'lift', 'bld', 'plan', 'area'].includes(selected.kind)) html = `<button class="link back" data-action="manage" data-v="${listBack}">‹ ${MANAGE_TITLE[listBack]}</button>` + html;
   const m = selected && state.tool === 'explore' ? (selected.kind === 'manage' ? selected.obj : { trail: 'trails', lift: 'lifts', bld: 'blds' }[selected.kind]) : null;
@@ -8546,7 +8553,7 @@ function liftDraftSheet() {
   }
   return `<div class="sheet-title"><h3>New lift</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     <p class="help">${help}</p>
-    <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).filter(([, t]) => !t.village || lotCount() > 1).map(([k, t]) =>
+    <div class="seg lifts" role="group" aria-label="Lift type">${Object.entries(LIFT_TYPES).filter(([, t]) => !t.village || baseCount() > 1).map(([k, t]) =>
       `<button data-action="liftType" data-v="${k}" aria-pressed="${draft.liftType === k}">${t.name}<small>${t.surface ? (k === 'carpet' ? 'Beginners' : 'Surface lift') : t.cabin ? `${t.seats}-person cabins` : `${t.seats} seats`} · ${liftCapacity(t).toLocaleString('en-US')}/hr</small></button>`).join('')}</div>
     ${LIFT_TYPES[draft.liftType].village ? '<p class="help">Links your two bases across the valley, carrying guests both ways: put one station at each base. Guests ride it to reach the other base and to get back to their car.</p>' : ''}
     ${draft.liftType === 'gondola' ? '<p class="help">Enclosed, heated cabins. Skiers prefer it on cold days, and sightseers buy a scenic ride to the top and back when it starts at the base. It stops first in high wind.</p>' : ''}
@@ -8773,6 +8780,15 @@ function sheetAct(b) {
   else if (a === 'midOpen' && obj) openMidTool(obj);
   else if (a === 'midRemove' && obj) removeMid(obj);
   else if (a === 'midBuild') buildMid();
+  else if (a === 'roadOpen') openRoadTool();
+  else if (a === 'roadBuild') buildRoadDraft();
+  else if (a === 'roadUndo' && roadDraft) { roadDraft.pts.pop(); showRoadGhost(); renderSheet(); }
+  else if (a === 'roadRemove' && selected && selected.kind === 'proad') removeRoad(selected.obj);
+  else if (a === 'goRoad') { const R = proads().find((Q) => Q.id === +b.dataset.id); if (R) select({ kind: 'proad', obj: R }); }
+  else if (a === 'plotOpen') openPlotTool();
+  else if (a === 'plotTurn' && plotDraft) { plotDraft.west = !plotDraft.west; showPlotGhost(); renderSheet(); }
+  else if (a === 'plotBuild') buildPlot();
+  else if (a === 'plotRemove') removePlot(+b.dataset.lot);
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
@@ -8785,7 +8801,7 @@ function sheetAct(b) {
   else if (a === 'rollName') { const el = $('advName'); if (el) { el.value = resortNameIdea(state.resortName); renameResort(el.value); renderSheet(); } }
   else if (a === 'cloudNow') { CLOUD.lastUp = 0; cloudSave(true); }
   else if (a === 'share') shareResort();
-  else if (a === 'exitTool') { if (state.tool === 'midstn') closeMidTool(); else if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else if (levelDraft) leaveLevelDraft(() => setTool('explore')); else leaveDraft(() => setTool('explore')); }
+  else if (a === 'exitTool') { if (state.tool === 'midstn') closeMidTool(); else if (state.tool === 'proad') closeRoadTool(); else if (state.tool === 'plot') closePlotTool(); else if (draft.shaping) cancelShape(); else if (draft.movingTrail) cancelTrailMove(); else if (draft.movingLift) cancelLiftMove(); else if (levelDraft) leaveLevelDraft(() => setTool('explore')); else leaveDraft(() => setTool('explore')); }
   else if (a === 'startSelf') { select(null); setTool('lift'); }
   else if (a === 'startAuto') { select(null); buildStarter(); }
   else if (a === 'advice') { const it = adviceShown[+b.dataset.v]; select(null); if (it) it.act(); }
@@ -9717,7 +9733,7 @@ const STAFF_DAY = 4650, STAFF_PER_LIFT = 1200, STAFF_PER_BUILDING = 600, STAFF_P
 // and a lighter rate through the summer.
 const OVERHEAD_DAY = 2500, OVERHEAD_PER_LIFT = 350, OFFSEASON_RATE = 0.35;
 const dailyOverhead = () => (OVERHEAD_DAY + world.lifts.length * OVERHEAD_PER_LIFT) * MOUNTAIN.costs;
-const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null, springRule: null, grads: 0 };
+const SIM_DEFAULTS = { day: 0, phase: 'closed', time: DAY_OPEN, speed: 1, ticket: 65, lotSections: 1, lotLayout: null, plots: null, proads: null, reputation: 1, repLog: null, lastReport: null, records: null, resortName: 'Juniper Ridge', creator: '', isPublic: true, tut: null, debt: 0, intAcc: 0, ohAcc: 0, leaseAcc: 0, smAcc: 0, smNights: 0, rebated: 1, nightRebated: 1, investor: null, investorUsed: false, bankrupt: false, devRun: false, goals: null, passPrice: 399, passSale: null, ticketPeak: null, event: null, eventsHeld: null, ops: null, history: null, welcomed: false, social: null, offsite: -1, nudges: null, sandbox: false, dayUse: null, owners: null, springRule: null, grads: 0 };
 Object.assign(state, SIM_DEFAULTS);
 
 /* =====================================================================
@@ -9738,6 +9754,8 @@ function lotLandBlock(bb) {
   if (fs.creek) return 'the creek is in the way';
   if (fs.pond) return 'a snowmaking pond is in the way';
   if (fs.road) return 'the access road is in the way';
+  if (fs.proad < PROAD_HW + 0.05) return 'one of your roads is in the way';
+  if (lotBoxes().some((b) => (Math.abs(b.x0 - bb.x0) > 0.01 || Math.abs(b.z0 - bb.z0) > 0.01) && boxOverlap(b, { x0: bb.x0 - 0.5, x1: bb.x1 + 0.5, z0: bb.z0 - 0.5, z1: bb.z1 + 0.5 }))) return 'another parking lot is in the way'; // (a section isn't in its own way)
   if (fs.hmax - fs.hmin > 3.2) return 'the ground past it is too steep';
   return '';
 }
@@ -9746,7 +9764,7 @@ const LOT_COLS = MOUNTAIN.lotCols || Infinity;
 // Where the main lot can still grow: the run of sections past its end that the land allows.
 let reserveKey = '', reserveBoxes = [];
 function lotReserve() {
-  const key = `${MOUNTAIN.id}:${state.lotSections}:${terrainRev}:${landSig}`; // bought land lets the lot grow further
+  const key = `${MOUNTAIN.id}:${state.lotSections}:${terrainRev}:${landSig}:${proadRev}`; // bought land lets the lot grow further
   if (key !== reserveKey) {
     reserveKey = key; reserveBoxes = [];
     for (let c = rowLen(0); c < Math.min(rowLen(0) + 30, LOT_COLS) && !lotLandBlock(slotBox(0, c)); c++) reserveBoxes.push(slotBox(0, c));
@@ -9820,7 +9838,7 @@ function lotGrowPanel() {
   const block = (lot) => {
     const fresh = lot && !lotSize(lot), w = [lotGrowBlock(0, lot), lotGrowBlock(1, lot)];
     const btns = fresh ? `<button class="btn secondary" data-action="expandLot" data-row="0" data-lot="${lot}" ${closed && !w[0] && !short ? '' : 'disabled'}>Build the ${esc(lotName(lot).toLowerCase())}</button>`
-      : [[0, 'Along the road'], [1, rowWord(lot)]].map(([row, label], i) => `<button class="btn secondary" data-action="expandLot" data-row="${row}" data-lot="${lot}" ${closed && !w[i] && !short ? '' : 'disabled'}>${label}</button>`).join('');
+      : [[0, rowOneWord(lot)], [1, rowWord(lot)]].map(([row, label], i) => `<button class="btn secondary" data-action="expandLot" data-row="${row}" data-lot="${lot}" ${closed && !w[i] && !short ? '' : 'disabled'}>${label}</button>`).join('');
     const why = (fresh ? [w[0]] : w).filter(Boolean);
     return `${many ? `<div class="field-label">${esc(lotName(lot))}</div>` : ''}<div class="row">${btns}</div>${why.length ? `<p class="help">${esc(why.join(' '))}</p>` : ''}
       <p class="conn">${fresh ? 'Not built yet' : `Now <b>${rowLen(0, lot)}</b> across${rowLen(1, lot) ? ` and <b>2</b> rows deep` : ''} · ${(lotSize(lot) * SPACES_PER_SECTION).toLocaleString('en-US')} spaces`}</p>`;
@@ -9838,7 +9856,7 @@ scene.add(lotPickGroup);
 let lotTagsSig = '', lotTagEls = [];
 function updateLotMarks() {
   const on = state.started && !visiting && state.tool === 'explore' && selected && selected.kind === 'manage' && (selected.obj === 'lotgrow' || selected.obj === 'parking');
-  const sig = on ? `${selected.obj}:${state.lotSections}:${JSON.stringify(state.lotLayout)}:${landSig}:${state.phase}:${state.cash >= LOT_EXPAND_COST}:${terrainRev}:${world.buildings.length}` : '';
+  const sig = on ? `${selected.obj}:${proadRev}:${state.lotSections}:${JSON.stringify(state.lotLayout)}:${landSig}:${state.phase}:${state.cash >= LOT_EXPAND_COST}:${terrainRev}:${world.buildings.length}` : '';
   if (sig !== lotTagsSig) {
     const first = on && !lotTagsSig;
     lotTagsSig = sig;
@@ -9855,8 +9873,8 @@ function updateLotMarks() {
         line.computeLineDistances(); line.renderOrder = 15; lotPickGroup.add(line);
         const el = document.createElement('button');
         el.className = 'mapchip land' + (ok ? '' : ' off');
-        const label = fresh ? `+ ${lotName(lot)}` : `+ ${lot ? `${lotName(lot)}: ` : ''}${row ? (rowDir(lot) === 'behind' ? 'Behind' : 'Below') : 'Along the road'}`;
-        el.innerHTML = `<span>${ok ? `${label} · ${shortMoney(LOT_EXPAND_COST)}` : /Buy the land/.test(why || '') ? 'Buy the land below first' : fresh ? `No room for the ${lotName(lot).toLowerCase()}` : row ? `No room ${rowDir(lot)}` : 'No room along the road'}</span>`;
+        const label = fresh ? `+ ${lotName(lot)}` : `+ ${lot ? `${lotName(lot)}: ` : ''}${row ? (isPlot(lot) ? 'Second row' : rowDir(lot) === 'behind' ? 'Behind' : 'Below') : rowOneWord(lot)}`;
+        el.innerHTML = `<span>${ok ? `${label} · ${shortMoney(LOT_EXPAND_COST)}` : /Buy the land/.test(why || '') ? 'Buy the land below first' : fresh ? `No room for the ${lotName(lot).toLowerCase()}` : row ? `No room ${rowDir(lot)}` : isPlot(lot) ? 'No room to grow' : 'No room along the road'}</span>`;
         el.title = why || `Add ${SPACES_PER_SECTION} spaces here`;
         el.onclick = () => (ok ? growLot(row, lot) : toast(why || 'Parking is added overnight.', true));
         lotTagLayer.appendChild(el); lotTagEls.push({ el, x: (bb.x0 + bb.x1) / 2, z: (bb.z0 + bb.z1) / 2 });
@@ -9897,11 +9915,11 @@ function fitLotView() {
 // under each in the first row). Returns what stops it, or null.
 function lotGrowBlock(row, lot = 0) {
   const r0 = rowLen(0, lot), r1 = rowLen(1, lot);
-  if (row === 1 && r1 >= r0) return `The row ${rowDir(lot)} is as long as the first. Add along the road first.`;
+  if (row === 1 && r1 >= r0) return `The row ${rowDir(lot)} is as long as the first. ${isPlot(lot) ? 'Make the lot longer first.' : 'Add along the road first.'}`;
   const bb = slotBox(row, row ? r1 : r0, lot), land = lotLandBlock(bb), what = !land && inLotWay(bb);
   if (lot) { // another lot: its first section, then along the road or a row behind
-    const where = !r0 ? `The ${lotName(lot).toLowerCase()} can’t go in` : row ? `No row ${rowDir(lot)}` : 'It can’t grow along the road';
-    if (row && /property line/.test(land) && !lotSite(lot).up) return `Buy the land below the ${lotName(lot).toLowerCase()} (Business › Land) to add a row below.`;
+    const where = !r0 ? `${isPlot(lot) ? lotName(lot) : `The ${lotName(lot).toLowerCase()}`} can’t go in` : row ? `No row ${rowDir(lot)}` : isPlot(lot) ? 'It can’t grow longer' : 'It can’t grow along the road';
+    if (row && /property line/.test(land) && !lotSite(lot).up && !isPlot(lot)) return `Buy the land below the ${lotName(lot).toLowerCase()} (Business › Land) to add a row below.`;
     return land ? `${where}: ${land}.` : what ? `${what} is in the way of the ${lotName(lot).toLowerCase()}.` : null;
   }
   if (row === 0) return land ? `It can’t grow along the road: ${land}.` : what ? `${what} is in the way along the road.` : null;
@@ -10226,8 +10244,9 @@ function roadRibbon(P, lift, mat = ROAD_MAT, hwAt = () => ROAD_HW) {
   scene.add(m);
   return m;
 }
-// How far a point is from the road's centre line, in world units.
-const roadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
+// How far a point is from the road's centre line, in world units: the access road, or one of your own roads.
+const mapRoadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
+const roadDist = (x, z) => Math.min(sampleGrid(ROADD, x + HALF, z + HALF), sampleGrid(PROADD, x + HALF, z + HALF));
 // The nearest point on the road's centre line, and the unit normal pointing from the road toward p.
 function nearestRoad(p) {
   let best = null, bd = Infinity;
@@ -10260,15 +10279,24 @@ function lotSite(lot) {
       return { x: ROAD_WORLD[road].x, z: ROAD_WORLD[road].z, road: road + 1, route: ROAD_WORLD, up: side !== 'south', south: side === 'south' };
     })];
   }
-  return lotSitesCache[lot] || lotSitesCache[0];
+  if (lot < lotSitesCache.length) return lotSitesCache[lot];
+  return plotSites()[lot - lotSitesCache.length] || lotSitesCache[0]; // a lot you placed (see YOUR ROADS AND LOTS)
 }
-const lotCount = () => 1 + (MOUNTAIN.lots || []).length;
-const lotName = (lot) => (lot ? (MOUNTAIN.lots[lot - 1] || [])[2] || `Lot ${lot + 1}` : 'Main lot');
+// The map's own lots are its bases; lots you place come after them and park guests for the nearest base.
+const baseCount = () => 1 + (MOUNTAIN.lots || []).length;
+const lotCount = () => baseCount() + (state.plots || []).length;
+const isPlot = (lot) => lot >= baseCount();
+const baseOfLot = (lot) => (isPlot(lot) ? baseOf(lotSite(lot)) : lot);
+const lotName = (lot) => (isPlot(lot) ? (state.plots[lot - baseCount()] || {}).name || `Lot ${lot + 1}` : lot ? (MOUNTAIN.lots[lot - 1] || [])[2] || `Lot ${lot + 1}` : 'Main lot');
 // Which way a lot's second row goes: below the main lot (toward the valley), behind the others (up the mountain).
-const rowWord = (lot) => (lot && lotSite(lot).up ? 'A row behind' : 'A row below');
-const rowDir = (lot) => (lot && lotSite(lot).up ? 'behind' : 'below');
+// A lot you placed grows a second row beside its first, on the lower side.
+const rowWord = (lot) => (isPlot(lot) ? 'A second row' : lot && lotSite(lot).up ? 'A row behind' : 'A row below');
+const rowDir = (lot) => (isPlot(lot) ? 'beside it' : lot && lotSite(lot).up ? 'behind' : 'below');
+const rowOneWord = (lot) => (isPlot(lot) ? 'Longer' : 'Along the road'); // the first row's button
 const slotOrigin = (row, col, lot = 0) => {
   const e = lotSite(lot), dx = row ? rowShift(lot) : 0;
+  // a lot you placed: entered from the side at (e.x, e.z), level with its first aisle, growing away from the entrance
+  if (e.free) return { x: e.west ? e.x - 0.9 - LOT.w - col * (LOT.w + 0.7) : e.x + 0.9 + col * (LOT.w + 0.7), z: e.z - 1.2 + (e.up ? -row : row) * (LOT.d + 0.7) };
   // up the mountain side of the road, on the valley side of it (south), or at the end of the road (the main lot)
   // a main lot can grow west instead, when its road comes in from the east (Ridgeback)
   return { x: e.west ? e.x - 0.9 - LOT.w - col * (LOT.w + 0.7) - dx : e.x + 0.9 + col * (LOT.w + 0.7) + dx, z: e.up ? e.z - 1.6 - LOT.d - row * (LOT.d + 0.7) : e.south ? e.z + 2.8 + row * (LOT.d + 0.7) : e.z - 1.2 + row * (LOT.d + 0.7) };
@@ -10283,7 +10311,7 @@ function rowShift(lot) {
   let d = 0;
   if (!lot && !e.up && !e.south) {
     const z0 = e.z - 1.2 + LOT.d + 0.7, x0 = e.west ? e.x - 0.9 - LOT.w : e.x + 0.9;
-    const hits = (d) => { for (let z = z0; z <= z0 + LOT.d + 0.01; z += 0.5) for (let x = 0; x <= LOT.w + 0.01; x += 0.5) if (roadDist(x0 + (e.west ? -d : d) + x, z) < 1.8) return true; return false; };
+    const hits = (d) => { for (let z = z0; z <= z0 + LOT.d + 0.01; z += 0.5) for (let x = 0; x <= LOT.w + 0.01; x += 0.5) if (mapRoadDist(x0 + (e.west ? -d : d) + x, z) < 1.8) return true; return false; };
     while (d < LOT.w && hits(d)) d += 0.25;
     if (d >= LOT.w) d = 0; // a road right across it: no use moving the row
   }
@@ -10402,12 +10430,13 @@ function buildLot() {
     }
     // the main lot's lane, from where the road comes in down its edge to the last aisle
     if (!row && !col && !lot) { const w = lotSite(0).west, x = w ? o.x + LOT.w - 0.05 : o.x - 0.9; lotLinks.add(linkMesh(x, x + 0.95, o.z + 1.4, o.z + LOT.d - 0.95)); }
-    if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4; lotLinks.add(linkMesh(o.x - 0.9, o.x + 0.05, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
+    if (lot && col === 0) { const s = lotSite(lot), za = o.z + 1.4, x0 = s.west ? o.x + LOT.w - 0.05 : o.x - 0.9; lotLinks.add(linkMesh(x0, x0 + 0.95, Math.min(za, s.z), Math.max(za, s.z))); } // the drive in from the road
     for (let b = 0; b < LOT.bays; b++) {
       const za = o.z + 1.4 + b * 2.8;
       for (const side of [-1, 1]) for (let c = 0; c < LOT.cols; c++) {
         const x = o.x + 0.25 + c * 0.5;
         const ex = !lot && lotSite(0).west ? (row ? slotOrigin(row, 0).x : o.x) + LOT.w + 0.45 // a west-growing main lot is entered from its east side
+          : lot && lotSite(lot).west ? slotOrigin(row, 0, lot).x + LOT.w + 0.45 // a lot you placed growing west: from its east side
           : row || lot ? slotOrigin(row, 0, lot).x - 0.45 : o.x - 0.45; // the second row, and other lots, are reached by the drive on their west side
         stalls.push({ x, z: za + side * 0.95, aisle: { x, z: za }, entry: { x: ex, z: za }, row, lot, heading: side < 0 ? Math.PI : 0, car: null });
       }
@@ -10415,6 +10444,363 @@ function buildLot() {
   }
 }
 const lotCapacity = () => state.lotSections * SPACES_PER_SECTION;
+
+/* =====================================================================
+   YOUR ROADS AND LOTS
+   Lots you place (state.plots) go anywhere on your land, and roads you draw (state.proads) leave the access road,
+   or one of your earlier roads, and wind wherever the ground allows. A lot takes cars once a road reaches its
+   entrance. Your lots are parking for the base they're nearest, never new bases. Each road joins one older road,
+   at its start, so cars always have one way in: the access road to the junction, then along each road in turn.
+   Not in King of the Mountain yet: the match server doesn't know them.
+   ===================================================================== */
+const PROAD_HW = 0.8;       // half a road's width: a little narrower than the access road
+const PROAD_COST = 2000;    // to build, per unit of length (about 33 ft)
+const PROAD_RUN = 4;        // plowing, per unit a day
+const PROAD_GRADE = 0.16;   // the steepest a road can climb
+const PROAD_SNAP = 1.6;     // how near a road has to come to a lot's entrance to reach it
+const PLOT_COST = LOT_EXPAND_COST; // a new lot's first section
+const ROAD_NAMES = ['Pine Lane', 'Birch Lane', 'Lodge Road', 'Aspen Way', 'Spruce Lane', 'Cedar Way', 'Fox Run Road', 'Elk Lane', 'Hemlock Drive', 'Larch Lane', 'Willow Way', 'Chalet Road', 'Timber Lane', 'Bear Creek Road', 'Ridge View Drive', 'Snowshoe Lane'];
+const plots = () => state.plots || [];
+const proads = () => state.proads || [];
+const ownRoadsOk = () => !matchPlay && !matchView && !MOUNTAIN.match && !visiting;
+let proadRev = 0;
+// A road's centre line, a point every half unit, smoothed through the points tapped.
+const proadCache = new Map();
+function proadPath(R) {
+  const key = R.pts.join(';'), c = proadCache.get(R.id);
+  if (c && c.key === key) return c.P;
+  const raw = catmull(R.pts, 6), P = [{ x: raw[0][0], z: raw[0][1] }];
+  for (let k = 1; k < raw.length; k++) {
+    const a = raw[k - 1], b = raw[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.5));
+    for (let i = 1; i <= n; i++) P.push({ x: lerp(a[0], b[0], i / n), z: lerp(a[1], b[1], i / n) });
+  }
+  proadCache.set(R.id, { key, P });
+  return P;
+}
+const proadLen = () => proads().reduce((a, R) => a + pathLen(proadPath(R)), 0);
+// The nearest point to q on a road cars can use: the access road (or the map's second road), or one of your roads
+// built before `before` (a road's way in is always an older road).
+function roadHit(q, before = Infinity) {
+  let best = null;
+  const seg = (P, k, src) => {
+    const a = P[k], b = P[k + 1], dx = b.x - a.x, dz = b.z - a.z, t = clamp(((q.x - a.x) * dx + (q.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+    const x = a.x + dx * t, z = a.z + dz * t, d = Math.hypot(q.x - x, q.z - z);
+    if (!best || d < best.d) best = { d, k, pt: { x, z }, ...src };
+  };
+  for (const R of ROUTES) for (let k = 0; k < (R === ROAD_WORLD ? LOT_DRIVE.k : R.length - 1); k++) seg(R, k, { R }); // the main road up to where it bends into the main lot
+  for (const R of proads()) if (R.id < before) { const P = proadPath(R); for (let k = 0; k < P.length - 1; k++) seg(P, k, { road: R, P }); }
+  return best;
+}
+// The drive from the edge of the map to a road point (a roadHit), or null if that road has no way in.
+const thin = (A) => A.filter((p, i) => i % 3 === 2); // cars need a point every unit and a half, not every half unit
+let proadInCache = { rev: -1, m: new Map() };
+function proadIn(R, depth = 0) {
+  if (proadInCache.rev !== proadRev) proadInCache = { rev: proadRev, m: new Map() };
+  if (proadInCache.m.has(R.id)) return proadInCache.m.get(R.id);
+  const h = depth < 40 ? roadHit(proadPath(R)[0], R.id) : null, r = h && h.d < 0.8 ? driveTo(h, depth + 1) : null;
+  proadInCache.m.set(R.id, r);
+  return r;
+}
+function driveTo(h, depth = 0) {
+  if (!h) return null;
+  if (h.R) return [...h.R.slice(0, h.k + 1), h.pt];
+  const inn = proadIn(h.road, depth);
+  return inn && [...inn, ...thin(h.P.slice(1, h.k + 1)), h.pt];
+}
+// Your lots as lot sites (see lotSite): entered from the side at (x, z), level with the first aisle. `route` is
+// the drive in, or null while no road reaches the entrance.
+let plotSitesCache = null;
+function plotSites() {
+  const c = plotSitesCache;
+  if (c && c.rev === proadRev && c.ref === state.plots && c.n === plots().length) return c.sites;
+  const sites = plots().map((P) => {
+    const h = roadHit(P), route = h && h.d <= PROAD_SNAP ? driveTo(h) : null;
+    return { x: P.x, z: P.z, free: true, west: !!P.west, up: !!P.up, route, road: route ? route.length : 0, plot: P };
+  });
+  plotSitesCache = { rev: proadRev, ref: state.plots, n: plots().length, sites };
+  return sites;
+}
+const plotReached = (lot) => !!lotSite(lot).route;
+// The ground each road keeps clear, like ROADD for the access road: trees, buildings, areas and lift stations stay off it.
+function stampPRoads() {
+  PROADD.fill(99);
+  for (const R of proads()) {
+    const P = proadPath(R);
+    for (let k = 0; k < P.length - 1; k++) {
+      const a = P[k], b = P[k + 1];
+      const i0 = Math.max(0, Math.floor(Math.min(a.x, b.x) + HALF - 4)), i1 = Math.min(WN, Math.ceil(Math.max(a.x, b.x) + HALF + 4));
+      const j0 = Math.max(0, Math.floor(Math.min(a.z, b.z) + HALF - 4)), j1 = Math.min(WN, Math.ceil(Math.max(a.z, b.z) + HALF + 4));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const d = distToSeg({ x: i - HALF, z: j - HALF }, a, b), idx = j * NV + i; if (d < PROADD[idx]) PROADD[idx] = d; }
+    }
+  }
+}
+let proadMeshes = [];
+function buildPRoads() {
+  for (const m of proadMeshes) { scene.remove(m); m.geometry.dispose(); }
+  proadMeshes = proads().map((R) => roadRibbon(proadPath(R), 0.04, ROAD_MAT, () => PROAD_HW)); // a touch under the access road where they join
+}
+// After any change to your roads or lots: their routes, the ground they keep clear, their meshes.
+function plotsChanged() {
+  proadRev++;
+  stampPRoads(); buildPRoads();
+  lotScoreCache = null; reserveKey = ''; plantSig = '';
+}
+// Which of your roads is under p, if any.
+function proadAt(p) {
+  if (sampleGrid(PROADD, p.x + HALF, p.z + HALF) > PROAD_HW + 0.4) return null;
+  let best = null, bd = Infinity;
+  for (const R of proads()) for (const q of proadPath(R)) { const d = distXZ(p, q); if (d < bd) { bd = d; best = R; } }
+  return best;
+}
+// A lot's entrance near p (one of yours), to end a road at.
+function plotEntranceNear(p, r) {
+  let best = null, bd = r;
+  plots().forEach((P) => { const d = distXZ(p, P); if (d < bd) { bd = d; best = { x: P.x, z: P.z, P }; } });
+  return best;
+}
+// What stops your roads, or leaves a lot cut off, if this road went.
+let needsMemo = { key: '', v: null };
+function roadNeeds(R) {
+  if (needsMemo.key === `${proadRev}:${R.id}`) return needsMemo.v; // the panel asks on every redraw, and asking moves proadRev on
+  const deps = proads().filter((Q) => Q.id > R.id && (roadHit(proadPath(Q)[0], Q.id) || {}).road === R).map((Q) => `${Q.name} starts on it`);
+  const was = plotSites().map((s) => !!s.route), keep = state.proads;
+  state.proads = keep.filter((Q) => Q !== R); proadRev++;
+  const now = plotSites().map((s) => !!s.route);
+  state.proads = keep; proadRev++;
+  const cut = plots().filter((P, i) => was[i] && !now[i] && lotSize(baseCount() + i)).map((P) => `${P.name} would have no way in`);
+  needsMemo = { key: `${proadRev}:${R.id}`, v: [...deps, ...cut] };
+  return needsMemo.v;
+}
+// Lots a road leads to: those whose drive in ends on it, or runs along it.
+const roadLots = (R) => plots().map((P, i) => [P, lotSite(baseCount() + i)]).filter(([, s]) => s.route && (s.route.some((q) => proadPath(R).includes(q)) || (roadHit(s, Infinity) || {}).road === R)).map(([P]) => P.name);
+
+/* ---------- Draw a road ---------- */
+var roadDraft = null, roadGhost = null; // var: setTool can run before this line on load
+// Drafts show over the trees they'd clear.
+const ROAD_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+const ROAD_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8402f, transparent: true, opacity: 0.6, depthWrite: false, depthTest: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+function roadInfo(pts) {
+  const P = proadPath({ id: -1, pts }), len = pathLen(P), problems = [], treeSet = new Set();
+  const add = (m) => { if (!problems.includes(m)) problems.push(m); };
+  const lots = lotBoxes(), others = proads().map(proadPath), end = pts[pts.length - 1], ent = plotEntranceNear({ x: end[0], z: end[1] }, 0.05);
+  let s = 0;
+  for (let i = 0; i < P.length; i++) {
+    const p = P[i];
+    if (i) s += distXZ(p, P[i - 1]);
+    treesInBrush(p, PROAD_HW + 1, (k) => treeSet.add(k)); // the trees' branches clear the road too
+    const start = s < 2.6; // where it leaves the road it joins
+    if (!start && !inProperty(p.x, p.z)) add('It has to stay on your property.');
+    if (sampleGrid(CREEKD, p.x + HALF, p.z + HALF) < 1.6) add('The creek is in the way. Bridges come later.');
+    if (!start && mapRoadDist(p.x, p.z) < ROAD_HW + PROAD_HW + 0.2) add('It runs back onto the access road. A road joins one other road, where it starts.');
+    if (!start && others.some((Q) => Q.some((q) => distXZ(p, q) < PROAD_HW * 2 + 0.2))) add('It runs into another of your roads. A road joins one other road, where it starts.');
+    if (lots.some((b) => boxDist(p, b) < PROAD_HW - 0.02)) add(ent ? 'It crosses a parking lot. Come in to the entrance from outside the lot.' : 'A parking lot is in the way. End the road at a lot’s entrance.');
+    const B = world.buildings.find((B) => boxDist(p, boxOf(B, 0.1)) < PROAD_HW);
+    if (B) add(`${B.name} is in the way.`);
+    for (const L of world.lifts) {
+      if ([L.a, L.b, ...(L.midUp ? [L.midUp.a] : [])].some((q) => distXZ(p, q) < 3)) add(`Too close to the ${L.name} stations.`);
+      else if (L.lay && L.lay.sup && L.lay.sup.some((u) => !u.term && !u.belt && Math.hypot(L.a.x + L.lay.dx * u.s - p.x, L.a.z + L.lay.dz * u.s - p.z) < PROAD_HW + 0.4)) add(`A tower of ${L.name} is in the way.`);
+    }
+    const A = areaAt(p.x, p.z);
+    if (A) add(`It crosses ${A.name}.`);
+    if (world.ponds.length && pondAt(p.x, p.z)) add('A snowmaking pond is in the way.');
+  }
+  for (let i = 4; i < P.length; i += 2) {
+    const a = P[i - 4], b = P[i], g = Math.abs(trueY(b.x, b.z) - trueY(a.x, a.z)) / (distXZ(a, b) || 1);
+    if (g > PROAD_GRADE) { add(`Too steep in places, about ${Math.round(g * 100)}%. A road can climb ${Math.round(PROAD_GRADE * 100)}% at most: wind it across the slope.`); break; }
+  }
+  if (len < 3) add('Too short. Keep tapping to lay out the road.');
+  const build = Math.round(len * PROAD_COST);
+  return { P, len, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, ent };
+}
+function clearRoadGhost() { if (roadGhost) { scene.remove(roadGhost); roadGhost.geometry.dispose(); roadGhost = null; } }
+function showRoadGhost() {
+  clearRoadGhost();
+  const d = roadDraft; if (!d || !d.pts.length) { if (d) d.info = null; return; }
+  if (d.pts.length < 2) { // just the start: a spot on the road
+    const [x, z] = d.pts[0], g = new THREE.CircleGeometry(PROAD_HW + 0.2, 20).rotateX(-Math.PI / 2).translate(x, roadY(x, z) + 0.12, z);
+    roadGhost = new THREE.Mesh(g, ROAD_GHOST_OK); roadGhost.renderOrder = 6; scene.add(roadGhost); d.info = null; return;
+  }
+  d.info = roadInfo(d.pts);
+  roadGhost = roadRibbon(d.info.P, 0.09, d.info.problems.length ? ROAD_GHOST_BAD : ROAD_GHOST_OK, () => PROAD_HW);
+  roadGhost.renderOrder = 6;
+}
+function openRoadTool() {
+  if (!ownRoadsOk() || !lotBuildable()) return;
+  setTool('proad');
+  roadDraft = { pts: [], info: null };
+  renderSheet();
+}
+function closeRoadTool() { clearRoadGhost(); roadDraft = null; setTool('explore'); select({ kind: 'manage', obj: 'parking' }); }
+function roadTap(p) {
+  const d = roadDraft; if (!d || !p) return;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  if (!d.pts.length) {
+    const h = roadHit(p);
+    if (!h || h.d > 3) { toast('Start on a road: tap the access road, or one of your roads, where the new road should leave it.', true); return; }
+    d.pts.push([r2(h.pt.x), r2(h.pt.z)]);
+  } else {
+    const q = plotEntranceNear(p, 2.5) || p, last = d.pts[d.pts.length - 1];
+    if (Math.hypot(q.x - last[0], q.z - last[1]) < 1) return;
+    d.pts.push([r2(q.x), r2(q.z)]);
+  }
+  showRoadGhost(); renderSheet();
+}
+function roadToolSheet() {
+  const d = roadDraft; if (!d) return '';
+  const info = d.info, tap = isCoarse ? 'Tap' : 'Click', short = info && info.cost > state.cash;
+  const to = info && info.ent ? info.ent.P.name : '';
+  return `<div class="sheet-title"><h3>Draw a road</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <p class="help">${!d.pts.length ? `<b>${tap} the access road</b>, or one of your roads, where the new road should leave it.` : `<b>${tap} to lay out the road</b>, a point at a time. End it at a lot’s entrance (the <b>P</b> tags) to bring cars to that lot.`}</p>
+    ${info ? problemsHtml(info.problems) : ''}
+    ${info ? `<div class="costs"><span>Road · ${ftOfU(info.len)}</span><span>${money(info.build)}</span></div>
+      ${info.treeSet.size ? `<div class="costs"><span>Clearing ${info.treeSet.size} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>` : ''}
+      <p class="help">${to ? `It reaches <b>${esc(to)}</b>. ` : ''}Plowing it costs ${money(Math.round(info.len * PROAD_RUN * MOUNTAIN.costs))} a day.</p>` : ''}
+    ${info ? `<button class="btn wide" data-action="roadBuild" ${!info.problems.length && !short ? '' : 'disabled'}>${short ? `Need ${money(info.cost - state.cash)} more` : `Build · ${money(info.cost)}`}</button>` : ''}
+    ${d.pts.length ? '<button class="link" data-action="roadUndo">Undo the last point</button>' : ''}
+    <button class="link" data-action="exitTool">Not now</button>`;
+}
+function buildRoadDraft() {
+  const d = roadDraft; if (!d || d.pts.length < 2 || !lotBuildable() || !ownRoadsOk()) return;
+  const info = roadInfo(d.pts);
+  if (info.problems.length || info.cost > state.cash) return;
+  pushUndo('the new road');
+  if (!state.proads) state.proads = [];
+  const id = proads().reduce((m, R) => Math.max(m, R.id), 0) + 1, name = pickFree(ROAD_NAMES, new Set(proads().map((R) => R.name))) || `Road ${id}`;
+  const was = plotSites().map((s) => !!s.route);
+  state.proads.push({ id, name, pts: d.pts.map(([x, z]) => [x, z]), cost: info.build });
+  clearTreeSet(info.treeSet);
+  state.cash -= info.cost;
+  plotsChanged(); updateCash(true);
+  const reached = plots().filter((P, i) => !was[i] && plotSites()[i].route).map((P) => P.name);
+  toast(`Built ${name} · −${money(info.cost)}${reached.length ? `. Cars can reach ${reached.join(' and ')} now.` : ''}`);
+  closeRoadTool(); scheduleSave();
+}
+function removeRoad(R) {
+  if (!R || !lotBuildable() || !ownRoadsOk() || roadNeeds(R).length) return;
+  pushUndo(`removing ${R.name}`);
+  const back = Math.round((R.cost || 0) * 0.25);
+  state.proads = proads().filter((Q) => Q !== R);
+  state.cash += back;
+  plotsChanged(); updateCash(true);
+  toast(`Removed ${R.name} · +${money(back)} back`);
+  select({ kind: 'manage', obj: 'parking' }); scheduleSave();
+}
+function proadSheet(R) {
+  if (!proads().includes(R)) return '<p class="help">This road is gone.</p>';
+  const len = pathLen(proadPath(R)), needs = roadNeeds(R), lots = roadLots(R), can = lotBuildable() && ownRoadsOk();
+  return `<div class="sheet-title"><span class="swatch" style="background:#464b54"></span><h3>${esc(R.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
+    <p class="help">Your road, ${ftOfU(len)} long. ${lots.length ? `It leads to ${esc(lots.join(' and '))}.` : 'No lot is on it yet: end a road at a lot’s entrance to bring cars there.'}</p>
+    <div class="costs"><span>Plowing</span><span>${money(Math.round(len * PROAD_RUN * MOUNTAIN.costs))} a day</span></div>
+    ${can ? (needs.length ? `<p class="help">To remove it, first remove what needs it: ${esc(needs.join('; '))}.</p>` : `<button class="btn secondary wide" data-action="roadRemove">Remove the road · +${money(Math.round((R.cost || 0) * 0.25))}</button>`) : ''}
+    <button class="link" data-action="manage" data-v="parking">Parking ›</button>`;
+}
+
+/* ---------- Place a lot ---------- */
+var plotDraft = null, plotGhost = null;
+const plotBox = (d) => ({ x0: d.x - LOT.w / 2, x1: d.x + LOT.w / 2, z0: d.z - LOT.d / 2, z1: d.z + LOT.d / 2 });
+function plotInfo(d) {
+  const bb = plotBox(d), problems = [];
+  const ent = { x: d.west ? bb.x1 + 0.9 : bb.x0 - 0.9, z: bb.z0 + 1.2 }; // the entrance, level with the first aisle
+  const land = lotLandBlock(bb), what = !land && inLotWay(bb);
+  if (land) problems.push(`It can’t go here: ${land}.`);
+  else if (what) problems.push(`${what} is in the way.`);
+  if (!land && !inProperty(ent.x, ent.z)) problems.push('Its entrance has to be on your property. Turn it, or move it in a little.');
+  const h = roadHit(ent), reached = !!h && h.d <= PROAD_SNAP;
+  const up = heightAt(d.x, bb.z0 - 4) < heightAt(d.x, bb.z1 + 4); // a second row goes on the lower side
+  return { bb, ent, problems, reached, up, warn: reserveHitsBox(bb) };
+}
+function clearPlotGhost() { if (plotGhost) { scene.remove(plotGhost); plotGhost.geometry.dispose(); plotGhost = null; } }
+function showPlotGhost() {
+  clearPlotGhost();
+  const d = plotDraft; if (!d) return;
+  d.info = plotInfo(d);
+  plotGhost = lotMesh({ x: d.info.bb.x0, z: d.info.bb.z0 }, d.info.problems.length ? ROAD_GHOST_BAD : ROAD_GHOST_OK, 0.16);
+  // and its entrance, a strip on the side cars come in
+  const e = d.info.ent, x0 = d.west ? e.x - 0.9 : e.x - 0.05;
+  const g = new THREE.PlaneGeometry(0.95, 1.6).rotateX(-Math.PI / 2).translate(x0 + 0.475, heightAt(e.x, e.z) + 0.18, e.z + 0.2);
+  plotGhost.add(new THREE.Mesh(g, ROAD_GHOST_OK));
+  scene.add(plotGhost);
+}
+function openPlotTool() {
+  if (!ownRoadsOk() || !lotBuildable()) return;
+  setTool('plot');
+  plotDraft = { x: Math.round(cam.target.x * 2) / 2, z: Math.round(cam.target.z * 2) / 2, west: false, info: null };
+  showPlotGhost(); renderSheet();
+}
+function closePlotTool() { clearPlotGhost(); plotDraft = null; setTool('explore'); select({ kind: 'manage', obj: 'parking' }); }
+function plotTap(p) {
+  const d = plotDraft; if (!d || !p) return;
+  d.x = Math.round(p.x * 2) / 2; d.z = Math.round(p.z * 2) / 2;
+  showPlotGhost(); renderSheet();
+}
+function plotToolSheet() {
+  const d = plotDraft; if (!d) return '';
+  const info = d.info || plotInfo(d), tap = isCoarse ? 'Tap' : 'Click', short = PLOT_COST > state.cash;
+  return `<div class="sheet-title"><h3>New parking lot</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
+    <p class="help"><b>${tap} the map to place it.</b> Its entrance is the strip on the ${d.west ? 'east' : 'west'} side: draw a road to it, or put it right beside a road, and cars will park here. It grows longer away from the entrance.</p>
+    ${problemsHtml(info.problems)}
+    ${info.warn ? `<p class="help warn">${LOT_WARN}</p>` : ''}
+    ${!info.problems.length ? `<p class="help">${info.reached ? 'A road reaches its entrance: cars can park here as soon as it’s built.' : 'No road reaches its entrance yet. After building it, draw a road there.'}</p>` : ''}
+    <div class="costs"><span>${SPACES_PER_SECTION} spaces, ground levelled</span><span>${money(PLOT_COST)}</span></div>
+    <div class="row"><button class="btn secondary" data-action="plotTurn">Turn it round</button></div>
+    <button class="btn wide" data-action="plotBuild" ${!info.problems.length && !short ? '' : 'disabled'}>${short ? `Need ${money(PLOT_COST - state.cash)} more` : `Build · ${money(PLOT_COST)}`}</button>
+    <button class="link" data-action="exitTool">Not now</button>`;
+}
+function buildPlot() {
+  const d = plotDraft; if (!d || !lotBuildable() || !ownRoadsOk() || state.cash < PLOT_COST) return;
+  const info = plotInfo(d);
+  if (info.problems.length) return;
+  pushUndo('the new parking lot');
+  if (!state.plots) state.plots = [];
+  const names = new Set(Array.from({ length: lotCount() }, (_, k) => lotName(k)));
+  let n = lotCount() + 1; while (names.has(`Lot ${n}`)) n++;
+  const id = plots().reduce((m, P) => Math.max(m, P.id), 0) + 1, name = `Lot ${n}`;
+  state.plots.push({ id, name, x: Math.round(info.ent.x * 100) / 100, z: Math.round(info.ent.z * 100) / 100, west: !!d.west, up: info.up });
+  if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
+  state.lotLayout.push([0, 0, lotCount() - 1]);
+  state.cash -= PLOT_COST; state.lotSections++;
+  plotsChanged();
+  gradeAndRefresh(levelRect(info.bb, padHeight(info.bb), 1.5, false)); // levelled flat, included in the price
+  buildLot(); styleLot(); updateCash(true);
+  toast(`Built ${name} · ${SPACES_PER_SECTION} spaces · −${money(PLOT_COST)}${info.reached ? '' : '. Draw a road to its entrance so cars can reach it.'}`);
+  closePlotTool(); scheduleSave();
+}
+// Remove one of your lots, every section of it. Later lots move down a number.
+function removePlot(lot) {
+  if (!isPlot(lot) || !lotBuildable() || !ownRoadsOk()) return;
+  const n = lotSize(lot), back = Math.round(n * LOT_EXPAND_COST * 0.25), name = lotName(lot);
+  pushUndo(`removing ${name}`);
+  if (!state.lotLayout) state.lotLayout = Array.from({ length: state.lotSections }, (_, k) => [0, k]);
+  state.lotLayout = state.lotLayout.filter((s) => (s[2] || 0) !== lot).map((s) => ((s[2] || 0) > lot ? [s[0], s[1], s[2] - 1] : s));
+  state.lotSections = state.lotLayout.length;
+  state.plots = plots().filter((P, i) => baseCount() + i !== lot);
+  state.cash += back;
+  plotsChanged(); buildLot(); styleLot(); updateCash(true);
+  toast(`Removed ${name} · +${money(back)} back`); renderSheet(); scheduleSave();
+}
+// While drawing a road: a tag at the entrance of each of your lots, to end the road there.
+const roadTagLayer = $('roadTags');
+let roadTagsSig = '', roadTagEls = [];
+function updateRoadMarks() {
+  const on = state.started && state.tool === 'proad' && !!roadDraft;
+  const sig = on ? `${proadRev}:${plots().length}` : '';
+  if (sig !== roadTagsSig) {
+    roadTagsSig = sig; roadTagLayer.innerHTML = ''; roadTagEls = [];
+    if (on) plots().forEach((P, i) => {
+      const el = document.createElement('button'), reached = !!plotSites()[i].route;
+      el.className = 'mapchip land'; el.innerHTML = `<i>P</i><span>${esc(P.name)}${reached ? '' : ' entrance'}</span>`;
+      el.title = `End the road here to reach ${P.name}`;
+      el.onclick = () => roadTap({ x: P.x, z: P.z });
+      roadTagLayer.appendChild(el); roadTagEls.push({ el, x: P.x, z: P.z });
+    });
+  }
+  for (const { el, x, z } of roadTagEls) {
+    const q = project(x, heightAt(x, z) + 0.6, z), r = sheet.hidden ? null : sheet.getBoundingClientRect();
+    const vis = q.ok && q.x > -60 && q.x < W + 60 && q.y > 20 && q.y < H + 20 && !(r && q.y > r.top - 8 && q.x > r.left - 8 && q.x < r.right + 8);
+    el.hidden = !vis;
+    if (vis) setTransform(el, `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px) translate(-50%, -50%)`);
+  }
+}
 
 /* =====================================================================
    PEOPLE & CARS: meshes
@@ -10532,7 +10918,7 @@ function liftsBeside(L) {
     if (M === L || isVillage(M) || !canLoad(M) || M.fromBase !== L.fromBase) continue;
     let mode = null;
     if (!L.fromBase) mode = liftTransferMode({ type: L.type, b: L.a }, M);
-    else if (distXZ(L.a, M.a) < TRANSFER_R && (lotCount() < 2 || baseOf(L.a) === baseOf(M.a))) mode = trueY(M.a.x, M.a.z) - trueY(L.a.x, L.a.z) > 0.6 ? 'walk' : 'glide';
+    else if (distXZ(L.a, M.a) < TRANSFER_R && (baseCount() < 2 || baseOf(L.a) === baseOf(M.a))) mode = trueY(M.a.x, M.a.z) - trueY(L.a.x, L.a.z) > 0.6 ? 'walk' : 'glide';
     if (mode) out.push({ M, mode, cost: 0.5 + distXZ(L.a, M.a) * (mode === 'walk' ? 0.08 : 0.03) });
   }
   return out;
@@ -10713,15 +11099,15 @@ function hubDecision(g, A, skipVisit = false) {
 }
 
 function vBase(g, depth, memo, here = g) {
-  const zone = lotCount() > 1 ? baseOf(here) : 0;
+  const zone = baseCount() > 1 ? baseOf(here) : 0;
   if (g.leaving) {
     const car = cars.find((c) => c.id === g.car), spot = car && stalls[car.stall];
-    const cost = spot && lotCount() > 1 && baseOf(spot) !== zone ? crossCost(zone, baseOf(spot)) : 0;
+    const cost = spot && baseCount() > 1 && baseOf(spot) !== zone ? crossCost(zone, baseOf(spot)) : 0;
     return cost === Infinity ? -40 : 25 - cost;
   }
   let b = -20;
   for (const { L, z } of crossSites().base) if (canLoad(L)) {
-    const cost = lotCount() > 1 && z !== zone ? crossCost(zone, z) : 0;
+    const cost = baseCount() > 1 && z !== zone ? crossCost(zone, z) : 0;
     if (cost !== Infinity) b = Math.max(b, vLift(L, g, depth, memo) - 0.5 - cost);
   }
   return b;
@@ -10764,8 +11150,8 @@ function goCar(g) {
   if (g.bus || (car && car.offsite)) {
     // Town bus riders and guests parked off-site go home from a station: one at this base if there is one. Going by
     // straight-line distance, guests walked over the mountain to a station on its other side.
-    const zg = lotCount() > 1 ? baseOf(g) : 0, S = stations();
-    st = nearestStation(g, S.filter((B) => (lotCount() > 1 ? baseOf(B.door) : 0) === zg)) || nearestStation(g, S);
+    const zg = baseCount() > 1 ? baseOf(g) : 0, S = stations();
+    st = nearestStation(g, S.filter((B) => (baseCount() > 1 ? baseOf(B.door) : 0) === zg)) || nearestStation(g, S);
     if (!st && car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
     if (st) g.stn = st.id;
   }
@@ -10773,7 +11159,7 @@ function goCar(g) {
   // Up in a guest area that touches the base: walk inside it down to the base edge first.
   const A = hubAt(g); if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
   // Parked at the other base, or the only open station is there. With no way across, a bus rider just walks.
-  if ((car || st) && lotCount() > 1 && baseOf(g) !== baseOf(s) && (!st || crossCost(baseOf(g), baseOf(s)) < Infinity)) return crossTo(g, baseOf(s), { k: 'car' });
+  if ((car || st) && baseCount() > 1 && baseOf(g) !== baseOf(s) && (!st || crossCost(baseOf(g), baseOf(s)) < Infinity)) return crossTo(g, baseOf(s), { k: 'car' });
   if (st) return setMove(g, { x: st.door.x + (Math.random() - 0.5) * 1.6, z: st.door.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: g.bus ? 'bus' : 'pq' });
   setMove(g, { x: s.x + 0.25, z: s.z }, 'walk', { k: 'car' });
 }
@@ -10783,7 +11169,7 @@ function goCar(g) {
    neither, they don't head for the other base's lifts, and anyone who ends up there waits for a ride
    back to their car at closing: stranded, unhappy, and on the day report. */
 // Bases side by side along a valley go by how far east or west; bases on different sides of a hill by plain distance.
-const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < lotCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } } return best; };
+const baseOf = (p) => { let best = 0, bd = Infinity; for (let k = 0; k < baseCount(); k++) { const s = lotSite(k), d = MOUNTAIN.branch ? Math.hypot(p.x - s.x, p.z - s.z) : Math.abs(p.x - s.x); if (d < bd) { bd = d; best = k; } } return best; };
 // Guests weigh crossing to the other base thousands of times a game minute, so which village lifts join which
 // bases, which base each base lift and shuttle station is at are worked out once a sim step (nothing is built mid-step);
 // whether they're open is still checked every time. Outside a step they're worked out fresh.
@@ -10840,7 +11226,7 @@ function crossDone(g) {
 // Each minute: the village gondolas load from both ends up to their capacity, riders arrive after the
 // ride; base shuttles run between stations at the two bases while anyone is waiting or riding.
 function crossStep(dt) {
-  if (lotCount() < 2) return;
+  if (baseCount() < 2) return;
   for (const L of world.lifts) {
     if (!isVillage(L)) continue;
     L.xq = L.xq || { a: [], b: [] }; L.xBudget = L.xBudget || { a: 0, b: 0 };
@@ -10862,7 +11248,7 @@ function crossStep(dt) {
 }
 // The base shuttle: one loop bus at a time drives the valley road from a station at one base to one at the other.
 function loopStep() {
-  if (lotCount() < 2 || !hasStation()) return;
+  if (baseCount() < 2 || !hasStation()) return;
   const waiting = guests.filter((g) => g.st === 'xbq');
   loopWait = {}; for (const g of waiting) loopWait[baseOf(g)] = (loopWait[baseOf(g)] || 0) + AGENT;
   // Another bus for every busload waiting, or for a stop no bus is heading to where someone has waited a while, up to
@@ -10972,15 +11358,15 @@ function baseDecision(g, skipHub = false) {
   if (seekMeal(g, { k: 'base', p: g }, { k: 'base' })) return;
   let best = null, bv = -Infinity;
   const memo = new Map();
-  const zg = lotCount() > 1 ? baseOf(g) : 0;
+  const zg = baseCount() > 1 ? baseOf(g) : 0;
   for (const L of world.lifts) {
     if (!L.fromBase || !canLoad(L) || isVillage(L)) continue;
-    const cross = zg === (lotCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
+    const cross = zg === (baseCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
     if (cross === Infinity) continue;
     const v = noisy(vLift(L, g, 0, memo) - (cross ? cross : Math.hypot(L.a.x - g.x, L.a.z - g.z) * 0.02));
     if (v > bv) { bv = v; best = L; }
   }
-  if (best && lotCount() > 1 && baseOf(best.a) !== zg && !g.leaving) return crossTo(g, baseOf(best.a), { k: 'queue', lid: best.id });
+  if (best && baseCount() > 1 && baseOf(best.a) !== zg && !g.leaving) return crossTo(g, baseOf(best.a), { k: 'queue', lid: best.id });
   if (!best) { refundGuest(g, world.lifts.some((L) => L.fromBase && L.windHold) ? 'Wind hold on the lifts. Getting my money back.' : null); return goCar(g); }
   if (balk(g, best, { k: 'base' })) return;
   if (g.leaving) return baseDecision(g);
@@ -11178,7 +11564,7 @@ function makeSchedule(n) {
   return out.sort((a, b) => b.t - a.t); // popped from the end
 }
 function carPath(stall) {
-  if (stall.lot) { const s = lotSite(stall.lot); return [...s.route.slice(0, s.road), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive
+  if (stall.lot) { const s = lotSite(stall.lot), R = s.route || MAIN_DRIVE; return [...R.slice(0, s.route ? s.road : R.length), { x: stall.entry.x, z: s.z }, stall.entry, stall.aisle, { x: stall.x, z: stall.z }]; } // off the road at its drive (a lot no road reaches takes no cars)
   if (stall.row) { // down the drive (across the gap first, when the second row sits clear of the road)
     const o = slotOrigin(0, 0), lx = lotSite(0).west ? o.x + LOT.w + 0.45 : o.x - 0.45, gz = o.z + LOT.d + 0.35;
     return [...MAIN_DRIVE, { x: lx, z: o.z + 1.4 }, ...(rowShift(0) ? [{ x: lx, z: gz }, { x: stall.entry.x, z: gz }] : []), stall.entry, stall.aisle, { x: stall.x, z: stall.z }];
@@ -11195,11 +11581,11 @@ const drawAbility = () => { const r = Math.random(), s = lessonShift(), m0 = MOU
 function lotCentre(lot) { const S = stalls.filter((s) => (s.lot || 0) === lot); if (!S.length) return null; let x = 0, z = 0; for (const t of S) { x += t.x; z += t.z; } return { x: x / S.length, z: z / S.length }; }
 let lotScoreCache = null;
 function lotScores(ab) {
-  const key = `${state.day}:${world.lifts.map((L) => `${L.id}${L.open && !L.windHold ? '' : 'x'}`).join(',')}:${world.trails.map((t) => `${t.id}${trailSign(t)}${runnable(t) ? '' : 'x'}`).join(',')}:${state.lotSections}`;
+  const key = `${proadRev}:${state.day}:${world.lifts.map((L) => `${L.id}${L.open && !L.windHold ? '' : 'x'}`).join(',')}:${world.trails.map((t) => `${t.id}${trailSign(t)}${runnable(t) ? '' : 'x'}`).join(',')}:${state.lotSections}`;
   if (!lotScoreCache || lotScoreCache.key !== key) {
     const rides = (state.lastReport && state.lastReport.liftRides) || {}, most = Math.max(1, ...Object.values(rides));
     lotScoreCache = { key, by: [0, 1, 2, 3].map((a) => Array.from({ length: lotCount() }, (_, lot) => {
-      const c = lotCentre(lot); if (!c) return -1;
+      const c = lotCentre(lot); if (!c || !lotSite(lot).route) return -1; // not built, or no road to it yet
       // How good the lifts you can walk to from this lot are for this skier: each lift counts for its best run
       // they'd enjoy (runs too hard for them count for nothing, however many there are), plus how busy it was last
       // time it ran: guests drift toward the popular lifts.
@@ -11256,7 +11642,7 @@ function spawnCar(size, night, evening) {
     extra: free.slice(1).map((i) => ({ i, color: pick(CARS) })) };
   for (const i of free) stalls[i].car = car.id;
   cars.push(car);
-  if (lotCount() > 1) { const lot = stalls[si].lot || 0; (today.lotCars || (today.lotCars = {}))[lot] = (today.lotCars[lot] || 0) + size * AGENT; }
+  if (baseCount() > 1) { const lot = baseOfLot(stalls[si].lot || 0); (today.lotCars || (today.lotCars = {}))[lot] = (today.lotCars[lot] || 0) + size * AGENT; }
   today.lotPeak = Math.max(today.lotPeak || 0, stalls.reduce((a, s) => a + (s.car ? 1 : 0), 0));
 }
 function makeGuest(car, x, z) {
@@ -11765,7 +12151,7 @@ function planCosts(P, guestCount = 0) {
     upkeep += bldUpkeep(B, m, P);
   }
   const other = Math.round(staff * c * lv.cost * (short ? 0.94 : 1));
-  return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round(lotsIn(P) * LOT_RUN_DAY * c),
+  return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round((lotsIn(P) * LOT_RUN_DAY + proadLen() * PROAD_RUN) * c),
     shuttles: busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)) };
 }
 function planRunCost(P) {
@@ -11983,7 +12369,7 @@ function endDay() {
     event: evToday ? evToday.type : null,
     liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
     lotCars: today.lotCars || null,
-    bases: lotCount() > 1 ? { lots: Array.from({ length: lotCount() }, (_, k) => (today.lotCars || {})[k] || 0), crossings: today.crossings || 0, stranded: today.crossStranded || 0, gondola: villageLifts(0, 1).length > 0, shuttle: baseShuttle(0, 1) } : null, // two bases: who parked where, and getting between them
+    bases: baseCount() > 1 ? { lots: Array.from({ length: baseCount() }, (_, k) => (today.lotCars || {})[k] || 0), crossings: today.crossings || 0, stranded: today.crossStranded || 0, gondola: villageLifts(0, 1).length > 0, shuttle: baseShuttle(0, 1) } : null, // two bases: who parked where, and getting between them
     liftWaits: Object.fromEntries(world.lifts.filter((L) => (today.liftRiders[L.id] || 0) >= 10).map((L) => [L.id, Math.round(today.liftWait[L.id] / today.liftRiders[L.id] * 10) / 10])), // for Upgrade lift
     liftTypes: Object.fromEntries(world.lifts.map((L) => [L.id, L.type])),
     day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
@@ -15773,7 +16159,7 @@ function segNearBox(a, b, bb, pad) {
   return false;
 }
 function footprintStats(bb) {
-  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity, pond = false;
+  let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity, pond = false, proad = 99;
   for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) {
     const gx = x + HALF, gz = z + HALF, h = sampleGrid(HT, gx, gz);
     hmin = Math.min(hmin, h); hmax = Math.max(hmax, h);
@@ -15783,8 +16169,9 @@ function footprintStats(bb) {
     const rd = sampleGrid(ROADD, gx, gz);
     if (rd < 1.8) road = true;
     roadMin = Math.min(roadMin, rd);
+    proad = Math.min(proad, sampleGrid(PROADD, gx, gz));
   }
-  return { hmin, hmax, gmax, creek, road, roadMin, pond };
+  return { hmin, hmax, gmax, creek, road, roadMin, pond, proad };
 }
 function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
@@ -15796,6 +16183,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   if (fs.creek) problems.push('Too close to the creek.');
   if (fs.pond) problems.push('In a snowmaking pond.');
   if (fs.road) problems.push('That would block the access road.');
+  else if (fs.proad < PROAD_HW + 0.4) problems.push('That would block one of your roads.');
   else if (BY_ROAD.includes(type)) {
     const a = rot * Math.PI / 2, f = { x: x + Math.sin(a) * BAY_FRONT[type], z: z + Math.cos(a) * BAY_FRONT[type] }, r = nearestRoad(f);
     if (r.d > ROAD_HW + 3.5 || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, facing it, so buses can pull in.`);
@@ -16108,7 +16496,7 @@ const svcPrice = (svc) => priceOf(svc, state.prices);
 const svcRef = (svc) => priceOf(svc, PRICE_DEFAULTS);
 const MEAL_SVCS = ['food', 'dine', 'finedine', 'snack'];
 const wantsMeal = (g) => (!g.ate || g.skipped) && !g.leaving && !g.night && !g.apresGuest && !g.sight && state.time >= g.lunchAt && state.time < sessionEnd(g);
-const sameFoodBase = (a, b) => lotCount() < 2 || baseOf(a) === baseOf(b);
+const sameFoodBase = (a, b) => baseCount() < 2 || baseOf(a) === baseOf(b);
 // Heading home at or after their lunch time without having eaten: grab something at the base before the drive,
 // rather than walk past an open lodge to the car (they were counted as leaving hungry, with "nowhere to eat").
 function lunchOnWayOut(g) {
@@ -17343,7 +17731,7 @@ function toHotel(g, H) {
   if (H.type === 'condo' && H.slope) return toCondo(g, H);
   const s = H.door, A = hubAt(g);
   if (A && !isBase(g) && A.baseSet && A.baseSet.size && !A.baseSet.has(cellKey(Math.round(g.x), Math.round(g.z)))) { const e = hubBaseCell(A, s); if (e && walkHub(g, A, e, { k: 'hubCar' })) return; }
-  if (lotCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' });
+  if (baseCount() > 1 && baseOf(g) !== baseOf(s)) return crossTo(g, baseOf(s), { k: 'car' });
   setMove(g, { x: s.x + (Math.random() - 0.5) * 1.2, z: s.z + (Math.random() - 0.5) * 0.4 }, 'walk', { k: 'hotel' });
 }
 /* ---------- Condos ----------
@@ -17924,7 +18312,7 @@ function bldLive(B) {
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
-    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle${lotCount() > 1 ? ` · <b>${waitingAt(B, 'xbq') * AGENT}</b> for the base shuttle` : ''}`;
+    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle${baseCount() > 1 ? ` · <b>${waitingAt(B, 'xbq') * AGENT}</b> for the base shuttle` : ''}`;
   }
 }
 // Prices in sections, each with what guests consider normal.
@@ -18935,7 +19323,7 @@ function advice() {
     if (r.racks && !r.racks.easy && r.racks.n >= 15) add(false, `${r.racks.n} guests found the ski racks full and left their skis in the snow, mostly at ${esc(r.racks.at[0].name)}. Put a ski rack or two within 50 m of its door.`, 'Build a ski rack', () => pickBuilding('rack'));
     if (r.trailsOpen <= 2 && r.trailsTotal <= 2 && r.guests > 40) add(false, 'More trails give guests more to ski and more reasons to stay. Try one for each ability.', 'Build a trail', () => setTool('trail'));
   }
-  if (!state.summer && lotCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
+  if (!state.summer && baseCount() > 1 && baseLift) { // two bases: park by the lifts, and a way between them
     const zoneLifts = (z) => world.lifts.some((L) => L.fromBase && !isVillage(L) && baseOf(L.a) === z), other = lotName(1);
     if (zoneLifts(1) && !lotSize(1)) add(false, `You have lifts at the ${esc(other.replace(/ lot$/, ''))} base but no parking there. Build the ${esc(other)} so guests can park by those lifts.`, 'Parking', () => openManage('lotgrow'));
     else if (lotSize(1) && zoneLifts(0) && zoneLifts(1) && !villageLifts(0, 1).length && !baseShuttle(0, 1)) add(!!(r && r.bases && r.bases.stranded), `Guests can’t get between your two bases, so they only ski the lifts by where they parked${r && r.bases && r.bases.stranded ? `, and ${r.bases.stranded} ended up stuck at the wrong one` : ''}. Link them with a village gondola, or a shuttle station at each base.`, 'Build a village gondola', () => { draft.liftType = 'village'; setTool('lift'); });
@@ -19719,6 +20107,7 @@ function refreshOnTerrain(i0, j0, i1, j1, skip) {
   for (const B of [...world.buildings]) if (B !== skip && boxOverlap(boxOf(B, 0.5), box)) rebuildBuilding(B);
   if (lotBoxes().some((lb) => boxOverlap(lb, box))) buildLot();
   if (roadPath().some((p) => boxDist(p, box) < 3) || branchPath().some((p) => boxDist(p, box) < 3)) buildRoad();
+  if (proads().some((R) => proadPath(R).some((p) => boxDist(p, box) < 3))) buildPRoads();
   for (const a of world.areas) refreshAreaMesh(a);
   areaSig = null;
   for (const p of world.plans) if (p.group) { removePlanVisual(p); planVisual(p); }
@@ -20910,11 +21299,13 @@ function parkingPanel() {
   const others = Array.from({ length: lotCount() - 1 }, (_, i) => i + 1).map((k) => {
     const n = lotSize(k), w = [lotGrowBlock(0, k), lotGrowBlock(1, k)], ok = lotBuildable() && !short;
     const btns = !n ? `<button class="chip" data-action="expandLot" data-row="0" data-lot="${k}" title="${esc(w[0] || `Build it: ${SPACES_PER_SECTION} spaces`)}" ${!w[0] && ok ? '' : 'disabled'}>Build it${lotBuildable() && !w[0] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`
-      : [[0, 'Along the road'], [1, rowWord(k)]].map(([row, label], i) => `<button class="chip" data-action="expandLot" data-row="${row}" data-lot="${k}" title="${esc(w[i] || `Add ${SPACES_PER_SECTION} spaces`)}" ${!w[i] && ok ? '' : 'disabled'}>${label}${lotBuildable() && !w[i] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`).join('');
+      : [[0, rowOneWord(k)], [1, rowWord(k)]].map(([row, label], i) => `<button class="chip" data-action="expandLot" data-row="${row}" data-lot="${k}" title="${esc(w[i] || `Add ${SPACES_PER_SECTION} spaces`)}" ${!w[i] && ok ? '' : 'disabled'}>${label}${lotBuildable() && !w[i] ? ` · ${money(LOT_EXPAND_COST)}` : ''}</button>`).join('');
+    const mine = isPlot(k), cut = mine && !plotReached(k); // one of your lots, and whether a road reaches it
     return `<li class="lrow static">
-      <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(lotName(k))}</b><span class="pill ${!n ? 'off' : lotOpenN(k) < n ? 'warn' : 'on'}">${!n ? 'Not built' : `${lotOpenN(k)} of ${n} open`}</span></div>
-      <div class="l2">${n ? `<span>${live ? `<b>${lotUsed(k)}</b> of ` : ''}${lotOpenN(k) * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span>` : `<span>A second base: a lot of its own beside the road, ${SPACES_PER_SECTION} spaces a section.</span>`}</div>
-      ${visiting ? '' : `<div class="l3">${btns}</div>`}
+      <div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(lotName(k))}</b><span class="pill ${!n ? 'off' : cut || lotOpenN(k) < n ? 'warn' : 'on'}">${!n ? 'Not built' : cut ? 'No road to it' : `${lotOpenN(k)} of ${n} open`}</span></div>
+      <div class="l2">${cut && n ? '<span>No road reaches its entrance yet, so no cars park here.</span>' : n ? `<span>${live ? `<b>${lotUsed(k)}</b> of ` : ''}${lotOpenN(k) * SPACES_PER_SECTION} spaces${live ? ' in use' : ''}</span>` : mine ? `<span>Your lot, ${SPACES_PER_SECTION} spaces a section.</span>` : `<span>A second base: a lot of its own beside the road, ${SPACES_PER_SECTION} spaces a section.</span>`}</div>
+      ${visiting ? '' : `<div class="l3">${btns}${cut && lotBuildable() && ownRoadsOk() ? '<button class="chip" data-action="roadOpen">Draw a road to it</button>' : ''}</div>`}
+      ${mine && !visiting && lotBuildable() && ownRoadsOk() ? `<div class="l3"><button class="link" data-action="plotRemove" data-lot="${k}">Remove ${esc(lotName(k))}${n ? ` · +${money(Math.round(n * LOT_EXPAND_COST * 0.25))}` : ''}</button></div>` : ''}
       ${visiting ? '' : `<p class="help lot-help">${esc(state.phase !== 'closed' ? 'Parking is added overnight.' : (!n ? [w[0]] : w).filter(Boolean).join(' ') || (n ? `Now ${rowLen(0, k)} across${rowLen(1, k) ? ' and 2 rows deep' : ''}.` : 'Cars head here once the main lot is full.'))}</p>`}
     </li>`;
   }).join('');
@@ -20934,7 +21325,16 @@ function parkingPanel() {
       ${offsiteSpec() ? opsSeg('pkShuttles', k, P.shuttles || 'normal', [['off', 'Off'], ['normal', '15 min'], ['frequent', '8 min']], `Parking shuttles on ${l}`) : ''}
       ${opsSeg('pkTownBus', k, P.townBus || 'on', [['on', 'Town bus'], ['off', 'No town bus']], `Town buses on ${l}`)}</div>`;
   }).join('');
+  const roads = proads().map((R) => { const len = pathLen(proadPath(R)), to = roadLots(R); return `<li class="lrow" data-action="goRoad" data-id="${R.id}">
+      <div class="l1"><span class="swatch" style="background:#464b54"></span><b>${esc(R.name)}</b><span class="pill ${to.length ? 'on' : 'off'}">${to.length ? `To ${esc(to.join(', '))}` : 'No lot yet'}</span></div>
+      <div class="l2"><span>${ftOfU(len)}</span><span>Plowing ${money(Math.round(len * PROAD_RUN * MOUNTAIN.costs))} a day</span></div></li>`; }).join('');
+  const mine = !ownRoadsOk() ? (roads ? `<div class="field-label">Roads</div><ul class="llist">${roads}</ul>` : '') : `<div class="field-label">Your lots and roads</div>
+    <p class="help">Place a parking lot anywhere on your land, then draw a road from the access road to its entrance. Your lots park guests for the nearest base.</p>
+    <div class="row"><button class="btn secondary" data-action="plotOpen" ${lotBuildable() && state.cash >= PLOT_COST ? '' : 'disabled'}>New lot · ${money(PLOT_COST)}</button><button class="btn secondary" data-action="roadOpen" ${lotBuildable() ? '' : 'disabled'}>Draw a road</button></div>
+    ${!lotBuildable() ? '<p class="help">Lots and roads are built overnight, while the resort is closed.</p>' : ''}
+    ${roads ? `<ul class="llist">${roads}</ul>` : ''}`;
   return `<ul class="llist">${lot}${others}${off}</ul>
+    ${mine}
     <div class="field-label">Shuttle stations</div>
     ${sts.length ? `<ul class="llist">${stRows}</ul>` : '<p class="help">None yet. Build one beside the road (Build › Buildings › Shuttle station): town buses bring guests without a car, and parking shuttles carry guests from off-site parking.</p>'}
     ${sts.length ? `<div class="field-label">Buses on each kind of day</div>
@@ -21482,6 +21882,8 @@ function onTap(x, y, ptype) {
   const p = pickTerrain(x, y);
   if (state.tool === 'tpark') parkTap(p);
   else if (state.tool === 'midstn') midTap(p);
+  else if (state.tool === 'proad') roadTap(p);
+  else if (state.tool === 'plot') plotTap(p);
   else if (draft.kind) draftTap(p);
   else if (state.tool === 'clear' && state.landMode === 'doze') dozeAt(x, y);
   else if (state.tool === 'explore') {
@@ -21547,6 +21949,8 @@ window.addEventListener('keydown', (e) => {
     $('menu').hidden = true; $('badge').setAttribute('aria-expanded', 'false');
     if (!$('labelPop').hidden) return openLabelPop(false);
     if (state.tool === 'midstn') closeMidTool();
+    else if (state.tool === 'proad') { if (roadDraft && roadDraft.pts.length) { roadDraft.pts.pop(); showRoadGhost(); renderSheet(); } else closeRoadTool(); }
+    else if (state.tool === 'plot') closePlotTool();
     else if (draft.shaping) cancelShape();
     else if (draft.movingTrail) cancelTrailMove();
     else if (draft.movingLift) cancelLiftMove();
@@ -25147,6 +25551,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.16', date: 'Nov 9, 2026', title: 'Your own parking lots and roads', items: [
+    'Place a parking lot anywhere on your land: Parking › New lot, then tap the map. Turn it round to put its entrance on the side you want. It grows longer, or a second row, like the main lot.',
+    'Draw your own roads: Parking › Draw a road. Start on the access road (or one of your roads), tap to lay it out, and end it at a lot’s entrance. Once a road reaches a lot, cars drive in and park there.',
+    'Roads can’t cross the creek, buildings, lift stations, guest areas or ponds, and can climb 16% at most, so wind them across a slope. Plowing costs a little each day.',
+    'Your lots park guests for the nearest base. They don’t start a new base. Tap a road to see where it leads, or to remove it.',
+  ] },
   { v: '3.15.2', date: 'Nov 9, 2026', small: true, title: 'Evening lift lines and lit mountain restaurants', items: [
     'Fixed: after the lifts closed, skiers could stand in line all evening at an upper lift that wasn’t running for night skiing, while it turned with nobody on it. Now they head down instead. Thanks RowdyBreaker!',
     'With night skiing on, a lodge, restaurant, bar or fine dining up the mountain beside a lit trail now stays open for après until 15 minutes after the lights go out. Night skiers who like après stop in on their last run down. It shows under Evenings with the other après spots. Thanks RowdyBreaker!',
@@ -26951,7 +27361,7 @@ function frame(now) {
   updateChips();
   updateLandMarks();
   if (MAP_VIEW) viewTagsTick();
-  updateLotMarks();
+  updateLotMarks(); updateRoadMarks();
   updateHandles();
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
