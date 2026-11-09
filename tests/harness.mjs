@@ -27,6 +27,7 @@ export async function startServer({ source } = {}) {
   const page = debugBuild(source);
   const server = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (path === '/blank') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>blank</title>'); return; } // same site, no game: for setting up storage before the game loads
     if (path === '/' || path === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
     if (path === '/roadmap.html' || path === '/stats.html') { // these pages' database calls (votes, the owner's stats) go to the stand-in too
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -58,7 +59,7 @@ export async function openGame(browser, url, { query = '', mountain: asked, widt
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   if (!keepStorage || mountain) {
-    await page.goto(url);
+    await page.goto(url + 'blank'); // a new page starts with empty storage; set it up here rather than loading the whole game twice
     await page.evaluate(({ keepStorage, mountain }) => {
       if (!keepStorage) { localStorage.clear(); sessionStorage.clear(); localStorage.setItem('mm.rpView', 'full'); } // tests read the full day report unless they pick the summary
       if (mountain) sessionStorage.setItem('skiTycoon.juniperRidge.v1.boot', JSON.stringify({ mt: mountain }));
@@ -78,7 +79,9 @@ export async function openGame(browser, url, { query = '', mountain: asked, widt
 }
 async function waitReady(page) {
   await page.waitForFunction(() => window.__dbg && !document.getElementById('loading'), null, { timeout: 60000 });
-  await page.waitForTimeout(1500); // the online stand-in signs in shortly after start
+  // The online stand-in signs in shortly after start: wait for that, then a moment for the title's lists to fill.
+  await page.waitForFunction(() => { try { return window.__dbg('NO_SAVE || CLOUD.ready || CLOUD.status === "offline"'); } catch (e) { return false; } }, null, { timeout: 60000 });
+  await page.waitForTimeout(300);
 }
 
 // Shared setups, run inside the game.
