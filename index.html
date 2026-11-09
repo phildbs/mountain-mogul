@@ -11340,6 +11340,12 @@ function initLiftSim(L) {
 function stepLift(L, dt, crew = patrolCrew()) {
   const staff = crew.filter((c) => c.lift === L.id), staffWaiting = staff.some((c) => c.st === 'returnqueue');
   const riding = L.riders.some((r) => r.length) || staff.some((c) => c.st === 'returnride');
+  // After closing, a lift that isn't running for night skiing sends its line away instead of keeping it waiting all
+  // evening (RowdyBreaker, Nov 8: upper lifts with no lit trail ran with a line that never loaded).
+  if (state.phase === 'open' && state.time >= closeTime() && !L.windHold && !isVillage(L)) {
+    if (L.queue.length && !canLoad(L)) { L.qVersion++; for (const g of L.queue.splice(0)) { if (L.fromBase) baseDecision(g); else hikeOut(g); } }
+    if (L.midUp && L.midUp.queue.length && !canLoad(L.midUp)) { L.midUp.qVersion++; for (const g of L.midUp.queue.splice(0)) hikeOut(g); }
+  }
   const U = L.midUp, midQ = U ? U.queue.length + U.incoming : 0;
   if (!(canLoad(L) || riding || (L.open && (L.queue.length || midQ)))) return;
   // After closing, an upper lift that isn't serving night skiing stands still until someone needs it to get down.
@@ -12509,9 +12515,12 @@ const nightLightsOn = () => nightNow() || nightClearout();
 // lifts and trails themselves. canLoad asks for every guest at a lift, so within a sim step the answer is reused
 // as is: checking every trail on each ask made big night-skiing resorts crawl (Adum888, Nov 7).
 const litTrail = (t) => t.lit && t.open && t.snowOk !== false;
-let nightSetKey = '', nightSet = new Set(), nightTick = -1, simTick = 0;
-function liftLit(L) {
-  if (xStep && nightTick === simTick) return nightSet.has(L);
+let nightSetKey = '', nightSet = new Set(), nightVenues = new Set(), nightTick = -1, simTick = 0;
+// Mountain venues night skiers ski past: a lodge, restaurant, bar or fine dining beside a lit trail they can ski tonight.
+const NIGHT_APRES = ['lodge', 'restaurant', 'bar', 'fine'];
+function liftLit(L) { nightNet(); return nightSet.has(L); }
+function nightNet() {
+  if (xStep && nightTick === simTick) return;
   nightTick = xStep ? simTick : -1;
   let h = 0; for (const t of world.trails) h = (h * 31 + (t.lit ? 1 : 0) + (t.open ? 2 : 0) + (t.snowOk !== false ? 4 : 0) + t.id * 8) | 0; // lights switched mid-minute count at once
   const key = `${state.day}:${netGen}:${world.lifts.length}:${h}`;
@@ -12525,9 +12534,14 @@ function liftLit(L) {
       on = next;
     }
     nightSet = on;
+    const { trailR, ret } = flowSets(litTrail, (M) => on.has(M));
+    nightVenues = new Set();
+    for (const t of trailR) if (ret.has(t)) for (const s of t.stops || []) if (!s.B.isBase && NIGHT_APRES.includes(s.B.type)) nightVenues.add(s.B);
   }
-  return nightSet.has(L);
 }
+// Up the mountain beside a lit trail (RowdyBreaker, Nov 8): open for night skiers' après while night skiing runs.
+// `night` is the plan's night skiing; today's when left out.
+function nightVenue(B, night = nightEnd()) { if (!night || B.isBase || !NIGHT_APRES.includes(B.type)) return false; nightNet(); return nightVenues.has(B); }
 const sessionEnd = (g) => (g.night && nightEnd() ? nightEnd() : closeTime());
 // The night crowd: a share of a day's demand, more on weeknights (after work), fewer when it's bitter
 // cold, and more the more lit terrain there is to ski.
@@ -16250,12 +16264,15 @@ function needs(g) {
     if (!g.warmed && g.fat > g.stam * 0.45) n.push('warm');
     if (!g.snacked && state.time >= (g.snackAt ?? Infinity)) n.push('snack');
   }
+  // On their last run, night skiers who like après stop at a lit mountain lodge, restaurant or bar on the way down.
+  if (g.night && g.leaving && g.apres && !g.apresDone && apresOn() && state.time >= closeTime()) n.push('apres');
   return n;
 }
 function svcFor(B, need) {
   const o = offers(B);
   if (need === 'lunch') return ['food', 'dine', 'finedine', 'snack'].find((x) => o.includes(x)) || null;
   if (need === 'snack' && B.type === 'restaurant' && state.time >= closeTime()) return 'dine'; // hungry night skiers can sit down for dinner
+  if (need === 'apres') return nightOnly(B) && apresOpen(B) && state.time < venueClose(B) - 10 ? apresSvc(B) : null; // base après is chosen at the base
   return o.includes(need) ? need : null;
 }
 function bestVisit(g, here, radius, baseToo, list, needList) {
@@ -16332,8 +16349,11 @@ const APRES_CREW = { cafe: 0.5, truck: 0.3 };
 // A casual restaurant up the mountain feeds night skiers, but après is for the base and village ones.
 // Once the lifts close the only way up or down is the village gondola, so a lodge, bar or fine dining up the
 // mountain stays open (and staffed) for après only beside one of its stations. Otherwise nobody can get there.
-const apresReach = (B) => B.isBase || world.lifts.some((L) => isVillage(L) && (distXZ(L.a, B.door) < 14 || distXZ(L.b, B.door) < 14 || (!!L.hubBottom && hubAt(B.door) === L.hubBottom) || (!!L.hubTop && hubAt(B.door) === L.hubTop)));
-const apresType = (B) => ((APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase)) || (BASE_APRES.includes(B.type) && B.isBase) || hotelDines(B)) && apresReach(B);
+const villageReach = (B) => world.lifts.some((L) => isVillage(L) && (distXZ(L.a, B.door) < 14 || distXZ(L.b, B.door) < 14 || (!!L.hubBottom && hubAt(B.door) === L.hubBottom) || (!!L.hubTop && hubAt(B.door) === L.hubTop)));
+// Night skiers can also stop at one beside a lit trail, so it serves après until night skiing ends (and no later).
+const nightOnly = (B, night = nightEnd()) => !B.isBase && !villageReach(B) && nightVenue(B, night);
+const apresReach = (B, night = nightEnd()) => B.isBase || villageReach(B) || nightVenue(B, night);
+const apresType = (B, night = nightEnd()) => ((APRES_VENUES.includes(B.type) && (B.type !== 'restaurant' || B.isBase || nightVenue(B, night))) || (BASE_APRES.includes(B.type) && B.isBase) || hotelDines(B)) && apresReach(B, night);
 const apresSvc = (B) => (B.type === 'restaurant' || B.type === 'fine' || B.type === 'hotel' ? 'apres' : B.type === 'firepit' ? 'fire' : B.type === 'cafe' ? 'warm' : B.type === 'truck' ? 'snack' : 'drinks');
 const apresOn = () => !!runOps && runOps.apres === 'on';
 const nightEnd = () => (runOps && runOps.night) || 0;
@@ -16348,7 +16368,7 @@ function dayHardEnd() {
 }
 const lastCall = () => (runOps && runOps.lastCall) || APRES_END;
 const apresEnd = () => Math.max(lastCall(), nightEnd() ? nightEnd() + 45 : 0);
-const venueClose = (B) => Math.min(apresEnd(), VENUE_CLOSE[B.type] ?? Infinity);
+const venueClose = (B) => Math.min(apresEnd(), VENUE_CLOSE[B.type] ?? Infinity, nightOnly(B) ? nightEnd() + 15 : Infinity);
 const apresVenue = (B) => apresType(B) && bldMode(B) === 'open';
 const apresOpen = (B) => apresVenue(B) && (state.phase !== 'open' || state.time < venueClose(B));
 // After skiing, guests walk to après: anything more than about 130 ft above where they stand (a fire pit
@@ -16373,7 +16393,7 @@ function apresStaff(lv) {
 // Evening locals: with a late last call and a bar, people from town drive up after dinner just for
 // the bar, more on weekends and the later it stays open. No lift ticket; they come for the bar.
 function eveningSchedule(dayN) {
-  if (!apresOn() || lastCall() <= 1260 || !world.buildings.some((B) => B.type === 'bar' && apresVenue(B))) return [];
+  if (!apresOn() || lastCall() <= 1260 || !world.buildings.some((B) => B.type === 'bar' && apresVenue(B) && !nightOnly(B))) return [];
   const n = Math.round(dayN * 0.05 * (runOps.dayKind === 'weekend' ? 1.6 : 0.7) * ((lastCall() - 1260) / 240 + 0.5) * state.reputation), out = [];
   let total = 0;
   while (total < n) { const size = Math.random() < 0.5 ? 2 : Math.random() < 0.5 ? 3 : 4; out.push({ t: 1170 + Math.random() * Math.max(30, lastCall() - 1260), size, evening: true }); total += size; }
@@ -16427,7 +16447,7 @@ function apresChance(g) {
   const w = todayWx();
   if (w.type === 'sunny' && w.hi > 22) p += 0.08;
   if (w.type === 'rain' || w.type === 'heavy') p -= 0.05;
-  if (world.buildings.some((B) => B.type === 'bar' && apresVenue(B))) p += 0.1;
+  if (world.buildings.some((B) => B.type === 'bar' && apresVenue(B) && !nightOnly(B))) p += 0.1;
   p += Math.min(0.12, firesNearVenues() * 0.04); // fire pits by the bar or lodge make the base a place to hang out
   p += Math.min(0.04, lightsNearVenues() * 0.01); // so do string lights and a holiday tree, a little
   if (runOps.dayKind === 'weekend') p *= 1.3;
@@ -16463,6 +16483,7 @@ function maybeApres(g) {
   return true;
 }
 function startVisit(g, B, svc, resume) {
+  if (g.night && g.leaving && !g.apresGuest && state.time >= closeTime() && nightOnly(B) && svc === apresSvc(B)) { g.apresGuest = true; g.apresDone = true; today.apres.guests += AGENT; thought(g, `Après at ${B.name} on the way down.`); }
   g.svc = svc; g.bid = B.id; g.resume = resume;
   // A skier heads for a free rack first (the one by the door, or another close by), then walks in.
   const R = needsRack(g, B) ? pickRack(B) : null;
@@ -21111,17 +21132,18 @@ function eveningsPanel() {
 }
 // Après and night skiing in a plan, with what they cost to staff.
 function apresOpsHtml(P) {
-  const venues = world.buildings.filter((B) => apresType(B) && !isDecor(B) && bldModeIn(P, B) === 'open');
-  const bar = venues.some((B) => B.type === 'bar'), on = (P.apres || 'off') === 'on', lc = P.lastCall || APRES_END;
+  const night = nightOk(P), venues = world.buildings.filter((B) => apresType(B, night) && !isDecor(B) && bldModeIn(P, B) === 'open');
+  const bar = venues.some((B) => B.type === 'bar' && !nightOnly(B, night)), on = (P.apres || 'off') === 'on', lc = P.lastCall || APRES_END;
   const late = Math.max(0, lc - LATE_FROM) / 60;
-  const hrs = (B) => { const end = Math.min(lc, VENUE_CLOSE[B.type] ?? Infinity); return (Math.max(0, Math.min(end, LATE_FROM) - DAY_CLOSE) + Math.max(0, end - LATE_FROM) * 1.5) / 60; };
+  const shut = (B) => Math.min(VENUE_CLOSE[B.type] ?? Infinity, nightOnly(B, night) ? night + 15 : Infinity); // a lit mountain venue closes after night skiing
+  const hrs = (B) => { const end = Math.min(lc, shut(B)); return (Math.max(0, Math.min(end, LATE_FROM) - DAY_CLOSE) + Math.max(0, end - LATE_FROM) * 1.5) / 60; };
   const cost = Math.round((venues.reduce((a, B) => a + APRES_STAFF_HR * (APRES_CREW[B.type] ?? 1) * hrs(B), 0) + SECURITY_HR * late * (P.security === 'light' ? 0.4 : 1)) * MOUNTAIN.costs);
-  const closes = venues.filter((B) => VENUE_CLOSE[B.type] && VENUE_CLOSE[B.type] < lc).map((B) => `${esc(B.name)} at ${clockLabel(VENUE_CLOSE[B.type])}`);
+  const closes = venues.filter((B) => shut(B) < lc).map((B) => `${esc(B.name)} at ${clockLabel(shut(B))}`);
   return `<div class="field-label">Après-ski</div>${opsSeg('opsApres', 0, P.apres || 'off', [['off', 'Off'], ['on', 'On']], 'Après-ski')}
     ${on && venues.length ? `<div class="field-label">Last call</div>${opsSeg('opsLastCall', 0, String(lc), LAST_CALLS.map((k) => [String(k), hourLabel(k)]), 'Last call')}` : ''}
-    <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base (or by a village gondola station) for guests to go to after skiing. Up the mountain, nobody can reach one once the lifts close.'
+    <p class="help">${!venues.length ? 'Build a bar, lodge, restaurant, café or food truck at the base (or by a village gondola station) for guests to go to after skiing. Up the mountain, only night skiers can reach one, beside a lit trail.'
       : on ? `After the lifts close, ${venues.map((B) => esc(B.name)).join(', ')} stay${venues.length === 1 ? 's' : ''} open until ${clockLabel(lc)}${closes.length ? ` (${closes.join(', ')})` : ''}. About ${money(cost)} in staff${late ? `, with late-night pay and security after ${hourLabel(LATE_FROM)}` : ''}.${bar ? '' : ' A bar draws the biggest après crowd, and it’s the only place open late.'}`
-      : 'Keep the bar, lodge, fine dining and base restaurants, cafés and food trucks open after the lifts close for guests heading home.'}</p>
+      : 'Keep the bar, lodge, fine dining and base restaurants, cafés and food trucks open after the lifts close for guests heading home. With night skiing, ones up the mountain beside a lit trail open too, until the lights go out.'}</p>
     ${on && venues.length && lc > LATE_FROM ? `<div class="field-label">Security after ${hourLabel(LATE_FROM)}</div>${opsSeg('opsSecurity', 0, P.security || 'full', [['full', 'Full'], ['light', 'Light']], 'Security')}
       <p class="help ${P.security === 'light' && lc > 1380 ? 'warn' : ''}">${P.security === 'light' ? `Cheaper, but past ${hourLabel(1380)} a rowdy night can cost you some reputation, more so on weeknights.` : 'Keeps late nights friendly. Light security costs less, but rowdy nights get talked about.'}</p>` : ''}`;
 }
@@ -25125,6 +25147,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '3.15.2', date: 'Nov 9, 2026', small: true, title: 'Evening lift lines and lit mountain restaurants', items: [
+    'Fixed: after the lifts closed, skiers could stand in line all evening at an upper lift that wasn’t running for night skiing, while it turned with nobody on it. Now they head down instead. Thanks RowdyBreaker!',
+    'With night skiing on, a lodge, restaurant, bar or fine dining up the mountain beside a lit trail now stays open for après until 15 minutes after the lights go out. Night skiers who like après stop in on their last run down. It shows under Evenings with the other après spots. Thanks RowdyBreaker!',
+  ] },
   { v: '3.15.1', date: 'Nov 8, 2026', small: true, title: 'Lifts over ponds', items: [
     'A gondola or chairlift over a snowmaking pond now hangs clear of the water, with its towers standing in the pond, instead of dipping its cabins in. Lifts already over a pond are fixed when you load. Thanks for the feedback!',
     'Ponds can’t be dug right at a lift station, and a lift station can’t go in a pond.',
