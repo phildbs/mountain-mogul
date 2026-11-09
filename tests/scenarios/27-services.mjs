@@ -21,8 +21,8 @@ export default async function ({ browser, url }) {
     computeNetwork(); syncLabels();
     return out; })()`);
   eq(placed, ['patrol', 'clinic', 'kids', 'hrest', 'transit'], 'patrol hut, clinic, kids’ camp and heated restrooms at the base, transit center snapped to the road');
-  const drive = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'transit'), Q = drivewayQuad(B); return { q: !!Q, mesh: B.group.children.some((m) => m.material === DRIVE_MAT), gap: Q ? Math.max(...Q.es.map((p) => nearestRoad(p).d)) : 99 }; })()`);
-  assert(drive.q && drive.mesh && drive.gap < 1.2, `a paved apron joins the bay to the road (${JSON.stringify(drive)})`);
+  const drive = await g.ev(`(() => { const B = world.buildings.find((b) => b.type === 'transit'), Q = drivewayQuad(B); return { q: !!Q, mesh: B.group.children.some((m) => m.material === BAY_MAT), gap: Q ? Math.max(...Q.es.map((p) => nearestRoad(p).d)) : 99 }; })()`);
+  assert(drive.q && drive.mesh && drive.gap < 1.2, `a bus pull-out joins the bay to the road (${JSON.stringify(drive)})`);
   await g.ev(`openDay()`);
   // late morning: a few skiers take a fall
   await g.ev(`(() => { let n = 0; while (state.time < 660 && n < 90000) { simStep(1.5); n++; } })()`);

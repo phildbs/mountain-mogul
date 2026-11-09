@@ -8799,7 +8799,7 @@ function sheetAct(b) {
   else if (a === 'lotPick') startLotEdit(+b.dataset.i);
   else if (a === 'roadPick') { const R = proads().find((Q) => Q.id === +b.dataset.id); if (R) startRoadEdit(R); }
   else if (a === 'roadMain') startRoadEdit(MAIN_ROAD);
-  else if (a === 'roadMainReset' && rdraft && rdraft.main) { rdraft.pts = mainCtrl0(); rdraft.info = null; roadHandlesSig = ''; showRGhost(); renderSheet(); }
+  else if (a === 'roadMainReset' && rdraft && rdraft.main) { rdraft.pts = mainCtrl0(); rdraft.info = null; roadHandlesSig = null; showRGhost(); renderSheet(); }
   else if (a === 'roadKind') { if (rdraft && !rdraft.main) { rdraft.kind = b.dataset.v; rdraft.info = null; showRGhost(); } else lastKind = b.dataset.v; renderSheet(); }
   else if (a === 'roadBuild') commitRoad();
   else if (a === 'roadRemove') { const R = rdraft ? rdraft.R : selected && selected.kind === 'proad' ? selected.obj : null; if (R) removeRoadNow(R); }
@@ -10889,7 +10889,7 @@ function denseEnds(P, a, b) {
   return out;
 }
 // Your roads: a ribbon each (two lanes with lines, or a plain driveway), widening into rounded corners where it leaves
-// the road it joins (laid over that road's edge line there) and where it comes into a lot, with a stop line before a junction.
+// the road it joins (laid over that road's edge line there) and where it comes into a lot.
 let proadMeshes = [];
 function buildPRoads() {
   for (const m of proadMeshes) { scene.remove(m); m.geometry.dispose(); }
@@ -10901,12 +10901,6 @@ function buildPRoads() {
     const from = joined ? Math.max(0, P0.findIndex((q) => distXZ(q, P0[0]) > phw - 0.25)) : 0, P = denseEnds(P0.slice(from), joined, atLot);
     const len = pathLen(P);
     proadMeshes.push(roadRibbon(P, R.kind === 'drive' ? 0.06 : 0.055, R.kind === 'drive' ? DRIVEWAY_MAT : ROAD_MAT, (t) => filletHW(k.hw, t * len, len, joined, atLot)));
-    if (joined && R.kind !== 'drive') { // a stop line across the near lane, where the corners end
-      let i = P.findIndex((q, j) => j && pathLen(P.slice(0, j + 1)) > FILLET + 0.15); if (i < 1) i = 1;
-      const a = P[i - 1], b = P[i], L = distXZ(a, b) || 1, tx = (b.x - a.x) / L, tz = (b.z - a.z) / L, nx = -tz, nz = tx;
-      const w = (q, f) => ({ x: a.x + tx * q + nx * f, z: a.z + tz * q + nz * f });
-      const st = stripMesh([w(0, -0.05), w(0.2, -0.05)], [w(0, -k.hw * 0.85), w(0.2, -k.hw * 0.85)], STOP_MAT, 0.065); // the lane coming in to the junction (keep right) scene.add(st); proadMeshes.push(st);
-    }
   }
 }
 // After any change to your roads, lots or the access road: routes, the ground roads keep clear, the meshes.
@@ -11045,7 +11039,7 @@ function setRoadsTab(k) { rtab = k; try { localStorage.setItem('mm.rtab', k); } 
 const ROAD_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 const ROAD_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8402f, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 function clearRGhost() { for (const m of rGhost) { scene.remove(m); m.geometry.dispose(); } rGhost = []; }
-function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = ''; lotAsk = 0; }
+function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = null; lotAsk = 0; }
 function openRoads(tab) {
   if (visiting) return;
   if (state.tool !== 'roads') setTool('roads');
@@ -11107,7 +11101,7 @@ function startLotEdit(i) {
 function startRoadEdit(R) {
   if (R.main) rdraft = { main: true, R: MAIN_ROAD, pts: mainCtrl().map((p) => [...p]), info: null };
   else rdraft = { R, kind: R.kind || 'road', pts: R.pts.map((p) => [...p]), info: null };
-  roadHandlesSig = ''; showRGhost(); renderSheet();
+  roadHandlesSig = null; showRGhost(); renderSheet();
 }
 const parkIndexAt = (p) => parks().findIndex((P) => rectDist(p, parkRect(P)) === 0);
 let lastKind = 'road';
@@ -11147,7 +11141,7 @@ function roadsGestureEnd(g, p) {
   if (g.what === 'lot') { if (g.moved < 1.5) { roadsTap(p || g.a); return; } if (ldraft) { ldraft.info = null; showRGhost(); } renderSheet(); return; }
   if (!g.moved) { if (!g.more) roadsTap(p || g.start); return; }
   rdraft.pts = simplifyPts(rdraft.pts); endAtLot(rdraft);
-  rdraft.raw = null; rdraft.info = null; roadHandlesSig = '';
+  rdraft.raw = null; rdraft.info = null; roadHandlesSig = null;
   showRGhost(); renderSheet();
 }
 // A tap in the Roads tool: pick a road or a lot to change, add a point to a road being drawn, or an entrance to a lot.
@@ -11155,7 +11149,7 @@ function roadsTap(p) {
   if (!p) return;
   const tab = roadsTab();
   if (tab === 'roads') {
-    if (rdraft && !rdraft.R) { const e = rdraft.pts[rdraft.pts.length - 1]; if (e && Math.hypot(p.x - e[0], p.z - e[1]) < 1) return; rdraft.pts.push([Math.round(p.x * 100) / 100, Math.round(p.z * 100) / 100]); endAtLot(rdraft); rdraft.info = null; roadHandlesSig = ''; showRGhost(); renderSheet(); return; }
+    if (rdraft && !rdraft.R) { const e = rdraft.pts[rdraft.pts.length - 1]; if (e && Math.hypot(p.x - e[0], p.z - e[1]) < 1) return; rdraft.pts.push([Math.round(p.x * 100) / 100, Math.round(p.z * 100) / 100]); endAtLot(rdraft); rdraft.info = null; roadHandlesSig = null; showRGhost(); renderSheet(); return; }
     if (!rdraft) { const R = proadAt(p, true); if (R) { if (!roadsOk() || !lotBuildable()) { select({ kind: 'proad', obj: R }); setTool('explore'); return; } startRoadEdit(R); } }
     return;
   }
@@ -11307,7 +11301,7 @@ function transitHtml() {
 // The handles: the points of a road being changed (and a small dot between each pair, to add a bend), or the move,
 // turn and size handles of a lot.
 const roadHandleLayer = $('roadHandles');
-let roadHandlesSig = '', roadHandleEls = [], rDrag = null;
+let roadHandlesSig = null, roadHandleEls = [], rDrag = null;
 function roadHandleSpecs() {
   const out = [];
   if (rdraft && !rdraft.raw && rdraft.pts.length >= 2) {
@@ -11324,7 +11318,7 @@ function roadHandleSpecs() {
 function handleDrag(h, p) {
   if (h.k === 'pt' || h.k === 'mid') {
     const d = rdraft; let i = h.i;
-    if (h.k === 'mid') { d.pts.splice(i + 1, 0, [p.x, p.z]); h.k = 'pt'; h.i = i = i + 1; roadHandlesSig = ''; }
+    if (h.k === 'mid') { d.pts.splice(i + 1, 0, [p.x, p.z]); h.k = 'pt'; h.i = i = i + 1; roadHandlesSig = null; }
     let q = { x: p.x, z: p.z };
     if (!d.main && i === 0) { const hh = roadHit(q, d.R ? d.R.id : Infinity); if (hh && hh.d < 3) q = hh.pt; }
     if (d.main && !inProperty(q.x, q.z)) return;
@@ -11360,14 +11354,16 @@ function updateRoadMarks() {
       el.title = { pt: 'Drag to move this point', mid: 'Drag to add a bend', move: 'Drag to move the lot', turn: 'Drag to turn the lot', size: 'Drag to change its size' }[h.k];
       el.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); el.setPointerCapture(e.pointerId); rDrag = { h, el }; el.classList.add('drag'); });
       el.addEventListener('pointermove', (e) => { if (!rDrag || rDrag.el !== el) return; const p = pickTerrain(e.clientX, e.clientY); if (p) handleDrag(h, p); });
-      const end = () => { if (rDrag && rDrag.el === el) { rDrag = null; el.classList.remove('drag'); roadHandlesSig = ''; if (rdraft) rdraft.info = null; if (ldraft) ldraft.info = null; showRGhost(); renderSheet(); } };
+      const end = () => { if (rDrag && rDrag.el === el) { rDrag = null; el.classList.remove('drag'); roadHandlesSig = null; if (rdraft) rdraft.info = null; if (ldraft) ldraft.info = null; showRGhost(); renderSheet(); } };
       el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
       roadHandleLayer.appendChild(el); roadHandleEls.push({ el, h });
     }
   }
   if ((rdraft && rdraft.dirty) || (ldraft && ldraft.dirty)) { if (rdraft) rdraft.dirty = false; if (ldraft) ldraft.dirty = false; showRGhost(); }
   for (const { el, h } of roadHandleEls) {
-    const w = h.at(), q = project(w.x, heightAt(w.x, w.z) + 0.3, w.z), r = sheet.hidden ? null : sheet.getBoundingClientRect();
+    let w = null; try { w = h.at(); } catch (e) { w = null; } // a handle whose draft just went: hide it, never stop the frame
+    if (!w) { el.hidden = true; continue; }
+    const q = project(w.x, heightAt(w.x, w.z) + 0.3, w.z), r = sheet.hidden ? null : sheet.getBoundingClientRect();
     const vis = q.ok && !(r && q.y > r.top && q.x > r.left && q.x < r.right);
     el.hidden = !vis;
     if (vis) setTransform(el, `translate(${Math.round(q.x)}px, ${Math.round(q.y)}px)`);
@@ -14470,6 +14466,58 @@ const APRON_TEX = (() => {
 // Drawn over the road where they meet, so the road's edge line breaks at the entrance.
 const DRIVE_MAT = new THREE.MeshLambertMaterial({ map: APRON_TEX, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 const LOT_DRIVE_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); // a lot's plain asphalt lane
+// The bus bay as a pull-out off the road: the road itself widens, tapering in and out either side of the platform, and
+// its outer edge runs along the platform's curb exactly, so it fits a curve. Laid over the road's edge line, which
+// breaks along the bay, as it would. In world space; b is the station (type, x, z, rot), Q its drivewayQuad.
+const BAY_TAPER = 2.4;
+const BAY_TEX = (() => {
+  const W = 512, H = 128, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#464b54'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 2200; i++) { const v = Math.random(); g.fillStyle = v < 0.5 ? `rgba(255,255,255,${v * 0.07})` : `rgba(0,0,0,${(v - 0.5) * 0.12})`; g.fillRect(Math.random() * W, Math.random() * H, 2, 2); }
+  g.strokeStyle = 'rgba(245,247,250,0.85)'; g.lineWidth = 4; g.setLineDash([16, 12]); g.beginPath(); g.moveTo(0, 0.2 * H); g.lineTo(W, 0.2 * H); g.stroke(); g.setLineDash([]); // where the bay leaves the lane
+  g.fillStyle = 'rgba(232,184,46,0.95)'; g.fillRect(0, H - 7, W, 5); // the curb
+  g.fillStyle = 'rgba(245,247,250,0.85)'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 46px "Big Shoulders Display", "Arial Narrow", Arial, sans-serif'; g.save(); g.translate(W / 2, 0.6 * H); g.scale(1, -1); g.fillText('BUS', 0, 0); g.restore(); // the bay's texture runs curb to road: flipped so it reads from the road
+  const t = new THREE.CanvasTexture(c); t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+})();
+function busBayGeo(b, Q) {
+  const t = BTYPES[b.type], hw = t.w / 2, c0 = Q.cs[0], c1 = Q.cs[1], mid = { x: (c0.x + c1.x) / 2, z: (c0.z + c1.z) / 2 };
+  let P = null, k = 0, bd = Infinity;
+  for (const R of [roadPath(), branchPath()]) R.forEach((q, i) => { const d = distXZ(q, mid); if (d < bd) { bd = d; P = R; k = i; } });
+  if (!P || P.length < 3) return null;
+  const L = distXZ(c0, c1) || 1, dx = (c1.x - c0.x) / L, dz = (c1.z - c0.z) / L;
+  let mx = -dz, mz = dx; if ((P[k].x - mid.x) * mx + (P[k].z - mid.z) * mz < 0) { mx = -mx; mz = -mz; } // the curb line's normal, toward the road
+  // the stretch of road beside the bay, by distance along it from the point opposite the platform's middle
+  const along = [0]; for (let i = 1; i < P.length; i++) along.push(along[i - 1] + distXZ(P[i], P[i - 1]));
+  const sAt = (q) => (q.x - mid.x) * dx + (q.z - mid.z) * dz, span = hw + BAY_TAPER, rows = [];
+  for (let i = 0; i < P.length; i++) {
+    if (Math.abs(along[i] - along[k]) > span + 3) continue;
+    const p = P[i], s0 = sAt(p); if (Math.abs(s0) > span) continue;
+    const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)], l = distXZ(a, c) || 1;
+    let nx = -(c.z - a.z) / l, nz = (c.x - a.x) / l; if (nx * -mx + nz * -mz < 0) { nx = -nx; nz = -nz; } // toward the station
+    const den = nx * -mx + nz * -mz, toCurb = den > 0.2 ? ((c0.x - p.x) * mx + (c0.z - p.z) * mz) / -den : ROAD_HW;
+    const f = 1 - sstep(hw - 0.2, span, Math.abs(s0)), inner = ROAD_HW - 0.3, outer = inner + (clamp(toCurb, inner, ROAD_HW + 7) - inner) * f;
+    rows.push({ p, nx, nz, s: s0, inner, outer });
+  }
+  if (rows.length < 3) return null;
+  rows.sort((a, b) => a.s - b.s);
+  const pos = [], uv = [], idx = [], N = 3, s0 = rows[0].s, s1 = rows[rows.length - 1].s;
+  rows.forEach((r, i) => {
+    for (let j = 0; j <= N; j++) {
+      const off = lerp(r.inner, r.outer, j / N), x = r.p.x + r.nx * off, z = r.p.z + r.nz * off;
+      pos.push(x, Math.max(roadY(x, z), meshHeightAt(x, z) - 0.02) + 0.058, z); uv.push((r.s - s0) / ((s1 - s0) || 1), 1 - j / N);
+    }
+    if (i) { const a = (i - 1) * (N + 1); for (let j = 0; j < N; j++) idx.push(a + j, a + j + N + 1, a + j + 1, a + j + 1, a + j + N + 1, a + j + N + 2); }
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  if (geo.attributes.normal.array[1] < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
+  return geo;
+}
+const BAY_MAT = new THREE.MeshLambertMaterial({ map: BAY_TEX, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
 // The apron's surface in world space, draped on the ground.
 function drivewayGeo(Q) {
   const NX = 8, NZ = 5, pts = drivewayPoints(Q, NX, NZ), pos = [], uv = [], idx = [];
@@ -14485,11 +14533,11 @@ function drivewayGeo(Q) {
 function addDriveway(b) {
   const Q = drivewayQuad(b);
   if (!Q) return;
-  const geo = drivewayGeo(Q);
+  const bay = busBayGeo(b, Q), geo = bay || drivewayGeo(Q); // a pull-out off the road; the old apron if the road's too odd there
   b.group.updateMatrixWorld(true);
   geo.applyMatrix4(b.group.matrixWorld.clone().invert());
-  const m = new THREE.Mesh(geo, DRIVE_MAT);
-  m.receiveShadow = true; m.renderOrder = 1;
+  const m = new THREE.Mesh(geo, bay ? BAY_MAT : DRIVE_MAT);
+  m.receiveShadow = true; m.renderOrder = bay ? 2.6 : 1; // over the road's edge line
   b.group.add(m);
   // Buses turn in off the road at one end of the bay and pull up along the curb.
   const hw = BTYPES[b.type].w / 2, cz = BAY_FRONT[b.type] + 0.45;
@@ -17141,7 +17189,7 @@ function showGhost(type, tier, x, z, rot, ok, padY, style, pts) {
   // Bus stops preview the paved apron out to the road.
   if (ghostDrive) { scene.remove(ghostDrive); ghostDrive.geometry.dispose(); ghostDrive = null; }
   const Q = BY_ROAD.includes(type) && drivewayQuad(b);
-  if (Q) { ghostDrive = new THREE.Mesh(drivewayGeo(Q), DRIVE_GHOST); ghostDrive.renderOrder = 3; scene.add(ghostDrive); }
+  if (Q) { ghostDrive = new THREE.Mesh(busBayGeo(b, Q) || drivewayGeo(Q), DRIVE_GHOST); ghostDrive.renderOrder = 3; scene.add(ghostDrive); }
 }
 
 /* =====================================================================
@@ -26257,10 +26305,10 @@ const CHANGES = [
     'A new Roads tool (6), beside Buildings, with three tabs: Roads, Parking and Transit.',
     'Parking: drag on the map to draw a lot of any size. It lines up with the nearest road, and shows its spaces and price as you go. Turn it to any angle, move it, or drag its edges to make it bigger or smaller. Draw a lot against another one to add on to it: they join, and cars drive from one into the other.',
     'Your main lot is a lot like any other now, in the same place with the same spaces. You can change it, move it or remove it. With no lots at all, guests come only by bus, off-site shuttle or from your hotels.',
-    'Roads: drag from the access road (or one of your roads) to paint a new one, and end it at a lot. An entrance opens where it meets the lot, and cars drive in. Two-lane roads or narrower driveways, with rounded corners and a stop line where they join, and a bridge where they cross the creek. Roads can climb 16% at most, so wind them across a slope.',
+    'Roads: drag from the access road (or one of your roads) to paint a new one, and end it at a lot. An entrance opens where it meets the lot, and cars drive in. Two-lane roads or narrower driveways, with rounded corners where they join, and a bridge where they cross the creek. Roads can climb 16% at most, so wind them across a slope.',
     'Tap any road, the access road too, to change its route by dragging its points. The access road only moves inside your land.',
     'Operations closes whole lots on quiet days now, instead of parking sections. Old plans carry over.',
-    'Transit: shuttle stations, transit centers and off-site parking have moved to the Roads tool.',
+    'Transit: shuttle stations, transit centers and off-site parking have moved to the Roads tool. Stations now sit on a proper bus pull-out: the road widens beside the platform and tapers back.',
     'Your lots park guests for the nearest base. Two-base mountains keep their two bases. King of the Mountain keeps its parking sections for now.',
   ] },
   { v: '3.15.2', date: 'Nov 9, 2026', small: true, title: 'Evening lift lines and lit mountain restaurants', items: [

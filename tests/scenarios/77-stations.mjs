@@ -1,12 +1,12 @@
-// Shuttle stations and transit centers are separate buildings now, both in the build menu: each snaps
+// Shuttle stations and transit centers are separate buildings now, both under Roads › Transit: each snaps
 // to the access road, facing it, at a spot where it fits without blocking the road.
 // (Player report that led here: stations wouldn't upgrade to transit centers because of the road.)
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   const g = await openGame(browser, url);
   await g.click('#startBtn'); await g.wait(300);
-  await g.ev(`(() => { setTool('bld'); draft.btype = null; renderSheet(); })()`); await g.wait(50);
-  eq(await g.ev(`['shuttle', 'transit'].map((k) => !!document.querySelector('#sheet [data-action=pickB][data-v=' + k + ']'))`), [true, true], 'both in the build menu');
+  await g.ev(`openRoads('transit')`); await g.wait(50);
+  eq(await g.ev(`['shuttle', 'transit'].map((k) => !!document.querySelector('#sheet [data-action=transitPick][data-v=' + k + ']'))`), [true, true], 'both under Roads › Transit');
   const r = await g.ev(`(() => { state.cash = 1e8; const out = [];
     for (const type of ['shuttle', 'transit']) for (let i = 0; i < 30 && out.filter((x) => x.type === type).length < 3; i++) {
       const sn = snapToRoad(type, { x: LAND.i0 - HALF + 8 + i * 9 + (type === 'transit' ? 4 : 0), z: LAND.j1 - HALF - 6 }), v = evalBuilding(type, sn.x, sn.z, sn.rot, false);
