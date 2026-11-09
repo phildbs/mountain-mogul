@@ -4989,7 +4989,7 @@ const ACROSS = [0, 0.06, 0.15, 0.5, 0.85, 0.94, 1];
 // clearing or a trail-end pad), its coloured border fades out so merges read cleanly.
 function surfaceIndex() {
   const grid = new Map(), C = 3, pads = [];
-  const put = (x, z, e) => { const k = Math.floor(x / C) + ',' + Math.floor(z / C); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(e); };
+  const put = (x, z, e) => { const k = cellNo(Math.floor(x / C), Math.floor(z / C)); let l = grid.get(k); if (!l) { grid.set(k, l = []); l.hw = 0; } l.push(e); if (e.hw > l.hw) l.hw = e.hw; }; // hw: the widest snow in the square
   for (const t of realTrails()) {
     for (const sm of t.samples) { const hw = sampleHW(t, sm); put(sm.x, sm.z, { x: sm.x, z: sm.z, r: hw * 0.92, hw, id: t.id }); }
     for (const e of [t.samples[0], t.samples[t.samples.length - 1]]) pads.push({ x: e.x, z: e.z, r: sampleHW(t, e) * 1.45, id: t.id });
@@ -4997,16 +4997,24 @@ function surfaceIndex() {
   for (const L of world.lifts) { pads.push({ x: L.a.x, z: L.a.z, r: 4.6, id: -1 }); pads.push({ x: L.b.x, z: L.b.z, r: 5.1, id: -1 }); if (L.midUp) pads.push({ x: L.midUp.a.x, z: L.midUp.a.z, r: 4.6, id: -1 }); }
   return { grid, pads, C };
 }
+// A square of the index, as one number (quicker to look up than text; a big resort asks millions of times a rebuild).
+const cellNo = (i, j) => (i + 4096) * 8192 + j + 4096;
+// Snow further off than `far` makes no difference to a mask, so most of it is ruled out with plain arithmetic
+// before measuring the distance properly. The answer is exactly what measuring everything gives.
+// How far a point is from a square of the index (0 inside it), squared; a square too far off to matter is skipped whole.
+const cellGap2 = (x, z, i, j, C) => { const dx = Math.max(0, i * C - x, x - (i + 1) * C), dz = Math.max(0, j * C - z, z - (j + 1) * C); return dx * dx + dz * dz; };
+const cellFar = (m, list, g2) => { const lim = m + list.hw; return !(lim > 0 && g2 <= lim * lim * 1.000001); };
+const closer = (m, dx, dz, r) => { const lim = m + r; return lim > 0 && dx * dx + dz * dz <= lim * lim * 1.000001 ? Math.min(m, Math.hypot(dx, dz) - r) : m; };
 function edgeMask(idx, selfId) {
   if (!idx) return null;
   return (x, z) => {
-    let m = Infinity;
+    let m = 1.2;
     const ci = Math.floor(x / idx.C), cj = Math.floor(z / idx.C);
     for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
-      const list = idx.grid.get((ci + di) + ',' + (cj + dj));
-      if (list) for (const e of list) if (e.id !== selfId) m = Math.min(m, Math.hypot(x - e.x, z - e.z) - e.r);
+      const list = idx.grid.get(cellNo(ci + di, cj + dj));
+      if (list && !cellFar(m, list, cellGap2(x, z, ci + di, cj + dj, idx.C))) for (const e of list) if (e.id !== selfId) m = closer(m, x - e.x, z - e.z, e.r);
     }
-    for (const e of idx.pads) if (e.id !== selfId) m = Math.min(m, Math.hypot(x - e.x, z - e.z) - e.r);
+    for (const e of idx.pads) if (e.id !== selfId) m = closer(m, x - e.x, z - e.z, e.r);
     return sstep(0, 1.2, m);
   };
 }
@@ -5015,11 +5023,11 @@ function edgeMask(idx, selfId) {
 function coverMask(idx, selfId) {
   if (!idx) return null;
   return (x, z) => {
-    let m = Infinity;
+    let m = 0.3;
     const ci = Math.floor(x / idx.C), cj = Math.floor(z / idx.C);
     for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
-      const list = idx.grid.get((ci + di) + ',' + (cj + dj));
-      if (list) for (const e of list) if (e.id < selfId) m = Math.min(m, Math.hypot(x - e.x, z - e.z) - e.hw);
+      const list = idx.grid.get(cellNo(ci + di, cj + dj));
+      if (list && !cellFar(m, list, cellGap2(x, z, ci + di, cj + dj, idx.C))) for (const e of list) if (e.id < selfId) m = closer(m, x - e.x, z - e.z, e.hw);
     }
     return sstep(-1, 0.3, m);
   };

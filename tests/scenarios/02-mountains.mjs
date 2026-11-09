@@ -1,7 +1,7 @@
 // Switching between mountains reloads onto the right terrain and never damages a save.
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
-  const g = await openGame(browser, url, { render: true });
+  const g = await openGame(browser, url);
   // Notes whether the title screen ever shows with the loading screen gone, after each reload onto a mountain.
   await g.page.addInitScript(() => { const look = () => { const t = document.getElementById('title'); if (t && !t.hidden && !t.classList.contains('out') && !document.getElementById('loading')) window.__titleFlash = true; requestAnimationFrame(look); }; requestAnimationFrame(look); });
   const noFlash = async (what) => eq(await g.page.evaluate(() => !!window.__titleFlash), false, `${what}: the loading screen stays up until it's there, with no title in between`);
