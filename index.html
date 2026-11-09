@@ -11604,6 +11604,7 @@ function newToday() {
     injuries: 0, helped: 0, unhelped: 0, rescues: [], patched: 0, campers: 0, leftLines: 0, leftHours: 0, firsts: 0, learners: 0, sightseers: 0, respSum: 0, busGuests: 0, offUsed: 0, offCars: 0, offPeak: 0, offFull: 0, parkRiders: 0, parkWait: 0, parkWaitN: 0, showGuests: 0, lunchPeak: { n: 0, t: 0 },
     waitSum: 0, waitN: 0, liftRiders: {}, liftWait: {}, trailRuns: {},
     complaints: { wait: 0, steep: 0, food: 0, boring: 0, stranded: 0, lines: 0, price: 0, rentOut: 0, rr: 0, noRental: 0, noSchool: 0, mud: 0, noLessons: 0, noCamp: 0, campFull: 0, farLot: 0, lineQuit: 0, lineBreak: 0, noLearn: 0, shuttle: 0, rack: 0 }, satSum: 0, satN: 0,
+    priceBy: {}, // price complaints by service, for the day report
   };
 }
 
@@ -13098,6 +13099,7 @@ function endDay() {
     avgWait: today.waitN ? today.waitSum / today.waitN : 0, busiest, popular, trailsDay, parkHits: today.parkHits || 0, park: parkReport(),
     meals: today.meals ? { ...today.meals } : null, racks: rackReport(),
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
+    priceBy: today.priceBy ? JSON.parse(JSON.stringify(today.priceBy)) : null,
   };
   guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0; rackMin = -1;
   endOps();
@@ -17383,6 +17385,19 @@ function seekMeal(g, start, resume) {
   return false;
 }
 
+// Which prices put guests off, with the price at the time, so the day report can say more than a count.
+function pricedOutBy(svc) {
+  const by = today.priceBy || (today.priceBy = {});
+  (by[svc] || (by[svc] = { n: 0, price: svcPrice(svc), ref: svcRef(svc) })).n++;
+}
+const PRICE_SVC_NAME = { food: 'lodge meals', snack: 'snacks', dine: 'restaurant meals', finedine: 'fine dining', warm: 'hot chocolate (follows the lodge meal price)', apres: 'après (follows the restaurant meal price)', drinks: 'après drinks', rent: 'ski rentals', lesson: 'lessons', camp: 'kids’ camp', shop: 'souvenirs', gear: 'gear', tune: 'ski tunes' };
+function priceNote(c, by, past) {
+  const rows = Object.entries(by || {}).filter(([, x]) => x.n).sort((a, b) => b[1].n - a[1].n);
+  if (!rows.length) return `${c} guests decided a price was too high.`;
+  const high = rows.some(([, x]) => x.price > x.ref);
+  const parts = rows.map(([k, x]) => `${PRICE_SVC_NAME[k] || k} ${(x.n * AGENT).toLocaleString('en-US')} (${money(x.price)}, ${x.price > x.ref ? `usually ${money(x.ref)}` : x.price < x.ref ? `under the usual ${money(x.ref)}` : 'the usual price'})`);
+  return `${c} guests decided a price was too high: ${parts.join(', ')}. ${high ? 'Prices above the usual put off more guests; each one who walks away is a little less happy.' : 'Your prices are at or under the usual, so these were guests on a tight budget. A few always are.'}${high && !past ? ' <button class="link" data-rp="prices">Change prices tonight</button>' : ''}`;
+}
 function willing(g, svc) {
   const p = svcPrice(svc), r = svcRef(svc);
   return r ? clamp(Math.exp(-(p - r) / r * 2.2) * g.spend, 0.03, 1) : 1;
@@ -17832,7 +17847,7 @@ function serve(g, B) {
     return leaveBuilding(g, B);
   }
   if (price > 0 && Math.random() > willing(g, svc)) {
-    if (!(g.pricedOut && g.pricedOut.length)) { g.sat -= 4; today.complaints.price++; } // one sting per lunch, not one per place they look
+    if (!(g.pricedOut && g.pricedOut.length)) { g.sat -= 4; today.complaints.price++; pricedOutBy(svc); } // one sting per lunch, not one per place they look
     thought(g, `${SVC_WORD[svc]} at ${B.name} costs too much.`);
     if (MEAL_SVCS.includes(svc) && (!g.ate || g.skipped)) {
       // Other categories remain available, including hot drinks and restrooms here. Retry this one only after a price cut.
@@ -18014,7 +18029,7 @@ function campDropOff(g) {
   const camp = nearestOpen(['kids'], g);
   if (!camp) { if (!hasBld('kids')) today.complaints.noCamp++; return; }
   if (camp.today.visits + AGENT > bspec(camp).campers) { g.sat -= 3; today.complaints.campFull++; thought(g, `${camp.name} was full, so the kids are tagging along.`); return; }
-  if (Math.random() > willing(g, 'camp')) { g.sat -= 3; today.complaints.price++; thought(g, `${camp.name} costs too much. The kids are tagging along.`); return; }
+  if (Math.random() > willing(g, 'camp')) { g.sat -= 3; today.complaints.price++; pricedOutBy('camp'); thought(g, `${camp.name} costs too much. The kids are tagging along.`); return; }
   const amt = svcPrice('camp') * AGENT, c = amt * 0.25;
   state.cash += amt; camp.today.revenue += amt; today.rev.lessons += amt;
   camp.today.cogs += c; today.exp.cogs += c;
@@ -21262,6 +21277,11 @@ $('rpBody').addEventListener('click', (e) => {
     listView.trails.sort = 'popular'; recenter(); setTraffic('day');
     return;
   }
+  if (e.target.closest('[data-rp=prices]') && state.phase === 'report') {
+    autoDays = 0; cancelAuto(); nextDay();
+    if (state.phase === 'closed') openManage('prices');
+    return;
+  }
   if (!e.target.closest('[data-rp=area]') || state.phase !== 'report') return;
   autoDays = 0; cancelAuto();
   nextDay(); openAreaTool();
@@ -21569,7 +21589,7 @@ function showReport(r = state.lastReport, past = false) {
   if (r.meals && r.meals.onTime + r.meals.delayed + r.meals.missed) note(r.meals.missed || r.meals.delayed ? 3 : 1, hungryNote(r));
   else if (c.food) note(3, hungryNote(r));
   if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
-  if (c.price) note(2, `${c.price} guests decided a price was too high.`);
+  if (c.price) note(2, priceNote(c.price, r.priceBy, past));
   if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
   if (r.racks) note(r.racks.easy ? 1 : 2, r.racks.easy ? `${r.racks.n} guests found the ski racks full and stuck their skis in the snow. Guests go easy on a new resort for its first few days; after that, it bothers them.` : `${c.rack} guests found the ski racks full and left their skis in the snow: ${r.racks.at.map((x) => `${esc(x.name)} ${x.n}`).join(', ')}. Put ski racks close to those doors.`);
   if (c.noRental) note(3, `${c.noRental} guests needed rental gear and had to rent in town.`);
@@ -26345,6 +26365,8 @@ const CHANGES = [
     'Roads: tap the access road where a new road should start, then tap or drag to lay it out and end it on a lot’s edge. Roads join with rounded corners, bridge the creek, and can be rerouted.',
     'Stations sit on a bus pull-out beside the road. Operations closes whole lots now. King of the Mountain keeps its parking sections for now.',
   ] },
+  { v: '3.15.3', date: 'Nov 9, 2026', title: 'Which prices put guests off', items: [
+    'The day report now says which prices guests turned down, how many walked away from each, and what you charge next to the usual price. When a price is above the usual, a button takes you straight to Prices for the night. Thanks Adum888!'] },
   { v: '3.15.2', date: 'Nov 9, 2026', small: true, title: 'Evening lift lines and lit mountain restaurants', items: [
     'Fixed: after the lifts closed, skiers could stand in line all evening at an upper lift that wasn’t running for night skiing, while it turned with nobody on it. Now they head down instead. Thanks RowdyBreaker!',
     'With night skiing on, a lodge, restaurant, bar or fine dining up the mountain beside a lit trail now stays open for après until 15 minutes after the lights go out. Night skiers who like après stop in on their last run down. It shows under Evenings with the other après spots. Thanks RowdyBreaker!',
