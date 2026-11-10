@@ -9,6 +9,11 @@ export default async function ({ browser, url }) {
   assert(await g.ev(`(!roadMesh || !roadMesh.visible) && !lotGroup.visible && CREEKD.every((d) => d > 2)`), 'no road, lot or creek drawn');
   await g.click('#edPlay');
   assert(await g.ev(`EDITOR && ED.noRoad`), 'Play waits for an access road');
+  // the mountain button opens the game's menu, without what belongs to a resort; Back to title leaves the editor
+  await g.click('#edMenuBtn');
+  eq(await g.ev(`[...document.querySelectorAll('#menu button')].filter((b) => b.offsetParent).map((b) => b.id).filter((id) => ['mFeedback', 'mTitle', 'mFull', 'mGoalsMenu', 'commBtn', 'mInvite', 'mReset'].includes(id))`), ['mFull', 'mFeedback', 'mTitle'], 'the menu: full screen, feedback, back to title, and no resort items');
+  await g.click('#mFeedback'); assert(await g.ev(`!document.getElementById('feedbackBox').hidden && document.getElementById('menu').hidden`), 'Feedback opens from the editor');
+  await g.ev(`document.getElementById('feedbackBox').hidden = true`);
   // the panel: a hint for the tool in hand, and only the settings it uses
   const ui = `[ED.tool, document.getElementById('edHint').textContent.slice(0, 11), !document.getElementById('edSizeRow').hidden, !document.getElementById('edStrRow').hidden, !document.getElementById('edWideRow').hidden]`;
   eq(await g.ev(ui), ['raise', 'Drag on the', true, true, true], 'Raise: its hint, size, strength and Wide reach');
@@ -178,6 +183,12 @@ export default async function ({ browser, url }) {
   await g.page.reload(); await g.reloaded();
   assert(await g.ev(`MOUNTAIN.id === 'juniper' && !onThisMountain()`), 'without its mountain the resort isn’t opened or saved over');
   eq(g.errors, [], 'no errors');
+  // Back to title screen from the editor's menu: the mountain is kept, and the title screen opens
+  const bt = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
+  await bt.ev(`(() => { const p = { x: 0, z: -40 }; edStrokeStart(p); for (let i = 0; i < 5; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  await bt.click('#edMenuBtn'); await bt.click('#mTitle'); await bt.reloaded();
+  eq(await bt.ev(`[EDITOR, !document.getElementById('title').hidden, draftList().length]`), [false, true, 1], 'Back to title screen leaves the editor, with the mountain kept');
+  eq(bt.errors, [], 'no errors going back to the title'); await bt.page.close();
   // on a phone the editor opens looking around: a touch moves the view until a tool is picked
   const ph = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh', width: 390, height: 800, hasTouch: true });
   if (await ph.ev('edTouch')) {
