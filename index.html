@@ -583,7 +583,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mapview #edName { width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; background: transparent; padding: 2px 6px; margin: -3px 0 0 -7px; font: 800 19px var(--ui); color: var(--ink); }
 .mapview #edName:hover, .mapview #edName:focus { border-color: rgba(20, 36, 58, 0.25); background: #fff; outline: none; }
 #edPanel .vtilt span { width: 54px; white-space: nowrap; }
-.mapview .ed-mode button:disabled { opacity: 0.35; cursor: default; }
+.mapview .ed-mode button:disabled, #edNoStreams:disabled { opacity: 0.35; cursor: default; }
 .mapview .ed-go { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .mapview #edStatus.warn { color: var(--red, #c0392b); font-weight: 600; }
 .ed-list { display: grid; gap: 6px; margin: 8px 0 12px; max-height: 38vh; overflow: auto; }
@@ -2957,8 +2957,10 @@ function customBlurb(r) {
   return `Your own design: ${shape} terrain with ${peaks}${r.bowl ? ' and an open bowl' : ''}. ${snow[0].toUpperCase() + snow.slice(1)}${extras.length ? `, ${extras.join(' and ')}` : ''}; ${where}.`;
 }
 /* ---------- Hand-shaped mountains: made in the mountain editor (?editor=1) ----------
-   A hand-shaped mountain is a document: { v, name, from, h }. `from` is the built-in mountain it started as, which
-   still gives it its road, creek, weather and crowds; `h` is the height of every point of the ground, packed small.
+   A hand-shaped mountain is a document: { v, name, from, h, road, creeks }. `from` is the built-in mountain it started
+   as, which still gives it its weather and crowds; `h` is the height of every point of the ground, packed small.
+   `road` (the access road's points, from off the map to the base) and `creeks` (each stream's points) are there once
+   the player has drawn their own; without them the mountain keeps the ones it started with.
    Its id is "c:m" and a fingerprint of the document, so a mountain can never change under a resort built on it
    (a changed mountain is another mountain), and it counts as a custom mountain everywhere (the Custom leaderboard,
    the custom goals). Every save on one carries the document (`map`), so the resort opens on any device. */
@@ -2998,18 +3000,22 @@ function decodeHeights(b64) {
   return n + 1 >= s.length * 2 ? E : null;
 }
 function mapIdOf(doc) {
-  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}`;
+  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}|${JSON.stringify(doc.road || 0)}|${JSON.stringify(doc.creeks || 0)}`;
   let a = 0x811c9dc5, b = 0x1b873593;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995) + 0x9e3779b9 | 0; }
   return 'c:m' + (a >>> 0).toString(36).padStart(7, '0') + (b >>> 0).toString(36).padStart(7, '0');
 }
 const mapName = (n) => String(n || '').replace(/[<>&"']/g, '').replace(/\s+/g, ' ').trim().slice(0, 28) || 'My mountain';
-const validMapDoc = (d) => !!d && d.v === 1 && MAP_FROM.includes(d.from) && typeof d.name === 'string' && d.name === mapName(d.name) && typeof d.h === 'string' && d.h.length < 400000;
+const MAX_CREEKS = 8, MAX_LINE = 48;
+const validLine = (L) => Array.isArray(L) && L.length >= 2 && L.length <= MAX_LINE && L.every((p) => Array.isArray(p) && p.length === 2 && p.every((x) => Number.isFinite(x) && x > -2 && x < 3));
+const validMapDoc = (d) => !!d && d.v === 1 && MAP_FROM.includes(d.from) && typeof d.name === 'string' && d.name === mapName(d.name) && typeof d.h === 'string' && d.h.length < 400000
+  && (d.road == null || validLine(d.road)) && (d.creeks == null || (Array.isArray(d.creeks) && d.creeks.length <= MAX_CREEKS && d.creeks.every(validLine)));
+const mapDocOf = (d) => ({ v: d.v, name: d.name, from: d.from, h: d.h, ...(d.road ? { road: d.road } : {}), ...(d.creeks ? { creeks: d.creeks } : {}) }); // the document alone
 const mapKey = (id) => 'mm.map.' + id.slice(3);
 // The document behind an id: kept on this device when the mountain was made or first played, carried over a reload
 // for a visit, or inside a save on it.
 function mapDocFor(id) {
-  const ok = (d) => (validMapDoc(d) && mapIdOf(d) === id ? { v: d.v, name: d.name, from: d.from, h: d.h } : null);
+  const ok = (d) => (validMapDoc(d) && mapIdOf(d) === id ? mapDocOf(d) : null);
   for (const store of ['localStorage', 'sessionStorage']) try { const d = ok(JSON.parse(window[store].getItem(mapKey(id)))); if (d) return d; } catch (e) { /* ignore */ }
   try {
     for (const x of JSON.parse(localStorage.getItem(SLOTS_KEY)).list) if (x.mountain === id) { const d = ok((JSON.parse(localStorage.getItem(slotKey(x.id))) || {}).map); if (d) return d; }
@@ -3020,7 +3026,7 @@ function mapDocFor(id) {
 function keepMapDoc(doc, visit) {
   if (!validMapDoc(doc)) return null;
   const id = mapIdOf(doc);
-  try { (visit ? sessionStorage : localStorage).setItem(mapKey(id), JSON.stringify({ v: doc.v, name: doc.name, from: doc.from, h: doc.h })); } catch (e) { return null; }
+  try { (visit ? sessionStorage : localStorage).setItem(mapKey(id), JSON.stringify(mapDocOf(doc))); } catch (e) { return null; }
   return id;
 }
 // A mountain's document is only needed on its own until a resort is saved on it (the save carries it from then on),
@@ -3035,10 +3041,23 @@ function pruneMapDocs() {
 // The mountain a document describes. `E` is its ground, a height for each point of the world's grid.
 function mapMountain(doc, id, E) {
   const B = MOUNTAINS[doc.from];
-  return { ...B, id, custom: true, hand: true, from: doc.from, doc, grid: E, name: doc.name, level: 'Custom', dot: '#8a5cc7', photo: undefined,
-    blurb: `A hand-shaped mountain, started from ${B.name}: its road, weather and crowds are ${B.name}’s.`,
+  const M = { ...B, id, custom: true, hand: true, from: doc.from, doc, grid: E, name: doc.name, level: 'Custom', dot: '#8a5cc7', photo: undefined,
+    blurb: `A hand-shaped mountain, started from ${B.name}: its weather and crowds are ${B.name}’s.`,
     height: (u, v) => sampleGrid(E, PLAY0 + u * PN, PLAY1 - v * PN) };
+  if (doc.road) { // the player's own road: the base is at its end, and what hung off the old road (a second road, more lots, the town) goes
+    M.road = catmull(doc.road, 6); M.lotWest = doc.road[doc.road.length - 1][0] > 0.6;
+    for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k];
+  }
+  if (doc.creeks) setCreeks(M, doc.creeks);
+  return M;
 }
+// A mountain's streams from the player's own points (none at all is fine: the first one is kept off the map).
+function setCreeks(M, list) {
+  M.creek = list.length ? catmull(list[0], 4) : [[9, 9], [9.1, 9]];
+  M.creeks = list.slice(1).map((L) => [catmull(L, 4), 1]); M.creekW = 1;
+}
+// The streams a mountain starts with, as a few points each (the editor's to add to or clear).
+const creekPoints = (M) => [[M.creek, 1], ...(M.creeks || [])].map(([P]) => P.filter((_, i) => i % 6 === 0 || i === P.length - 1).slice(0, MAX_LINE).map(([u, v]) => [Math.round(u * 1000) / 1000, Math.round(v * 1000) / 1000]));
 const mapDefs = new Map();
 function mapDef(id) {
   if (!mapDefs.has(id)) { const doc = mapDocFor(id), E = doc && decodeHeights(doc.h); mapDefs.set(id, E ? mapMountain(doc, id, E) : null); }
@@ -3057,7 +3076,9 @@ function gridOf(M, plain) {
 /* The editor's own mountains: drafts kept on this device, each under its own key, shaped freely. Playing one makes
    the fixed document above from the draft as it stands, so shaping it further never touches a resort built on it. */
 const DRAFT_KEY = 'mm.mapdraft.', DRAFT_OPEN = 'mm.mapdraft', MAX_DRAFTS = 8;
-const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, tool: 'raise', r: 9, k: 4, paint: true, undo: [], redo: [], stroke: null, saved: true, trees: true };
+const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
+// The draft as a document.
+const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}) });
 function draftList() {
   const out = [];
   try {
@@ -3075,8 +3096,8 @@ function editorMountain() {
   try { key = localStorage.getItem(DRAFT_OPEN); d = key && JSON.parse(localStorage.getItem(DRAFT_KEY + key)); } catch (e) { /* ignore */ }
   let E = validMapDoc(d) ? decodeHeights(d.h) : null;
   if (!E) { key = null; d = { name: 'My mountain', from: 'juniper' }; E = gridOf(MOUNTAINS.juniper); }
-  Object.assign(ED, { key, name: d.name, from: d.from, E, saved: !!key });
-  return mapMountain({ v: 1, name: d.name, from: d.from, h: '' }, 'c:m!editor', E);
+  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, saved: !!key });
+  return mapMountain({ ...d, v: 1, h: '' }, 'c:m!editor', E);
 }
 // A mountain by id: one of the built-in ones, a hand-shaped one, or a custom recipe.
 function mountainDef(mt) {
@@ -4824,7 +4845,7 @@ function processHover() {
   hover.doze = state.tool === 'clear' && state.landMode === 'doze' ? dozeTarget(hover.x, hover.y) : null;
   if (hover.doze) placeBrush(hover.doze, hover.doze.r, true);
   else if (state.tool === 'clear' && state.landMode !== 'doze' && p) placeBrush(p, state.brushR, inProperty(p.x, p.z));
-  else if (EDITOR && ED.paint && p) placeBrush(p, ED.r, true);
+  else if (EDITOR && ED.paint && p) placeBrush(p, edDrawing() ? 1.6 : ED.r, true);
   else brushMesh.visible = false;
   if (draft.kind === 'bld') hoverGhost(p);
   else if (draft.kind) updateBand(p && !dragHandle ? p : null);
@@ -26989,13 +27010,89 @@ function viewPanel() {
    ===================================================================== */
 const ED_TOOLS = [['raise', 'Raise', 'Push the ground up'], ['lower', 'Lower', 'Dig the ground down'], ['smooth', 'Smooth', 'Soften bumps and edges'],
   ['flatten', 'Flatten', 'Pull the ground toward the height where you start'], ['rough', 'Roughen', 'Add knobs and gullies']];
+const ED_DRAW = [['stream', 'Stream', 'Drag along a stream’s course, from its spring down'], ['road', 'Access road', 'Drag from the edge of the map to where the base should be']];
+const edDrawing = () => ED.tool === 'stream' || ED.tool === 'road';
+// What Undo keeps: the ground and the streams.
+const edSnap = () => ({ E: ED.E.slice(), creeks: ED.creeks });
+function edRestore(S) {
+  ED.E.set(S.E);
+  const moved = S.creeks !== ED.creeks;
+  if (moved) edSetCreeks(S.creeks);
+  edApply(0, 0, WN, WN, true, moved);
+}
+// The mountain's streams: the player's own (a list of points each), or null for the ones it started with.
+function edSetCreeks(list) {
+  ED.creeks = list;
+  if (list) setCreeks(MOUNTAIN, list);
+  else { const B = MOUNTAINS[ED.from]; MOUNTAIN.creek = B.creek; MOUNTAIN.creeks = B.creeks; MOUNTAIN.creekW = B.creekW; }
+}
+const edCreeks = () => ED.creeks || creekPoints(MOUNTAINS[ED.from]);
+/* ---------- Drawing a stream or the access road: press where it starts and drag along its course ---------- */
+let edLine = null;
+function edDrawLine() {
+  if (edLine) { scene.remove(edLine); edLine.geometry.dispose(); edLine.material.dispose(); edLine = null; }
+  const D = ED.draw; if (!D || D.pts.length < 2) return;
+  edLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(D.pts.map((p) => new THREE.Vector3(p.x, heightAt(p.x, p.z) + 0.5, p.z))),
+    new THREE.LineBasicMaterial({ color: D.kind === 'road' ? 0x2b2f38 : 0x2f7fd0, depthTest: false }));
+  edLine.renderOrder = 6; edLine.frustumCulled = false; scene.add(edLine);
+}
+function edDrawTo(p) {
+  const D = ED.draw, l = D.pts[D.pts.length - 1];
+  if (Math.hypot(p.x - l.x, p.z - l.z) < 2 || D.pts.length > 600) return;
+  D.pts.push({ x: p.x, z: p.z }); edDrawLine();
+}
+// The drawn line as a few evenly spaced points, in the map's own measure (u across, v up the mountain).
+function edLinePoints(P) {
+  const at = [0]; for (let i = 1; i < P.length; i++) at.push(at[i - 1] + Math.hypot(P[i].x - P[i - 1].x, P[i].z - P[i - 1].z));
+  const len = at[at.length - 1], n = clamp(Math.round(len / 6) + 1, 2, MAX_LINE - 2), out = [];
+  for (let k = 0, i = 0; k < n; k++) {
+    const t = len * k / (n - 1); while (i < P.length - 2 && at[i + 1] < t) i++;
+    const f = (t - at[i]) / Math.max(1e-6, at[i + 1] - at[i]), x = lerp(P[i].x, P[i + 1].x, f), z = lerp(P[i].z, P[i + 1].z, f);
+    out.push([Math.round((x + HALF - PLAY0) / PN * 1000) / 1000, Math.round((PLAY1 - z - HALF) / PN * 1000) / 1000]);
+  }
+  return { len, pts: out };
+}
+function edDrawEnd(cancel) {
+  const D = ED.draw; ED.draw = null; edDrawLine();
+  if (cancel || !D || D.pts.length < 2) return;
+  const L = edLinePoints(D.pts);
+  if (L.len < 10) { toast(D.kind === 'road' ? 'Drag the road from the edge of the map to where the base should be.' : 'Drag along the stream’s course to draw it.'); return; }
+  if (D.kind === 'stream') {
+    if (edCreeks().length >= MAX_CREEKS) { toast(`A mountain can have ${MAX_CREEKS} streams. Clear them to draw others.`, true); return; }
+    ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift(); ED.redo = [];
+    edSetCreeks([...edCreeks(), L.pts]);
+    edApply(0, 0, WN, WN, true, true);
+    edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
+    return;
+  }
+  // The access road: the base (the main parking lot) goes at its end, so that has to be on the resort's own land; its
+  // start is carried out past the nearest edge of the map, where cars come from.
+  const [eu, ev] = L.pts[L.pts.length - 1], [su, sv] = L.pts[0], G = PLAY0 / PN; // G: how far the map reaches past the land, in u
+  if (eu < 0.05 || eu > 0.95 || ev < 0.01 || ev > 0.95) { toast('End the road inside the dashed line: the base goes where it ends.', true); return; }
+  const out = [[su + G, [-G - 0.16, sv]], [1 + G - su, [1 + G + 0.16, sv]], [sv + G, [su, -G - 0.16]], [1 + G - sv, [su, 1 + G + 0.16]]].sort((a, b) => a[0] - b[0])[0];
+  ED.road = [out[1], ...(out[0] > 0.03 ? [L.pts[0]] : []), ...L.pts.slice(1)];
+  ED.saved = false;
+  if (edSave()) location.reload(); // the base, its lot and the drive in are laid out when the page loads
+}
+function edClearStreams() {
+  if (!edCreeks().length) return;
+  ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift(); ED.redo = [];
+  edSetCreeks([]);
+  edApply(0, 0, WN, WN, true, true);
+  edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
+}
 // The world catches up with the changed ground from i0, j0 to i1, j1: heights (with the road and the creek), the
 // mesh and its shading, grades, the trees standing there, colours.
-function edApply(i0, j0, i1, j1, shadows = true) {
+function edApply(i0, j0, i1, j1, shadows = true, full = false) {
   terrainRev++;
   const a0 = Math.max(0, i0 - 5), b0 = Math.max(0, j0 - 5), a1 = Math.min(WN, i1 + 5), b1 = Math.min(WN, j1 + 5); // the roadbed reaches a little past the brush
   const pos = terrainGeo.attributes.position.array, nor = terrainGeo.attributes.normal.array;
-  for (let j = b0; j <= b1; j++) for (let i = a0; i <= a1; i++) { const k = j * NV + i; HT[k] = HT0[k] = groundAt(MOUNTAIN, vu(i), vv(j))[0]; pos[k * 3 + 1] = HT[k] * VEX; }
+  for (let j = b0; j <= b1; j++) for (let i = a0; i <= a1; i++) {
+    const k = j * NV + i;
+    if (full) [HT[k], ROADD[k], CREEKD[k]] = groundAt(MOUNTAIN, vu(i), vv(j)); // the streams moved: how far each point is from them, too
+    else HT[k] = ROADD[k] >= 4.5 && CREEKD[k] >= 2 ? ED.E[k] : groundAt(MOUNTAIN, vu(i), vv(j))[0]; // away from the road and the streams the ground is just the ground
+    HT0[k] = HT[k]; pos[k * 3 + 1] = HT[k] * VEX;
+  }
   for (let j = Math.max(0, b0 - 1); j <= Math.min(WN, b1 + 1); j++) for (let i = Math.max(0, a0 - 1); i <= Math.min(WN, a1 + 1); i++) {
     const k = j * NV + i, l = Math.max(0, i - 1), r = Math.min(WN, i + 1), u = Math.max(0, j - 1), d = Math.min(WN, j + 1);
     const hx = (HT[j * NV + r] - HT[j * NV + l]) * VEX / (r - l), hz = (HT[d * NV + i] - HT[u * NV + i]) * VEX / (d - u), L = Math.hypot(hx, 1, hz);
@@ -27014,12 +27111,15 @@ function edApply(i0, j0, i1, j1, shadows = true) {
 // One touch of the brush at p, for dt seconds of holding it there.
 function edBrush(p, dt) {
   const S = ED.stroke, E = ED.E, r = ED.r, gx = p.x + HALF, gz = p.z + HALF, amt = ED.k / 5 * dt;
-  const i0 = Math.max(0, Math.floor(gx - r)), i1 = Math.min(WN, Math.ceil(gx + r)), j0 = Math.max(0, Math.floor(gz - r)), j1 = Math.min(WN, Math.ceil(gz + r));
+  // Wide (Raise and Lower): the land round the brush comes too, less and less out to four brush-widths away, the way
+  // a mountain's flanks rise with its top. Tight keeps to the ring, for cliffs, ridges and gullies.
+  const wide = ED.wide && (ED.tool === 'raise' || ED.tool === 'lower'), R = wide ? Math.min(r * 4, r + 70) : r;
+  const i0 = Math.max(0, Math.floor(gx - R)), i1 = Math.min(WN, Math.ceil(gx + R)), j0 = Math.max(0, Math.floor(gz - R)), j1 = Math.min(WN, Math.ceil(gz + R));
   if (i1 < i0 || j1 < j0) return;
   const was = ED.tool === 'smooth' ? E.slice() : null;
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const d = Math.hypot(i - gx, j - gz); if (d >= r) continue;
-    const k = j * NV + i, w = 1 - sstep(r * 0.2, r, d);
+    const d = Math.hypot(i - gx, j - gz); if (d >= R) continue;
+    const k = j * NV + i, w = wide ? Math.pow(1 - sstep(0, R, d), 1.25) : 1 - sstep(r * 0.2, r, d); // wide: a rounded top over long flanks that ease out
     if (ED.tool === 'raise') E[k] += 9 * amt * w;
     else if (ED.tool === 'lower') E[k] -= 9 * amt * w;
     else if (ED.tool === 'flatten') E[k] = lerp(E[k], S.target, Math.min(1, 5 * amt * w));
@@ -27038,16 +27138,18 @@ function edBrush(p, dt) {
 }
 function edStrokeStart(p) {
   if (!p) return false;
-  ED.undo.push(ED.E.slice()); if (ED.undo.length > 12) ED.undo.shift();
+  if (edDrawing()) { ED.draw = { kind: ED.tool, pts: [{ x: p.x, z: p.z }] }; return true; }
+  ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift();
   ED.stroke = { target: sampleGrid(ED.E, p.x + HALF, p.z + HALF), seed: Math.random() * 500, box: null, t0: performance.now() };
   edBrush(p, 0.04);
   return true;
 }
 // Lifting the finger ends a stroke. `undo`: a second finger came down, so it was the start of a pinch, not a stroke.
 function edStrokeEnd(undo) {
+  if (ED.draw) return edDrawEnd(undo);
   const S = ED.stroke; if (!S) return;
   ED.stroke = null;
-  if (undo && performance.now() - S.t0 < 350) { ED.E.set(ED.undo.pop()); if (S.box) edApply(S.box.i0, S.box.j0, S.box.i1, S.box.j1); return; }
+  if (undo && performance.now() - S.t0 < 350) { ED.E.set(ED.undo.pop().E); if (S.box) edApply(S.box.i0, S.box.j0, S.box.i1, S.box.j1); return; }
   ED.redo = [];
   edChanged(S.box);
 }
@@ -27072,9 +27174,8 @@ function edRegrow() {
 }
 function edUndo(redo) {
   const from = redo ? ED.redo : ED.undo, to = redo ? ED.undo : ED.redo;
-  if (!from.length || ED.stroke) return;
-  to.push(ED.E.slice()); ED.E.set(from.pop());
-  edApply(0, 0, WN, WN);
+  if (!from.length || ED.stroke || ED.draw) return;
+  to.push(edSnap()); edRestore(from.pop());
   edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
 }
 // Keeps the draft on this device. Returns whether it went in.
@@ -27086,7 +27187,7 @@ function edSave() {
     ED.key = Math.random().toString(36).slice(2, 10);
   }
   try {
-    localStorage.setItem(DRAFT_KEY + ED.key, JSON.stringify({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), at: Date.now() }));
+    localStorage.setItem(DRAFT_KEY + ED.key, JSON.stringify({ ...edDoc(), at: Date.now() }));
     localStorage.setItem(DRAFT_OPEN, ED.key);
   } catch (e) { edStatus('This browser’s storage is full, so this mountain isn’t saved. Delete a mountain you no longer want.', true); return false; }
   ED.saved = true; edStatus();
@@ -27105,7 +27206,7 @@ function edNew(from, plain, copyOf) {
   const names = new Set(list.map((d) => d.name)), stem = copyOf ? mapName(`${ED.name} copy`.slice(0, 28)) : 'My mountain';
   let name = stem; for (let n = 2; names.has(name); n++) name = mapName(`${stem.slice(0, 25)} ${n}`);
   const key = Math.random().toString(36).slice(2, 10), E = copyOf ? ED.E : gridOf(MOUNTAINS[from], plain);
-  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ v: 1, name, from: copyOf ? ED.from : from, h: encodeHeights(E), at: Date.now() })); }
+  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify(copyOf ? { ...edDoc(), name, at: Date.now() } : { v: 1, name, from, h: encodeHeights(E), at: Date.now() })); }
   catch (e) { toast('This browser’s storage is full. Delete a mountain you no longer want.', true); return; }
   edOpen(key);
 }
@@ -27116,7 +27217,7 @@ function edDelete(key) {
 // Play: the draft as it stands becomes a mountain of its own, and a new resort starts on it.
 function edPlay() {
   if (!edSave()) return;
-  const id = keepMapDoc({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E) });
+  const id = keepMapDoc(edDoc());
   if (!id) { toast('This browser’s storage is full, so this mountain can’t be played yet. Delete a mountain you no longer want.', true); return; }
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt: id })); } catch (e) { /* ignore */ }
   location.href = location.pathname;
@@ -27141,7 +27242,8 @@ function edSync() {
   for (const b of document.querySelectorAll('#edPanel [data-tool]')) b.setAttribute('aria-pressed', b.dataset.tool === ED.tool);
   for (const b of document.querySelectorAll('#edPanel [data-mode]')) b.setAttribute('aria-pressed', (b.dataset.mode === 'shape') === ED.paint);
   $('edUndo').disabled = !ED.undo.length; $('edRedo').disabled = !ED.redo.length;
-  $('edSlope').setAttribute('aria-pressed', overlay.slope); $('edTrees').setAttribute('aria-pressed', ED.trees);
+  $('edSlope').setAttribute('aria-pressed', overlay.slope); $('edTrees').setAttribute('aria-pressed', ED.trees); $('edWide').setAttribute('aria-pressed', ED.wide);
+  $('edNoStreams').disabled = !edCreeks().length;
   $('edSizeV').textContent = fmtFt(Math.round(ED.r * 2 * FT_PER_UNIT / 10) * 10); $('edStrV').textContent = ED.k;
   canvas.style.cursor = ED.paint ? 'crosshair' : '';
 }
@@ -27171,14 +27273,17 @@ function editorStart() {
     <div class="vtog ed-mode"><button data-mode="shape">Shape</button><button data-mode="move">Move the view</button>
       <button id="edUndo" aria-label="Undo" title="Undo (Ctrl+Z)">↶</button><button id="edRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">↷</button></div>
     <div class="vtog">${ED_TOOLS.map(([id, name, tip]) => `<button data-tool="${id}" title="${tip}">${name}</button>`).join('')}</div>
+    <div class="vtog">${ED_DRAW.map(([id, name, tip]) => `<button data-tool="${id}" title="${tip}">${name}</button>`).join('')}<button id="edWide" title="Raise and Lower move the land around the brush too, like a mountain’s flanks. Turn it off for cliffs, ridges and gullies.">Wide reach</button></div>
     <div id="edBody">
       <label class="vtilt">Size <input type="range" id="edSize" min="2" max="30" step="1" value="${ED.r}"><span id="edSizeV"></span></label>
       <label class="vtilt">Strength <input type="range" id="edStr" min="1" max="10" step="1" value="${ED.k}"><span id="edStrV"></span></label>
-      <div class="vtog"><button id="edSlope">Steepness</button><button id="edTrees">Trees</button><button id="edHome">Whole mountain</button></div>
+      <div class="vtog"><button id="edSlope">Steepness</button><button id="edTrees">Trees</button><button id="edHome">Whole mountain</button><button id="edNoStreams">Clear streams</button></div>
       <h3>This mountain</h3><div class="vrow" id="edNums"></div>
       <p class="vhelp" id="edStatus"></p>
       <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edMaps">My mountains</button></div>
-      <p class="vhelp">${isCoarse ? 'With Shape on, drag a finger to use the brush; hold still to keep going. Two fingers move, zoom, turn and tilt the view.' : 'Drag to use the brush; hold still to keep going. Right-drag turns and tilts, Space-drag or the middle button moves, scroll zooms.'} The dashed line is the land a resort starts with. Playing makes a copy, so you can keep shaping afterwards.</p>
+      <p class="vhelp">${isCoarse ? 'With Shape on, drag a finger to use the brush; hold still to keep going. Two fingers move, zoom, turn and tilt the view.' : 'Drag to use the brush; hold still to keep going. Right-drag turns and tilts, Space-drag or the middle button moves, scroll zooms, [ and ] size the brush.'}</p>
+      <p class="vhelp">With <b>Wide reach</b> on, Raise and Lower bring the land around along, the way a mountain forms: rough out the mountain first, then turn it off for cliffs, ridges, valleys and more peaks.</p>
+      <p class="vhelp"><b>Stream</b>: drag along its course. <b>Access road</b>: drag from the edge of the map to where the base should be; the parking lot goes at its end. The dashed line is the land a resort starts with. Playing makes a copy, so you can keep shaping afterwards.</p>
     </div>`;
   $('hud').appendChild(el);
   for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
@@ -27191,6 +27296,8 @@ function editorStart() {
     else if (b.id === 'edSlope') setSlope(!overlay.slope);
     else if (b.id === 'edTrees') { ED.trees = !ED.trees; treeMesh.visible = ED.trees; renderer.shadowMap.needsUpdate = true; }
     else if (b.id === 'edHome') recenter();
+    else if (b.id === 'edWide') ED.wide = !ED.wide;
+    else if (b.id === 'edNoStreams') edClearStreams();
     else if (b.id === 'edPlay') edPlay();
     else if (b.id === 'edMaps') edMaps();
     else if (b.id === 'edFold') { const open = $('edBody').hidden; $('edBody').hidden = !open; b.textContent = open ? '–' : '+'; b.setAttribute('aria-expanded', open); }
@@ -27212,6 +27319,7 @@ function editorStart() {
 }
 // While the brush is held down it keeps working, whether or not it moves.
 function edTick(dt) {
+  if (ED.draw) { const q = pickTerrain(hover.x, hover.y); if (q) edDrawTo(q); hover.dirty = true; return; }
   if (!ED.stroke) return;
   const p = pickTerrain(hover.x, hover.y);
   if (p) edBrush(p, Math.min(dt, 0.05));

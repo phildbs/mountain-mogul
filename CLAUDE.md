@@ -24,6 +24,8 @@ release checklist and shared notes, is `AI_HANDOFF.md`. Read it at the start of 
   For shaping a match map, `?mapView=1` is a viewer: every slice in full, fly to each base, tilt, steepness, each slice's numbers. Ask Phil to check the preview rather than sending screenshots.
 - **Only merge to `main` when Phil says "Publish".** Then `git merge --ff-only <branch>` and push. Approval
   for one change doesn't cover the next.
+- **Most players are on desktop; Phil tests on his phone.** Design for a mouse and keyboard first, and make sure it also
+  works by touch on a phone.
 - Explain things in plain words. Phil reads on a phone. Keep reports short: what changed, how it was tested,
   the link.
 

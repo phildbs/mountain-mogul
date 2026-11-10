@@ -324,10 +324,13 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 ## Mountain editor (hidden, `?editor=1`; step 1 built Nov 10, not published)
 
 Phil's calls (Nov 10): free brushes; guests can play shared mountains but only signed-in players publish; the old slider
-builder stays as a starting point. Built in hidden pieces like summer: no `CHANGES`, guide or roadmap entry until it opens.
+builder stays as a starting point; most players are on desktop (he tests on a phone); streams and the access road are
+the player's to draw; raising land brings the land around it up too, with detail added afterwards. Built in hidden pieces like summer: no `CHANGES`, guide or roadmap entry until it opens.
 
-- **A hand-shaped mountain is a document** `{ v: 1, name, from, h }`. `from` is the built-in mountain it started as
-  (`MAP_FROM`: not Twin Notch yet), which still gives the road, creek, weather, crowds, cash and forest seed. `h` is every
+- **A hand-shaped mountain is a document** `{ v: 1, name, from, h, road?, creeks? }`. `from` is the built-in mountain it
+  started as (`MAP_FROM`: not Twin Notch yet), which gives the weather, crowds, cash and forest seed, and the road and
+  creek until the player draws their own (`road`: points from off the map to the base; `creeks`: points per stream;
+  a drawn road drops the old one's `branch`, `lots` and `town`). `h` is every
   grid height before the road and creek are cut in, to 1/64 unit, packed by `encodeHeights` (about 37 KB of text).
 - **Its id is `c:m` + a fingerprint of the document** (`mapIdOf`), so a mountain can't change under a resort (`sv.n` must
   match), and it counts as custom everywhere with no database change: `isCustomId` is true, the server's `c:%` rule puts
@@ -338,12 +341,15 @@ builder stays as a starting point. Built in hidden pieces like summer: no `CHANG
   nothing is saved over the resort.
 - **Editor** (`EDITOR`, `ED`, `editorStart`): `MOUNTAIN.height` reads the live grid `ED.E`; `edBrush` changes it,
   `edApply` recomputes `HT` through `groundAt` for that patch (mesh, normals, grades, trees' heights), and the forest
-  grows back 350 ms after a stroke (`growForest`, split out of `generate`). Drafts live in `mm.mapdraft.<key>` (8 at
+  grows back 350 ms after a stroke (`growForest`, split out of `generate`). **Wide reach** (on by default) makes Raise
+  and Lower move the land out to four brush-widths. **Stream** and **Access road** are drawn by dragging; a stream
+  applies live (`edApply(…, full)` redoes `ROADD`/`CREEKD`), a road saves and reloads the page, because the base, lot
+  and drive are laid out at load (`ROAD_WORLD`, `LOT_DRIVE`). Drafts live in `mm.mapdraft.<key>` (8 at
   most), autosaved; Play freezes the draft into a document and boots `{ then: 'newMap', mt }`.
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
-  editor: moving the base, road and creek, painting forest, snow/wind/town/cash settings (a `v: 2` document with
+  editor: painting forest, snow/wind/town/cash settings (a `v: 2` document with
   defaults), and a way in from the title screen. Scenario 212 covers step 1. (Claude, Nov 10)
 
 ## Summer 4.0 (published Nov 10; built in hidden pieces)

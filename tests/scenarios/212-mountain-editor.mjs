@@ -15,6 +15,14 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { const p = ${at}; ED.tool = 'raise'; ED.r = 10; ED.k = 5; edStrokeStart(p); for (let i = 0; i < 30; i++) edBrush(p, 0.05); edStrokeEnd(); edRegrow(); })()`);
   const h1 = await g.ev(h);
   assert(h1 > h0 + 8, `Raise lifts the ground (${h0.toFixed(1)} to ${h1.toFixed(1)})`);
+  // Wide reach: the land well outside the ring came up too, less the further out; with it off, only the ring moves
+  const far = `[sampleGrid(ED.E, 10 + 15 + HALF, -20 + HALF), sampleGrid(ED.E, 10 + 28 + HALF, -20 + HALF), sampleGrid(ED.E, 10 + 45 + HALF, -20 + HALF)]`;
+  const f1 = await g.ev(far); await g.ev('edUndo(false)'); const f0 = await g.ev(far); await g.ev('edUndo(true)');
+  assert(f1[0] - f0[0] > 1 && f1[0] - f0[0] > f1[1] - f0[1] && f1[1] - f0[1] > 0.1 && f1[2] === f0[2], `Wide reach lifts the flanks too (${f1.map((x, i) => (x - f0[i]).toFixed(2))})`);
+  await g.click('#edWide');
+  await g.ev(`(() => { const p = ${at}; edStrokeStart(p); for (let i = 0; i < 10; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  const f2 = await g.ev(far); assert(f2[0] === f1[0] && await g.ev(h) > h1 + 2, 'with Wide reach off, only the ground under the brush moves');
+  await g.ev('edUndo(false)');
   assert(await g.ev(`Math.abs(terrainGeo.attributes.position.array[((-20 + HALF) * NV + 10 + HALF) * 3 + 1] - heightAt(10, -20)) < 1e-3 && Math.abs(MOUNTAIN.summitH - Math.max(...HT.filter((_, k) => inGridLand(k % NV, Math.floor(k / NV))))) < 1e-3`), 'the drawn ground and the summit follow');
   assert(await g.ev('trees.n') !== n0, 'the forest grows back to suit the new ground');
   await g.ev(`(() => { const p = ${at}; ED.tool = 'lower'; edStrokeStart(p); for (let i = 0; i < 10; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
@@ -42,6 +50,24 @@ export default async function ({ browser, url }) {
   const cx = await g.ev('cam.target.x');
   await g.page.mouse.move(800, 450); await g.page.mouse.down(); await g.page.mouse.move(700, 400, { steps: 3 }); await g.page.mouse.up();
   assert(await sum() === s0 && await g.ev('cam.target.x') !== cx, 'with Move on, a drag moves the view and leaves the ground alone');
+  // a stream is drawn by dragging along its course; Undo takes it away again
+  await g.ev(`ED.paint = true; ED.tool = 'stream'; edSync()`);
+  const wet = `[CREEKD[(-30 + HALF) * NV + 20 + HALF] < 1, edCreeks().length, !!ED.creeks]`;
+  eq(await g.ev(wet), [false, 1, false], 'Juniper Ridge’s own creek to start with');
+  await g.ev(`(() => { edStrokeStart({ x: 20, z: -50 }); for (let z = -48; z <= 10; z += 2) edDrawTo({ x: 20, z }); edStrokeEnd(); })()`);
+  eq(await g.ev(wet), [true, 2, true], 'a stream runs where it was drawn');
+  assert(await g.ev(`HT[(-30 + HALF) * NV + 20 + HALF] < ED.E[(-30 + HALF) * NV + 20 + HALF] - 0.5`), 'and cuts its bed into the ground');
+  await g.ev('edUndo(false)'); eq(await g.ev(wet), [false, 1, false], 'Undo takes the stream away');
+  await g.ev('edUndo(true)'); eq(await g.ev(wet), [true, 2, true], 'Redo brings it back');
+  await g.click('#edNoStreams'); eq(await g.ev(`[edCreeks().length, Math.min(...CREEKD) > 2]`), [0, true], 'Clear streams leaves none');
+  await g.ev('edUndo(false)');
+  // the access road is drawn the same way: the base goes at its end, and its start is carried off the map
+  await g.ev(`ED.tool = 'road'; edStrokeStart({ x: 60, z: 70 }); edDrawTo({ x: 60, z: 110 }); edStrokeEnd()`);
+  assert(await g.ev('ED.road') === null, 'a road that ends off the resort’s land is refused');
+  await g.ev(`edStrokeStart({ x: 100, z: 20 }); for (let x = 96; x >= 40; x -= 4) edDrawTo({ x, z: 20 + (100 - x) * 0.4 }); edStrokeEnd()`);
+  await g.reloaded();
+  eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), ED.road[0][0] > 1.2, ROAD_WORLD.length > 10, !!lotCenter() && Math.hypot(lotCenter().x - 40, lotCenter().z - 44) < 20, ED.creeks.length]`), [40, 44, true, true, true, 2], 'the road comes in from off the map to the new base, with the lot at its end, and the streams are kept');
+  await g.ev(`ED.tool = 'raise'; edSync()`);
   // the name, and keeping it on this device
   await g.ev(`(() => { const el = document.getElementById('edName'); el.value = '  Stony <b>Top</b>  '; el.onchange({ target: el }); })()`);
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'the name is tidied');
@@ -64,6 +90,7 @@ export default async function ({ browser, url }) {
   assert(/^c:m[0-9a-z]{14}$/.test(id) && await g.ev(`state.started && !EDITOR && MOUNTAIN.hand && MOUNTAIN.custom && isCustomId(MOUNTAIN.id) && boardOf(MOUNTAIN.id) === 'custom'`), `playing starts a resort on the mountain (${id})`);
   assert(Math.abs(await g.ev(h) - keep[0]) < 0.02, 'with the ground as shaped');
   eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', await g.ev('MOUNTAINS.juniper.cash'), id, true], 'its name, Juniper Ridge’s money, the custom goals');
+  eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), CREEKD[(-30 + HALF) * NV + 20 + HALF] < 1, parks().length > 0 || state.lotSections > 0]`), [40, 44, true, true], 'with the road, the base and the stream as drawn');
   await g.ev(`state.cash -= 12345; saveNow()`);
   const cash = await g.ev('state.cash'), n = await g.ev('trees.n');
   assert(await g.ev(`mapIdOf(JSON.parse(localStorage.getItem(saveKey())).map)`) === id, 'the save carries the mountain');
