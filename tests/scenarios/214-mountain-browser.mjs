@@ -1,4 +1,4 @@
-// The mountain browser (title screen, ?maps=1 until the editor ships): shared mountains with their likes, ratings and
+// The mountain browser (title screen): shared mountains with their likes, ratings and
 // resorts started on them, sorted and searched; signed-in players like and rate other players' mountains.
 import { openGame, eq, assert } from '../harness.mjs';
 const dlg = (g) => g.ev(`document.getElementById('crisis').hidden ? '' : document.getElementById('crBody').textContent.replace(/\\s+/g, ' ')`);
@@ -80,7 +80,10 @@ export default async function ({ browser, url }) {
   await c.ev(`document.querySelector('#mbList [data-mb-open]').click()`); await c.wait(400);
   assert((await dlg(c)).includes('Sign in on the title screen to like and rate'), 'guests are asked to sign in to rate');
   eq(c.errors, [], 'no errors for a guest'); await c.page.close();
-  // without ?maps=1 the card stays hidden until the editor ships
+  // shipped: the card is on every title screen, and the new-mountain list's Make your own opens the editor
   const d = await openGame(browser, url);
-  assert(await d.ev(`document.getElementById('mapsCard').hidden`), 'hidden without ?maps=1'); await d.page.close();
+  assert(await d.ev(`!document.getElementById('mapsCard').hidden`), 'the Custom mountains card is on the title screen');
+  await d.click('[data-slot=new]'); await d.wait(100); await d.click('[data-slot=editor]'); await d.reloaded();
+  assert(await d.ev('EDITOR && !!document.getElementById("edAskName")'), 'Make your own in the new-mountain list opens the editor, asking for a name');
+  eq(d.errors, [], 'no errors'); await d.page.close();
 }
