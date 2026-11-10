@@ -1505,6 +1505,13 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .rp-hours i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
 .rp-hours b { text-align: right; font-variant-numeric: tabular-nums; } .rp-hours small { color: var(--ink-2); }
 .rp-trails { display: grid; gap: 4px; margin-top: 4px; }
+.rp-diary { margin-top: 14px; } .rp-diary + .rp-diary { margin-top: 26px; }
+.rp-diary h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font: 800 18px/1.2 var(--display); }
+.rp-diary h3 i { width: 12px; height: 12px; border-radius: 4px; display: block; }
+.rp-diary ol { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; }
+.rp-diary li { display: grid; grid-template-columns: 64px 1fr; gap: 8px; font-size: 13px; padding: 2px 0; }
+.rp-diary li > span:first-child { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rp-diary li.th > span:last-child { font-style: italic; color: var(--ink-2); }
 .rp-trails > div { display: grid; grid-template-columns: 16px minmax(0, 1.4fr) 1fr 48px 58px; align-items: center; gap: 8px; font-size: 12.5px; }
 .rp-trails .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; } .rp-trails .nm small { font-weight: 400; color: var(--ink-2); }
 .rp-trails i { display: block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
@@ -12283,7 +12290,40 @@ function vBase(g, depth, memo, here = g) {
   return b;
 }
 const noisy = (v) => v + (Math.random() * 2 - 1) * 1.6;
-function thought(g, text) { g.th.unshift(text); if (g.th.length > 4) g.th.pop(); }
+function thought(g, text) {
+  g.th.unshift(text); if (g.th.length > 4) g.th.pop();
+  if (today && today.diaries) { const d = today.diaries.find((x) => x.id === g.id && x.home == null); if (d) diaryAdd(d, text, 1); }
+}
+/* A followed guest's day (4.4): once you follow someone, what they do and think goes in a diary on today, so the
+   day report can tell their whole day (a page of its own). Up to three guests a day; passing moments ("Heading
+   to...") are left out, and a line ends with how long they waited. Saved with a day in progress, like the rest of today. */
+const DIARY_MAX = 240, DIARY_GUESTS = 3;
+function diaryAdd(d, text, th) { if (d.log.length < DIARY_MAX) d.log.push(th ? [Math.round(state.time), text, 1] : [Math.round(state.time), text]); }
+function diaryStart(g) {
+  const L = today.diaries || (today.diaries = []);
+  if (L.some((d) => d.id === g.id)) return;
+  if (L.length >= DIARY_GUESTS) L.shift();
+  L.push({ id: g.id, name: g.name, jc: g.jc, ab: g.ab, pref: g.pref, from: Math.round(state.time), runs0: g.runs, runs: g.runs, vert: g.vert, sat: g.sat, home: null, last: '', qAt: 0, log: [] });
+  diaryTick();
+}
+function diaryTick(closing) {
+  for (const d of today.diaries) {
+    if (d.home != null) continue;
+    const g = gById.get(d.id);
+    if (closing || !g || g.st === 'incar' || g.gone) { d.home = Math.round(state.time); diaryAdd(d, closing && g && g.st !== 'incar' ? 'Still out when the day ended' : 'Went home'); continue; }
+    d.runs = g.runs; d.vert = g.vert; d.sat = g.sat;
+    const a = guestActivity(g).replace(/ · \d+ min so far$/, '');
+    if (a === d.last) continue;
+    if (d.last.startsWith('In line for ')) { // how long the line took, on the line's own entry
+      const w = Math.round(state.time - d.qAt);
+      for (let i = d.log.length - 1; i >= 0; i--) if (!d.log[i][2]) { if (d.log[i][1] === d.last) d.log[i][1] += w >= 1 ? ` · waited ${w} min` : ' · straight on'; break; }
+    }
+    d.last = a;
+    if (a.startsWith('In line for ')) d.qAt = state.time;
+    if (!/^(Heading to|Looking around|Walking to the )/.test(a)) diaryAdd(d, a); // passing moments: the next line says where they got to
+  }
+}
+const guestMood = (sat) => sat > 85 ? 'Thrilled' : sat > 65 ? 'Happy' : sat > 45 ? 'Okay' : sat > 25 ? 'Unhappy' : 'Miserable';
 
 /* ---------- Movement helpers ---------- */
 // Walking up steep ground in a guest area is slow: about 60% of normal pace at a 30% grade, 30% at 100%.
@@ -13467,6 +13507,7 @@ function styleLot() {
 function simStep(dt) {
   xBases = null; xRoutes = null; xStep = true; simTick++;
   try { simRun(dt); } finally { xBases = null; xRoutes = null; xStep = false; }
+  if (today && today.diaries && state.phase === 'open') diaryTick();
 }
 function simRun(dt) {
   state.time += dt / 60;
@@ -13594,6 +13635,7 @@ function closeEarly() {
 function endDay() {
   const repDay = { start: state.reputation, changes: [] };
   for (const g of guests) recordMealOutcome(g);
+  if (today.diaries) diaryTick(true);
   const ops = today.ops || startOps(state.day), lv = STAFF_LEVELS[ops.staff] || STAFF_LEVELS.normal, short = ops.hours === 'short';
   const costs = planCosts(ops, today.guests);
   today.exp.staff = costs.staff;
@@ -13683,6 +13725,7 @@ function endDay() {
     meals: today.meals ? { ...today.meals } : null, racks: rackReport(),
     complaints: Object.fromEntries(Object.entries(today.complaints).map(([k, v]) => [k, v * AGENT])), hungry: hungerSummary(today.hungry),
     priceBy: today.priceBy ? JSON.parse(JSON.stringify(today.priceBy)) : null,
+    diaries: today.diaries ? today.diaries.map(({ last, qAt, ...d }) => d) : null,
   };
   guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0; rackMin = -1;
   endOps();
@@ -23462,7 +23505,7 @@ function showReport(r = state.lastReport, past = false) {
   const shortNotes = notes.filter((n) => !(n.match(/\d[\d,]{1,}/g) || []).some((x) => tipNums.has(x))).slice(0, 3);
   const extras = [r.apres && `Après ${signedMoney(r.apres.profit)}`, r.night && `Night skiing ${signedMoney(r.night.profit)}`].filter(Boolean);
   const td = r.trailsDay && r.trailsDay.top && r.trailsDay.top.length ? r.trailsDay : null;
-  const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.park ? [['park', 'Park']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : [])];
+  const tabs = [['day', 'Day'], ...(td ? [['trails', 'Trails']] : []), ...(r.park ? [['park', 'Park']] : []), ...(r.apres ? [['apres', 'Après']] : []), ...(r.night ? [['night', 'Night']] : []), ...(r.diaries && r.diaries.length ? [['guest', r.diaries.length > 1 ? 'Your guests' : esc(r.diaries[0].name)]] : [])];
   $('rpBody').innerHTML = `
     <div class="rp-head"><div><div class="eyebrow">${r.summer ? `Summer day report · ${esc(r.summer)}` : `Day report · Season ${r.season || state.season}`}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
       <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
@@ -23478,6 +23521,7 @@ function showReport(r = state.lastReport, past = false) {
       <p class="rp-money">Revenue <b>${money(revTotal)}</b> · Expenses <b>${money(exp)}</b>${extras.length ? ` · ${extras.join(' · ')}` : ''}</p>
       ${tip ? `<p class="rp-tip"><b>Tip</b> ${esc(tip)}</p>` : ''}
       ${shortNotes.length ? `<ul class="rp-notes">${shortNotes.map((n) => `<li>${n}</li>`).join('')}</ul>` : ''}
+      ${r.diaries && r.diaries.length ? `<p class="rp-money">${r.diaries.map((d) => `<b>${esc(d.name)}</b>: ${d.runs} ${d.runs === 1 ? 'run' : 'runs'}, ${guestMood(d.sat).toLowerCase()}`).join(' · ')} <button class="link" data-rpgo="guest">${r.diaries.length > 1 ? 'Their days' : 'Their day'} ›</button></p>` : ''}
       ${td ? `<p class="rp-money">Busiest trails: ${td.top.slice(0, 3).map((x) => `<b>${esc(x.name)}</b>`).join(', ')} <button class="link" data-rpgo="trails">More ›</button></p>` : ''}
       <button class="link" data-rpview="full">See the full report ›</button>
     </div>
@@ -23504,7 +23548,8 @@ function showReport(r = state.lastReport, past = false) {
     ${td ? `<div class="rp-page" data-page="trails" hidden>${trailsPageHtml(r, past)}</div>` : ''}
     ${r.park ? `<div class="rp-page" data-page="park" hidden>${parkPageHtml(r)}</div>` : ''}
     ${r.apres ? `<div class="rp-page" data-page="apres" hidden>${apresPageHtml(r)}</div>` : ''}
-    ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}`;
+    ${r.night ? `<div class="rp-page" data-page="night" hidden>${nightPageHtml(r)}</div>` : ''}
+    ${r.diaries && r.diaries.length ? `<div class="rp-page" data-page="guest" hidden>${diaryPageHtml(r)}</div>` : ''}`;
   applyRpView();
   $('report').hidden = false;
   if ($('rpPlan')) $('rpPlan').onclick = planTomorrow;
@@ -23553,6 +23598,15 @@ $('rpBody').addEventListener('click', (e) => {
   for (const t of $('rpBody').querySelectorAll('[data-rptab]')) t.setAttribute('aria-pressed', String(t === b));
   for (const pg of $('rpBody').querySelectorAll('.rp-page')) pg.hidden = pg.dataset.page !== b.dataset.rptab;
 });
+// The followed guests' page of the day report: their day, line by line.
+function diaryPageHtml(r) {
+  return r.diaries.map((d) => `<div class="rp-diary">
+      <h3><i style="background:#${d.jc.toString(16).padStart(6, '0')}"></i>${esc(d.name)}</h3>
+      <p class="help">${ABILITY[d.ab]} skier who likes ${RATINGS[d.pref].name.toLowerCase()} runs. You followed them from ${clockLabel(d.from)}${d.runs0 ? `, after ${d.runs0} ${d.runs0 === 1 ? 'run' : 'runs'}` : ''}.</p>
+      <dl class="rp-hero"><div><dt>Runs</dt><dd>${d.runs}</dd></div><div><dt>Vertical</dt><dd>${fmtFt(d.vert * FT_PER_UNIT)}</dd></div><div><dt>Mood</dt><dd>${guestMood(d.sat)}</dd></div></dl>
+      <ol>${d.log.map(([t, text, th]) => `<li${th ? ' class="th"' : ''}><span>${clockLabel(t)}</span><span>${th ? `“${esc(text)}”` : esc(text)}</span></li>`).join('')}</ol>
+    </div>`).join('');
+}
 // The trails page of the day report.
 function trailsPageHtml(r, past) {
   const d = r.trailsDay, top = d.top, max = top[0].n, tips = [];
@@ -24433,7 +24487,7 @@ const VISIT_WORD = { food: 'Having lunch at', warm: 'Warming up at', dine: 'Dini
 function guestActivity(g) {
   const t = g.then;
   const B = g.bid != null ? bldById(g.bid) : null;
-  if (g.st === 'inside' && B) return `${VISIT_WORD[g.svc]} ${B.name}`;
+  if (g.st === 'inside' && B) return `${VISIT_WORD[g.svc] || 'Visiting'} ${B.name}`;
   if (g.st === 'room') { const H = bldById(g.hotel); return `Resting in their room at ${H ? H.name : 'the hotel'}`; }
   if (g.st === 'lesson') return 'Taking a ski lesson';
   if (g.st === 'bq' && B) return `In line at ${B.name}`;
@@ -24464,7 +24518,7 @@ function guestSheet(g) {
   const head = `<div class="sheet-title"><span class="swatch" style="background:#${g.jc.toString(16).padStart(6, '0')}"></span><h3>${esc(g.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>`;
   if (!gById.has(g.id) || g.st === 'incar') return `${head}<p class="help">Went home for the day.</p>`;
   const sat = g.sat / 100, energy = 1 - g.fat / g.stam;
-  const mood = sat > 0.85 ? 'Thrilled' : sat > 0.65 ? 'Happy' : sat > 0.45 ? 'Okay' : sat > 0.25 ? 'Unhappy' : 'Miserable';
+  const mood = guestMood(g.sat);
   return `${head}
     <p class="help"><span class="rsym">${ratingSymbol(g.pref, 12)}</span> ${ABILITY[g.ab]} skier who likes ${RATINGS[g.pref].name.toLowerCase()} runs</p>
     <p class="conn"><b>${esc(guestActivity(g))}</b></p>
@@ -24482,7 +24536,7 @@ function followRoomNow() {
   const r = sheet.hidden ? null : sheet.getBoundingClientRect(), side = r && r.left > W * 0.3, t = $('timebar').getBoundingClientRect();
   followRoom = { top: Math.min(H * 0.5, t.bottom > 0 ? t.bottom : 60), bottom: r && !side && r.top > H * 0.2 ? r.top : H, right: side ? r.left : W }; // a desktop's card is beside the view, a phone's below it
 }
-function startFollow(g) { follow = g; camTween = null; glide = null; cam.zoomPt = null; cam.viewGoal = Math.min(cam.viewH, 45); }
+function startFollow(g) { diaryStart(g); follow = g; camTween = null; glide = null; cam.zoomPt = null; cam.viewGoal = Math.min(cam.viewH, 45); }
 function stopFollow() { if (!follow) return; follow = null; if (selected && selected.kind === 'guest') renderSheet(); }
 // A name tag over the guest whose card is open, so you can pick them out of the crowd.
 const guestTag = $('guestTag');
@@ -29247,7 +29301,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '4.4', date: 'Nov 10, 2026', title: 'Follow a guest', items: [
     'Tap a guest on the mountain, then Follow with the camera on their card: the view stays with them as they ride, ski, queue and stop for lunch, until you drag the map, close the card or they go home. You can still turn and zoom while following. Thanks for the idea!',
-    'The guest whose card is open now has a name tag over their head, so you can pick them out of the crowd.'] },
+    'The guest whose card is open now has a name tag over their head, so you can pick them out of the crowd.',
+    'Their day in the day report: everyone you followed (up to three a day) gets a page with their runs, vertical and mood, and their day line by line from when you started following: each lift and how long the line took, each run, lunch, what they thought and when they went home. Keep following or not, the diary keeps going until they leave.'] },
   { v: '4.3.2', date: 'Nov 10, 2026', title: 'Editor sliders fit on phones', small: true, items: [
     'Fixed: in the mountain editor’s Weather and money, the words beside the sliders were cut off on phones. Each slider now has its name and setting above it.',
   ] },

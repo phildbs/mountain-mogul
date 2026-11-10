@@ -35,5 +35,22 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { const p = gById.get(${id}); select({ kind: 'guest', obj: p }); startFollow(p); p.st = 'incar'; })()`);
   await g.page.waitForFunction(() => window.__dbg('follow === null'), null, { timeout: 5000 }).catch(() => {});
   eq(await g.ev(`[follow, /Went home/.test(document.getElementById('sheet').textContent)]`), [null, true], 'going home ends it');
+  // their day in the report: a second guest followed from late morning to the end
+  const id2 = await g.ev(`(() => { const p = guests.find((q) => q.id !== ${id} && q.st === 'queue') || guests.find((q) => q.id !== ${id} && q.st !== 'incar'); select({ kind: 'guest', obj: p }); startFollow(p); select(null); return p.id; })()`);
+  await g.ev(SETUPS.finishDay);
+  const ds = await g.ev(`state.lastReport.diaries`);
+  eq(ds.map((d) => d.id), [id, id2].map(Number), 'both followed guests are in the report');
+  eq(ds[0].log[ds[0].log.length - 1][1], 'Went home', 'the first went home when sent to the car');
+  const d2 = ds[1], texts = d2.log.map((e) => e[1]);
+  assert(texts.some((t) => /^Riding /.test(t)) && texts.some((t) => /^Skiing /.test(t)), `the day has rides and runs (${texts.slice(0, 8)})`);
+  assert(texts.some((t) => /^In line for .* · (waited \d+ min|straight on)$/.test(t)), 'lines say how long they took');
+  assert(!texts.some((t) => /^(Heading to|Looking around)/.test(t)), 'passing moments are left out');
+  assert(/^(Went home|Still out when the day ended)$/.test(texts[texts.length - 1]) && d2.runs >= d2.runs0, 'it ends with them leaving');
+  // the report: a tab with their name, and a line in the summary
+  await g.ev(`showReport()`);
+  eq(await g.ev(`[...document.querySelectorAll('#rpBody [data-rptab]')].map((b) => b.textContent).pop()`), 'Your guests', 'a tab for the followed guests');
+  eq(await g.ev(`document.querySelectorAll('#rpBody [data-page=guest] .rp-diary').length`), 2, 'a diary for each');
+  assert(await g.ev(`document.querySelectorAll('#rpBody [data-page=guest] li').length >= ${texts.length}`), 'every entry is listed');
+  assert(await g.ev(`!!document.querySelector('#rpBody .rp-short [data-rpgo=guest]')`), 'the summary links to their day');
   eq(g.errors, [], 'no page errors');
 }
