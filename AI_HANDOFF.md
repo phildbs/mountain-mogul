@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
-**On a branch: 4.2.1 Tidier title screen** (`ccr-d825b226-13nd5k`, waiting for Phil). The wide title layout
+**Live: 4.2.1 Tidier title screen** (published Nov 10 on Phil's "Publish", GitHub run 597 green on f535b67). The wide title layout
 (`WIDE_TITLE` and the `.tside` CSS) now starts at 760px wide, not 900, so upright tablets get two columns. In it, `#title`
 reserves the right column with `padding-right` (`--tside-w`, clamp 300 to 360px). `.shelf` (`#titleSlots`) is the only
 thing that scrolls, and New mountain is sticky at its foot. `fitTitle()` (run from `renderSlots`, the picker and on resize)
@@ -64,7 +64,7 @@ moves `#titleAcct` into `.tside` under Community on wide screens (back before `.
 Phones are unchanged. Phil: King of the Mountain (`#mpCard`) lost its three pictures and is now a slim blue row
 everywhere. It's the first item of `.tcards`, above Learn the basics (phones still move it under your mountain). The three
 map photos are preloaded once in `renderSlots`, because the match window's lazy lobby pictures used to come from the
-title card's cache (165 relied on that). Scenarios 157, 171 and 188 updated. Scenario `209-title-fits`. (Claude, Nov 10)
+title card's cache (165 relied on that). Scenarios 157, 171 and 188 updated. When `#title` must scroll anyway, `fitTitle` adds `.flow` to the shelf (not a scroller of its own): a list left 1px scrollable by font rounding took the whole swipe on GitHub's Chromium (144). Scenario `209-title-fits`. (Claude, Nov 10)
 
 **Live: 4.2 Free camera** (published Nov 10 on Phil's "Publish", GitHub run 592 green on 1a16972). `EL` (tilt) can now be changed in normal play, from
 `EL_MIN` 22° to `EL_MAX` 72° (the map viewer keeps 20° to 85°). It's saved as `cam.el`, and older saves get `EL_DEF` 0.47.
@@ -291,7 +291,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-d825b226-13nd5k` | Claude | **4.2.1 Tidier title screen** (preview, not published). Notes under Current status. | Nov 10, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
