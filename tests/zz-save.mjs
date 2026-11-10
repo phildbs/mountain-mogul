@@ -1,0 +1,17 @@
+import { startServer, launch, openGame } from './harness.mjs';
+import { bigBuild } from './big-resort.mjs';
+const server = await startServer(), browser = await launch();
+const g = await openGame(browser, server.url, { query: '?dev' });
+await g.click('#startBtn'); await g.wait(400);
+await g.ev(bigBuild); await g.ev(`(() => { for (let k = 0; k < NV*NV; k++) NS[k] = 60; state.day = 60; refreshSnowState(todayWx()); const s0 = stalls.slice(); while (stalls.length < MAX_CARS) stalls.push({ ...s0[stalls.length % s0.length], car: null }); })()`);
+console.log(JSON.stringify(await g.ev(`(() => { const real = demandForDay; demandForDay = () => { real(); dayWant = MAX_G * 3; return MAX_G; }; openDay(); demandForDay = real;
+  let n = 0; while (state.phase === 'open' && state.time < 780 && n++ < 200000) simStep(1.5);
+  const sv = saveData(true), kb = (o) => Math.round(JSON.stringify(o ?? null).length / 1024), sim = sv.sim || {};
+  const out = { total: kb(sv), sim: kb(sim), guests: kb(sim.guests), n: (sim.guests || []).length };
+  for (const k of Object.keys(sim)) out['sim.' + k] = kb(sim[k]);
+  for (const k of Object.keys(sv)) if (k !== 'sim') out[k] = kb(sv[k]);
+  const G = sim.guests || [], fld = {}; for (const x of G) for (const [k, v] of Object.entries(x)) if (v !== undefined) fld[k] = (fld[k] || 0) + JSON.stringify(v).length + k.length + 4;
+  out.fields = Object.entries(fld).sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => k + ':' + Math.round(v / 1024));
+  out.keys = Object.keys(G[0] || {}).length; out.sample = JSON.stringify(G[0]).slice(0, 900);
+  return out; })()`), null, 0));
+await browser.close(); server.close();

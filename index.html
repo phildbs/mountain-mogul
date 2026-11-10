@@ -14496,13 +14496,35 @@ function saveGuest(g) {
   for (const k in o) { const v = o[k]; if (typeof v === 'number' && !Number.isInteger(v)) o[k] = Math.round(v * 1000) / 1000; }
   return o;
 }
+/* Guests in a mid-day save, packed (4.1): every guest has the same ~150 fields, so the names are written once (k),
+   and each guest is a row of its values. A row starts with a mask in hex of which fields it has (most are unset);
+   only those values follow. Thoughts are written once each (t) and the rows hold their numbers. A busy day's save
+   comes out less than half the size it was, so it fits the browser's storage. Older saves (a list of guests) still load. */
+function packGuests(list) {
+  const keys = [], at = new Map(), t = [], ti = new Map();
+  for (const o of list) for (const k in o) if (o[k] !== undefined && !at.has(k)) { at.set(k, keys.length); keys.push(k); }
+  const word = (x) => { let i = ti.get(x); if (i == null) { i = t.length; t.push(x); ti.set(x, i); } return i; };
+  const r = list.map((o) => {
+    const bits = new Array(Math.ceil(keys.length / 4)).fill(0), vals = [];
+    keys.forEach((k, i) => { const v = o[k]; if (v === undefined) return; bits[i >> 2] |= 1 << (i & 3); vals.push(k === 'th' && Array.isArray(v) ? v.map(word) : v); });
+    return [bits.map((b) => b.toString(16)).join('').replace(/0+$/, ''), ...vals];
+  });
+  return { k: keys, t, r };
+}
+function unpackGuests(p) {
+  return p.r.map(([mask, ...vals]) => {
+    const o = {}; let j = 0;
+    p.k.forEach((k, i) => { if (!((parseInt(mask[i >> 2] || '0', 16) >> (i & 3)) & 1)) return; const v = vals[j++]; o[k] = k === 'th' && Array.isArray(v) ? v.map((n) => p.t[n]) : v; });
+    return o;
+  });
+}
 function serializeSim() {
   if (state.phase !== 'open') return null;
   return {
     today, schedule, nextGid, nextCid, buses, busPending, nextBusAt, nextParkAt, offCars,
     buildingToday: world.buildings.map((B) => ({ id: B.id, today: { ...B.today, services: { ...B.today.services } } })),
     offQueue: offQueue.map((q) => ({ car: q.car.id, since: q.since })),
-    guests: guests.map(saveGuest),
+    guests: [], gp: packGuests(guests.map(saveGuest)), // guests: [] so an older page loading this save just has no guests
     // A parked car finds its road again when it leaves (carLeave), so only moving cars keep a path.
     cars: cars.map((c) => { const { path, ...rest } = c; return c.st === 'parked' ? rest : { ...rest, path }; }),
     lifts: world.lifts.map((L) => ({ id: L.id, phase: L.phase, queue: L.queue.map((g) => g.id), topQ: L.topQ.length ? L.topQ.map((g) => g.id) : undefined, incoming: L.incoming, riders: L.riders, midQ: L.midUp ? L.midUp.queue.map((g) => g.id) : undefined, midIn: L.midUp ? L.midUp.incoming : undefined })),
@@ -14524,7 +14546,7 @@ function restoreSim(sim) {
   offQueue = (sim.offQueue || []).map((q) => ({ car: offCars.find((c) => c.id === q.car), since: q.since })).filter((q) => q.car);
   for (const b of buses) if (b.kind === 'park' && b.load) b.load = b.load.map((q) => ({ car: offCars.find((c) => c.id === (q.car.id ?? q.car)), since: q.since })).filter((q) => q.car);
   for (const B of world.buildings) initBldSim(B);
-  for (const r of sim.guests) {
+  for (const r of sim.gp ? unpackGuests(sim.gp) : sim.guests || []) {
     const g = { ...r, T: r.T != null ? trailById(r.T) : null, L: r.L != null ? liftById(r.L) : null };
     if ((g.st === 'ski' && !g.T) || ((g.st === 'ride' || g.st === 'queue' || g.st === 'topq') && !g.L)) { g.st = 'walk'; g.then = { k: 'car' }; }
     if (g.st === 'tow') { g.st = 'hurt'; g.rescueLogged = true; } // pickup already happened, including in older saves

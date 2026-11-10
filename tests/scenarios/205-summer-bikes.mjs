@@ -40,6 +40,9 @@ export default async function ({ browser, url }) {
   assert(drawn.chair > 0 && drawn.bikes === drawn.trail + drawn.chair + drawn.other, `every rider has a bike: on the trail, on the chair and walking to it; left outside while they eat (${JSON.stringify(drawn)})`);
   const mid = await g.ev(`(() => { const n = guests.filter((x) => x.st === 'bike').length; applySave(JSON.parse(JSON.stringify(saveData(true)))); return [n, guests.filter((x) => x.st === 'bike').length, state.phase, !!guestPos(guests.find((x) => x.st === 'bike') || guests[0])]; })()`);
   assert(mid[0] > 0 && mid[0] === mid[1] && mid[2] === 'open' && mid[3], `riders on the trail, and still there after a mid-day save (${mid})`);
+  const pack = await g.ev(`(() => { const raw = guests.map(saveGuest), p = packGuests(raw), back = unpackGuests(JSON.parse(JSON.stringify(p))), plain = JSON.stringify(raw).length, packed = JSON.stringify(p).length;
+    const same = raw.every((o, i) => JSON.stringify(o) === JSON.stringify(back[i])); return { same, ratio: packed / plain }; })()`);
+  assert(pack.same && pack.ratio < 0.6, `mid-day guests pack and unpack exactly, at under 60% of the size (${JSON.stringify(pack)})`);
   await g.ev(play());
   const s = await g.ev(`(() => { const r = state.lastReport, B = world.buildings.find(isBike); return { bikes: r.bikes, rev: r.rev.bikes, left: guests.length, txt: $('rpBody').textContent, wear: B.wear }; })()`);
   assert(s.bikes && s.bikes.runs > s.bikes.riders && s.left === 0, `riders lapped the trail (${JSON.stringify(s.bikes)})`);

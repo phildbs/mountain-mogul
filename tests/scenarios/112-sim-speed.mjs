@@ -7,7 +7,7 @@ export default async function({browser,url}) {
     state.day=41;openDay();state.speed=0;let n=0;while(state.time<720&&state.phase==='open'&&n++<90000)simStep(1.5);
     const shapes=new Set(guests.map((x)=>Object.keys(x).join(','))).size;
     const sim=saveData(true).sim, parked=sim.cars.filter((c)=>c.st==='parked'), moving=sim.cars.filter((c)=>c.st!=='parked');
-    const long=sim.guests.some((x)=>Object.values(x).some((v)=>typeof v==='number'&&String(v).split('.')[1]?.length>3));
+    const long=unpackGuests(sim.gp).some((x)=>Object.values(x).some((v)=>typeof v==='number'&&String(v).split('.')[1]?.length>3));
     return {guests:guests.length,shapes,parked:parked.length,parkedPaths:parked.filter((c)=>c.path).length,moving:moving.length,movingPaths:moving.filter((c)=>c.path).length,long,
       queues:world.lifts.map((L)=>L.queue.length),time:state.time};
   })()`);

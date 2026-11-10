@@ -29,7 +29,7 @@ export default async function ({ browser, url }) {
   // Older saves have no outcome fields and used ate+skipped for a rejected meal.
   eq(await g.ev(`(() => { const sv=JSON.parse(JSON.stringify(serializeSim())); delete sv.today.meals;
     sv.today.complaints.food=99; sv.today.hungry={price:99,line:{},nowhere:{},late:0};
-    const p=sv.guests[0]; p.ate=true;p.skipped=true;p.lunchAt=700;p.leaving=false;delete p.mealRecorded;
+    sv.guests=unpackGuests(sv.gp); delete sv.gp; /* an older save: a plain list of guests */ const p=sv.guests[0]; p.ate=true;p.skipped=true;p.lunchAt=700;p.leaving=false;delete p.mealRecorded;
     restoreSim(sv);return [today.complaints.food,today.hungry,needs(guests[0]).includes('lunch')]; })()`),[0,null,true],'old delay counters do not become missed meals and skipped guests can retry');
   eq(g.errors, [], 'no page errors'); await g.page.close();
 

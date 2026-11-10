@@ -44,7 +44,7 @@ export default async function({browser,url}) {
   eq((await g.ev('finishClaims()')).claims,0,'reloaded prompt rescue stays claim-free');
   await g.ev('beginRescue(7)');
   const old=await g.ev(`(() => {
-    const s=JSON.parse(JSON.stringify(saveData(true)));delete s.sim.today.rescues;delete s.sim.guests[0].rescueLogged;
+    const s=JSON.parse(JSON.stringify(saveData(true)));delete s.sim.today.rescues;s.sim.guests=unpackGuests(s.sim.gp);delete s.sim.gp;delete s.sim.guests[0].rescueLogged; // an older save: a plain list of guests
     applySave(s);const p=gById.get(window.claimGuest),B=bldById(window.claimHut);state.time=680;runOps.bld[B.id]='closed';patrolStep(0);
     const before=(today.rescues||[]).length;const random=Math.random;try{Math.random=()=>0;endDay();}finally{Math.random=random;}
     return {newRecords:before,claims:state.lastReport.exp.claims};
