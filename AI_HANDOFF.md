@@ -378,6 +378,14 @@ the player's to draw; raising land brings the land around it up too, with detail
   either (only the snow they make is paid, at `POND_PRICE`). The old slider builder (`openBuilder`, recipes) is retired
   when the editor ships: keep `makeCustom`/`parseRecipe` so existing custom resorts still play. The playable check does
   **not** need a green way down from the top.
+- **Playable check** (step 2, first half; Nov 10): `edCheck()` lists what a resort needs, shown live in `#edReady`
+  and enforced by Play (first failing item's `msg` as a toast): an access road; the road's end within `ED_BASE_UP` (2
+  units, about 65 ft) of the lowest ground on the land, since base ground is `baseH + 3.5` (a pit dug lower elsewhere
+  would leave the base on a hillside); at least `ED_FLAT` (65%) of the land within 12 of the road's end under 0.15
+  grade, for the lot and a lodge; at least `ED_VERT` (500 ft) of vertical (a blank slate has 480, so a mountain must
+  be raised); ponds clear of the road and streams. Calibrated on the game's mountains: road ends 0.5 to 0.9 units above
+  their lowest ground, nearly all flat round it, 595 to 2,028 ft vertical. Failing items have a Show link (`data-show`,
+  `flyTo`). No green-from-the-top rule (Phil). Sharing by link is next. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

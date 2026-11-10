@@ -27374,10 +27374,42 @@ function edDelete(key) {
   if (key === ED.key) { ED.saved = true; edOpen(draftList().map((d) => d.key)[0] || null); } else edMaps();
 }
 // Play: the draft as it stands becomes a mountain of its own, and a new resort starts on it.
-function edPlay() {
-  if (!ED.road && ED.noRoad) { toast('Draw an access road first: pick Access road and drag from the edge of the map to where the base should be.', true); return; }
+/* Is it playable? What a resort needs from the mountain, each with where to look:
+   - an access road, so there's a base;
+   - the base as low as the land goes: base ground (where lifts start and guests walk) is ground within 3.5 of the lowest
+     point of the land, so a hole dug lower somewhere else would leave the base on a hillside;
+   - flat room round the road's end for the parking lot and a lodge (the game's own mountains are nearly all flat there);
+   - enough vertical to ski (the game's smallest, Lone Pine, has about 600 ft);
+   - ponds clear of the road and the streams. */
+const ED_VERT = 500, ED_BASE_UP = 2, ED_FLAT = 0.65;
+function edCheck() {
+  const out = [], road = !!ED.road || !ED.noRoad;
+  if (!road) return [{ ok: false, html: '<button class="link" data-pick="road">Draw an access road</button> to play: the base goes where it ends', msg: 'Draw an access road first: pick Access road and drag from the edge of the map to where the base should be.' }];
+  let lo = Infinity, at = null;
+  for (let j = PLAY0; j <= PLAY1; j++) for (let i = PLAY0; i <= PLAY1; i++) if (inGridLand(i, j) && HT[j * NV + i] < lo) { lo = HT[j * NV + i]; at = { x: i - HALF, z: j - HALF }; }
+  const e = roadEnd(), he = sampleGrid(HT, e.x + HALF, e.z + HALF), up = he - lo, show = (p) => ` <button class="link" data-show="${Math.round(p.x)},${Math.round(p.z)}">Show</button>`;
+  out.push(up <= ED_BASE_UP ? { ok: true, html: 'Access road, with the base on the lowest ground' }
+    : { ok: false, html: `The base is ${fmtFt(Math.round(up * FT_PER_UNIT / 10) * 10)} above the lowest ground${show(at)}: raise that spot, or lower the base`,
+      msg: 'The base has to be the lowest ground on the land, or lifts can’t start there. Raise the low spot, or lower the ground where the road ends.' });
+  let flat = 0, n = 0;
+  for (let j = -12; j <= 12; j++) for (let i = -12; i <= 12; i++) {
+    const x = Math.round(e.x) + i, z = Math.round(e.z) + j;
+    if (i * i + j * j > 144 || !inProperty(x, z)) continue;
+    n++; if (sampleGrid(GR, x + HALF, z + HALF) < 0.15) flat++;
+  }
+  out.push(flat >= ED_FLAT * n ? { ok: true, html: 'Flat room for parking and a lodge' }
+    : { ok: false, html: `Too steep where the road ends${show(e)}: flatten about ${fmtFt(Math.round(24 * FT_PER_UNIT / 50) * 50)} across for parking and a lodge`,
+      msg: 'The base needs flat room for the parking lot and a lodge. Use Flatten around the end of the road.' });
+  const vert = Math.round((MOUNTAIN.summitH - lo) * FT_PER_UNIT / 10) * 10;
+  out.push(vert >= ED_VERT ? { ok: true, html: `${fmtFt(vert)} of vertical` }
+    : { ok: false, html: `Only ${fmtFt(vert)} of vertical: raise the mountain to ${fmtFt(ED_VERT)} or more`, msg: `There isn’t much to ski yet. Raise the mountain to at least ${fmtFt(ED_VERT)} of vertical.` });
   const wet = ED.ponds.findIndex((P) => P.some((k) => roadDist(keyX(k), keyZ(k)) < 2.5 || sampleGrid(CREEKD, keyX(k) + HALF, keyZ(k) + HALF) < 1.8 || !inProperty(keyX(k), keyZ(k))));
-  if (wet >= 0) { toast(`${POND_NAMES[wet]} runs into the road, a stream or past the property line. Clear ponds and paint it again away from them.`, true); return; }
+  if (wet >= 0) { const k = ED.ponds[wet][0]; out.push({ ok: false, html: `${POND_NAMES[wet]} runs into the road or a stream${show({ x: keyX(k), z: keyZ(k) })}`, msg: `${POND_NAMES[wet]} runs into the road, a stream or past the property line. Clear ponds and paint it again away from them.` }); }
+  return out;
+}
+function edPlay() {
+  const bad = edCheck().find((c) => !c.ok);
+  if (bad) { toast(bad.msg, true); return; }
   if (!edSave()) return;
   const id = keepMapDoc(edDoc());
   if (!id) { toast('This browser’s storage is full, so this mountain can’t be played yet. Delete a mountain you no longer want.', true); return; }
@@ -27411,11 +27443,11 @@ function edSync() {
   const r = ED.tool === 'pond' ? edPondR() : ED.r;
   $('edSizeV').textContent = fmtFt(Math.round(r * 2 * FT_PER_UNIT / 10) * 10); $('edStrV').textContent = ED.k;
   // what's on the mountain, and whether it's ready to play
-  const road = !!ED.road || !ED.noRoad, nc = edCreeks().length, np = ED.ponds.length;
-  $('edReady').innerHTML = `<li class="${road ? 'ok' : 'todo'}"><span>${road ? 'Access road and base' : '<button class="link" data-pick="road">Draw an access road</button> to play: the base goes where it ends'}</span></li>
+  const checks = edCheck(), ready = checks.every((c) => c.ok), nc = edCreeks().length, np = ED.ponds.length;
+  $('edReady').innerHTML = `${checks.map((c) => `<li class="${c.ok ? 'ok' : 'todo'}"><span>${c.html}</span></li>`).join('')}
     <li class="${nc ? 'ok' : 'opt'}"><span>${nc ? `${nc} stream${nc > 1 ? 's' : ''}` : 'No streams (optional)'}</span>${nc ? '<button class="link" id="edNoStreams">Clear</button>' : ''}</li>
     <li class="${np ? 'ok' : 'opt'}"><span>${np ? `${np} snowmaking pond${np > 1 ? 's' : ''}` : 'No snowmaking ponds (optional)'}</span>${np ? '<button class="link" id="edNoPonds">Clear</button>' : ''}</li>`;
-  $('edPlay').classList.toggle('secondary', !road);
+  $('edPlay').classList.toggle('secondary', !ready);
   canvas.style.cursor = ED.paint ? 'crosshair' : '';
 }
 // My mountains: the drafts on this device, and starting a new one.
@@ -27475,6 +27507,7 @@ function editorStart() {
   for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.show) { const [x, z] = b.dataset.show.split(',').map(Number); flyTo(x, z); return; }
     if (b.dataset.tool || b.dataset.pick) { const t = b.dataset.tool || b.dataset.pick; ED.paint = !(b.dataset.tool && ED.paint && ED.tool === t); ED.tool = t; } // the tool in hand again: put it down, to look around
     else if (b.dataset.mode) ED.paint = !ED.paint; // Move the view: on, or back to shaping
     else if (b.id === 'edUndo') edUndo(false);

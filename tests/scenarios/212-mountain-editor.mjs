@@ -128,10 +128,23 @@ export default async function ({ browser, url }) {
   await g.click('#crisis [data-ed-new=blank]'); await g.reloaded();
   assert(await g.ev(`ED.blank && ED.noRoad && ED.name === 'My mountain' && draftList().length === 2`), 'a new blank slate from My mountains');
   assert(await g.ev(`edStats().mix[4]`) === 0, 'a blank slate has nothing too steep to ski');
+  await g.ev(`ED.tool = 'road'; edStrokeStart({ x: 0, z: 110 }); for (let z = 106; z >= 70; z -= 4) edDrawTo({ x: 0, z }); edStrokeEnd()`); await g.reloaded();
+  eq(await g.ev(`edCheck().map((c) => c.ok)`), [true, true, false], 'a blank slate with a road still needs a mountain: too little vertical');
   await g.click('#edMaps');
   await g.ev(`document.querySelector('#crisis [data-ed-open]').click()`); await g.reloaded();
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'opening the first one again');
   // Play: a resort starts on a copy of the mountain
+  // the playable check: this road ends on a hillside, so Play waits, and the list says why and where
+  const checks = `edCheck().map((c) => c.ok)`;
+  eq(await g.ev(checks), [false, false, true], 'the base is on a hillside: above the lowest ground, and too steep');
+  await g.ev(`document.querySelector('#edReady [data-show]').click()`);
+  assert(await g.ev('!!camTween'), 'Show flies the view there');
+  await g.click('#edPlay'); assert(await g.ev('EDITOR'), 'Play waits until the base is fit for one');
+  // flattened down to the land's lowest ground round the road's end (as Flatten does, started at the low spot)
+  await g.ev(`(() => { let lo = Infinity; for (let j = PLAY0; j <= PLAY1; j++) for (let i = PLAY0; i <= PLAY1; i++) if (inGridLand(i, j)) lo = Math.min(lo, HT[j * NV + i]);
+    const e = roadEnd(); edPush(); for (let j = -18; j <= 18; j++) for (let i = -18; i <= 18; i++) { const d = Math.hypot(i, j); if (d > 18) continue; const k = (Math.round(e.z) + j + HALF) * NV + Math.round(e.x) + i + HALF; ED.E[k] = lerp(lo, ED.E[k], sstep(13, 18, d)); }
+    edApply(0, 0, WN, WN); edChanged({ i0: 0, j0: 0, i1: WN, j1: WN }); edSave(); })()`);
+  eq(await g.ev(checks), [true, true, true], 'with the base flat and low, it’s ready');
   await g.click('#edPlay'); await g.reloaded();
   const id = await g.ev('MOUNTAIN.id');
   assert(/^c:m[0-9a-z]{14}$/.test(id) && await g.ev(`state.started && !EDITOR && MOUNTAIN.hand && MOUNTAIN.custom && isCustomId(MOUNTAIN.id) && boardOf(MOUNTAIN.id) === 'custom'`), `playing starts a resort on the mountain (${id})`);
