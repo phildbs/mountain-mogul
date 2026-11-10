@@ -386,8 +386,9 @@ the player's to draw; raising land brings the land around it up too, with detail
   be raised); ponds clear of the road and streams. Calibrated on the game's mountains: road ends 0.5 to 0.9 units above
   their lowest ground, nearly all flat round it, 595 to 2,028 ft vertical. Failing items have a Show link (`data-show`,
   `flyTo`). No green-from-the-top rule (Phil). Sharing by link is next. (Claude, Nov 10)
-- **Menu in the editor** (Phil, Nov 10): the mountain button (`#edMenuBtn`, the badge's peak) at the left of the
-  panel's header opens the game's own `#menu`, moved into the panel at start. Resort-only items are hidden by
+- **Menu in the editor** (Phil, Nov 10): the game's own mountain button (`#badge`, sub line "Mountain editor") shows
+  as its own card at the top left, as in a resort, and opens the game's `#menu`; the editor panel sits below it (its
+  top follows the badge's bottom). Resort-only items are hidden by
   `body.editor` CSS (goals, leaderboard, profile, invite, trail edges, help bulb, controls hint, start over, KotM).
   `mTitle` is replaced in the editor: it keeps the draft and loads the page without `?editor=1`. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot

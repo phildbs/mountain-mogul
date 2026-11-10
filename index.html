@@ -616,9 +616,8 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
 .ed-reset { margin: 8px 0 0; font-size: 12.5px; }
-#edPanel .ed-menu { background: transparent; width: 34px; height: 34px; margin-left: -4px; } #edPanel .ed-menu svg { width: 26px; height: 26px; }
-#edPanel .ed-menu:hover, #edPanel .ed-menu[aria-expanded="true"] { background: rgba(20, 36, 58, 0.07); }
-#edPanel #menu { margin: 8px 0 4px; box-shadow: none; border: 1px solid rgba(20, 36, 58, 0.12); max-height: 60vh; }
+body.editor #hud > .top-left { display: block !important; } body.editor #tipsBtn { display: none !important; }
+#edPanel { z-index: 19; top: calc(84px + env(safe-area-inset-top, 0px)); }
 body.editor #menu .mkotm, body.editor #menu .msolo, body.editor #mGoalsMenu, body.editor #commBtn, body.editor #mComm, body.editor #mInvite,
 body.editor #mEdges, body.editor #mTips, body.editor #mHint, body.editor #mSim, body.editor #mReset { display: none !important; }
 .ed-help { margin-top: 12px; border-top: 1px solid rgba(20, 36, 58, 0.08); padding-top: 8px; }
@@ -24756,7 +24755,7 @@ $('hintClose').onclick = () => {
 
 function closeMenu() {
   $('menu').hidden = true; $('menuConfirm').hidden = true; $('menuMain').hidden = false;
-  $('badge').setAttribute('aria-expanded', 'false'); if ($('edMenuBtn')) $('edMenuBtn').setAttribute('aria-expanded', 'false');
+  $('badge').setAttribute('aria-expanded', 'false');
 }
 $('badge').onclick = () => {
   if (visiting) { mpMenu(!$('visitBar').classList.contains('open')); return; } // visiting or watching: the eye's menu, with Back to title
@@ -27482,7 +27481,7 @@ function editorStart() {
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'edPanel';
   const ico = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  el.innerHTML = `<div class="vhead"><button class="ed-icon ed-menu" id="edMenuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu" title="Menu: title screen, feedback, settings"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M2 25 L11 9 L15 15 L19 7 L28 25 Z" fill="#14243a"/><path d="M11 9 L13.6 13.6 L12 13 L10 15 L8.6 13.4 Z M19 7 L22.4 13.2 L20.6 12.4 L19 14 L17.2 12.2 L16.4 11.6 Z" fill="#fff"/></svg></button><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name" title="Rename your mountain"><p>${ED.blank ? `Blank slate · ${esc(MOUNTAINS[ED.from].name)}’s weather` : `Started from ${esc(MOUNTAINS[ED.from].name)}`}</p></div>
+  el.innerHTML = `<div class="vhead"><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name" title="Rename your mountain"><p>${ED.blank ? `Blank slate · ${esc(MOUNTAINS[ED.from].name)}’s weather` : `Started from ${esc(MOUNTAINS[ED.from].name)}`}</p></div>
       <button class="ed-icon" id="edUndo" aria-label="Undo" title="Undo (Ctrl+Z)">${ED_UNDO}</button><button class="ed-icon flip" id="edRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">${ED_UNDO}</button>
       <button class="vfold" id="edFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
     <div id="edBody">
@@ -27509,8 +27508,11 @@ function editorStart() {
       </details>
     </div>`;
   $('hud').appendChild(el);
-  // The game's menu, under the mountain button: the title screen, feedback and settings (resort-only items are hidden).
-  el.querySelector('.vhead').after($('menu'));
+  // The game's own mountain button and menu sit above the panel, as in a resort: the title screen, feedback and
+  // settings (resort-only items are hidden). The panel starts below it.
+  $('resortSub').textContent = 'Mountain editor';
+  const below = () => { const b = $('badge').getBoundingClientRect().bottom; if (b > 0) { el.style.top = `${Math.round(b + 8)}px`; el.style.maxHeight = `calc(100dvh - ${Math.round(b + 20)}px)`; } };
+  below(); requestAnimationFrame(below); window.addEventListener('resize', below);
   $('mTitle').onclick = () => { closeMenu(); edSave(); location.href = location.pathname; }; // the editor's page isn't a game: load the title afresh
   for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
   el.addEventListener('click', (e) => {
@@ -27518,8 +27520,6 @@ function editorStart() {
     if (b.dataset.show) { const [x, z] = b.dataset.show.split(',').map(Number); flyTo(x, z); return; }
     if (b.dataset.tool || b.dataset.pick) { const t = b.dataset.tool || b.dataset.pick; ED.paint = !(b.dataset.tool && ED.paint && ED.tool === t); ED.tool = t; } // the tool in hand again: put it down, to look around
     else if (b.dataset.mode) ED.paint = !ED.paint; // Move the view: on, or back to shaping
-    else if (b.id === 'edMenuBtn') { const open = $('menu').hidden; closeMenu(); $('menu').hidden = !open; b.setAttribute('aria-expanded', String(open)); return; }
-    else if (b.closest('#menu')) return; // the menu's own buttons do their own thing
     else if (b.id === 'edUndo') edUndo(false);
     else if (b.id === 'edRedo') edUndo(true);
     else if (b.id === 'edSlope') setSlope(!overlay.slope);
@@ -27539,7 +27539,7 @@ function editorStart() {
   });
   $('edSize').oninput = (e) => { ED.r = +e.target.value; edSync(); };
   $('edStr').oninput = (e) => { ED.k = +e.target.value; edSync(); };
-  $('edName').onchange = (e) => { ED.name = mapName(e.target.value); e.target.value = ED.name; MOUNTAIN.name = ED.name; ED.saved = false; edSave(); };
+  $('edName').onchange = (e) => { ED.name = mapName(e.target.value); e.target.value = ED.name; MOUNTAIN.name = ED.name; $('resortName').textContent = ED.name; ED.saved = false; edSave(); };
   if (isPhone()) { $('edBody').hidden = true; $('edFold').textContent = '+'; $('edFold').setAttribute('aria-expanded', 'false'); }
   window.addEventListener('pagehide', edSave);
   window.addEventListener('keydown', (e) => {

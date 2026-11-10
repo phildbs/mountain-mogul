@@ -9,8 +9,9 @@ export default async function ({ browser, url }) {
   assert(await g.ev(`(!roadMesh || !roadMesh.visible) && !lotGroup.visible && CREEKD.every((d) => d > 2)`), 'no road, lot or creek drawn');
   await g.click('#edPlay');
   assert(await g.ev(`EDITOR && ED.noRoad`), 'Play waits for an access road');
+  eq(await g.ev(`[getComputedStyle(document.getElementById('badge')).display !== 'none', document.getElementById('resortSub').textContent, document.getElementById('badge').getBoundingClientRect().bottom <= document.getElementById('edPanel').getBoundingClientRect().top]`), [true, 'Mountain editor', true], 'the mountain button is its own card, above the editor');
   // the mountain button opens the game's menu, without what belongs to a resort; Back to title leaves the editor
-  await g.click('#edMenuBtn');
+  await g.click('#badge');
   eq(await g.ev(`[...document.querySelectorAll('#menu button')].filter((b) => b.offsetParent).map((b) => b.id).filter((id) => ['mFeedback', 'mTitle', 'mFull', 'mGoalsMenu', 'commBtn', 'mInvite', 'mReset'].includes(id))`), ['mFull', 'mFeedback', 'mTitle'], 'the menu: full screen, feedback, back to title, and no resort items');
   await g.click('#mFeedback'); assert(await g.ev(`!document.getElementById('feedbackBox').hidden && document.getElementById('menu').hidden`), 'Feedback opens from the editor');
   await g.ev(`document.getElementById('feedbackBox').hidden = true`);
@@ -186,7 +187,7 @@ export default async function ({ browser, url }) {
   // Back to title screen from the editor's menu: the mountain is kept, and the title screen opens
   const bt = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
   await bt.ev(`(() => { const p = { x: 0, z: -40 }; edStrokeStart(p); for (let i = 0; i < 5; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
-  await bt.click('#edMenuBtn'); await bt.click('#mTitle'); await bt.reloaded();
+  await bt.click('#badge'); await bt.click('#mTitle'); await bt.reloaded();
   eq(await bt.ev(`[EDITOR, !document.getElementById('title').hidden, draftList().length]`), [false, true, 1], 'Back to title screen leaves the editor, with the mountain kept');
   eq(bt.errors, [], 'no errors going back to the title'); await bt.page.close();
   // on a phone the editor opens looking around: a touch moves the view until a tool is picked
