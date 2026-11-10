@@ -398,8 +398,12 @@ leaderboards (decide at piece 5).
   both lengths match; nightly renters through `bookHotels`).
 - End-of-summer report (`showSummerReport`, from `newSeason`, closes into winter via `rpPast`): profit, visitors,
   satisfaction, takings by kind (`summerTally` adds `st.by`, zip rides, bike laps, events to `state.sum.stats`), upkeep
-  still owed, "summer, all in", days open, best day, one tip. **Records and leaderboards count winter seasons only**
-  (as before; said in the report). Phil to confirm.
+  still owed, "summer, all in", days open, best day, one tip.
+- Leaderboards (Phil, Nov 10: summer profits count): `recordSeason` keeps `records.winter`; `recordSummer` (from
+  `newSeason`) sets Best season to that winter plus the summer all in, when the summer made money (a losing summer
+  doesn't lower it: the summer bill was never in a season's profit, and skipping still pays it). Summer guests count
+  toward All-time guests; Best day and Busiest day stay winter only (a condensed day counts 2.5 times). No database
+  change: it rides in the summary's `bestSeasonProfit`.
 - `devSimulate` no longer loops forever in a summer with the switch on.
 - Balance (first pass, `tests/summer-bench.mjs [mountains] [full|short]`, a one-off like `balance-ops.mjs`: the
   game's starter resort, 6 more parking sections, a winter season, then the summer with scenic rides only and with

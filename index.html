@@ -13338,6 +13338,7 @@ function endDay() {
   state.phase = 'report';
   if (overlay.traffic) for (const t of world.trails) styleTrail(t);
   if (!sm) recordDay(state.lastReport);
+  else if (state.records) state.records.totalVisitors += state.lastReport.guests; // summer guests count toward all-time guests
   Object.assign(state.lastReport, { when: dateLabel(state.day), season: state.season });
   if (sm) { state.lastReport.summer = summerStop().name; if (today.standIn) state.lastReport.standIn = today.standIn; }
   const hist = state.history || (state.history = []);
@@ -21981,7 +21982,7 @@ function summerTally(st, r) {
   st.sight = (st.sight || 0) + (r.sightseers || 0);
 }
 // When the summer is over: how it went, what earned the most, and what it cost, shown as winter starts.
-function showSummerReport(sum, after) {
+function showSummerReport(sum, after, withSummer = 0) {
   if (simulating) return;
   const s = sum.stats, by = s.by || {}, sat = s.satN ? Math.round(s.satSum / s.satN) : 0, net = Math.round(s.profit) - after;
   const kinds = [['tickets', 'Scenic rides'], ['bikes', 'Bike park tickets'], ['events', 'Weddings and events'], ['rides', 'Zip line'], ['food', 'Lodge food'], ['dining', 'Restaurant and bar'], ['retail', 'Shops'], ['lodging', 'Hotel rooms'], ['condo', 'Condo dues and rentals'], ['parking', 'Parking']]
@@ -22009,7 +22010,7 @@ function showSummerReport(sum, after) {
       ${s.events ? `<span>Weddings and events</span><span>${s.events}${s.goodEv ? `, ${s.goodEv} that went beautifully` : ''}</span>` : ''}
       ${s.best ? `<span>Best day</span><span>${dateLabel(s.best.day)} · ${signedMoney(s.best.profit)}</span>` : ''}
     </div>
-    <p class="help">${top ? `${top[0]} earned the most this summer. ` : ''}Summer profit is kept apart from the season’s: your records and the leaderboards count winter seasons only.${tips.length ? ' ' + tips[0] : ''}</p>`;
+    <p class="help">${top ? `${top[0]} earned the most this summer. ` : ''}${withSummer ? `With this summer, season ${state.season} made ${signedMoney(withSummer)} in all, which counts for your best season on the leaderboards.` : 'A summer that makes money adds to the season before it on the Best season leaderboard.'}${tips.length ? ' ' + tips[0] : ''}</p>`;
   rpPast = true; // closing it just carries on into winter
   $('rpNext').textContent = `On to season ${state.season + 1}`;
   $('report').hidden = false;
@@ -22807,7 +22808,8 @@ function newSeason() {
   const sum = state.sum, summerCosts = Math.max(0, Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) - Math.round((sum && sum.paid) || 0)); // less what the summer days already paid
   state.sum = null;
   state.cash -= summerCosts;
-  if (sum && sum.stats.days && !matchPlay && !visiting) showSummerReport(sum, summerCosts + summerInterest); // a look back before winter
+  const withSummer = sum && !matchPlay && !visiting ? recordSummer(sum.stats.profit - summerCosts, sum.stats.days) : 0;
+  if (sum && sum.stats.days && !matchPlay && !visiting) showSummerReport(sum, summerCosts + summerInterest, withSummer); // a look back before winter
   coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
   const o = state.ops; if (o && o.springShut) { if (o.plans && o.plans.quiet) o.plans.quiet.hours = o.springShut; delete o.springShut; } // weekends only was for last spring
@@ -24639,6 +24641,16 @@ function recordSeason(st) {
   const rc = state.records || (state.records = newRecords());
   rc.seasons++;
   rc.bestSeasonProfit = rc.bestSeasonProfit == null ? Math.round(st.profit) : Math.max(rc.bestSeasonProfit, Math.round(st.profit));
+  rc.winter = { season: state.season, profit: Math.round(st.profit) }; // the summer after it may add to it
+}
+// A summer's profit, all in, counts toward the season before it on the Best season board (Phil, Nov 10). A summer that
+// lost money doesn't lower it: the summer upkeep was never part of a season's profit, and skipping summer still pays it.
+function recordSummer(net, days) {
+  const rc = state.records;
+  if (!rc || !rc.winter || rc.winter.season !== state.season || !days || net <= 0) return 0;
+  const total = rc.winter.profit + Math.round(net);
+  rc.bestSeasonProfit = Math.max(rc.bestSeasonProfit ?? -Infinity, total);
+  return total;
 }
 const isPublic = () => state.isPublic !== false;
 // Public resorts appear on the leaderboards; a guest's is marked "Guest" there.
