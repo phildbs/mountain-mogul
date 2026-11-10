@@ -21,7 +21,8 @@ export default async function ({ browser, url }) {
   assert(fair >= 115 && fair <= 125, `a giant resort expects about $120 (got ${fair})`);
   const big = await g.ev(`[${demandAt}(65), ${demandAt}(120)]`);
   if (process.env.SHOW) console.log(`fair ${fair}, starter demand $65/$120: ${small}, giant: ${big}`);
-  assert(big[1] > big[0] * 0.7 && big[1] * 120 > big[0] * 65, `a giant resort keeps most guests at $120 and earns more (${big})`);
+  // 60%: the old 5,000-guest cap hid how many $65 would bring (4.1 raised it to 6,500: about 5,800 come at $65, 3,900 at $120)
+  assert(big[1] > big[0] * 0.6 && big[1] * 120 > big[0] * 65, `a giant resort keeps most guests at $120 and earns more (${big})`);
   // In a match each resort is judged against its own usual price: a giant at $120 still wins most of the
   // town's skiers from a starter hill at $65, and the starter hill keeps a fair share of its own.
   const [hill, giant] = splitSkiers([small[0], big[1]]);
