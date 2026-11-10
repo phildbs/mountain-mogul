@@ -33,6 +33,9 @@ export default async function ({ browser, url }) {
   await g.ev(toSummer);
   await g.ev(`(() => { state.sum.wx = { type: 'sumsun', hi: 80, lo: 55, snow: 0, wind: 5 }; openDay(); })()`); await g.ev(play(780));
   eq(await g.ev(`new Set(guests.map((x) => Object.keys(x).join(','))).size`), 1, 'summer guests keep one object shape, so days stay quick');
+  const drawn = await g.ev(`(() => { cam.viewH = 40; drawPeople(); const by = (f) => guests.filter((x) => x.bike && f(x)).length;
+    return { trail: by((x) => x.st === 'bike'), chair: by((x) => x.st === 'ride'), other: by((x) => !['bike', 'ride', 'incar', 'inside'].includes(x.st) && !x.gone), bikes: BIKE_FIG.count }; })()`);
+  assert(drawn.chair > 0 && drawn.bikes === drawn.trail + drawn.chair + drawn.other, `every rider has a bike: on the trail, on the chair and walking to it; left outside while they eat (${JSON.stringify(drawn)})`);
   const mid = await g.ev(`(() => { const n = guests.filter((x) => x.st === 'bike').length; applySave(JSON.parse(JSON.stringify(saveData(true)))); return [n, guests.filter((x) => x.st === 'bike').length, state.phase, !!guestPos(guests.find((x) => x.st === 'bike') || guests[0])]; })()`);
   assert(mid[0] > 0 && mid[0] === mid[1] && mid[2] === 'open' && mid[3], `riders on the trail, and still there after a mid-day save (${mid})`);
   await g.ev(play());
@@ -43,7 +46,7 @@ export default async function ({ browser, url }) {
   assert(s.wear > 0, `the laps wore the trail (${s.wear})`);
 
   // overnight the crew fixes it; with the crew off, it stays worn and costs nothing
-  const crew = await g.ev(`(() => { const B = world.buildings.find(isBike), w = B.wear; summerNext(); const fixed = B.wear < w; B.crewOff = true; B.wear = 0.5; summerNext(); return [fixed, B.wear, bspec(B).upkeep]; })()`);
+  const crew = await g.ev(`(() => { const B = world.buildings.find(isBike), w = B.wear; summerNext(); const fixed = B.wear < w; B.crewOff = true; B.wear = 0.5; state.sum.wx = { ...state.sum.wx, type: 'sumsun' }; summerNext(); return [fixed, B.wear, bspec(B).upkeep]; })()`);
   eq(crew, [true, 0.5, 0], 'the trail crew fixes the wear overnight; without it the trail stays rough and costs nothing');
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(true))); applySave(sv); const B = world.buildings.find(isBike); return [B.wear, !!B.crewOff, world.lifts[0].bikes]; })()`), [0.5, true, true], 'wear, crew and carriers are saved');
   eq(await g.ev(`(() => { openManage('prices'); return /Bike park day ticket price/.test($('sheet').textContent); })()`), true, 'its price sits with the scenic ride');

@@ -355,7 +355,7 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
   (`bikeGuest`: skill 0 to 2, 3 to 7 laps wanted) and charges the bike park ticket ($55, `today.rev.bikes`, Prices ›
   Scenic rides). `summerBase` → `bikeBase` (queue for the bike lift with the shortest wait), `topLinger` → `bikeTop`
   (pick an open trail from that lift top that suits them; if every one is too hard, one nervous lap and home),
-  `bstart` → state `bike` (`bikeMove`, `bikePos`, a bike drawn under them: `BIKE_FIG` in `drawPeople`), `bikeDone`
+  `bstart` → state `bike` (`bikeMove`, `bikePos`). Every rider has a bike (`BIKE_FIG` in `drawPeople`, placed by `bikeAt`): under them on a trail, on the chair's carrier behind them, wheeled beside them in line and walking (none inside a gondola cabin or a building), `bikeDone`
   at the bottom (wear, laps, thoughts) and back to `summerBase`.
 - Wear and the trail crew: each lap adds `BIKE_WEAR` (more on harder trails), a wet day 0.12; rough trails are slower
   and less fun. `bikeNight` (in `summerNext`) fixes 0.4 a night with the crew on. The crew is the trail's upkeep

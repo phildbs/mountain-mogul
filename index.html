@@ -14397,8 +14397,9 @@ function drawPeople() {
     const p = guestPos(g);
     g.px = p.x; g.py = p.y; g.pz = p.z;
     writeFig(n++, p.x, p.y, p.z, p.yaw, p.sy, g, p.pitch || 0);
-    if (g.st === 'bike' && nb < 1500) { // on a mountain bike: the bike under them
-      _e.set(0, p.yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, figScale, figScale); _v.set(p.x, p.y - 0.17 * figScale, p.z);
+    const bp = g.bike && nb < 1500 ? bikeAt(g, p) : null; // a rider's mountain bike: under them, beside them, or on the chair
+    if (bp) {
+      _e.set(0, bp.yaw, bp.tilt || 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, figScale, figScale); _v.set(bp.x, bp.y, bp.z);
       _m.compose(_v, _q, _s); _m.toArray(BIKE_FIG.instanceMatrix.array, nb * 16); BIKE_FIG.instanceColor.setXYZ(nb++, ...hexRGB(g.pc === 0x24272e ? g.jc : g.hc));
     }
   }
@@ -22553,6 +22554,16 @@ function bikePos(g) {
   const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz) || 1, off = Math.sin(g.bs * 1.3 + g.ph) * 0.12;
   const x = lerp(a.x, b.x, t) - dz / d * off, z = lerp(a.z, b.z, t) + dx / d * off;
   return { x, y: surfaceAt(x, z, lerp(a.y, b.y, t), a.bridge || b.bridge) + 0.17 * figScale, z, yaw: Math.atan2(dx, dz), sy: 0.8, pitch: 0.3 }; // up on the pedals
+}
+// Where a rider's bike is drawn: under them on a trail; hung on the chair's carrier behind them (inside a gondola
+// cabin, out of sight); wheeled beside them everywhere else, in line, at the top and walking back to the car.
+function bikeAt(g, p) {
+  const fs = figScale, sx = Math.cos(p.yaw), sz = -Math.sin(p.yaw), fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+  if (g.st === 'bike') return { x: p.x, y: p.y - 0.17 * fs, z: p.z, yaw: p.yaw };
+  if (g.st === 'ride') return g.L && g.L.type === 'gondola' ? null : { x: p.x - fx * 0.2 * fs, y: p.y - 0.3 * fs, z: p.z - fz * 0.2 * fs, yaw: p.yaw + Math.PI / 2 };
+  if (['inside', 'lesson', 'evt', 'room', 'hurt', 'tow', 'zip', 'rq'].includes(g.st)) return null;
+  const x = p.x + sx * 0.12 * fs, z = p.z + sz * 0.12 * fs;
+  return { x, y: heightAt(x, z), z, yaw: p.yaw };
 }
 // At the bottom: how the ride went, a little wear on the trail, then back to the base for another lap or home.
 function bikeDone(g, rode) {
