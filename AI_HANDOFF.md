@@ -54,6 +54,16 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
+**Live: 4.1 Tidier lists, easier roads** (published Nov 10, 12:38 UTC, on Phil's "Publish when green", GitHub run 585
+green on 0e856f1): Adum888's Nov 10 feedback (Buildings list folds by type; Trails, Lifts and Buildings lists open
+where you left them (`listScroll`); profit map can leave types out (`profitHide`); a tap on your own road starts a new
+road there, with "Change it instead"; road steepness on the panel and too-steep stretches red; switchbacks measured
+along the road), mid-day saves packed (`packGuests`/`unpackGuests`, `sim.gp`; `sim.guests: []` for older pages; a
+busy 5,000-guest save 5.5 MB to 2.8 MB) and the day cap `MAX_G` 5,000 to 6,500 (`MAX_CARS` 3,120; a full day about
+23% slower than 5,000 was; `tests/cap-bench.mjs` measures it). **GitHub Pages got stuck twice today** ("syncing
+files" until the 10-minute timeout, for 4.0 and 4.1): after a publish, check the "pages build and deployment" run and
+re-run it if it failed; the re-run took seconds both times.
+
 **Live: 4.0 Summer** (published Nov 10 by Claude on Phil's "start the launch work, and when the full suite runs green,
 publish"). Summer is on for everyone: `SUMMER_ON` is true unless the link has `?summer=0`. All of pieces 1 to 4 and
 the launch list's items 2 to 4 are in; see "Summer 4.0" below. Step 5 (thunderstorms, lookout deck, bike crashes and
