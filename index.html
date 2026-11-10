@@ -3867,7 +3867,8 @@ function placeBrush(p, r, ok) {
    CAMERA
    ===================================================================== */
 let W = innerWidth, H = innerHeight;
-let EL = 0.47; // the camera's tilt; only the map viewer changes it
+let EL = 0.47; // the camera's tilt: right-drag or two fingers up and down; re-centring puts it back
+const EL_DEF = 0.47, EL_MIN = MAP_VIEW ? 20 * Math.PI / 180 : 22 * Math.PI / 180, EL_MAX = (MAP_VIEW ? 85 : 72) * Math.PI / 180;
 const VIEW_MIN = 7, VIEW_MAX = MAP_VIEW ? 560 : 300;
 const cam = { target: new THREE.Vector3(0, 40, -4), az: 0.35, azGoal: 0.35, viewH: 170, viewGoal: null };
 function defaultView() { return clamp(Math.max(185, 250 / (W / H)), 185, 300); }
@@ -3942,6 +3943,18 @@ function pickTerrain(px, py, far = false) {
 function panScreen(x0, y0, x1, y1) {
   const a = planePoint(x0, y0, cam.target.y), b = planePoint(x1, y1, cam.target.y);
   moveTarget(a.x - b.x, a.z - b.z);
+}
+// Turn and tilt the view about the ground under a screen point, which stays where it is on screen.
+// An even shift across the ground moves every point on screen the same way, so panning puts it back exactly.
+function orbitAt(px, py, dAz, dEl) {
+  const P = pickTerrain(px, py, true) || planePoint(px, py, cam.target.y);
+  cam.az += dAz; cam.azGoal = cam.az;
+  EL = clamp(EL + dEl, EL_MIN, EL_MAX);
+  updateCamera();
+  const q = project(P.x, P.y, P.z);
+  panScreen(q.x, q.y, px, py);
+  if (dEl && $('vTilt')) { const deg = Math.round(EL * 180 / Math.PI); $('vTilt').value = deg; $('vTiltV').textContent = `${deg}°`; }
+  hover.dirty = true;
 }
 function zoomAt(px, py, newView) {
   newView = clamp(newView, VIEW_MIN, VIEW_MAX);
@@ -4154,7 +4167,7 @@ function saveData(withSim) {
       snow: encodeSnow(),
       terrain: encodeTerrain(), tv: 1, // tv: ground already repaired, so loading doesn't repair it again
       sim: withSim ? serializeSim() : null,
-      cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
+      cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH, el: EL },
   };
 }
 function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
@@ -4670,8 +4683,8 @@ function processHover() {
 
 function hintText() {
   return isCoarse
-    ? 'Drag to move · Pinch to zoom · Tap a trail or lift to inspect it'
-    : 'Drag to move · <kbd>Scroll</kbd> zoom · <kbd>Q</kbd><kbd>E</kbd> rotate · <kbd>1</kbd>–<kbd>6</kbd> tools · Click a trail or lift to inspect it';
+    ? 'Drag to move · Pinch to zoom · Twist to turn · Slide two fingers to tilt · Tap a trail or lift to inspect it'
+    : 'Drag to move · <kbd>Scroll</kbd> zoom · Right-drag to turn and tilt · <kbd>Q</kbd><kbd>E</kbd> rotate · <kbd>1</kbd>–<kbd>6</kbd> tools · Click a trail or lift to inspect it';
 }
 function showHint(force) {
   let seen = false;
@@ -20112,7 +20125,7 @@ function pondPaintSheet(head) {
     ${problemsHtml(info.problems)}
     <div class="costs"><span>Digging</span><span>${money(info.dig)}</span><span>Pumphouse</span><span>${money(PUMPHOUSE_COST)}</span>${info.treeSet.size ? `<span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>` : ''}</div>
     <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Dig it · ${money(info.cost)}`}</button></div>` : ''}
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+    <p class="help">Choose a brush size in the toolbar. Middle-drag, Space-drag or two fingers move the map.</p>`;
 }
 function pondSheet(P) {
   const nc = state.nightCost || {};
@@ -21531,7 +21544,7 @@ function landSheet() {
     ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
     <div class="costs"><span>Marking and brushing</span><span>${money(info.prep)}</span><span>Thinning ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * GLADE_THIN_TREE)}</span></div>
     <div class="row"><button class="btn secondary" data-action="areaClear">Start over</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : `Cut it · ${money(info.cost)}`}</button></div>` : ''}
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+    <p class="help">Choose a brush size in the toolbar. Middle-drag, Space-drag or two fingers move the map.</p>`;
   }
   if (area) {
     const info = areaDraftInfo(), erase = !!(areaDraft && areaDraft.erase), short = info && info.cost > state.cash, editing = !!(areaDraft && areaDraft.editId != null);
@@ -21542,7 +21555,7 @@ function landSheet() {
     ${problemsHtml(info.problems)}${lotWarnHtml(info.lotWarn)}
     <div class="costs"><span>${editing ? 'Preparing added ground' : 'Grooming and fencing'}</span><span>${money(info.prep)}</span><span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span></div>
     <div class="row"><button class="btn secondary" data-action="areaClear">${editing ? 'Cancel' : 'Start over'}</button><button class="btn" data-action="areaBuild" ${info.problems.length || short ? 'disabled' : ''}>${short ? `Need ${money(info.cost - state.cash)} more` : editing ? `Apply changes · ${money(info.cost)}` : `Build · ${money(info.cost)}`}</button></div>` : editing ? '<button class="btn secondary" data-action="areaClear">Cancel editing</button>' : ''}
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map.</p>`;
+    <p class="help">Choose a brush size in the toolbar. Middle-drag, Space-drag or two fingers move the map.</p>`;
   }
   if (doze) return `${head}
     <p class="help">Tap a tree, seat, light, fence section or snow gun model to remove it. Fence sections and snow gun models are free to remove and stay gone after saving; hiding a snow gun keeps its snowmaking and running costs. Undo puts it back. Trees cost ${money(TREE_COST)} to clear; lights and fire pits you placed return a quarter of their price. Automatic trail lights along a lit trail are free to remove and stay gone; the trail stays lit.</p>
@@ -21554,7 +21567,7 @@ function landSheet() {
       ? 'Press where the ground should be level, then drag. The ground under the brush smooths toward that height with soft edges. Use it to make a flat base village or a mid-mountain plaza. Trees in the way are cleared.'
       : 'Drag across the mountain to clear trees. Trails and lifts clear their own corridors, so use this for views, building sites, or to open up a glade.'}</p>
     ${lvl ? levelDraftHtml() : ''}
-    <p class="help">Choose a brush size in the toolbar. Right-drag (or two fingers) to move the map. Glades and learning areas are under <button class="link" data-action="trailMode" data-v="glade">Trail</button>.</p>`;
+    <p class="help">Choose a brush size in the toolbar. Middle-drag, Space-drag or two fingers move the map. Glades and learning areas are under <button class="link" data-action="trailMode" data-v="glade">Trail</button>.</p>`;
 }
 /* ---------- Saving terrain edits ---------- */
 function encodeTerrain() {
@@ -24145,7 +24158,7 @@ function guestSheet(g) {
    INPUT
    ===================================================================== */
 const pointers = new Map();
-let gesture = null;
+let gesture = null, glide = null, lastTap = null;
 let spaceDown = false;
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -24155,7 +24168,10 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   hover.x = e.clientX; hover.y = e.clientY; hover.active = true; hover.touch = e.pointerType !== 'mouse'; hover.dirty = true;
+  glide = null;
   if (pointers.size === 1) {
+    // Right-drag (or Alt-drag, for trackpads) turns and tilts the view about the spot under the mouse, in every tool
+    if (e.pointerType === 'mouse' && (e.button === 2 || (e.button === 0 && e.altKey))) { camTween = null; gesture = { type: 'orbit', x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY }; canvas.classList.add('grabbing'); return; }
     // Roads tool: one finger (or the mouse) draws a lot, or paints a road from a road; anywhere else it pans
     if (state.tool === 'roads' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0)) { const g = roadsGestureStart(pickTerrain(e.clientX, e.clientY)); if (g) { gesture = g; return; } }
     const paint = state.tool === 'clear' && state.landMode !== 'doze' && !spaceDown && (e.pointerType !== 'mouse' || e.button === 0);
@@ -24181,17 +24197,38 @@ canvas.addEventListener('pointerdown', (e) => {
     if (gesture && gesture.type === 'paint') endStroke();
     if (gesture && gesture.type === 'rdraw') { if (gesture.what === 'road' && gesture.moved) roadsGestureEnd(gesture, null); else if (gesture.what === 'lot' && ldraft && !ldraft.P) { ldraft = null; clearRGhost(); } } // a second finger: pan and zoom instead
     const [a, b] = [...pointers.values()];
-    gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    // Two fingers: pinch to zoom, move to pan, twist to turn (once it's clearly a twist, so zooming doesn't turn
+    // the view by accident), or slide both up or down together to tilt.
+    gesture = { type: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, ang: Math.atan2(b.y - a.y, b.x - a.x),
+      d0: Math.hypot(a.x - b.x, a.y - b.y), a0: Math.atan2(b.y - a.y, b.x - a.x), a: { ...a }, b: { ...b }, t0: performance.now(), moved: false, mode: '' };
   }
 });
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+// What a two-finger gesture is, once the fingers have moved far enough to tell: '' until then.
+function twoFingerMode(G, a, b) {
+  const ua = a.y - G.a.y, ub = b.y - G.b.y, flat = Math.abs(Math.sin(G.a0)) < 0.6; // fingers side by side, more or less
+  const twist = Math.abs(angDiff(Math.atan2(b.y - a.y, b.x - a.x), G.a0)), spread = Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - G.d0);
+  const sideways = Math.abs((a.x - G.a.x) + (b.x - G.b.x)) / 2;
+  if (flat && Math.sign(ua) === Math.sign(ub) && Math.min(Math.abs(ua), Math.abs(ub)) > 14 && spread < 26 && twist < 0.2 && sideways < Math.abs(ua + ub) / 2 * 0.7) return 'tilt';
+  if (twist > 0.22) return 'twist';
+  if (spread > 30 || Math.hypot((a.x + b.x) / 2 - (G.a.x + G.b.x) / 2, (a.y + b.y) / 2 - (G.a.y + G.b.y) / 2) > 30) return 'pinch';
+  return '';
+}
 canvas.addEventListener('pointermove', (e) => {
   if (!state.started) return;
   hover.x = e.clientX; hover.y = e.clientY; hover.active = true; hover.touch = e.pointerType !== 'mouse';
   const pt = pointers.get(e.pointerId);
   if (pt) { pt.x = e.clientX; pt.y = e.clientY; }
   if (!gesture) { hover.dirty = true; return; }
-  if (gesture.type === 'pan') {
+  if (gesture.type === 'orbit') {
+    // across the whole window is about one and a half turns; up the window tilts toward the horizon
+    orbitAt(gesture.sx, gesture.sy, -(e.clientX - gesture.x) * 9.4 / Math.max(W, 600), (e.clientY - gesture.y) * 0.006);
+    gesture.x = e.clientX; gesture.y = e.clientY; readout.hidden = true;
+  } else if (gesture.type === 'pan') {
     panScreen(gesture.x, gesture.y, e.clientX, e.clientY);
+    const now = performance.now(), dt = Math.max(1, now - (gesture.t || now - 16));
+    if (e.pointerType !== 'mouse') { const k = Math.min(1, dt / 60); gesture.vx = lerp(gesture.vx || 0, (e.clientX - gesture.x) / dt * 1000, k); gesture.vy = lerp(gesture.vy || 0, (e.clientY - gesture.y) / dt * 1000, k); }
+    gesture.t = now;
     gesture.x = e.clientX; gesture.y = e.clientY;
     if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > (e.pointerType === 'mouse' ? 4 : 9)) gesture.moved = true;
   } else if (gesture.type === 'rdraw') {
@@ -24202,10 +24239,21 @@ canvas.addEventListener('pointermove', (e) => {
     hover.dirty = true;
   } else if (gesture.type === 'pinch' && pointers.size >= 2) {
     const [a, b] = [...pointers.values()];
-    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    panScreen(gesture.mx, gesture.my, mx, my);
-    if (d > 10 && gesture.d > 10) zoomAt(mx, my, cam.viewH * gesture.d / d);
-    gesture.d = d; gesture.mx = mx; gesture.my = my;
+    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, ang = Math.atan2(b.y - a.y, b.x - a.x);
+    if (Math.hypot(a.x - gesture.a.x, a.y - gesture.a.y) > 12 || Math.hypot(b.x - gesture.b.x, b.y - gesture.b.y) > 12) gesture.moved = true;
+    if (!gesture.mode || (gesture.mode === 'pinch' && !gesture.turned)) {
+      const m = twoFingerMode(gesture, a, b);
+      if (m === 'tilt' && !gesture.mode) gesture.mode = 'tilt';
+      else if (m === 'twist') { if (!gesture.mode) gesture.mode = 'pinch'; gesture.turned = true; gesture.ang = ang; } // start turning from here, not with a jump
+      else if (m === 'pinch') gesture.mode = 'pinch';
+    }
+    if (gesture.mode === 'tilt') orbitAt(W / 2, H / 2, 0, (my - gesture.my) * 0.007);
+    else if (gesture.mode === 'pinch') {
+      panScreen(gesture.mx, gesture.my, mx, my);
+      if (d > 10 && gesture.d > 10) zoomAt(mx, my, cam.viewH * gesture.d / d);
+      if (gesture.turned) orbitAt(mx, my, angDiff(ang, gesture.ang), 0);
+    }
+    gesture.d = d; gesture.mx = mx; gesture.my = my; gesture.ang = ang;
     readout.hidden = true;
   }
 });
@@ -24214,9 +24262,18 @@ function pointerEnd(e) {
   pointers.delete(e.pointerId);
   if (gesture && gesture.type === 'paint') { endStroke(); hover.dirty = true; }
   if (gesture && gesture.type === 'rdraw') { roadsGestureEnd(gesture, pickTerrain(e.clientX, e.clientY)); hover.dirty = true; }
+  if (gesture && gesture.type === 'orbit') { canvas.classList.remove('grabbing'); scheduleSave(); }
   if (gesture && gesture.type === 'pan') {
     canvas.classList.remove('grabbing');
     if (!gesture.moved && (gesture.ptype !== 'mouse' || gesture.button === 0)) onTap(e.clientX, e.clientY, e.pointerType);
+    // a flick on a touch screen keeps the view gliding for a moment
+    else if (gesture.moved && e.pointerType !== 'mouse' && performance.now() - (gesture.t || 0) < 80 && Math.hypot(gesture.vx || 0, gesture.vy || 0) > 250) glide = { vx: gesture.vx, vy: gesture.vy };
+    if (gesture.moved) scheduleSave();
+  }
+  if (gesture && gesture.type === 'pinch') {
+    // a quick tap with two fingers zooms out
+    if (!gesture.moved && performance.now() - gesture.t0 < 300 && !MAP_VIEW) zoomCenter(1.6, gesture.mx, gesture.my);
+    scheduleSave();
   }
   if (pointers.size === 0) gesture = null;
   else if (pointers.size === 1 && gesture && gesture.type === 'pinch') {
@@ -24236,6 +24293,9 @@ function onTap(x, y, ptype) {
   else if (draft.kind) draftTap(p);
   else if (state.tool === 'clear' && state.landMode === 'doze') dozeAt(x, y);
   else if (state.tool === 'explore') {
+    // a second tap in the same spot, straight after the first, zooms in there
+    const now = performance.now(), last = lastTap; lastTap = { x, y, t: now };
+    if (ptype !== 'mouse' && last && now - last.t < 320 && Math.hypot(x - last.x, y - last.y) < 30) { lastTap = null; zoomCenter(1 / 1.8, x, y); return; }
     const g = state.phase === 'open' ? pickGuest(x, y) : null;
     const B = g ? null : pickBldAt(x, y);
     select(g ? { kind: 'guest', obj: g } : B ? { kind: 'bld', obj: B } : pickFeature(p));
@@ -24249,7 +24309,7 @@ canvas.addEventListener('pointerleave', (e) => {
 });
 canvas.addEventListener('wheel', (e) => {
   if (!state.started) return;
-  e.preventDefault();
+  e.preventDefault(); glide = null; cam.zoomPt = null;
   const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   zoomAt(e.clientX, e.clientY, cam.viewH * Math.exp(dy * (e.ctrlKey ? 0.01 : 0.0016)));
   hover.dirty = true;
@@ -24270,7 +24330,8 @@ window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'BUTTON' && e.key === 'Enter') return;
   const k = e.key.toLowerCase();
   const step = cam.viewH * 0.08;
-  if (k === 'q') rotate(-1);
+  if (e.shiftKey && /^arrow/.test(k)) { e.preventDefault(); if (k === 'arrowup' || k === 'arrowdown') orbitAt(W / 2, H / 2, 0, (k === 'arrowup' ? -5 : 5) * Math.PI / 180); else orbitAt(W / 2, H / 2, (k === 'arrowleft' ? 1 : -1) * Math.PI / 24, 0); }
+  else if (k === 'q') rotate(-1);
   else if (k === 'e') rotate(1);
   else if (k === '1') leaveDraft(() => setTool('explore'));
   else if (k === '2') leaveDraft(() => setTool('trail'));
@@ -24312,8 +24373,13 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; });
 
-function rotate(dir) { cam.azGoal += dir * Math.PI / 4; scheduleSave(); }
-function zoomCenter(f) { cam.viewGoal = clamp((cam.viewGoal || cam.viewH) * f, VIEW_MIN, VIEW_MAX); scheduleSave(); }
+// Q and E turn to the next eighth of a turn (the old fixed angles), wherever a free turn left the view.
+function rotate(dir) {
+  const Q = Math.PI / 4, x = (cam.azGoal - 0.35) / Q, n = Math.abs(x - Math.round(x)) < 0.07 ? Math.round(x) + dir : dir > 0 ? Math.ceil(x) : Math.floor(x);
+  cam.azGoal = 0.35 + n * Q; scheduleSave();
+}
+// Zoom smoothly; about a screen point if given (a double tap), otherwise about the middle.
+function zoomCenter(f, px, py) { cam.viewGoal = clamp((cam.viewGoal || cam.viewH) * f, VIEW_MIN, VIEW_MAX); cam.zoomPt = px == null ? null : { x: px, y: py }; scheduleSave(); }
 
 $('tExplore').onclick = () => leaveDraft(() => setTool('explore'));
 $('tUndo').onclick = undoLast;
@@ -24440,7 +24506,7 @@ $('cIn').onclick = () => zoomCenter(1 / 1.4);
 // Glide back to the standard view of the whole resort, keeping the current rotation.
 function recenter() {
   cam.viewGoal = null;
-  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH }, to: { x: 0, z: -6, az: cam.azGoal, viewH: defaultView() } };
+  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: cam.az, viewH: cam.viewH, el: EL }, to: { x: 0, z: -6, az: cam.azGoal, viewH: defaultView(), el: MAP_VIEW ? EL : EL_DEF } };
   scheduleSave();
 }
 $('cHome').onclick = recenter;
@@ -26677,7 +26743,7 @@ function viewPanel() {
         ${mapViewer.parcels.out.length ? '<button id="vLand" aria-pressed="true">Land for sale</button>' : ''}
       </div>
       <h3>Each slice</h3>${rows}
-      <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn' : 'scroll to zoom, Q and E to turn'}.</p>
+      <p class="vhelp">The bar is each slice’s ground by steepness: ${DIFF.map((D) => D.name.toLowerCase()).join(', ')}. ${isCoarse ? 'Tap' : 'Point at'} the ground for its height and grade. Drag to move, ${isCoarse ? 'pinch to zoom, twist to turn, two fingers up or down to tilt' : 'scroll to zoom, right-drag to turn and tilt, Q and E to turn'}.</p>
       ${MOUNTAIN.id === 'match' ? '<p class="vhelp"><a href="?matchDemo=1">See it with starter resorts</a></p>' : ''}
     </div>`;
   $('hud').appendChild(el);
@@ -27917,6 +27983,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.2', date: 'Nov 10, 2026', title: 'Free camera', items: [
+    'Turn the view to any angle and tilt it, from looking across the slopes to nearly straight down. On a computer, right-drag (or hold Alt and drag on a trackpad). On a phone, twist two fingers to turn and slide two fingers up or down to tilt.',
+    'Phones: double-tap to zoom in, tap with two fingers to zoom out, and flick the map to send it gliding.',
+    'Pinching to zoom won’t turn the view by accident: it only turns once you clearly twist.',
+    'Your angle and tilt are saved with your resort. Re-centre puts the tilt back, and Q and E still turn an eighth at a time.',
+    'Landscape: move the map with middle-drag, Space-drag or two fingers, since right-drag now turns it.',
+  ] },
   { v: '4.1.2', date: 'Nov 10, 2026', title: 'Summer visits', small: true, items: [
     'Fixed: playing a day on a resort you’re visiting in summer jumped it to next winter. It plays its summer day now.',
     'Resorts in summer show their summer date on the title screen, the leaderboards and Browse.',
@@ -29619,13 +29692,13 @@ function startGame(camFrom) {
   if (state.phase === 'report') showReport();
   if (state.phase === 'season') showSeasonReport();
   const goal = sv && sv.cam
-    ? { x: sv.cam.x, z: sv.cam.z, az: sv.cam.az, viewH: sv.cam.viewH }
-    : { x: 0, z: -6, az: 0.35, viewH: defaultView() };
+    ? { x: sv.cam.x, z: sv.cam.z, az: sv.cam.az, viewH: sv.cam.viewH, el: clamp(sv.cam.el || EL_DEF, EL_MIN, EL_MAX) } // older saves: the usual tilt
+    : { x: 0, z: -6, az: 0.35, viewH: defaultView(), el: EL_DEF };
   // Ease from the orbiting title shot into the play view.
   let az0 = cam.az;
   const turn = Math.round((az0 - goal.az) / (Math.PI * 2));
   goal.az += turn * Math.PI * 2;
-  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: az0, viewH: cam.viewH }, to: goal };
+  camTween = { t: 0, from: { x: cam.target.x, z: cam.target.z, az: az0, viewH: cam.viewH, el: EL }, to: goal };
   cam.azGoal = goal.az;
   setTool('explore');
   showHint(false);
@@ -29700,6 +29773,7 @@ function frame(now) {
   if (!state.started) {
     titleTime += dt;
     cam.az = 0.35 + Math.sin(titleTime * 0.07) * 0.45;
+    if (!MAP_VIEW) EL += (EL_DEF - EL) * Math.min(1, dt * 3); // back at the title, the usual tilt
     updateCamera();
   } else if (camTween) {
     camTween.t = Math.min(1, camTween.t + dt / 1.4);
@@ -29707,15 +29781,23 @@ function frame(now) {
     const f = camTween.from, g = camTween.to;
     cam.target.x = lerp(f.x, g.x, e); cam.target.z = lerp(f.z, g.z, e);
     cam.az = lerp(f.az, g.az, e); cam.viewH = lerp(f.viewH, g.viewH, e);
-    updateCamera();
+    if (f.el != null && g.el != null) EL = lerp(f.el, g.el, e);
+    updateCamera(); glide = null;
     if (camTween.t >= 1) camTween = null;
   } else {
     let moved = false;
     if (Math.abs(cam.azGoal - cam.az) > 1e-4) { cam.az += (cam.azGoal - cam.az) * Math.min(1, dt * 9); moved = true; }
     if (cam.viewGoal != null) {
-      const nv = cam.viewH + (cam.viewGoal - cam.viewH) * Math.min(1, dt * 10);
-      if (Math.abs(nv - cam.viewGoal) < 0.01) { cam.viewH = cam.viewGoal; cam.viewGoal = null; }
-      else cam.viewH = nv;
+      let nv = cam.viewH + (cam.viewGoal - cam.viewH) * Math.min(1, dt * 10);
+      if (Math.abs(nv - cam.viewGoal) < 0.01) { nv = cam.viewGoal; cam.viewGoal = null; }
+      if (cam.zoomPt) zoomAt(cam.zoomPt.x, cam.zoomPt.y, nv); else cam.viewH = nv; // a double tap zooms toward the finger
+      if (cam.viewGoal == null) cam.zoomPt = null;
+      moved = true;
+    }
+    if (glide && !gesture) {
+      panScreen(W / 2, H / 2, W / 2 + glide.vx * dt, H / 2 + glide.vy * dt);
+      const k = Math.exp(-dt * 4.5); glide.vx *= k; glide.vy *= k;
+      if (Math.hypot(glide.vx, glide.vy) < 30) { glide = null; scheduleSave(); }
       moved = true;
     }
     if (moved) { updateCamera(); hover.dirty = true; }
@@ -29826,7 +29908,7 @@ function start(hot) {
     { const built = resortBuilt(); setTimeout(maybeRebate, 1200); setTimeout(maybeNightRebate, 1400); setTimeout(() => maybeUpdateCard(built), 1800); }
     if (state.phase === 'report') showReport();
     if (state.phase === 'season') showSeasonReport();
-    if (hot.cam) { cam.target.x = hot.cam.x; cam.target.z = hot.cam.z; cam.az = cam.azGoal = hot.cam.az; cam.viewH = hot.cam.viewH; }
+    if (hot.cam) { cam.target.x = hot.cam.x; cam.target.z = hot.cam.z; cam.az = cam.azGoal = hot.cam.az; cam.viewH = hot.cam.viewH; if (hot.cam.el) EL = hot.cam.el; }
     setTool(hot.tool || 'explore');
     if (hot.slope) setSlope(true);
     updateCamera();
@@ -29838,7 +29920,7 @@ function start(hot) {
   if (hold === '') requestAnimationFrame(dropCover); // your own mountain or the tutorial: there once the first frame is drawn
   window.claude?.hot?.snapshot?.(() => ({
     started: state.started, tool: state.tool, slope: overlay.slope,
-    cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH },
+    cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH, el: EL },
   }));
   window.addEventListener('pagehide', saveNow);
   // Switching away (closing the tab, another app on a tablet) is often the last chance to upload.
