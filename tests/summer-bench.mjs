@@ -30,7 +30,7 @@ for (const mt of mts) {
   const g = await openGame(browser, server.url, { query: '?dev&summer=1', mountain: mt === 'big' ? 'juniper' : mt });
   await g.click('#startBtn'); await g.wait(400);
   if (mt === 'big') await g.ev(bigBuild); else if (mt === 'twin') await g.ev(twinBuild); else if (mt === 'raven') await g.ev(SETUPS.ravenStarter); else await g.ev(`(() => { select(null); buildStarter(); })()`);
-  await g.ev(`(() => { for (let i = 0; i < 2; i++) growLot(); })()`); // room for a busy summer day
+  await g.ev(`(() => { for (let i = 0; i < 6; i++) growLot(); })()`); // room for a busy summer day
   const w = await g.ev(`(async () => { const r = await window.mmDev.simulate({ seasons: 1, keep: true }); return { profit: Math.round(r.log.reduce((a, x) => a + x.profit, 0) / 1000), days: r.log.length, summer: !!state.summer }; })()`);
   const snap = await g.ev(`JSON.stringify(saveData(false))`);
   const plain = await g.ev(playSummer(false));

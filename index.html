@@ -22418,7 +22418,7 @@ function rideDone(g, rode) {
 }
 // The summer preview's button, and tests: a zip line from beside the top of the base lift down to the base, free.
 function demoRides() {
-  const L = world.lifts.find((x) => x.fromBase && !LIFT_TYPES[x.type].surface) || world.lifts[0];
+  const L = liftById(summerMainLift()) || world.lifts.find((x) => x.fromBase && !LIFT_TYPES[x.type].surface) || world.lifts[0];
   if (!L) return [];
   const dx = L.b.x - L.a.x, dz = L.b.z - L.a.z, d = Math.hypot(dx, dz), ux = dx / d, uz = dz / d, sx = -uz, sz = ux, made = [], cash = state.cash;
   const at = (s, o) => ({ x: Math.round((L.a.x + ux * s + sx * o) * 4) / 4, z: Math.round((L.a.z + uz * s + sz * o) * 4) / 4 });
@@ -22658,9 +22658,11 @@ function bikeNight(wet) {
 // For the day report: laps, riders, rough rides, and open trails with no lift to carry the bikes.
 function bikeReport() {
   if (!world.buildings.some(isBike) || !state.summer) return null;
-  const noLift = !world.lifts.some((L) => L.fromBase && carriesBikes(L)) && world.buildings.some((B) => isBike(B) && bldMode(B) !== 'closed');
+  const off = (L) => !!L.planOff || !L.open; // stopped, or off in the Summer plan
+  const noLift = world.buildings.some((B) => isBike(B) && bldMode(B) !== 'closed') && !world.lifts.some((L) => L.fromBase && carriesBikes(L) && !off(L) && bikeFrom(L).length);
+  const why = !noLift ? '' : world.lifts.some((L) => L.fromBase && carriesBikes(L) && bikeFrom(L).length) ? 'off' : 'carriers';
   if (!today.bikeRuns && !noLift) return null;
-  return { runs: today.bikeRuns || 0, riders: today.bikers || 0, rough: today.bikeRough || 0, hard: today.bikeHard || 0, noLift };
+  return { runs: today.bikeRuns || 0, riders: today.bikers || 0, rough: today.bikeRough || 0, hard: today.bikeHard || 0, noLift: why || false };
 }
 // The bike park's few lines in the day report.
 function bikeNotes(r, note) {
@@ -22669,7 +22671,7 @@ function bikeNotes(r, note) {
   note(1, `${b.riders.toLocaleString('en-US')} riders rode ${b.runs.toLocaleString('en-US')} laps of your bike trails.`);
   if (b.rough) note(4, `${b.rough} riders found a trail rough. Its trail crew, or a quieter day, fixes the wear.`);
   if (b.hard) note(4, `${b.hard} riders found your bike trails too hard for them. A gentle green trail suits beginners.`);
-  if (b.noLift) note(4, 'Bike trails are open, but no lift from the base carries bikes. Fit bike carriers to a lift (select it).');
+  if (b.noLift) note(4, b.noLift === 'off' ? 'Bike trails are open, but the lift with bike carriers that reaches them wasn’t running. Switch it on in the Summer plan.' : 'Bike trails are open, but no lift from the base that reaches them carries bikes. Fit bike carriers to it (select the lift).');
 }
 function bikeSheet(B) {
   const T = bikeTrack(B), w = B.wear || 0, an = T.an, open = state.phase === 'open';
@@ -22703,7 +22705,7 @@ function bikeFit(L) {
 }
 // The summer preview's button, and tests: carriers on the base lift, and a winding trail from its top to the base, free.
 function demoBike() {
-  const L = world.lifts.find((x) => x.fromBase && !LIFT_TYPES[x.type].surface && !isVillage(x));
+  const L = liftById(summerMainLift()) || world.lifts.find((x) => x.fromBase && !LIFT_TYPES[x.type].surface && !isVillage(x)); // the lift the Summer plan runs
   if (!L) return [];
   L.bikes = true;
   const dx = L.b.x - L.a.x, dz = L.b.z - L.a.z, d = Math.hypot(dx, dz), ux = dx / d, uz = dz / d, sx = -uz, sz = ux, cash = state.cash;
@@ -22881,7 +22883,7 @@ function summerAdviceFor(r) {
     [(c.food || 0) * 16, c.food ? `${c.food} guests went hungry. Open a lodge or café in the Summer plan, or check food prices and lines.` : ''],
     [(b.hard || 0) * 55, b.hard ? `${b.hard} riders found your bike trails too hard. A gentle green trail, winding across the slope, suits them.` : ''],
     [(b.rough || 0) * 25, b.rough ? `${b.rough} riders found a bike trail rough. Keep its trail crew on, or build another trail to spread the riders out.` : ''],
-    [b.noLift ? 3000 : 0, b.noLift ? 'Your bike trails had no riders: fit bike carriers to the lift at their top (select the lift).' : ''],
+    [b.noLift ? 3000 : 0, b.noLift === 'off' ? 'Your bike trails had no riders: run the lift with bike carriers in the Summer plan.' : b.noLift ? 'Your bike trails had no riders: fit bike carriers to the lift at their top (select the lift).' : ''],
     [lifts.length && !top ? 600 : 0, 'A café or restaurant by the top of your scenic lift brings more summer guests: lunch with a view.'],
     [!world.buildings.some(isBike) && (r.sightseers || 0) > 150 ? 550 : 0, 'Riders come on top of sightseers: draw a bike trail (Trails › Bike trail) and fit bike carriers to a lift.'],
   ].filter(([v, t]) => t && v >= 500);
