@@ -1,4 +1,4 @@
-// More people wanting to come than a day can hold (5,000 day skiers, hotel guests and condo owners) stopped the count
+// More people wanting to come than a day can hold (6,500 day skiers from 4.1, 5,000 before, hotel guests and condo owners) stopped the count
 // with no word why, and a player thought it was a bug (Adum888). The day report now says the mountain was full.
 import { openGame, assert, SETUPS } from '../harness.mjs';
 export default async function ({ browser, url }) {
@@ -13,7 +13,7 @@ export default async function ({ browser, url }) {
   const ph = await g.ev(`(() => { const real = demandForDay; demandForDay = () => { real(); dayWant = MAX_G * AGENT * 2; return 60; }; nextDay(); openDay(); demandForDay = real; return state.phase; })()`); assert(ph === "open", `the next day opened (${ph})`);
   await g.ev(SETUPS.finishDay);
   const b = await g.ev(`({ full: state.lastReport.full, text: $('rpBody').textContent })`);
-  assert(b.full === true && /Full house/.test(b.text) && /5,000/.test(b.text), `the report says the mountain was full (${b.full})`);
+  assert(b.full === true && /Full house/.test(b.text) && /6,500/.test(b.text), `the report says the mountain was full (${b.full})`);
   assert(g.errors.length === 0, 'no page errors: ' + g.errors.join('; '));
   await g.page.close();
 }
