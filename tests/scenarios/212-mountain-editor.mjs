@@ -140,6 +140,19 @@ export default async function ({ browser, url }) {
   await g.click('#edMaps');
   await g.ev(`document.querySelector('#crisis [data-ed-open]').click()`); await g.reloaded();
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'opening the first one again');
+  // trees: Clear trees opens a patch of forest, Plant trees grows one on open ground; Undo takes it back
+  const near = (x, z, r) => `(() => { let n = 0; for (let k = 0; k < trees.n; k++) if (trees.alive[k] && Math.hypot(trees.x[k] - (${x}), trees.z[k] - (${z})) < ${r}) n++; return n; })()`;
+  await g.ev(`edRegrow()`);
+  const spots = await g.ev(`(() => { let wood = null, open = null; for (let z = -70; z <= 70 && !(wood && open); z += 6) for (let x = -70; x <= 70; x += 6) { if (roadDist(x, z) < 8 || sampleGrid(CREEKD, x + HALF, z + HALF) < 8 || pondAt(x, z) || sampleGrid(GR, x + HALF, z + HALF) > 0.5) continue; let n = 0; for (let k = 0; k < trees.n; k++) if (Math.hypot(trees.x[k] - x, trees.z[k] - z) < 5) n++; if (!wood && n > 40) wood = [x, z]; if (!open && n === 0) open = [x, z]; } return [wood, open]; })()`);
+  assert(spots[0] && spots[1], `a wooded spot and an open one (${JSON.stringify(spots)})`);
+  const [[wx, wz], [ox, oz]] = spots;
+  await g.ev(`(() => { ED.tool = 'cut'; ED.r = 6; const p = { x: ${wx}, z: ${wz} }; edStrokeStart(p); edBrush(p, 0.05); edStrokeEnd(); edRegrow(); })()`);
+  eq(await g.ev(near(wx, wz, 5)), 0, 'Clear trees opens the woods');
+  await g.ev(`(() => { ED.tool = 'plant'; ED.r = 6; const p = { x: ${ox}, z: ${oz} }; edStrokeStart(p); edBrush(p, 0.05); edStrokeEnd(); edRegrow(); })()`);
+  assert(await g.ev(near(ox, oz, 5)) > 40, 'Plant trees grows a wood on open ground');
+  assert(await g.ev(`!!edDoc().forest && decodeForest(edDoc().forest).filter((x) => x === 2).length > 50 && document.getElementById('edReady').textContent.includes('Forest painted by hand')`), 'the painting is part of the mountain');
+  await g.ev('edUndo(false)'); await g.ev('edRegrow()'); assert(await g.ev(near(ox, oz, 5)) < 5, 'Undo takes the planting back');
+  await g.ev('edUndo(true)'); await g.ev('edRegrow()');
   // weather and money: the starting mountain's until changed; changing one makes them all its own; Use … puts them back
   eq(await g.ev(`[ED.set, document.querySelector('#edPanel [data-setv=snow]').textContent]`), [null, 'Average snow'], 'Juniper Ridge’s weather to start with');
   await g.ev(`(() => { const i = document.querySelector('#edPanel [data-set=snow]'); i.value = 9; i.oninput({ target: i }); })()`);
@@ -168,6 +181,7 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, START_CASH, state.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', 3000000, 3000000, 3000000, id, true], 'its name, its own starting money, the custom goals');
   eq(await g.ev('state.sandbox'), false, 'Sandbox left unticked: a normal resort');
   eq(await g.ev(`[MOUNTAIN.weather.storm, Math.round(MOUNTAIN.draw * 100), Math.round(MOUNTAIN.costs * 100)]`), [1.3, 120, 95], 'and its own weather and crowds');
+  eq(await g.ev(`[${near(wx, wz, 5)}, ${near(ox, oz, 5)} > 40]`), [0, true], 'and its forest as painted: the cleared woods open, the planted wood grown');
   eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), CREEKD[(-30 + HALF) * NV + 20 + HALF] < 1, parks().length > 0 || state.lotSections > 0]`), [40, 44, true, true], 'with the road, the base and the stream as drawn');
   eq(await g.ev(`[world.ponds.length, world.ponds[0].free, world.ponds[0].cost, state.cash === START_CASH, pondGuns() > 0, HT[(10 + HALF) * NV - 30 + HALF] < HT0[(10 + HALF) * NV - 30 + HALF] - 0.5]`), [1, true, 0, true, true, true], 'its pond is dug, free, and adds snow guns');
   await g.ev(`state.cash -= 12345; saveNow()`);

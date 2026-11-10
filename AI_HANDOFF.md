@@ -472,6 +472,14 @@ the player's to draw; raising land brings the land around it up too, with detail
   mountain's card and in Look around (`rateBox`; hidden while the table is missing), "Reported. Thanks". stats.html: a
   Custom mountains tab (`loadCustom`, badge `#cBadge` = mountains reported, Remove asks once). Fake DB: `d.sReports`,
   `d.noSharedAdmin`, the word "shit" stands in for the filter. Scenarios 213 and 214 cover it. (Claude, Nov 10)
+- **Plant and Clear trees** (Phil, Nov 10, before 4.3): the document's optional `forest` (a value per map square, `WN`²:
+  0 natural, 1 cleared, 2 planted; run-length packed by `encodeForest`/`decodeForest`; in `mapIdOf` only when present).
+  `growForest` honours `M.forest`: cleared squares grow nothing; planted ones grow a dense wood (0.95, thinning only on
+  very steep ground) even above the treeline, but never on the road, streams or ponds. Editor tiles Plant trees and
+  Clear trees (`edTreeBrush`, the brush size; the forest regrows a few times a second while painting), Undo covers it,
+  and the ready list says "Forest painted by hand" with Reset. Note: the editor regrows trees after ponds are dug while
+  a fresh load grows them first, so the editor's tree count can differ slightly from a resort's (a resort's is the same
+  every load, which is what saves rely on). Scenario 212 covers it. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
