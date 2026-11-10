@@ -100,6 +100,18 @@ export default async function ({ browser, url }) {
   await g.ev('edUndo(true)'); eq((await g.ev(pond)).slice(0, 3), [1, 1, true], 'Redo brings it back');
   await g.ev('edUndo(true)');
   await g.ev(`ED.tool = 'raise'; edSync()`);
+  // Start over (asks first): back to Juniper Ridge as it was, keeping the name; Play still works afterwards
+  const before = await g.ev(`[ED.key, ED.name]`);
+  await g.click('#edReset'); assert(await g.ev(`!!ED.road && ED.ponds.length === 1`), 'Start over asks before it does anything');
+  await g.click('#edReset'); await g.reloaded();
+  eq(await g.ev(`[ED.key, ED.name, ED.road, ED.creeks, ED.ponds.length, encodeHeights(ED.E) === encodeHeights(gridOf(MOUNTAINS.juniper)), draftList().length]`), [...before, null, null, 0, true, 1], 'Start over puts the mountain back as it began');
+  // (shaped again for the rest of the test: the road, a stream and the pond)
+  await g.ev(`ED.tool = 'stream'; edStrokeStart({ x: 20, z: -50 }); for (let z = -48; z <= 10; z += 2) edDrawTo({ x: 20, z }); edStrokeEnd()`);
+  await g.ev(`(() => { const p = { x: -30, z: 10 }; ED.tool = 'flatten'; ED.r = 14; ED.k = 10; edStrokeStart(p); for (let i = 0; i < 40; i++) edBrush(p, 0.05); edStrokeEnd(); ED.tool = 'pond'; ED.r = 5; edStrokeStart({ x: -33, z: 10 }); for (let x = -33; x <= -27; x++) edDrawTo({ x, z: 10 }); edStrokeEnd(); edSave(); })()`);
+  await g.ev(`ED.tool = 'road'; edStrokeStart({ x: 100, z: 20 }); for (let x = 96; x >= 40; x -= 4) edDrawTo({ x, z: 20 + (100 - x) * 0.4 }); edStrokeEnd()`);
+  await g.reloaded();
+  eq(await g.ev(`[ED.ponds.length, ED.creeks.length, Math.round(roadEnd().x)]`), [1, 2, 40], 'shaped again');
+  await g.ev(`ED.tool = 'raise'; edSync()`);
   // the name, and keeping it on this device
   await g.ev(`(() => { const el = document.getElementById('edName'); el.value = '  Stony <b>Top</b>  '; el.onchange({ target: el }); })()`);
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'the name is tidied');

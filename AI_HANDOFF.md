@@ -367,6 +367,9 @@ the player's to draw; raising land brings the land around it up too, with detail
   show only for the tools that use them; undo and redo are icons by the name; a "ready to play" list (`#edReady`: road,
   streams, ponds, with Clear links; "Draw an access road" picks the road tool via `data-pick`); Play is greyed until
   there's a road; View chips (Move the view toggles); the long instructions sit in a closed "How it works". (Claude, Nov 10)
+- **Start over** (Phil, Nov 10): `#edReset` asks once (the label changes for 4 s), then `edReset` writes the draft back
+  as it began (blank slate, or the built-in mountain's own shape with its road and streams), keeping its key and name,
+  and reloads (the road is laid out at load). It can't be undone. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

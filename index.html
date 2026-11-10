@@ -615,6 +615,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li.todo::before { background: var(--accent); } .ed-ready li.opt { color: var(--ink-2); } .ed-ready li.opt::before { background: #cdd3dc; }
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
+.ed-reset { margin: 8px 0 0; font-size: 12.5px; }
 .ed-help { margin-top: 12px; border-top: 1px solid rgba(20, 36, 58, 0.08); padding-top: 8px; }
 .ed-help summary { cursor: pointer; font: 600 12.5px var(--ui); color: var(--ink); }
 .ed-help p { margin: 6px 0 0; color: var(--ink-2); font-size: 12px; line-height: 1.45; }
@@ -27360,6 +27361,14 @@ function edNew(from, blank, copyOf) {
   catch (e) { toast('This browser’s storage is full. Delete a mountain you no longer want.', true); return; }
   edOpen(key);
 }
+// Start over: the mountain goes back to how it began (a blank slate, or the built-in mountain's own shape, road and
+// streams), keeping its name. The road is laid out when the page loads, so it opens again.
+function edReset() {
+  const d = ED.blank ? { v: 1, name: ED.name, from: ED.from, h: encodeHeights(gridOf(MOUNTAINS[ED.from], true)), creeks: [], noRoad: true, blank: true, at: Date.now() }
+    : { v: 1, name: ED.name, from: ED.from, h: encodeHeights(gridOf(MOUNTAINS[ED.from])), at: Date.now() };
+  if (ED.key) { try { localStorage.setItem(DRAFT_KEY + ED.key, JSON.stringify(d)); } catch (e) { toast('This browser’s storage is full. Delete a mountain you no longer want.', true); return; } }
+  ED.saved = true; location.reload();
+}
 function edDelete(key) {
   try { localStorage.removeItem(DRAFT_KEY + key); } catch (e) { /* ignore */ }
   if (key === ED.key) { ED.saved = true; edOpen(draftList().map((d) => d.key)[0] || null); } else edMaps();
@@ -27449,6 +27458,7 @@ function editorStart() {
       <div class="vrow" id="edNums"></div>
       <ul class="ed-ready" id="edReady"></ul>
       <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edMaps">My mountains</button></div>
+      <p class="ed-reset"><button class="link danger-link" id="edReset">Start over</button></p>
       <p class="vhelp" id="edStatus"></p>
       <h3>View</h3>
       <div class="vtog ed-view"><button data-mode="move" title="Drag to move the view instead of shaping">${ico('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>')}Move the view</button><button id="edSlope" title="Colour the ground by how steep it is">Steepness</button><button id="edTrees" title="Show or hide the forest">Trees</button><button id="edHome">Whole mountain</button></div>
@@ -27474,6 +27484,10 @@ function editorStart() {
     else if (b.id === 'edNoPonds') edClearPonds();
     else if (b.id === 'edPlay') edPlay();
     else if (b.id === 'edMaps') edMaps();
+    else if (b.id === 'edReset') {
+      if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = ED.blank ? 'Back to a blank slate? This can’t be undone' : `Back to ${MOUNTAINS[ED.from].name} as it was? This can’t be undone`; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Start over'; }, 4000); return; }
+      edReset(); return;
+    }
     else if (b.id === 'edFold') { const open = $('edBody').hidden; $('edBody').hidden = !open; b.textContent = open ? '–' : '+'; b.setAttribute('aria-expanded', open); }
     edSync();
   });
