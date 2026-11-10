@@ -54,6 +54,18 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
+**Live: 4.1.1 Safer saves** (published Nov 10, 13:04 UTC, on Phil's "Publish when green", run 588 green on 48da643;
+the Pages deploy went through first time). Adum888 lost a day of progress on Granite Ridge (Ridgeback): his browser
+storage was full, so local saves failed while the mountain's card still said "saved just now"; back at the title the
+old local copy was loaded and the next upload sent it over his newer online copy (09:15 UTC). Fix: `slot.localAt`
+only when a local write goes in (`saveNow`), `onlineIsNewer` (what a load reads) compares with it, `onlineIsAhead`
+(upload guard and the "newer online" offer) compares with `slot.baseAt`, the age of the state on screen (set in
+`applySave` from the save's own `savedAt`, and after each upload); a toast when storage is full. Test
+`207-save-full-storage`. Also fixed: a bike trail blueprint crashed the night's building (`evalBike`'s `an` now
+carries `problems`; `buildPlan` reads `info.an.problems`). His newer state can only come back from a Supabase daily
+backup taken before 08:30 UTC Nov 10, if the plan has backups: extract just row `1952b642-…`, never restore the whole
+database.
+
 **Live: 4.1 Tidier lists, easier roads** (published Nov 10, 12:38 UTC, on Phil's "Publish when green", GitHub run 585
 green on 0e856f1): Adum888's Nov 10 feedback (Buildings list folds by type; Trails, Lifts and Buildings lists open
 where you left them (`listScroll`); profit map can leave types out (`profitHide`); a tap on your own road starts a new
