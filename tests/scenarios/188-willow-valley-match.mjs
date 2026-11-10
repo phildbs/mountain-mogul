@@ -35,8 +35,7 @@ export default async function ({ browser, url }) {
   await g.page.evaluate((mm) => { const d = JSON.parse(localStorage.getItem('FAKE_DB') || '{"rows":[],"users":{}}'); d.match = mm; d.noValley = true; d.profiles = { 'user-B': { name: 'Phil', public: true } };
     localStorage.setItem('FAKE_DB', JSON.stringify(d)); localStorage.setItem('mm.kotm.intro', '1'); }, match);
   await g.ev(`__fakeSwitch('user-B', 'b@example.com')`); await g.wait(1500);
-  eq(await g.ev(`[[...document.querySelectorAll('#mpCard .mh-pic img')].map((i) => i.getAttribute('src')).join(), document.querySelector('#mpCard .mh-tag').textContent]`),
-    ['img/crown.jpg,img/ridgeline.jpg,img/willow.jpg', 'New valley'], 'the title card shows all three mountains, the valley tagged new');
+  eq(await g.ev(`document.querySelector('#mpCard .mh-tag').textContent`), 'New valley', 'the title card tags the valley new');
   await g.click('#mpCard');
   await g.page.waitForSelector('[data-mp=open][data-id=WV]', { timeout: 10000, state: 'attached' });
   const w = await g.page.evaluate(() => { const h = [...document.querySelectorAll('#mpBody .mp-hero')], r = h.map((x) => x.getBoundingClientRect());

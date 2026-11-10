@@ -61,7 +61,10 @@ thing that scrolls, and New mountain is sticky at its foot. `fitTitle()` (run fr
 moves `#titleAcct` into `.tside` under Community on wide screens (back before `.tfoot` otherwise). It also sets the shelf's
 `min-height` to the first card plus the sticky one, so Continue is never cut off. A very short window still scrolls
 `#title` as before. Media queries at max-height 860 and 780 shrink the pictures, the wordmark and the KOTM card's blurb.
-Phones are unchanged. Scenario `209-title-fits`. (Claude, Nov 10)
+Phones are unchanged. Phil: King of the Mountain (`#mpCard`) lost its three pictures and is now a slim blue row
+everywhere. It's the first item of `.tcards`, above Learn the basics (phones still move it under your mountain). The three
+map photos are preloaded once in `renderSlots`, because the match window's lazy lobby pictures used to come from the
+title card's cache (165 relied on that). Scenarios 157, 171 and 188 updated. Scenario `209-title-fits`. (Claude, Nov 10)
 
 **Live: 4.2 Free camera** (published Nov 10 on Phil's "Publish", GitHub run 592 green on 1a16972). `EL` (tilt) can now be changed in normal play, from
 `EL_MIN` 22° to `EL_MAX` 72° (the map viewer keeps 20° to 85°). It's saved as `cam.el`, and older saves get `EL_DEF` 0.47.

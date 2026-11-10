@@ -20,8 +20,8 @@ export default async function ({ browser, url }) {
   eq(await flag(), null, 'a full lobby isn’t flagged');
   await g.page.evaluate(() => localStorage.removeItem('mm.seen.kotm'));
   eq(await flag(), null, 'with no lobby to flag, nothing extra on the card');
-  const card = await g.page.evaluate(() => { const c = document.getElementById('mpCard'); return { column: c.parentNode.classList.contains('tside') && c === c.parentNode.firstElementChild, text: c.innerText.replace(/\s+/g, ' '), pic: c.querySelector('img').getAttribute('src'), visible: c.getBoundingClientRect().height > 100 }; });
-  assert(card.column && /New valley/i.test(card.text) && /King of the Mountain/i.test(card.text) && card.pic === 'img/crown.jpg' && card.visible, `on wide screens the big King of the Mountain card tops the right-hand column, with Crown Peak, Ridgeline and Willow Valley, tagged new (${JSON.stringify(card)})`);
+  const card = await g.page.evaluate(() => { const c = document.getElementById('mpCard'); const h = c.getBoundingClientRect().height; return { column: c.parentNode.classList.contains('tcards') && c === c.parentNode.firstElementChild && c.nextElementSibling.id === 'tutBtn', text: c.innerText.replace(/\s+/g, ' '), pics: c.querySelectorAll('img').length, slim: h > 30 && h < 90 }; });
+  assert(card.column && /New valley/i.test(card.text) && /King of the Mountain/i.test(card.text) && !card.pics && card.slim, `on wide screens King of the Mountain is a slim row topping the right-hand list, above Learn the basics, tagged new, no pictures (${JSON.stringify(card)})`);
   await g.click('#mpCard'); await g.page.waitForFunction(() => !document.getElementById('mpModal').hidden, null, { timeout: 5000 });
   eq(g.errors, [], 'no page errors');
   await g.page.close();
