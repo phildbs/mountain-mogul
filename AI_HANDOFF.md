@@ -397,6 +397,24 @@ the player's to draw; raising land brings the land around it up too, with detail
   lot; snow and temperature still by real height); in `flowSets`, trails that start at the base become ways in and a
   lift whose top is at the base becomes a way home; guests ski down first and ride up to leave. Then `edCheck`'s base
   rule relaxes. (Claude, Nov 10)
+- **Sharing by link** (step 2, second half; Phil's calls Nov 10: makers can delete, Copy to edit included and the
+  maker can turn it off, a player name is required). SQL `supabase/shared-mountains.sql` (**NOT yet run on live**; run
+  it in the SQL editor before Publish; additive: a new table and two functions): `shared_mountains` (id = the game's
+  `mapIdOf` fingerprint, owner, creator, name, doc jsonb under 400 KB, vertical ft, allow_copy, created_at); anyone
+  reads; makers delete their own; `share_mountain(pid, pdoc, pvertical, pallow)` (signed-in profile user with a
+  profile name, which is stamped as `creator` even if the profile is private; at most 30 each; sharing the same id again
+  only sets allow_copy; another owner's id is refused) and `set_shared_copy(pid, pallow)`. 20 checks in
+  `tests/sql/shared-mountains.sql` on a throwaway Postgres 16 with Supabase stubs (profile-names checks still pass; the
+  file is safe to run twice). The server doesn't check the fingerprint; the game does on reading (`mapIdOf(doc) === id`).
+  Game: the editor now goes online for sign-in and profile only (`initCloud` returns after `loadProfile` when `EDITOR`;
+  still `NO_SAVE`). Share button (`edShare`): the ready list must be green; guests are sent to sign in; no name → pick one
+  there (`saveProfile`, `nameTaken`); then Share it (copy checkbox), or, if already shared, the link, Copy link, the copy
+  toggle and Stop sharing; other shared mountains listed with Copy link and Stop sharing. Before the SQL is run it says
+  "Sharing mountains isn't switched on yet" (`sharedMissing`). Links are `?mountain=<id without c:m>` (`LINK_MOUNTAIN`,
+  `mountainLink`); `openSharedMountain` (after sign-in, like `?visit=`) shows name, maker, vertical, weather and ponds,
+  with Play (keeps the document, boots `newMap`) and Copy to edit when allowed (a new draft "<name> copy", opens
+  `?editor=1`). Fake DB: `d.shared`, `d.noShared`. Scenario 213-shared-mountains. Previews use the live database, so
+  sharing from a preview only works once the SQL is run, and then writes real rows. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

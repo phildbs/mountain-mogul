@@ -52,6 +52,19 @@
         for (const [c, v] of q.ins || []) rows = rows.filter((r) => v.includes(r[c]));
         return { data: q.single ? rows[0] || null : rows, error: null };
       }
+      // shared mountains (supabase/shared-mountains.sql): anyone reads; written through share_mountain; makers delete
+      // their own. d.noShared: before that file is run, the table isn't there.
+      if (table === 'shared_mountains') {
+        if (d.noShared) return { data: null, error: { code: '42P01', message: 'relation "public.shared_mountains" does not exist' } };
+        let rows = d.shared || [];
+        for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        for (const [c, v] of q.ins || []) rows = rows.filter((r) => v.includes(r[c]));
+        if (q.op === 'delete') { const gone = new Set(rows.filter((r) => r.owner === me)); d.shared = (d.shared || []).filter((r) => !gone.has(r)); put(d); return { data: null, error: null }; }
+        if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table shared_mountains' } };
+        const cols = q.cols === '*' ? null : q.cols.split(',').map((c) => c.trim());
+        const data = rows.map((r) => (cols ? Object.fromEntries(cols.map((c) => [c, r[c]])) : { ...r }));
+        return { data: q.single ? data[0] || null : data, error: null };
+      }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
       if (table === 'update_reactions') {
         if (q.op !== 'upsert') return { data: null, error: null };
@@ -357,6 +370,22 @@
         if (!free.length) return { data: null, error: { message: 'this lobby is full' } };
         P.push({ lobby_id: L.id, slot: free[0], user_id: me, resort_name: String(args.rname).slice(0, 40) }); put(d);
         return { data: free[0], error: null };
+      }
+      if (fn === 'share_mountain' || fn === 'set_shared_copy') { // as supabase/shared-mountains.sql
+        if (d.noShared) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
+        const list = d.shared || (d.shared = []), ex = list.find((r) => r.id === args.pid), allow = args.pallow !== false;
+        if (fn === 'set_shared_copy') { if (!ex || ex.owner !== me) return { data: null, error: { code: '42501', message: 'not_yours' } }; ex.allow_copy = allow; put(d); return { data: allow, error: null }; }
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
+        const n = ((d.profiles || {})[me] || {}).name;
+        if (!n) return { data: null, error: { code: '22023', message: 'name_needed' } };
+        const doc = args.pdoc || {};
+        if (!/^c:m[0-9a-z]{14}$/.test(args.pid) || doc.v !== 1 || !doc.h || !String(doc.name || '').trim()) return { data: null, error: { code: '22023', message: 'bad_mountain' } };
+        if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'shared_by_another' } }; ex.allow_copy = allow; }
+        else {
+          if (list.filter((r) => r.owner === me).length >= 30) return { data: null, error: { code: 'P0001', message: 'share_limit' } };
+          list.push({ id: args.pid, owner: me, creator: n, name: String(doc.name).trim(), doc, vertical: args.pvertical || 0, allow_copy: allow, created_at: new Date().toISOString() });
+        }
+        put(d); return { data: { id: args.pid, creator: n, allow_copy: allow }, error: null };
       }
       if (fn !== 'set_profile') return { data: null, error: { message: 'no function ' + fn } };
       if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };

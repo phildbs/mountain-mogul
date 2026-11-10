@@ -616,6 +616,9 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
 .ed-reset { margin: 8px 0 0; font-size: 12.5px; }
+.ed-check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; font-size: 13.5px; line-height: 1.35; } .ed-check input { margin-top: 2px; accent-color: var(--accent); }
+.ed-link { display: flex; gap: 8px; margin: 8px 0; } .ed-link input { flex: 1; min-width: 0; font: 13px var(--ui); padding: 8px; border-radius: 8px; border: 1px solid rgba(20, 36, 58, 0.2); }
+.ed-pname { width: 100%; box-sizing: border-box; font: 600 15px var(--ui); padding: 10px; border-radius: 9px; border: 1px solid rgba(20, 36, 58, 0.25); margin-top: 6px; }
 body.editor #hud > .top-left { display: block !important; } body.editor #tipsBtn { display: none !important; }
 #edPanel { z-index: 19; top: calc(84px + env(safe-area-inset-top, 0px)); }
 body.editor #menu .mkotm, body.editor #menu .msolo, body.editor #mGoalsMenu, body.editor #commBtn, body.editor #mComm, body.editor #mInvite,
@@ -25664,10 +25667,43 @@ const LINK_VISIT = (() => {
   return id && /^[\w-]{8,64}$/.test(id) ? id : null;
 })();
 const shareUrl = (id) => `${location.origin}${location.pathname}?visit=${encodeURIComponent(id)}`;
+// A shared mountain's link: ?mountain= and its fingerprint (the id without "c:m").
+const LINK_MOUNTAIN = (() => {
+  const q = new URLSearchParams(location.search), v = q.get('mountain');
+  if (v) { q.delete('mountain'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+  return v && /^[0-9a-z]{14}$/.test(v) ? 'c:m' + v : null;
+})();
 async function fetchSummary(id) {
   let { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary').eq('id', id).maybeSingle();
   if (!error && !data) data = await adminMountain(id);
   return error || !data ? null : { ...data.summary, id: data.id, owner: data.owner };
+}
+// Opened from a shared mountain's link: who made it, and play it (a new resort on it) or copy it to edit.
+async function openSharedMountain(id) {
+  const { data: r, error } = await CLOUD.sb.from('shared_mountains').select('id, creator, name, doc, vertical, allow_copy').eq('id', id).maybeSingle();
+  if (error || !r) { toast(error && !sharedMissing(error) ? 'Couldn’t reach the server to open that mountain. Try the link again in a moment.' : 'That mountain isn’t shared any more.', true); return; }
+  const doc = r.doc;
+  if (!validMapDoc(doc) || mapIdOf(mapDocOf(doc)) !== id) { toast('That mountain’s link is broken.', true); return; }
+  const from = MOUNTAINS[doc.from];
+  showCrisis(`<div><div class="eyebrow">A shared mountain</div><h2 id="crTitle">${esc(doc.name)}</h2></div>
+    <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${esc(from.name)}’s weather.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
+    <p class="help">Play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
+    `<button class="btn" id="smPlay">Play this mountain</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">Not now</button>`);
+  $('crNo').onclick = () => { $('crisis').hidden = true; };
+  $('smPlay').onclick = () => {
+    if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one on the title screen to start another.`, true); return; }
+    const mt = keepMapDoc(mapDocOf(doc));
+    if (!mt) { toast(STORAGE_FULL_MSG, true); return; }
+    try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt })); } catch (e) { /* ignore */ }
+    location.href = location.pathname;
+  };
+  if (r.allow_copy) $('smCopy').onclick = () => {
+    if (draftList().length >= MAX_DRAFTS) { toast(`Your editor keeps ${MAX_DRAFTS} mountains. Open the editor and delete one under My mountains first.`, true); return; }
+    const key = Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ ...mapDocOf(doc), name: mapName(`${doc.name} copy`.slice(0, 28)), at: Date.now() })); localStorage.setItem(DRAFT_OPEN, key); }
+    catch (e) { toast(STORAGE_FULL_MSG, true); return; }
+    location.href = `${location.pathname}?editor=1`;
+  };
 }
 // Opened from a share link: visit that resort, or explain why not.
 async function visitFromLink(id) {
@@ -25873,7 +25909,7 @@ function readAuthReturn() {
 
 }
 async function initCloud() {
-  if (NO_SAVE) { CLOUD.status = 'offline'; return; }
+  if (NO_SAVE && !EDITOR) { CLOUD.status = 'offline'; return; }
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; dropCover(); refreshCommunity(); return; }
   try {
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -25885,6 +25921,7 @@ async function initCloud() {
       session = r.data.session;
     }
     setSession(session);
+    if (EDITOR) { CLOUD.status = 'live'; CLOUD.ready = true; await loadProfile(); return; } // the editor only shares: who you are and your name, nothing saved
     await acceptReferralLink();
     sendSource();
     readAuthReturn();
@@ -25907,6 +25944,7 @@ async function initCloud() {
     if (BOOT.then && typeof BOOT.then.match === 'string') openMatch(BOOT.then.match, BOOT.then.slot ?? null).finally(dropCover); // BOOT.then can be a word like 'start', whose .match is a string method
     else if (BOOT.then && BOOT.then.visit) { await loadBoard(true); await visitResort(BOOT.then.visit); dropCover(); }
     else if (LINK_VISIT) { await loadBoard(true); visitFromLink(LINK_VISIT); }
+    else if (LINK_MOUNTAIN) openSharedMountain(LINK_MOUNTAIN);
     else loadPeek(true);
     refreshCommunity();
     if (state.phase !== 'open') scheduleCloud();
@@ -27454,6 +27492,82 @@ function edSync() {
   $('edPlay').classList.toggle('secondary', !ready);
   canvas.style.cursor = ED.paint ? 'crosshair' : '';
 }
+/* ---------- Sharing a mountain (supabase/shared-mountains.sql) ----------
+   Signed-in players with a player name share a mountain as it stands: anyone with its link can play it, guests
+   too, and copy it into their own editor if the maker allows. It never changes once shared (its id is its
+   fingerprint), so shaping it further and sharing again makes another one. Makers can stop sharing. */
+const mountainLink = (id) => `${location.origin}${location.pathname}?mountain=${id.slice(3)}`;
+const sharedMissing = (e) => !!e && (/42P01|PGRST20[25]/.test(e.code || '') || /does not exist|Could not find/.test(e.message || ''));
+async function copyLink(url, text) {
+  if (navigator.share && isCoarse) { navigator.share({ title: 'Mountain Mogul', text, url }).catch(() => {}); return; }
+  try { await navigator.clipboard.writeText(url); toast(`Link copied: ${url}`); } catch (e) { toast(`Share this link: ${url}`); }
+}
+const SHARE_ERR = { sign_in_needed: 'Sign in to share a mountain.', name_needed: 'Pick a player name first.', share_limit: 'You can share 30 mountains at once. Stop sharing one to share another.',
+  shared_by_another: 'Another player shared this exact mountain first.', bad_mountain: 'This mountain couldn’t be shared.' };
+const shareErr = (e) => (sharedMissing(e) ? 'Sharing mountains isn’t switched on yet.' : SHARE_ERR[Object.keys(SHARE_ERR).find((k) => ((e && e.message) || '').includes(k))] || 'Couldn’t reach the server. Try again in a moment.');
+async function edShare(msg) {
+  const bad = edCheck().find((c) => !c.ok);
+  if (bad) { toast(`Before sharing: ${bad.msg}`, true); return; }
+  const head = `<div><div class="eyebrow">Share your mountain</div><h2 id="crTitle">${esc(ED.name)}</h2></div>`, close = '<button class="btn secondary" id="crNo">Close</button>';
+  const done = () => { $('crNo').onclick = () => { $('crisis').hidden = true; }; };
+  if (!CLOUD.ready) { showCrisis(`${head}<p class="help">Can’t reach the server right now, so there’s no link to share. Try again in a moment.</p>`, close); done(); return; }
+  if (CLOUD.guest) {
+    showCrisis(`${head}<p class="help">Sign in to share your mountain: on the title screen, open your account card and sign in with Google or email. Your mountain is kept on this device meanwhile.</p>`,
+      `<button class="btn" id="crTitleGo">Back to title screen</button>${close}`);
+    done(); $('crTitleGo').onclick = () => $('mTitle').onclick(); return;
+  }
+  if (!CLOUD.profile || !CLOUD.profile.name) {
+    showCrisis(`${head}<p class="help">Shared mountains show their maker’s name. Pick your player name: it’s the same one on your resorts and in King of the Mountain.</p>
+      <input id="edPName" class="ed-pname" maxlength="24" placeholder="Your player name" aria-label="Your player name"><p class="help warn" id="edPMsg">${esc(msg || '')}</p>`,
+      `<button class="btn" id="edPSave">Save my name</button>${close}`);
+    done();
+    $('edPSave').onclick = async () => {
+      const n = $('edPName').value.trim(); if (!n) { $('edPMsg').textContent = 'Type a name first.'; return; }
+      $('edPSave').disabled = true;
+      const err = await saveProfile(n, CLOUD.profile ? CLOUD.profile.public : true).catch((e) => e);
+      if (err) { edShare(nameTaken(err) ? `Another player is already called ${n}. Try another name.` : 'Couldn’t save the name. Try again in a moment.'); return; }
+      edShare();
+    };
+    return;
+  }
+  const doc = edDoc(), id = mapIdOf(doc);
+  const { data: mine, error } = await CLOUD.sb.from('shared_mountains').select('id, name, allow_copy, created_at').eq('owner', CLOUD.uid);
+  if (error) { showCrisis(`${head}<p class="help">${esc(shareErr(error))}</p>`, close); done(); return; }
+  const here = (mine || []).find((r) => r.id === id), others = (mine || []).filter((r) => r.id !== id);
+  const list = others.length ? `<div class="field-label">Your other shared mountains</div><div class="ed-list">${others.map((r) => `<div class="ed-row"><b>${esc(r.name)}</b><small>${r.allow_copy ? 'Others can copy it' : 'Play only'}</small>
+    <span><button class="link" data-sh-link="${esc(r.id)}">Copy link</button><button class="link danger-link" data-sh-del="${esc(r.id)}">Stop sharing</button></span></div>`).join('')}</div>` : '';
+  const copy = (on) => `<label class="ed-check"><input type="checkbox" id="edAllow" ${on ? 'checked' : ''}> Let others copy it into their own editor to make their own version</label>`;
+  showCrisis(here ? `${head}<p class="help"><b>Shared.</b> Anyone with the link can play it, guests too. It shows your name, ${esc(CLOUD.profile.name)}.</p>
+      <div class="ed-link"><input readonly value="${esc(mountainLink(id))}" aria-label="Link"><button class="btn secondary" id="edCopyLink">Copy link</button></div>
+      ${copy(here.allow_copy)}<p class="help">It stays as it is now. If you keep shaping it, share it again for a new link; this one keeps working.</p>
+      <p><button class="link danger-link" id="edUnshare">Stop sharing it</button></p>${list}`
+    : `${head}<p class="help">Anyone with the link can play it, guests too, and start a resort of their own on it. It shows your name, ${esc(CLOUD.profile.name)}.</p>
+      ${copy(true)}<p class="help">A shared mountain stays as it is: if you keep shaping it, you can share it again for a new link.</p>${list}`,
+    `${here ? '' : '<button class="btn" id="edShareGo">Share it</button>'}${close}`);
+  done();
+  const allow = () => $('edAllow').checked;
+  if (here) {
+    $('edCopyLink').onclick = () => copyLink(mountainLink(id), `Ski my mountain, ${ED.name}, in Mountain Mogul!`);
+    $('edAllow').onchange = async () => { const { error: e } = await CLOUD.sb.rpc('set_shared_copy', { pid: id, pallow: allow() }); toast(e ? shareErr(e) : allow() ? 'Others can now copy it to edit.' : 'It can only be played now, not copied.', !!e); };
+    $('edUnshare').onclick = async (ev) => {
+      const b = ev.target; if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Really stop sharing? The link stops working'; return; }
+      const { error: e } = await CLOUD.sb.from('shared_mountains').delete().eq('id', id);
+      if (e) toast(shareErr(e), true); else { toast('It’s not shared any more. Resorts already started on it still play.'); edShare(); }
+    };
+  } else $('edShareGo').onclick = async () => {
+    $('edShareGo').disabled = true;
+    const vertical = Math.round((MOUNTAIN.summitH - MOUNTAIN.baseH) * FT_PER_UNIT);
+    const { error: e } = await CLOUD.sb.rpc('share_mountain', { pid: id, pdoc: doc, pvertical: vertical, pallow: allow() });
+    if (e) { toast(shareErr(e), true); $('edShareGo').disabled = false; return; }
+    await edShare(); copyLink(mountainLink(id), `Ski my mountain, ${ED.name}, in Mountain Mogul!`);
+  };
+  for (const b of document.querySelectorAll('#crisis [data-sh-link]')) b.onclick = () => copyLink(mountainLink(b.dataset.shLink));
+  for (const b of document.querySelectorAll('#crisis [data-sh-del]')) b.onclick = async () => {
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Really stop?'; return; }
+    const { error: e } = await CLOUD.sb.from('shared_mountains').delete().eq('id', b.dataset.shDel);
+    if (e) toast(shareErr(e), true); else edShare();
+  };
+}
 // My mountains: the drafts on this device, and starting a new one.
 function edMaps() {
   const list = draftList(), full = list.length >= MAX_DRAFTS;
@@ -27496,7 +27610,7 @@ function editorStart() {
       <h3>This mountain</h3>
       <div class="vrow" id="edNums"></div>
       <ul class="ed-ready" id="edReady"></ul>
-      <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edMaps">My mountains</button></div>
+      <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edShare">Share</button><button class="btn secondary" id="edMaps">My mountains</button></div>
       <p class="ed-reset"><button class="link danger-link" id="edReset">Start over</button></p>
       <p class="vhelp" id="edStatus"></p>
       <h3>View</h3>
@@ -27530,6 +27644,7 @@ function editorStart() {
     else if (b.id === 'edNoPonds') edClearPonds();
     else if (b.id === 'edPlay') edPlay();
     else if (b.id === 'edMaps') edMaps();
+    else if (b.id === 'edShare') edShare();
     else if (b.id === 'edReset') {
       if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = ED.blank ? 'Back to a blank slate? This can’t be undone' : `Back to ${MOUNTAINS[ED.from].name} as it was? This can’t be undone`; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Start over'; }, 4000); return; }
       edReset(); return;
