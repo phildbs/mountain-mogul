@@ -315,6 +315,10 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
   `summerStandIn` (so condensed days count it 2.5x too): less 25% without a restaurant, lodge or hotel restaurant
   within 12, less 30% more and −0.02 reputation if it went badly (rain on an open lawn, lift not running, unhappy
   guests); +0.015 if it went well. A booking on a day you stay closed is lost (−0.03, `sevMissed`).
+- Winter (Phil, Nov 10): the lawn and the marquee are packed away (snowy patch, four stakes, no chairs); the hall stays up,
+  empty. Free to store. `pavSeason()` rebuilds the look on `enterSummer`, `newSeason` and `applySave`; `B.packedLook`
+  (not saved) says which look is showing. The placing ghost and model previews show it set up.
+- Sightseers (every summer guest) are drawn without skis (`writeFig`); before, everyone in summer had skis on.
 - Preview card: **Wedding offer** builds a free medium pavilion by the base if there's none and offers next Saturday.
 - Balance first guess: a 120-guest wedding pays about $30k against a $230k pavilion. Retune at piece 5.
 

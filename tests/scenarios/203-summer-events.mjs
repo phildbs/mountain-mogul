@@ -21,12 +21,15 @@ export default async function ({ browser, url }) {
   const pid = await g.ev(put('pavilion', 1)), hid = await g.ev(put('hotel', 0));
   assert(pid && hid, 'a pavilion and a hotel by the base');
   eq(await g.ev(`[bldModeIn(opsState().plans.weekend, bldById(${pid})), BGROUPS.find((x) => x[0] === 'summer')[2]]`), ['closed', ['pavilion']], 'the pavilion is shut in winter, and sits under Build › Summer');
+  eq(await g.ev(`[bldById(${pid}).packedLook, bldById(${pid}).seatsW.length, planCosts(opsState().plans.weekend).upkeep === planCosts(opsState().plans.weekend).upkeep]`), [true, 0, true], 'built in winter, it is packed away: no chairs out');
+  eq(await g.ev(`(() => { const B = bldById(${pid}), u = (P) => world.buildings.filter((x) => x !== B).reduce((a, x) => a + bldUpkeep(x, bldModeIn(P, x), P), 0); return Math.round(planCosts(opsState().plans.weekend).upkeep) <= Math.round(u(opsState().plans.weekend)) + 1; })()`), true, 'and costs nothing to store');
   // the build menu's Summer tab, and the pavilion's own card
   const ui = await g.ev(`(() => { setTool('bld'); draft.btype = null; setBTab('summer'); renderSheet(); const menu = document.querySelector('#sheet .bpick:not([hidden])').innerText;
     setTool('explore'); select({ kind: 'bld', obj: bldById(${pid}) }); const card = $('sheet').innerText; select(null); return [menu, card]; })()`);
   assert(/Event pavilion/.test(ui[0]) && /80 guests/.test(ui[0]) && /300 guests/.test(ui[0]) && !/undefined/.test(ui[0]), `the Summer tab lists the three sizes (${JSON.stringify(ui[0])})`);
   assert(/160 guests/.test(ui[1]), `the pavilion's card says how many it holds (${ui[1].slice(0, 200)})`);
   await g.ev(toSummer);
+  eq(await g.ev(`[bldById(${pid}).packedLook, bldById(${pid}).seatsW.length]`), [false, 40], 'in summer it is set up with its 40 chairs');
   eq(await g.ev(`[bldModeIn(opsState().plans.summer, bldById(${pid})), bldModeIn(opsState().plans.summer, bldById(${hid})), !!pavReach(bldById(${pid})), !!(pavReach(bldById(${pid})) || {}).base]`), ['open', 'open', true, true], 'in summer the pavilion and the hotel are open; guests reach it at the base');
 
   // an offer, accepted in the Summer panel
@@ -84,6 +87,8 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { state.sum.wx = { type: 'sumrain', hi: 66, lo: 50, snow: 0, wind: 5 }; openDay(); let n = 0; while (state.phase === 'open' && n++ < 80000) simStep(1.5); })()`);
   const wet = await g.ev(`(() => { const r = state.lastReport, w = r.sev.find((x) => x.kind === 'wedding'); return { mood: w.mood, came: w.came, guests: w.guests, refund: w.refund, rode: r.liftRides[world.lifts[0].id], left: guests.length }; })()`);
   assert(wet.mood === 'poor' && wet.refund > 0 && wet.came === wet.guests && wet.rode >= wet.guests && wet.left === 0, `a rained-out mountaintop wedding (${JSON.stringify(wet)})`);
+  // back to winter: packed away again, and a summer save loads set up
+  eq(await g.ev(`(() => { nextDay(); const sv = JSON.parse(JSON.stringify(saveData(false))); summerEnd(); const w = [bldById(${pid}).packedLook, bldById(${pid}).seatsW.length]; applySave(sv); return [...w, bldById(${pid}).packedLook, bldById(${pid}).seatsW.length]; })()`), [true, 0, false, 40], 'packed away for winter, put up again for summer');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 

@@ -4204,6 +4204,7 @@ function applySave(sv) {
   netChanged(); // roads and lots: routes, the ground roads keep clear, their meshes
   buildLot();
   restoreSim(ok ? sv.sim : null);
+  pavSeason(); // a pavilion is up in summer and packed away the rest of the year
   $('report').hidden = true;
   tbCache = '';
   refreshSnowState(todayWx());
@@ -14250,7 +14251,7 @@ function writeFig(n, x, y, z, yaw, sy, g, pitch = 0) {
   _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, sy * figScale, figScale); _v.set(x, y, z);
   _m.compose(_v, _q, _s);
   for (const k of ['jacket', 'pants', 'head']) _m.toArray(figMeshes[k].instanceMatrix.array, n * 16);
-  (g.rack != null ? NO_SKIS : _m).toArray(figMeshes.skis.instanceMatrix.array, n * 16);
+  (g.rack != null || g.sight ? NO_SKIS : _m).toArray(figMeshes.skis.instanceMatrix.array, n * 16); // sightseers (every summer guest) have no skis
   figMeshes.jacket.instanceColor.setXYZ(n, ...hexRGB(g.jc));
   figMeshes.pants.instanceColor.setXYZ(n, ...hexRGB(g.pc));
   figMeshes.head.instanceColor.setXYZ(n, ...hexRGB(g.hc));
@@ -17096,8 +17097,10 @@ const MODELS_RETRO = { lodge: modelLodgeRetro, cafe: modelCafeRetro, restaurant:
 /* ---------- Event pavilion (summer, hidden until 4.0) ----------
    A lawn with rows of white chairs facing a flowered arch. Small: the open lawn. Medium: a white marquee over the
    chairs. Large: a timber hall with an open front. One layout in every theme, so the chairs (seats) match;
-   only the frame and trim colours change. Bulbs along the eaves light up in the evening. */
-const PAV_LAWN = accentMat(0x6f9a3c), PAV_CANVAS = accentMat(0xe4e1d6), PAV_FLOWER = accentMat(0xe58fb0), PAV_LEAF = accentMat(0x3f7a3a);
+   only the frame and trim colours change. Bulbs along the eaves light up in the evening.
+   Packed away for the winter (Phil, Nov 10): the lawn and the marquee come down, leaving a snowy patch marked by
+   four stakes; the hall stays up, empty. Free to store. `pavSeason` swaps the look when the season changes. */
+const PAV_LAWN = accentMat(0x55743a), PAV_CANVAS = accentMat(0xe4e1d6), PAV_FLOWER = accentMat(0xe58fb0), PAV_LEAF = accentMat(0x3f7a3a);
 const PAV_LOOK = {
   classic: { frame: BM.wood, trim: BM.dark, roof: PAV_CANVAS, hall: BM.roof, wall: BM.log },
   modern: { frame: MODERN_METAL, trim: MODERN_METAL, roof: PAV_CANVAS, hall: MODERN_METAL, wall: BM.white },
@@ -17106,10 +17109,15 @@ const PAV_LOOK = {
 };
 // [rows, chairs a row, lawn w, d] for each size; the chairs sit in two blocks either side of an aisle.
 const PAV_ROWS = [[4, 6], [5, 8], [6, 10]];
-function modelPavilion(tier, look) {
+function modelPavilion(tier, look, packed = false) {
   const k = new Kit(), s = BTYPES.pavilion.tiers[tier], P = PAV_LOOK[look] || PAV_LOOK.classic;
   const W = s.w, D = s.d, [rows, per] = PAV_ROWS[tier];
-  k.add(bx(W, 0.05, D), PAV_LAWN, 0, 0.025, 0);
+  k.add(bx(W, 0.05, D), packed ? BM.snow : PAV_LAWN, 0, 0.025, 0);
+  if (packed && tier < 2) { // stored for the winter: stakes mark the spot
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.add(bx(0.05, 0.3, 0.05), P.frame, sx * (W / 2 - 0.15), 0.15, sz * (D / 2 - 0.15));
+    return k;
+  }
+  if (packed) return pavHall(k, W, D, P); // the hall stays up, empty
   k.add(bx(0.5, 0.055, D * 0.75), BM.white, 0, 0.03, D * 0.08); // the aisle runner
   // the arch at the back, with flowers
   const az = -D / 2 + 0.45;
@@ -17141,17 +17149,33 @@ function modelPavilion(tier, look) {
     k.add(bx(0.05, 0.3, 0.05), P.frame, 0, h + rise + 0.12, -0.2);
     for (const sz of [-1, 1]) bulbs(h - 0.14, -tw / 2 + 0.25, tw / 2 - 0.25, sz * (td / 2 + 0.1) - 0.2);
   } else { // a timber hall, open at the front, with a gable roof
-    const hw = W - 0.4, hd = D - 0.9, h = 1.35, rise = 0.95, cz = -0.35;
-    k.add(bx(hw, h, 0.08), P.wall, 0, h / 2, cz - hd / 2); // the back wall
-    for (const sx of [-1, 1]) k.add(bx(0.08, h, hd * 0.45), P.wall, sx * hw / 2, h / 2, cz - hd * 0.275);
-    for (let i = 0; i <= 4; i++) { const x = -hw / 2 + i * hw / 4; k.add(bx(0.1, h, 0.1), P.frame, x, h / 2, cz + hd / 2); }
-    k.add(gablePrism(hd + 0.3, rise, hw + 0.3), P.hall, 0, h, cz);
-    k.add(bx(hw + 0.3, 0.08, 0.12), P.frame, 0, h + 0.02, cz + hd / 2);
-    bulbs(h - 0.1, -hw / 2 + 0.25, hw / 2 - 0.25, cz + hd / 2 + 0.08);
+    pavHall(k, W, D, P);
+    bulbs(1.25, -W / 2 + 0.45, W / 2 - 0.45, -0.35 + (D - 0.9) / 2 + 0.08);
   }
   return k;
 }
-for (const [look, set] of [['classic', MODELS], ['modern', MODELS_MODERN], ['scandi', MODELS_SCANDINAVIAN], ['retro', MODELS_RETRO]]) set.pavilion = (tier) => modelPavilion(tier, look);
+function pavHall(k, W, D, P) {
+  const hw = W - 0.4, hd = D - 0.9, h = 1.35, rise = 0.95, cz = -0.35;
+  k.add(bx(hw, h, 0.08), P.wall, 0, h / 2, cz - hd / 2); // the back wall
+  for (const sx of [-1, 1]) k.add(bx(0.08, h, hd * 0.45), P.wall, sx * hw / 2, h / 2, cz - hd * 0.275);
+  for (let i = 0; i <= 4; i++) { const x = -hw / 2 + i * hw / 4; k.add(bx(0.1, h, 0.1), P.frame, x, h / 2, cz + hd / 2); }
+  k.add(gablePrism(hd + 0.3, rise, hw + 0.3), P.hall, 0, h, cz);
+  k.add(bx(hw + 0.3, 0.08, 0.12), P.frame, 0, h + 0.02, cz + hd / 2);
+  return k;
+}
+// A placed pavilion out of summer is packed away; the placing ghost and the model previews show it set up.
+for (const [look, set] of [['classic', MODELS], ['modern', MODELS_MODERN], ['scandi', MODELS_SCANDINAVIAN], ['retro', MODELS_RETRO]]) {
+  set.pavilion = (tier, b, ghost) => { const packed = !ghost && !!b && b.id != null && !state.summer; if (b && !ghost) b.packedLook = packed; return modelPavilion(tier, look, packed); };
+}
+// Put up or packed away to match the season (the day's numbers and chairs are kept if it happens mid-day, on a load).
+function pavSeason() {
+  for (const B of world.buildings) if (B.type === 'pavilion' && !!B.packedLook !== !state.summer) {
+    const t = B.today, y = B.yday, use = B.evUse;
+    rebuildBuilding(B);
+    if (t) B.today = t;
+    B.yday = y; B.evUse = use;
+  }
+}
 /* ---------- Building themes ----------
    Some buildings come in more than one look. The theme is chosen in the build menu and kept with each
    building; a type without that theme's model falls back to the classic one. Look only: size, seats,
@@ -22193,7 +22217,7 @@ function enterSummer() {
   startSummer();
   NS.fill(0); state.treeSnow = 0;
   for (const t of world.trails) { t.machine = 0; updateTrailSnow(t, todayWx()); }
-  styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
+  pavSeason(); styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
   toast(summerLeft() ? 'Summer: the snow is gone. Open for summer guests, or build and plan for next season.' : 'Summer: the snow is gone. Build and plan, then start the next season.');
 }
 function newSeason() {
@@ -22210,7 +22234,7 @@ function newSeason() {
   seedPreseasonSnow(); state.treeSnow = 0.4;
   for (const t of world.trails) t.machine = 0;
   refreshSnowState(todayWx());
-  styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
+  pavSeason(); styleSnowVisuals(); refreshTimebar(true); renderSheet(); scheduleSave();
   toast(`Season ${state.season} begins. Watch the forecast and make snow. ${sum && sum.stats.days ? `Your summer made ${signedMoney(Math.round(sum.stats.profit))} over ${sum.stats.days} ${sum.stats.days === 1 ? 'day' : 'days'}. ` : ''}${sum && sum.paid ? 'The rest of the summer upkeep' : 'Summer upkeep'}: −${money(summerCosts)}${summerInterest ? `, plus ${money(summerInterest)} loan interest` : ''}.`);
 }
 $('cashBox').onclick = () => openManage('money');
