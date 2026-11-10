@@ -94,7 +94,10 @@ export default async function ({ browser, url }) {
   // shipped: the card is on every title screen, and the new-mountain list's Make your own opens the editor
   const d = await openGame(browser, url);
   assert(await d.ev(`!document.getElementById('mapsCard').hidden`), 'the Custom mountains card is on the title screen');
-  await d.click('[data-slot=new]'); await d.wait(100); await d.click('[data-slot=editor]'); await d.reloaded();
+  await d.click('[data-slot=new]'); await d.wait(100); await d.click('#titleSlots [data-slot=customs]'); await d.wait(400);
+  assert(await d.ev(`!!document.getElementById('mbList') && document.getElementById('community').hidden !== false`), 'Custom mountains in the new-mountain list opens the browser, not the leaderboard');
+  await d.ev(`document.getElementById('crisis').hidden = true`);
+  await d.click('[data-slot=editor]'); await d.reloaded();
   assert(await d.ev('EDITOR && !!document.getElementById("edAskName")'), 'Make your own in the new-mountain list opens the editor, asking for a name');
   eq(d.errors, [], 'no errors'); await d.page.close();
 }
