@@ -10,20 +10,21 @@ const mts = (process.argv[2] || 'juniper,raven,maple,twin').split(','), len = pr
 const playSummer = (all) => `(async () => {
   state.sumLen = '${len}'; startSummer(); state.phase = 'closed';
   if (${all}) { window.__bk = demoBike().length; demoRides(); demoWedding(); $('report').hidden = true; }
-  const bill = summerBillTotal(); let st = null, days = 0, owed = 0;
+  const bill = summerBillTotal(); let st = null, days = 0, owed = 0, away = 0, full = 0; const ex = {};
   while (summerLeft()) {
     const sum = state.sum;
     for (const o of sevList('offers').slice()) sevAnswer(o.id, true);
     const dow = dateOf(state.day).getUTCDay(); // a sensible full summer: open Friday to Sunday and on holidays
     if (state.sumLen === 'short' || [5, 6, 0].includes(dow) || summerStop().holiday) openDay();
     if (state.phase === 'open') { let n = 0; while (state.phase === 'open' && n++ < 200000) simStep(1.5); days++; }
-    st = JSON.parse(JSON.stringify(sum.stats)); owed = Math.max(0, bill - sum.paid);
+    st = JSON.parse(JSON.stringify(sum.stats));
+    if (state.phase === 'report') { const r = state.lastReport; away += r.turnedAway || 0; full += r.full ? 1 : 0; for (const [k, v] of Object.entries(r.exp || {})) if (typeof v === 'number') ex[k] = (ex[k] || 0) + v; } owed = Math.max(0, bill - sum.paid);
     if (state.phase === 'report') nextDay(); else waitDay();
     if (days % 6 === 0) await new Promise((r) => setTimeout(r));
   }
   const by = (st && st.by) || {}, r = (v) => Math.round((v || 0) / 1000);
   return { bill: r(bill), days, rev: r(st && st.revenue), exp: r(st && st.expenses), profit: r(st && st.profit), net: r((st ? st.profit : 0) - owed), visitors: st && st.visitors,
-    scenic: r(by.tickets), bikes: r(by.bikes), events: r(by.events), zip: r(by.rides), food: r((by.food || 0) + (by.dining || 0)), rooms: r(by.lodging), laps: st && st.laps, evs: st && st.events, bikeBuilt: window.__bk };
+    scenic: r(by.tickets), bikes: r(by.bikes), events: r(by.events), zip: r(by.rides), food: r((by.food || 0) + (by.dining || 0)), rooms: r(by.lodging), laps: st && st.laps, evs: st && st.events, bikeBuilt: window.__bk, away, full, ex: Object.fromEntries(Object.entries(ex).filter(([, v]) => v > 500).map(([k, v]) => [k, r(v)])) };
 })()`;
 for (const mt of mts) {
   const g = await openGame(browser, server.url, { query: '?dev&summer=1', mountain: mt === 'big' ? 'juniper' : mt });
