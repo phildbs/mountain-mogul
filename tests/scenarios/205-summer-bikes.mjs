@@ -52,7 +52,9 @@ export default async function ({ browser, url }) {
   eq(crew, [true, 0.5, 0], 'the trail crew fixes the wear overnight; without it the trail stays rough and costs nothing');
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(true))); applySave(sv); const B = world.buildings.find(isBike); return [B.wear, !!B.crewOff, world.lifts[0].bikes]; })()`), [0.5, true, true], 'wear, crew and carriers are saved');
   eq(await g.ev(`(() => { openManage('prices'); return /Bike park day ticket price/.test($('sheet').textContent); })()`), true, 'its price sits with the scenic ride');
-  eq(await g.ev(`(() => { summerEnd(); return document.querySelector('#manage [data-m=snow]').textContent; })()`), 'Snow', 'back to Snow when winter starts');
+  const end = await g.ev(`(() => { const season = state.season; summerEnd(); return { btn: document.querySelector('#manage [data-m=snow]').textContent, shown: !$('report').hidden, txt: $('rpBody').textContent, next: $('rpNext').textContent, season: state.season - season }; })()`);
+  eq([end.btn, end.shown, end.season, /Summer in review/.test(end.txt), /Bike park tickets/.test(end.txt), /Bike laps/.test(end.txt), end.next === 'On to season ' + (await g.ev('state.season'))], ['Snow', true, 1, true, true, true, true], 'back to Snow when winter starts, after a summer report with the bike park in it');
+  eq(await g.ev(`(() => { $('rpNext').click(); return [$('report').hidden, state.phase, !!state.summer]; })()`), [true, 'closed', false], 'closing the summer report carries on into winter');
   eq(g.errors, [], 'no page errors');
   return 'bike trails: under Trails, placing rules, a winding trail with carriers, shut in winter, a summer day of riders, a mid-day save, wear and the trail crew, price';
 }

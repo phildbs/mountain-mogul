@@ -9774,9 +9774,9 @@ const SUMMER_STOPS = [
 ];
 const SUMMER_EARLY_FALL = { name: 'Early fall', pull: 0.75 }; // the quiet weeks after Labor Day (a full summer only)
 const SUMMER_COND = 2.5; // a condensed summer plays 18 of the busy days: each stands in for this many
-const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic', 'condo']; // nothing for them to do until the snow is back (hotels stay open)
+const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic']; // nothing for them to do until the snow is back (hotels and condos stay open)
 const WINTER_SHUT = ['pavilion', 'zip', 'bike']; // summer only
-const SUMMER_GUESTS = 600, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
+const SUMMER_GUESTS = 480, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dateOf = (i) => new Date(SEASON_START + ((state.season || 1) - 1) * 365 * 86400000 + i * 86400000);
@@ -11667,6 +11667,9 @@ for (const k of ['body', 'cabin']) {
   carMeshes[k] = m; scene.add(m);
 }
 const JACKETS = [0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x2f9e6a, 0x8a4fd1, 0x1aa3b8, 0xc23f6e, 0xf2f2f2, 0x24272e, 0xff7a45, 0x5ac8fa, 0xa3d33c];
+const SUMMER_TOPS = [0xf2f2f2, 0xe8492f, 0x2a6fd9, 0xf2c14e, 0x3fae6a, 0xf28cb1, 0x5ac8fa, 0xff8a3d, 0x8a4fd1, 0x24272e];
+const SUMMER_LEGS = [0x3b5a8a, 0x2f4466, 0xc8b28a, 0x6b7380, 0x24272e, 0x7a8a5a];
+const SUMMER_HAIR = [0x3a2a1e, 0x6b4a2e, 0xc9a25a, 0x24201c, 0x8a5a3a, 0xe8d8b0];
 const PANTS = [0x24272e, 0x3b4252, 0x1f2a44, 0x5b4636, 0x6b7380, 0x2b2b2b];
 const HELMETS = [0xf2f2f2, 0x24272e, 0xd94f2a, 0x2a6fd9, 0xe0a21b, 0x8a93a3];
 const CARS = [0xe8ecf2, 0x24272e, 0x8a93a3, 0xb02e2e, 0x2a4f8a, 0x3d6b4a, 0xc9a227, 0x6b4a8a];
@@ -12559,6 +12562,7 @@ function makeGuest(car, x, z) {
   if (scenicGondola() && Math.random() < 0.06 * clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5)) {
     g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.family = false;
   }
+  if (summerNow()) { g.jc = pick(SUMMER_TOPS); g.pc = pick(SUMMER_LEGS); g.hc = pick(SUMMER_HAIR); } // T-shirts, shorts and no helmets (riders put one on: bikeGuest)
   if (summerNow()) { g.sight = true; g.first = false; g.needsRental = false; g.wantsLesson = false; g.wantsTune = false; g.wantsGear = false; g.family = false; g.owl = false; g.lunchAt += 75; } // they arrive later, so lunch is later too
   if (g.first) today.firsts += AGENT;
   if (g.sight) g.fs = false;
@@ -13208,7 +13212,7 @@ function openDay() {
   for (const B of world.buildings) initBldSim(B);
   const evQ = sm ? sevMorning() : []; // wedding and retreat guests: rooms first, then their arrivals
   const hotelN = bookHotels(n, short); // hotel guests come on top, up to the most the mountain can hold
-  const ownerN = sm ? 0 : condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners
+  const ownerN = condoMorning(MAX_G * AGENT - hotelN, short); // so do condo owners, summer too
   schedule = makeSchedule(Math.ceil(Math.max(0, Math.min(n, MAX_G * AGENT - hotelN - ownerN)) / AGENT));
   today.full = dayWant > MAX_G * AGENT - hotelN - ownerN; // more wanted to come than the day can hold: said in the report, as it looked like a bug
   schedule.push(...(today.hotelOut || [])); today.hotelOut = null;
@@ -13347,6 +13351,7 @@ function endDay() {
   if (rr.guests) { st.satSum += rr.sat; st.satN++; }
   if (!st.best || rr.profit > st.best.profit) st.best = { day: state.day, profit: rr.profit };
   if (!st.worst || rr.profit < st.worst.profit) st.worst = { day: state.day, profit: rr.profit };
+  if (sm) summerTally(st, rr);
   const sd = seasonDaily(), row = { d: state.day, g: rr.guests, p: rr.profit, s: rr.guests ? rr.sat : null, c: Math.round(state.cash), t: ticketOn(state.day) };
   if (sm) { /* the season's day-by-day chart is the winter's */ } else if (sd.length && sd[sd.length - 1].d === state.day) sd[sd.length - 1] = row; else sd.push(row); // once per day
   if (!sm) endOfDaySnow();
@@ -18309,7 +18314,7 @@ function finishVisit(g) {
   else if (svc === 'shop') { shopDone(g, svc); g.sat += 1; thought(g, `Picked up a souvenir at ${name}.`); }
   else if (svc === 'gear') { shopDone(g, svc); g.sat += 6; thought(g, `New goggles from ${name}. I can actually see now!`); }
   else if (svc === 'tune') { shopDone(g, svc); g.sat += 4; g.onSkis = true; thought(g, `Fresh edges from ${name}. These skis rip!`); }
-  else if (svc === 'snack') { g.ate = true; g.snacked = true; g.sat += 2; thought(g, g.apresGuest ? `Grabbed a bite at ${name} for the drive home.` : `Grabbed a quick bite at ${name}. Back to the slopes!`); }
+  else if (svc === 'snack') { g.ate = true; g.snacked = true; g.sat += 2; thought(g, g.apresGuest ? `Grabbed a bite at ${name} for the drive home.` : `Grabbed a quick bite at ${name}. ${summerNow() ? 'Back out we go!' : 'Back to the slopes!'}`); }
   else if (svc === 'finedine') { g.ate = true; g.sat += 14; thought(g, `An unforgettable meal at ${name}.`); }
   else if (svc === 'apres') { g.sat += 5; thought(g, `Après at ${name} was the perfect end to the day.`); }
   else if (svc === 'rest') {
@@ -18977,6 +18982,9 @@ function condoMorning(room, short) {
   if (holidayOf(d)) visit = 0.85;
   if (w.snow >= 6 && w.type !== 'rain') visit += 0.2; // owners drive up for a powder day
   visit *= 0.55 + 0.6 * m;
+  // Summer: fewer owners come up, and half dues, which a condensed summer counts for the days it skips.
+  const sm = !!state.summer && !!state.sum, duesK = sm ? 0.5 * (state.sumLen === 'short' ? summerDays('full').length / (summerDays('short').length * SUMMER_COND) : 1) : 1;
+  if (sm) visit *= 0.6;
   let out = 0;
   const mk = condoMarket();
   for (const C of C0) {
@@ -18991,7 +18999,7 @@ function condoMorning(room, short) {
       today.condoSold = (today.condoSold || 0) + 1; today.condoSales = (today.condoSales || 0) + price;
     }
     // Dues: unhappy owners hold some back.
-    const dues = Math.round((C.sold || 0) * s.dues * Math.min(1, 0.4 + 1.2 * m));
+    const dues = Math.round((C.sold || 0) * s.dues * duesK * Math.min(1, 0.4 + 1.2 * m));
     if (dues) { state.cash += dues; today.rev.condo = (today.rev.condo || 0) + dues; C.today.revenue += dues; today.condoDues = (today.condoDues || 0) + dues; }
     // Owners out of the door, from first chair.
     for (let u = 0; u < (C.sold || 0); u++) {
@@ -20550,7 +20558,7 @@ function hungerAdvice(r, add) {
       big ? 'Build a lodge' : 'Build a café', big ? () => pickBuilding('lodge', B.tier + 1) : () => pickBuilding('cafe'));
   }
   const w = h.nowhere[0], L = w && w.id !== 'base' && world.lifts.find((x) => String(x.id) === w.id);
-  return add(false, `${h.nowhereN} hungry skiers found nowhere to eat near where they were skiing${L ? `, mostly around ${L.name}` : ''}. Guests look for food at lift stations and beside trails: put a café or food truck ${L ? `by the top of ${L.name}` : 'by a busy lift'}, where they pass.`, 'Build a café', () => pickBuilding('cafe'));
+  return add(false, `${h.nowhereN} hungry ${state.summer ? 'guests' : 'skiers'} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${L ? `, mostly around ${L.name}` : ''}. Guests look for food at lift stations and beside trails: put a café or food truck ${L ? `by the top of ${L.name}` : 'by a busy lift'}, where they pass.`, 'Build a café', () => pickBuilding('cafe'));
 }
 function adviceSheet(mode) {
   adviceShown = advice();
@@ -20561,9 +20569,10 @@ function adviceSheet(mode) {
   return `<div class="sheet-title"><h3>${welcome ? `Welcome to ${esc(state.resortName)}` : 'What next?'}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
     ${welcome ? `<label class="namefield">Name your resort<span class="namerow"><input id="advName" maxlength="28" autocomplete="off" value="${esc(state.resortName)}"><button type="button" class="dice" data-action="rollName" title="Suggest a name" aria-label="Suggest a name">🎲</button></span></label>
     ${welcome && state.sandbox ? '<p class="help"><b>Sandbox:</b> money is unlimited, there are no goals, and you can buy more land straight away. Build whatever you like.</p>' : ''}
-    <p class="help">${state.day < 0 ? `It’s ${dateLabel(state.day)}, pre-season, and there’s no snow on the mountain yet. Natural snow usually builds up between late November and mid-December, so use the time to build.`
+    <p class="help">${state.summer ? `It’s ${dateLabel(state.day)} and the snow has gone for the summer. ${summerLeft() ? 'Summer guests come for the ride up and the view, so open for them, or build and plan for next winter.' : 'Build and plan, then start the next season.'}`
+      : state.day < 0 ? `It’s ${dateLabel(state.day)}, pre-season, and there’s no snow on the mountain yet. Natural snow usually builds up between late November and mid-December, so use the time to build.`
       : starterOffered() ? `It’s ${dateLabel(state.day)} and the snow is in. Holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`
-      : `It’s ${dateLabel(state.day)} and the snow is in. Build a chairlift from the base, a trail back down and a lodge, then open for your first day. The holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`}${starterOffered() ? '' : ' Running costs stay low until you first open.'}</p>` : ''}
+      : `It’s ${dateLabel(state.day)} and the snow is in. Build a chairlift from the base, a trail back down and a lodge, then open for your first day. The holiday crowds arrive on Dec 24, so you have two weeks to find your feet.`}${starterOffered() || state.summer ? '' : ' Running costs stay low until you first open.'}</p>` : ''}
     ${welcome && starterOffered() ? `<div class="field-label">How do you want to start?</div>
     <div class="startpick">
       <button type="button" class="pick" data-action="startSelf"><b>Build it myself</b><span>Place your own lift, trail and lodge. The lift tool suggests a spot for your first lift.</span></button>
@@ -21011,7 +21020,7 @@ async function devSimulate({ days = 7, seasons = 0, keep = false, onProgress } =
   try {
     while (seasons ? seasonsDone < seasons : calendar < days) {
       if (state.bankrupt) { stop = 'foreclosed'; break; }
-      if (state.summer) { openDay(); continue; } // starts the next season
+      if (state.summer && !summerLeft()) { openDay(); continue; } // starts the next season (summer days, with the switch, are played below)
       openDay();
       if (state.phase === 'open') {
         while (state.phase === 'open') simStep(1.5);
@@ -21916,7 +21925,7 @@ function topLinger(g, L) {
   if (g.evt && !g.evDone) { const e = evtOf(g), B = e && bldById(e.bid); if (B) return eventWalk(g, B); }
   thought(g, fallColours() ? 'The whole valley has turned gold from up here!' : 'What a view from the top!');
   if (concertStop(g)) return;
-  if (!g.triedZ && !g.leaving) { g.triedZ = true; const Z = world.buildings.find((B) => B.type === 'zip' && rideOpen(B) && distXZ(B.door, L.b) <= SEV_NEAR + 2); if (Z && rideStop(g, 'zip', 0.35, Z)) return; }
+  if (!g.triedZ && !g.leaving) { g.triedZ = true; const Z = world.buildings.find((B) => B.type === 'zip' && rideOpen(B) && distXZ(B.door, L.b) <= SEV_NEAR + 2); if (Z && rideStop(g, 'zip', 0.15, Z)) return; }
   if (!g.leaving && state.time < closeTime() - 30 && maybeVisit(g, g, 8, false, { k: 'view' })) return;
   const a = Math.random() * Math.PI * 2, r = 0.8 + Math.random() * 1.6;
   setMove(g, { x: L.b.x + Math.cos(a) * r, z: L.b.z + Math.sin(a) * r }, 'walk', { k: 'view' });
@@ -21962,6 +21971,49 @@ function summerStandIn(costs) {
   for (const k of ['other', 'patrol', 'staff']) costs[k] = Math.round((costs[k] || 0) * SUMMER_COND);
   t.standIn = SUMMER_COND;
 }
+// The summer's totals beside the season's: takings by kind, rides, laps and events, for the end-of-summer report.
+function summerTally(st, r) {
+  const by = st.by || (st.by = {});
+  for (const [k, v] of Object.entries(r.rev || {})) if (typeof v === 'number') by[k] = (by[k] || 0) + v;
+  st.zip = (st.zip || 0) + ((r.rides && r.rides.zip) || 0);
+  st.laps = (st.laps || 0) + ((r.bikes && r.bikes.runs) || 0); st.riders = (st.riders || 0) + ((r.bikes && r.bikes.riders) || 0);
+  for (const e of r.sev || []) if (!e.gone) { st.events = (st.events || 0) + 1; if (e.mood === 'good') st.goodEv = (st.goodEv || 0) + 1; }
+  st.sight = (st.sight || 0) + (r.sightseers || 0);
+}
+// When the summer is over: how it went, what earned the most, and what it cost, shown as winter starts.
+function showSummerReport(sum, after) {
+  if (simulating) return;
+  const s = sum.stats, by = s.by || {}, sat = s.satN ? Math.round(s.satSum / s.satN) : 0, net = Math.round(s.profit) - after;
+  const kinds = [['tickets', 'Scenic rides'], ['bikes', 'Bike park tickets'], ['events', 'Weddings and events'], ['rides', 'Zip line'], ['food', 'Lodge food'], ['dining', 'Restaurant and bar'], ['retail', 'Shops'], ['lodging', 'Hotel rooms'], ['condo', 'Condo dues and rentals'], ['parking', 'Parking']]
+    .map(([k, l]) => [l, Math.round(by[k] || 0)]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const top = kinds[0], tips = [];
+  if (!s.laps && !world.buildings.some(isBike)) tips.push('Bike trails and a lift with bike carriers bring riders on top of the sightseers.');
+  if (!s.events && !world.buildings.some((B) => B.type === 'pavilion')) tips.push('An event pavilion takes wedding and retreat bookings, the best-paid summer days.');
+  if (s.days < sum.days.length / 2) tips.push(`You opened on ${s.days} of ${sum.days.length} summer days. Every day pays its upkeep, open or not.`);
+  $('rpBody').innerHTML = `
+    <div><div class="eyebrow">Summer before season ${state.season + 1}</div><h2 id="rpTitle">Summer in review</h2></div>
+    <dl class="rp-hero">
+      <div><dt>Summer profit</dt><dd class="${s.profit >= 0 ? 'pos' : 'neg'}">${signedMoney(Math.round(s.profit))}</dd></div>
+      <div><dt>Visitors</dt><dd>${s.visitors.toLocaleString('en-US')}</dd></div>
+      <div><dt>Satisfaction</dt><dd>${s.satN ? sat + '%' : '–'}</dd></div>
+    </dl>
+    <div class="field-label">Takings</div>
+    <div class="rp-lines">${kinds.map(([l, v]) => `<span>${l}</span><span>${money(v)}</span>`).join('') || '<span>None</span><span>–</span>'}
+      <span>Running costs and upkeep</span><span class="neg">−${money(Math.round(s.expenses))}</span>
+      ${after ? `<span>Summer upkeep still owed, and loan interest</span><span class="neg">−${money(after)}</span>` : ''}
+      <span><b>Summer, all in</b></span><span class="${net >= 0 ? 'pos' : 'neg'}"><b>${signedMoney(net)}</b></span></div>
+    <div class="rp-lines">
+      <span>Days open</span><span>${s.days} of ${sum.days.length}${state.sumLen === 'short' ? ' (condensed)' : ''}</span>
+      ${s.zip ? `<span>Zip line rides</span><span>${s.zip.toLocaleString('en-US')}</span>` : ''}
+      ${s.laps ? `<span>Bike laps</span><span>${s.laps.toLocaleString('en-US')} by ${s.riders.toLocaleString('en-US')} riders</span>` : ''}
+      ${s.events ? `<span>Weddings and events</span><span>${s.events}${s.goodEv ? `, ${s.goodEv} that went beautifully` : ''}</span>` : ''}
+      ${s.best ? `<span>Best day</span><span>${dateLabel(s.best.day)} · ${signedMoney(s.best.profit)}</span>` : ''}
+    </div>
+    <p class="help">${top ? `${top[0]} earned the most this summer. ` : ''}Summer profit is kept apart from the season’s: your records and the leaderboards count winter seasons only.${tips.length ? ' ' + tips[0] : ''}</p>`;
+  rpPast = true; // closing it just carries on into winter
+  $('rpNext').textContent = `On to season ${state.season + 1}`;
+  $('report').hidden = false;
+}
 // Skip the rest of the summer: the days not played just pay their upkeep, as a summer always has.
 function summerEnd() { if (summerLeft() && state.phase === 'closed') newSeason(); }
 function summerPanel() {
@@ -22000,8 +22052,8 @@ function summerPanel() {
    You can also book a summer concert on a pavilion with a roof, or a fall festival at the colours: more sightseers.
    `state.sum.offers` and `.booked`: { id, kind, day, guests, pay, bid, k (last summer day to answer) }. */
 const SEV = {
-  wedding: { name: 'Wedding', start: 810, end: 930, fee: 240, rooms: 0.45, arrive: 50 },
-  retreat: { name: 'Company retreat', start: 600, end: 900, fee: 140, rooms: 0.8, arrive: 40 },
+  wedding: { name: 'Wedding', start: 810, end: 930, fee: 70, rooms: 0.45, arrive: 50 },
+  retreat: { name: 'Company retreat', start: 600, end: 900, fee: 45, rooms: 0.8, arrive: 40 },
   concert: { name: 'Summer concert', cost: 25000, boost: 1.5, rep: 0.02, start: 720, end: 930, blurb: 'A band on the lawn of your pavilion. Sightseers stop to listen. Needs a pavilion with a roof.' },
   festival: { name: 'Fall festival', cost: 15000, boost: 1.4, rep: 0.02, blurb: 'Food stalls and music for the colours weekend. Only at the fall colours.' },
 };
@@ -22032,7 +22084,7 @@ function summerOffers() {
     if (!kind) continue;
     for (const B of P) if (!busy(B, d)) slots.push({ d, B, kind, w: dow === 6 ? 1 : kind === 'retreat' ? 0.5 : 0.35 });
   }
-  const chance = clamp(0.3 * P.length * state.reputation * (state.sumLen === 'short' ? 2.2 : 1), 0, 0.8);
+  const chance = clamp(0.15 * P.length * state.reputation * (state.sumLen === 'short' ? 2.2 : 1), 0, 0.8);
   if (!slots.length || Math.random() > chance) return;
   let r = Math.random() * slots.reduce((a, x) => a + x.w, 0), s = slots[0];
   for (const x of slots) if ((r -= x.w) <= 0) { s = x; break; }
@@ -22519,6 +22571,7 @@ function bikePull() {
 function bikeGuest(g) {
   g.bike = true; g.bikeLaps = 3 + Math.floor(Math.random() * 5); g.bikeRuns = 0;
   g.ab = Math.min(g.ab, 2); // riders' skill: green, blue or black
+  g.hc = pick(HELMETS);
   today.bikers = (today.bikers || 0) + AGENT;
 }
 // At the base: another lap if they're up for it, on the lift with the shortest line.
@@ -22752,6 +22805,7 @@ function newSeason() {
   const sum = state.sum, summerCosts = Math.max(0, Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) - Math.round((sum && sum.paid) || 0)); // less what the summer days already paid
   state.sum = null;
   state.cash -= summerCosts;
+  if (sum && sum.stats.days && !matchPlay && !visiting) showSummerReport(sum, summerCosts + summerInterest); // a look back before winter
   coverOverdraft(); updateCash(false);
   state.season++; state.summer = false; state.day = PRESEASON_DAY; state.phase = 'closed';
   const o = state.ops; if (o && o.springShut) { if (o.plans && o.plans.quiet) o.plans.quiet.hours = o.springShut; delete o.springShut; } // weekends only was for last spring
@@ -22817,6 +22871,23 @@ function reputationPanel() {
 }
 const signedMoney = (n) => (n < 0 ? '−' : '') + money(Math.abs(n));
 // The day's single most valuable fix, judged by money (or guests) lost, so players know what to do next.
+// The day report's tip on a summer day: the most costly thing that went wrong, in summer words.
+function summerAdviceFor(r) {
+  const c = r.complaints || {}, b = r.bikes || {}, lifts = world.lifts.filter((L) => canScenic(L) && L.open);
+  const top = lifts.some((L) => world.buildings.some((B) => isEatery(B) && bldMode(B) !== 'closed' && distXZ(B.door, L.b) <= 8));
+  const tips = [
+    [(r.turnedAway || 0) * 40, r.turnedAway ? `${r.turnedAway} summer guests were turned away at a full parking lot. Open more parking in the Summer plan, or add some.` : ''],
+    [(c.wait || 0) * 10, c.wait ? `${c.wait} guests waited too long for the ride up. Run another lift from the base in the Summer plan.` : ''],
+    [(c.food || 0) * 16, c.food ? `${c.food} guests went hungry. Open a lodge or café in the Summer plan, or check food prices and lines.` : ''],
+    [(b.hard || 0) * 55, b.hard ? `${b.hard} riders found your bike trails too hard. A gentle green trail, winding across the slope, suits them.` : ''],
+    [(b.rough || 0) * 25, b.rough ? `${b.rough} riders found a bike trail rough. Keep its trail crew on, or build another trail to spread the riders out.` : ''],
+    [b.noLift ? 3000 : 0, b.noLift ? 'Your bike trails had no riders: fit bike carriers to the lift at their top (select the lift).' : ''],
+    [lifts.length && !top ? 600 : 0, 'A café or restaurant by the top of your scenic lift brings more summer guests: lunch with a view.'],
+    [!world.buildings.some(isBike) && (r.sightseers || 0) > 150 ? 550 : 0, 'Riders come on top of sightseers: draw a bike trail (Trails › Bike trail) and fit bike carriers to a lift.'],
+  ].filter(([v, t]) => t && v >= 500);
+  tips.sort((p, q) => q[0] - p[0]);
+  return tips.length ? tips[0][1] : '';
+}
 function adviceFor(r) {
   const c = r.complaints || {}, has = (t) => world.buildings.some((B) => B.type === t), P = state.prices;
   const greens = realTrails().some((t) => runnable(t) && t.reachable && t.returns && trailSign(t) === 0);
@@ -22861,7 +22932,7 @@ function hungryNote(r) {
   const parts = [];
   if (h.price) parts.push([h.price, `${h.price} found lunch too expensive and skipped it`]);
   if (h.lineN) parts.push([h.lineN, `${h.lineN} gave up on long lines${h.line[0] ? ` (mostly at ${esc(h.line[0].name)})` : ''}`]);
-  if (h.nowhereN) parts.push([h.nowhereN, `${h.nowhereN} found nowhere to eat near where they were skiing${h.nowhere[0] && h.nowhere[0].name ? ` (mostly around ${esc(h.nowhere[0].name)})` : ''}`]);
+  if (h.nowhereN) parts.push([h.nowhereN, `${h.nowhereN} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${h.nowhere[0] && h.nowhere[0].name ? ` (mostly around ${esc(h.nowhere[0].name)})` : ''}`]);
   if (h.late) parts.push([h.late, `${h.late} wanted lunch as the kitchens were closing`]);
   return `${n} guests went hungry: ${parts.sort((a, b) => b[0] - a[0]).map((x) => x[1]).join('; ')}.`;
 }
@@ -22922,7 +22993,7 @@ function showReport(r = state.lastReport, past = false) {
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.lease + ex.investor + ex.apres + ex.night;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night + rv.lodging + rv.condo + (rv.events || 0) + (rv.rides || 0) + (rv.bikes || 0) - rv.refunds;
   const line = (label, v) => (v ? `<span>${label}</span><span>${money(v)}</span>` : '');
-  const tip = past || r.summer ? '' : adviceFor(r), NOTES_SHOWN = 5; // the tips are all about skiing
+  const tip = past ? '' : r.summer ? summerAdviceFor(r) : adviceFor(r), NOTES_SHOWN = 5;
   // Notes are ranked so problems and money matters come first; routine ones fold away under More.
   const ranked = [];
   const note = (p, ...texts) => { for (const t of texts) ranked.push([p, ranked.length, t]); };
@@ -23694,16 +23765,20 @@ function liftsSum(P) {
   const m = world.lifts.map((L) => liftModeIn(P, L)), slow = m.filter((x) => x === 'slow').length, off = m.filter((x) => x === 'off').length;
   return !slow && !off ? `All ${m.length} at full speed` : [m.length - slow - off ? `${m.length - slow - off} full` : '', slow ? `${slow} slow` : '', off ? `${off} off` : ''].filter(Boolean).join(' · ');
 }
+// The buildings a plan can change: the Summer plan leaves out what's shut all summer, the winter plans the summer-only ones.
+const planBlds = (P) => realBlds().filter((B) => !(P && P.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type));
 function bldsSum(P) {
-  const m = realBlds().map((B) => bldModeIn(P, B)), lunch = m.filter((x) => x === 'lunch').length, shut = m.filter((x) => x === 'closed').length;
+  const m = planBlds(P).map((B) => bldModeIn(P, B)), lunch = m.filter((x) => x === 'lunch').length, shut = m.filter((x) => x === 'closed').length;
   return !lunch && !shut ? `All ${m.length} open` : [m.length - lunch - shut ? `${m.length - lunch - shut} open` : '', lunch ? `${lunch} lunch only` : '', shut ? `${shut} closed` : ''].filter(Boolean).join(' · ');
 }
 // The Evenings panel: après-ski and night skiing for each plan, the night ticket, lit trails, lamp posts and fire pits.
 function eveningsStatus() {
+  if (state.summer && summerLeft()) return 'Back next winter';
   const P = opsState().plans[planFor(state.phase === 'open' ? state.day + 1 : state.day)];
   return [P.apres === 'on' ? 'Après on' : 'Après off', P.night ? `night skiing ${nightLabel(P.night).toLowerCase()}` : realTrails().some((t) => t.lit) ? 'no night skiing' : ''].filter(Boolean).join(' · ');
 }
 function eveningsPanel() {
+  if (state.summer && summerLeft()) return '<p class="help">Summer days end when the lifts close. Après-ski and night skiing are back next winter, when you can set them up here again.</p>';
   const o = opsState(), day = state.phase === 'open' ? state.day + 1 : state.day, kind = opsEdit || planFor(day), P = o.plans[kind];
   const lit = realTrails().filter((t) => t.lit);
   const lamps = world.buildings.filter((B) => B.type === 'lamp').length, fires = world.buildings.filter((B) => B.type === 'firepit'), tls = world.buildings.filter((B) => B.type === 'tlight').length;
@@ -23795,7 +23870,8 @@ function opsSection() {
     : `<div class="field-label">${esc(dateLabel(day))} runs</div><div class="tabs">${pick}</div>
        <p class="help">${ev ? 'Event days always run the weekend plan.' : planFor(day) !== defaultPlanFor(day) ? `Just for this day; it would normally run the ${OPS_NAME[defaultPlanFor(day)].toLowerCase()} plan.` : 'Picked by the calendar. Choose another plan for just this day if you like.'}</p>`;
   const lifts = world.lifts.map((L) => `<div class="ops-row"><span>${esc(L.name)}${!L.open && !L.planOff ? ' <em>stopped</em>' : ''}</span>${opsSeg('opsLift', L.id, liftModeIn(P, L), LIFT_MODES, L.name)}</div>`).join('');
-  const blds = realBlds().map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
+  const shutAll = realBlds().filter((B) => !planBlds(P).includes(B));
+  const blds = planBlds(P).map((B) => `<div class="ops-row"><span>${esc(B.name)}</span>${opsSeg('opsBld', B.id, bldModeIn(P, B),
     lunchOnlyOk(B) ? [['open', 'Open'], ['lunch', 'Lunch'], ['closed', 'Closed']] : [['open', 'Open'], ['closed', 'Closed']], B.name)}</div>`).join('');
   const lots = lotsIn(P);
   const sample = resolvePlan(kind), costs = planCosts(P), cost = planRunCost(P), full = planRunCost(blankPlan()), let0 = letdownFor(sample);
@@ -23808,7 +23884,8 @@ function opsSection() {
     <div class="tabs">${OPS_KINDS.map(([k]) => `<button data-action="opsEdit" data-v="${k}" aria-pressed="${kind === k}">${OPS_NAME[k]} plan</button>`).join('')}</div>
     <p class="help">${OPS_KINDS.find(([k]) => k === kind)[2]}.</p>
     ${world.lifts.length ? opsFoldHtml('lifts', 'Lifts', liftsSum(P), lifts) : ''}
-    ${realBlds().length ? opsFoldHtml('blds', 'Buildings', bldsSum(P), blds) : ''}
+    ${planBlds(P).length ? opsFoldHtml('blds', 'Buildings', bldsSum(P), blds) : ''}
+    ${shutAll.length ? `<p class="help">${kind === 'summer' ? 'Shut all summer, with no upkeep' : 'Summer only, so shut in winter with no upkeep'}: ${shutAll.slice(0, 6).map((B) => esc(B.name)).join(', ')}${shutAll.length > 6 ? ` and ${shutAll.length - 6} more` : ''}.</p>` : ''}
     ${newLots() ? (parks().length ? `<div class="field-label">Parking lots open</div>${parks().map((L) => `<div class="ops-row"><span>${esc(L.name)} · ${parkSpaces(L)}</span>${opsSeg('opsLot', L.id, (P.lotsOff || []).includes(L.id) ? 'closed' : 'open', [['open', 'Open'], ['closed', 'Closed']], L.name)}</div>`).join('')}
       <p class="help">${openSpaces(P).toLocaleString('en-US')} spaces open. Closed lots stay built and save ${money(Math.round(parkRun() * MOUNTAIN.costs * 100) / 100)} a space a day.</p>` : '')
       : `<div class="field-label">Parking sections open</div>
@@ -23818,10 +23895,10 @@ function opsSection() {
     ${hasStation() ? `<div class="field-label">Town buses</div>${opsSeg('opsTownBus', 0, P.townBus || 'on', [['on', 'Running'], ['off', 'Off']], 'Town buses')}` : ''}
     <div class="field-label">Hours</div>${opsSeg('opsHours', 0, P.hours, [['full', 'Full · 8–4'], ['short', 'Short · 9–3:30'], ...(matchPlay || P.hours === 'closed' ? [['closed', 'Stay closed']] : [])], 'Hours')}
     ${P.hours === 'closed' ? '<p class="help">The resort stays closed on these days. You still pay overnight costs like snowmaking, but not lift crews or staff, and your skiers go to your rivals.</p>' : ''}
-    <p class="help">Après-ski and night skiing are under <button class="link" data-action="manage" data-v="evenings">Evenings</button>.</p>
+    <p class="help">${kind === 'summer' ? 'Summer days end when the lifts close: no après-ski or night skiing until winter.' : 'Après-ski and night skiing are under <button class="link" data-action="manage" data-v="evenings">Evenings</button>.'}</p>
     <div class="field-label">Other employees</div>${opsSeg('opsStaff', 0, P.staff, Object.entries(STAFF_LEVELS).map(([k, v]) => [k, v.label]), 'Staffing')}<p class="help">Lean, Normal and Extra affect lift operators and other resort employees. Patrol headcount and pay are set separately below.</p>
-    ${hasBld('patrol') ? patrolOpsHtml(P) : ''}
-    <div class="costs"><span>Other employees</span><span>${money(costs.other)}</span>${hasBld('patrol') ? `<span>Patroller wages</span><span>${money(costs.patrol)}</span>` : ''}<span>Building upkeep</span><span>${money(costs.upkeep)}</span><span>Lift power (estimate)</span><span>${money(costs.lifts)}</span><span>Parking</span><span>${money(costs.parking)}</span><span>Buses and shuttles</span><span>${money(costs.shuttles)}</span><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
+    ${hasBld('patrol') && kind !== 'summer' ? patrolOpsHtml(P) : ''}
+    <div class="costs"><span>Other employees</span><span>${money(costs.other)}</span>${hasBld('patrol') && kind !== 'summer' ? `<span>Patroller wages</span><span>${money(costs.patrol)}</span>` : ''}<span>Building upkeep</span><span>${money(costs.upkeep)}</span><span>Lift power (estimate)</span><span>${money(costs.lifts)}</span><span>Parking</span><span>${money(costs.parking)}</span><span>Buses and shuttles</span><span>${money(costs.shuttles)}</span><span>Running cost before guests</span><span>${money(cost)}/day</span><span>With everything open</span><span>${money(full)}/day</span></div>
     <p class="help ${let0 > 8 ? 'warn' : ''}">${feel} Guests expect the most on weekends, at higher prices and as your reputation grows. Slow lifts mean longer lines; lean staff mean slower food and loading. Guests who cannot get patrol help may file injury claims.</p>
     <button class="btn secondary" data-action="opsReset">Run everything in this plan</button>`;
 }

@@ -389,6 +389,23 @@ après, night skiing and patrol rows that do nothing; guests wear winter clothes
 summer; hunger notes still say "skiing"; no thunderstorms or lookout deck yet; summer profit is not in records or
 leaderboards (decide at piece 5).
 
+**Launch list items 2 to 4 (Claude, Nov 10, Phil asked for 1 to 4, then 5):**
+- Loose ends fixed: the welcome card speaks of summer in summer; the Summer plan leaves out what's shut all summer
+  (`planBlds`, a line names them; winter plans likewise leave out summer-only things) and has no patrol or après rows;
+  Evenings says "back next winter"; summer guests wear T-shirts and shorts with no helmets (`SUMMER_TOPS`, riders get
+  one); hunger tips and snack thoughts say nothing of skiing; the day report has summer tips (`summerAdviceFor`);
+  condos stay open in summer (owners come up 0.6 as often and pay half dues, which a condensed summer scales up so
+  both lengths match; nightly renters through `bookHotels`).
+- End-of-summer report (`showSummerReport`, from `newSeason`, closes into winter via `rpPast`): profit, visitors,
+  satisfaction, takings by kind (`summerTally` adds `st.by`, zip rides, bike laps, events to `state.sum.stats`), upkeep
+  still owed, "summer, all in", days open, best day, one tip. **Records and leaderboards count winter seasons only**
+  (as before; said in the report). Phil to confirm.
+- `devSimulate` no longer loops forever in a summer with the switch on.
+- Balance (first pass, `tests/summer-bench.mjs`, a one-off like `balance-ops.mjs`): sightseers `SUMMER_GUESTS` 600 to
+  480; wedding fee $240 to $70 a guest, retreat $140 to $45; offers half as often (0.3 to 0.15); zip line 35% to 15%
+  of guests at the top. Juniper starter, condensed: winter $339k; summer with scenic rides only −$78k (covers about
+  60% of the $199k bill; design aimed for half); with a pavilion taking every booking, a zip line and a bike trail
+  +$48k all in (14% of winter; aim 15 to 25%), bikes $219k, scenic $352k, events $164k (10), zip $75k.
 ## Known issues
 
 - Custom mountain creation is disabled (`CUSTOM_OFF = true`): Gentle/Easy settings could still make
