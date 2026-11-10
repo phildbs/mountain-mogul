@@ -6012,7 +6012,31 @@ function cabinGeo() {
 const CHAIR_GEOS = Object.fromEntries(Object.keys(LIFT_TYPES).map((k) => [k,
   k === 'carpet' ? mergeGeos([new THREE.BoxGeometry(0.5, 0.012, 0.08)]) : k === 'tbar' ? tbarGeo() : LIFT_TYPES[k].cabin ? cabinGeo() : chairGeo(LIFT_TYPES[k].seats)]));
 
-function liftLayout(a, b, type, mid) {
+// Where lifts cross, one line goes over the other. Surface lifts stay on the snow, gondolas go over chairlifts, and
+// between two of a kind the newer lift goes over, so building a lift never re-rigs the ones already standing.
+// `self` is the lift being laid out (none for a line still being drawn, which counts as the newest).
+const liftRank = (type, L) => [type === 'carpet' ? 0 : type === 'tbar' ? 1 : LIFT_TYPES[type] && LIFT_TYPES[type].cabin ? 3 : 2, L ? L.id : Infinity];
+const cableAt = (lay, s) => { s = clamp(s, 0, 1); const k = Math.max(1, lay.sup.findIndex((p) => p.s >= s)), p = lay.sup[k - 1], q = lay.sup[k]; return lerp(p.y, q.y, clamp((s - p.s) / ((q.s - p.s) || 1), 0, 1)); };
+// Each crossing on the line a to b: how far along it is (s), how much of the line to keep towers out of (ds), and, where
+// this lift goes over, the height its cable needs there (y).
+function liftCrossings(a, b, type, self) {
+  const out = [], dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz), [r0, r1] = liftRank(type, self);
+  if (type === 'carpet' || !hlen) return out;
+  for (const o of world.lifts) {
+    if (o === self || !o.lay) continue;
+    const ex = o.b.x - o.a.x, ez = o.b.z - o.a.z, den = dx * ez - dz * ex;
+    if (Math.abs(den) < 1e-6) continue;
+    const s = ((o.a.x - a.x) * ez - (o.a.z - a.z) * ex) / den, u = ((o.a.x - a.x) * dz - (o.a.z - a.z) * dx) / den;
+    if (s <= 0 || s >= 1 || u <= 0 || u >= 1) continue;
+    const [q0, q1] = liftRank(o.type, o), over = r0 > q0 || (r0 === q0 && r1 > q1), olen = Math.hypot(ex, ez);
+    if (r0 < 2 && q0 < 2) continue; // two surface lifts: both stay on the snow
+    const sin = Math.abs(den) / (hlen * olen), e = 0.8 / olen;
+    const top = o.type === 'carpet' ? cableAt(o.lay, u) + 0.31 : Math.max(cableAt(o.lay, u - e), cableAt(o.lay, u + e)); // a carpet's tunnel stands over its belt
+    out.push({ s, ds: clamp(1.3 / sin, 1.3, 4) / hlen, y: over && r0 >= 2 ? top + (r0 === 3 ? 1.25 : 0.9) : null });
+  }
+  return out;
+}
+function liftLayout(a, b, type, mid, cross) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
   const ya = heightAt(a.x, a.z), yb = heightAt(b.x, b.z);
   // Over a snowmaking pond the cable clears the water, not the pond's bed: towers stand in the water instead.
@@ -6040,6 +6064,21 @@ function liftLayout(a, b, type, mid) {
   // A mid-station: the cable comes down to station height partway up, with no tower crowding it.
   if (mid) { for (let k = sup.length - 1; k >= 0; k--) if (!sup[k].term && Math.abs(sup[k].s - mid) * hlen < 2) sup.splice(k, 1); sup.push({ s: mid, y: at(mid) + TERM_H, term: true, mid: true }); }
   sup.sort((p, q) => p.s - q.s);
+  // Crossing another lift: no tower in its path, one each side instead, tall enough to carry this cable over it.
+  // Crossings close together share one pair of towers.
+  const zones = [];
+  for (const c of [...(cross || [])].sort((p, q) => p.s - q.s)) {
+    const z = zones[zones.length - 1];
+    if (z && c.s - c.ds < z.s1 + 3 / hlen) { z.s1 = Math.max(z.s1, c.s + c.ds); z.pts.push(c); } else zones.push({ s0: c.s - c.ds, s1: c.s + c.ds, pts: [c] });
+  }
+  for (const z of zones) {
+    const need = Math.max(...z.pts.map((c) => c.y ?? -1e9));
+    for (let k = sup.length - 1; k >= 0; k--) if (!sup[k].term && sup[k].s > z.s0 - 1.5 / hlen && sup[k].s < z.s1 + 1.5 / hlen) sup.splice(k, 1);
+    for (const s of [z.s0, z.s1]) if (!sup.some((p) => p.term && Math.abs(p.s - s) * hlen < 2.5) && s > 0 && s < 1) sup.push({ s, y: Math.max(at(s) + TOWER_H, need), x: z });
+    sup.sort((p, q) => p.s - q.s);
+    // a station close by leaves a tower on one side only: that one stands taller to make the height
+    for (let n = 0; n < 8; n++) { const d = Math.max(...z.pts.map((c) => (c.y ?? -1e9) - cableAt({ sup }, c.s))), own = sup.filter((p) => p.x === z); if (d <= 0.01 || !own.length) break; for (const p of own) p.y += d; }
+  }
   // Add towers wherever the cable would sag into the ground.
   for (let iter = 0; iter < 40; iter++) {
     let worst = null;
@@ -6051,6 +6090,9 @@ function liftLayout(a, b, type, mid) {
       }
     }
     if (!worst) break;
+    // in another lift's path the towers either side stand taller instead
+    const z = zones.find((z) => worst.s > z.s0 && worst.s < z.s1), own = z ? sup.filter((p) => p.x === z) : [];
+    if (own.length) { for (const p of own) p.y += worst.d + 0.02; continue; }
     sup.push({ s: worst.s, y: at(worst.s) + TOWER_H });
     sup.sort((p, q) => p.s - q.s);
   }
@@ -6290,14 +6332,40 @@ function syncMid(L) {
   });
 }
 function midParts() { return world.lifts.flatMap((L) => (L.midUp ? [L.midLo, L.midUp] : [])); }
+// After a lift is built, moved, changed or removed, the lifts that cross it are rigged again where that changes them:
+// lowest first, since each one's height depends on the lines under it. Riders and lines stay where they are.
+const layOf = (L) => liftLayout(L.a, L.b, L.type, L.mid && L.mid.s, liftCrossings(L.a, L.b, L.type, L));
+const linesCross = (p, q) => { const d = (a, b, c) => (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x); return d(p.a, p.b, q.a) * d(p.a, p.b, q.b) < 0 && d(q.a, q.b, p.a) * d(q.a, q.b, p.b) < 0; };
+function rerigCrossing(L) {
+  const set = new Set([L]);
+  for (const o of set) for (const q of world.lifts) if (!set.has(q) && linesCross(o, q)) set.add(q);
+  set.delete(L);
+  const rank = (o) => liftRank(o.type, o);
+  for (const o of [...set].sort((p, q) => rank(p)[0] - rank(q)[0] || rank(p)[1] - rank(q)[1])) {
+    const lay = layOf(o);
+    if (JSON.stringify(lay.sup.map((p) => [p.s, p.y])) === JSON.stringify(o.lay.sup.map((p) => [p.s, p.y]))) continue;
+    const riders = o.riders || [];
+    liftGroup.remove(o.group); disposeGroup(o.group);
+    o.lay = lay; o.stats = liftStats(o, lay);
+    o.group = buildLiftVisual(o, lay, true);
+    liftGroup.add(o.group);
+    const U = o.midUp;
+    syncMid(o);
+    if (U && o.midUp) Object.assign(o.midUp, { queue: U.queue, incoming: U.incoming, qVersion: U.qVersion, riders: U.riders });
+    o.riders = Array.from({ length: o.chairCount }, (_, i) => riders[i] || []);
+    for (let i = o.chairCount; i < riders.length; i++) o.riders[o.chairCount - 1].push(...riders[i]); // a chair fewer on the new cable: nobody is left behind
+    matchLook('lift', o);
+  }
+}
 function addLift(L) {
-  L.lay = liftLayout(L.a, L.b, L.type, L.mid && L.mid.s);
+  L.lay = layOf(L);
   L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
   syncMid(L);
   initLiftSim(L);
   world.lifts.push(L);
+  rerigCrossing(L);
 }
 // A timber skier bridge under each stretch of trail over the creek: a deck as wide as the trail
 // (its snow is the trail itself), a railing each side, and posts down to the creek bed.
@@ -6350,6 +6418,7 @@ function removeLift(L) {
   liftGroup.remove(L.group);
   disposeGroup(L.group);
   world.lifts = world.lifts.filter((o) => o !== L);
+  rerigCrossing(L);
 }
 
 /* ---------- Clearing trees for construction ---------- */
@@ -7830,7 +7899,7 @@ function moveTrailDraft() {
 function evalLift(a0, b0, type, allowPlans, self) {
   let a = a0, b = b0;
   if (heightAt(a.x, a.z) > heightAt(b.x, b.z)) [a, b] = [b, a];
-  const lay = liftLayout(a, b, type), t = LIFT_TYPES[type];
+  const lay = liftLayout(a, b, type, 0, liftCrossings(a, b, type, self)), t = LIFT_TYPES[type];
   const problems = [];
   if (!inProperty(a.x, a.z) || !inProperty(b.x, b.z)) problems.push('Both stations must be on your property.');
   if (sampleGrid(GR, a.x + HALF, a.z + HALF) > 0.5) problems.push('The bottom station site is too steep. Try flatter ground.');
@@ -21734,12 +21803,13 @@ function resampleTrail(t) {
 }
 function rebuildLift(L) {
   liftGroup.remove(L.group); disposeGroup(L.group);
-  L.lay = liftLayout(L.a, L.b, L.type, L.mid && L.mid.s); L.stats = liftStats(L, L.lay);
+  L.lay = layOf(L); L.stats = liftStats(L, L.lay);
   L.group = buildLiftVisual(L, L.lay, true);
   liftGroup.add(L.group);
   syncMid(L);
   initLiftSim(L);
   matchLook('lift', L);
+  rerigCrossing(L);
 }
 function rebuildBuilding(B) {
   bldGroup.remove(B.group);
@@ -29299,6 +29369,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.5', date: 'Nov 10, 2026', title: 'Lifts cross over each other', items: [
+    'Where two lifts cross, one now goes over the other instead of running through it. The newer lift stands on taller towers either side of the crossing and carries its cable over the top; a gondola always goes over a chairlift, and a T-bar or magic carpet stays on the snow underneath.',
+    'Neither lift puts a tower in the other\'s path any more. Lifts that already cross are fixed when you load.'] },
   { v: '4.4', date: 'Nov 10, 2026', title: 'Follow a guest', items: [
     'Tap a guest on the mountain, then Follow with the camera on their card: the view stays with them as they ride, ski, queue and stop for lunch, until you drag the map, close the card or they go home. You can still turn and zoom while following. Thanks for the idea!',
     'The guest whose card is open now has a name tag over their head, so you can pick them out of the crowd.',
