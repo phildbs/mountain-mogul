@@ -51,6 +51,7 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { state.sum.wx = { type: 'sumsun', hi: 80, lo: 55, snow: 0, wind: 5 }; openDay(); })()`); await g.ev(play(790));
   const mid = await g.ev(`(() => { const c = {}; for (const x of guests) c[x.st] = (c[x.st] || 0) + 1; return c; })()`);
   assert((mid.coast || 0) + (mid.zip || 0) + (mid.rq || 0) > 0, `summer guests are on the rides (${JSON.stringify(mid)})`);
+  eq(await g.ev(`new Set(guests.map((x) => Object.keys(x).join(','))).size`), 1, 'summer guests (riders, sightseers) keep one object shape, so days stay quick');
   const saved = await g.ev(`(() => { const n = guests.filter((x) => ['coast', 'zip', 'rq'].includes(x.st)).length; applySave(JSON.parse(JSON.stringify(saveData(true)))); return [n, guests.filter((x) => ['coast', 'zip', 'rq'].includes(x.st)).length, state.phase]; })()`);
   eq([saved[0] === saved[1], saved[2]], [true, 'open'], 'a mid-day save keeps riders on the rides');
   await g.ev(play());
