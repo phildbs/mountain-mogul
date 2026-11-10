@@ -619,6 +619,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-set { margin-top: 14px; border-top: 1px solid rgba(20, 36, 58, 0.08); padding-top: 8px; }
 .ed-set summary { cursor: pointer; font: 700 11px var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
 #edPanel .ed-slide { display: grid; grid-template-columns: 62px 1fr 116px; } #edPanel .ed-slide span { width: auto; font-size: 12px; }
+.sb-check { font-size: 13px; color: var(--ink-2); }
 .ed-cash-label { margin: 10px 0 -4px; font-weight: 600; color: var(--ink); font-size: 13px; }
 .ed-cash button { font-size: 12px !important; }
 #lkRate { display: grid; gap: 10px; margin-top: 10px; }
@@ -25798,11 +25799,14 @@ async function rateBox(S) {
     },
   };
 }
-// Play: a new resort of your own on the mountain.
-function sharedPlay(doc) {
+// Play: a new resort of your own on the mountain, as a sandbox (unlimited money, no goals) if `sandbox`.
+const SANDBOX_TICK = '<label class="ed-check sb-check"><input type="checkbox" data-sandbox> Sandbox: unlimited money, no goals</label>';
+const sandboxTicked = (root) => !!(root && root.querySelector('[data-sandbox]:checked'));
+function sharedPlay(doc, sandbox) {
   if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one on the title screen to start another.`, true); return; }
   const mt = keepMapDoc(mapDocOf(doc));
   if (!mt) { toast(STORAGE_FULL_MSG, true); return; }
+  setSandboxNext(!!sandbox);
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt })); } catch (e) { /* ignore */ }
   location.href = location.pathname;
 }
@@ -25828,11 +25832,11 @@ async function openSharedMountain(id, row) {
   showCrisis(`<div><div class="eyebrow">A shared mountain</div><h2 id="crTitle">${esc(doc.name)}</h2></div>
     <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${doc.set ? esc(mapSetWords(doc.set)) : `${esc(from.name)}’s weather`}.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
     ${sharedNums(S.row)}${rb.html}
-    <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
+    <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>${SANDBOX_TICK}`,
     `<button class="btn" id="smPlay">Play this mountain</button><button class="btn secondary" id="smLook">Look around</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
   $('crNo').onclick = () => { if (fromList) openMapBrowser(); else { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); } };
   rb.wire($('crBody'));
-  $('smPlay').onclick = () => sharedPlay(doc);
+  $('smPlay').onclick = () => sharedPlay(doc, sandboxTicked($('crBody')));
   $('smLook').onclick = () => sharedLook(doc, fromList);
   if (r.allow_copy) $('smCopy').onclick = () => sharedCopy(doc);
 }
@@ -25850,6 +25854,7 @@ function lookStart() {
       <ul class="ed-ready" id="lkHas"></ul>
       <p class="vhelp" id="lkSet"></p>
       <div id="lkRate"></div>
+      ${SANDBOX_TICK}
       <div class="ed-go"><button class="btn" id="lkPlay">Play this mountain</button><button class="btn secondary" id="lkCopy" hidden>Copy to edit</button></div>
       <p class="ed-reset"><button class="link" id="lkBack">Back</button></p>
       <h3>View</h3>
@@ -25869,7 +25874,7 @@ function lookStart() {
   $('lkBack').textContent = back ? 'Back to custom mountains' : 'Back to its card';
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.id === 'lkPlay') sharedPlay(doc);
+    if (b.id === 'lkPlay') sharedPlay(doc, sandboxTicked(el));
     else if (b.id === 'lkCopy') sharedCopy(doc);
     else if (b.id === 'lkBack') location.href = back ? `${location.pathname}?maps=1&browse=1` : `${location.pathname}?mountain=${MOUNTAIN.id.slice(3)}`;
     else if (b.id === 'edSlope') { setSlope(!overlay.slope); b.setAttribute('aria-pressed', overlay.slope); }
@@ -27639,6 +27644,7 @@ function edPlay() {
   if (!edSave()) return;
   const id = keepMapDoc(edDoc());
   if (!id) { toast('This browser’s storage is full, so this mountain can’t be played yet. Delete a mountain you no longer want.', true); return; }
+  setSandboxNext(sandboxTicked($('edPanel')));
   try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt: id })); } catch (e) { /* ignore */ }
   location.href = location.pathname;
 }
@@ -27818,6 +27824,7 @@ function editorStart() {
       <h3>This mountain</h3>
       <div class="vrow" id="edNums"></div>
       <ul class="ed-ready" id="edReady"></ul>
+      ${SANDBOX_TICK}
       <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edShare">Share</button><button class="btn secondary" id="edMaps">My mountains</button></div>
       <p class="ed-reset"><button class="link danger-link" id="edReset">Start over</button></p>
       <p class="vhelp" id="edStatus"></p>

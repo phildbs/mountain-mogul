@@ -40,6 +40,11 @@ export default async function ({ browser, url }) {
   await b.click('#smCopy'); await b.reloaded();
   eq(await b.ev(`[EDITOR, ED.name, encodeHeights(ED.E) === ${JSON.stringify(row.doc.h)}, draftList().length]`), [true, 'My Juniper Ridge copy', true, 1], 'Copy to edit opens it in their own editor');
   eq(b.errors, [], 'no errors copying'); await b.page.close();
+  // Play as a sandbox: tick it on the card
+  b = await guest(`?mountain=${id.slice(3)}`); await b.wait(300);
+  await b.ev(`document.querySelector('#crBody [data-sandbox]').checked = true`); await b.click('#smPlay'); await b.reloaded();
+  eq(await b.ev(`[MOUNTAIN.id, state.sandbox, !!activeSlot().sandbox, state.goals]`), [id, true, true, null], 'a sandbox resort on the shared mountain: unlimited money, no goals');
+  eq(b.errors, [], 'no errors in a sandbox'); await b.page.close();
   // shaping it further makes another mountain: it isn't shared until shared again
   await a.ev(`(() => { const p = { x: 0, z: -40 }; ED.tool = 'raise'; edStrokeStart(p); for (let i = 0; i < 5; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
   await a.ev(`document.getElementById('crisis').hidden = true`); await a.click('#edShare'); await a.wait(300);

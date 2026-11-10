@@ -447,6 +447,10 @@ the player's to draw; raising land brings the land around it up too, with detail
   Words: `mapSetWord(s)` (no `money()` there: it isn't defined yet when a mountain is read at boot). The card and Look
   around describe them. Scenario 212 covers it. Not yet: skier mix (still the starting mountain's), base elevation,
   treeline. (Claude, Nov 10)
+- **Sandbox on custom mountains** (Phil, Nov 10): a "Sandbox: unlimited money, no goals" tick box (`SANDBOX_TICK`,
+  `[data-sandbox]`) sits by Play on a shared mountain's card, in Look around and in the editor; `sharedPlay(doc,
+  sandbox)` and `edPlay` set `setSandboxNext`, which `newMountain` picks up after the reload, as the title's Sandbox
+  does. Scenario 213 plays a shared mountain as a sandbox. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
