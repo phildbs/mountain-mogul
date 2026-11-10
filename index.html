@@ -6061,8 +6061,14 @@ function liftCrossings(a, b, type, self) {
 function liftLayout(a, b, type, mid, cross) {
   const dx = b.x - a.x, dz = b.z - a.z, hlen = Math.hypot(dx, dz);
   const ya = heightAt(a.x, a.z), yb = heightAt(b.x, b.z);
-  // Over a snowmaking pond the cable clears the water, not the pond's bed: towers stand in the water instead.
-  const at = (s) => { const x = a.x + dx * s, z = a.z + dz * s; return Math.max(heightAt(x, z), pondWaterAt(x, z)); };
+  // Over a snowmaking pond the cable keeps to the ground as it was before the pond was dug, and spans the water from
+  // towers on dry ground: following the water, a pond dug into a slope pulled the cable down into the hole.
+  const orig = new Map();
+  for (const P of world.ponds) for (const [idx, h] of P.orig || []) orig.set(idx, Math.max(orig.get(idx) ?? -Infinity, h * VEX));
+  const at = (s) => { const x = a.x + dx * s, z = a.z + dz * s, idx = (Math.round(z) + HALF) * NV + Math.round(x) + HALF;
+    return Math.max(heightAt(x, z), pondWaterAt(x, z), orig.get(idx) ?? -Infinity); };
+  const wet = (s) => { const x = a.x + dx * s, z = a.z + dz * s; return pondWaterAt(x, z) > -Infinity || orig.has((Math.round(z) + HALF) * NV + Math.round(x) + HALF); };
+  const dry = (s) => { if (!orig.size || !wet(s)) return s; for (let d = 0.25 / hlen; d < 1; d += 0.25 / hlen) for (const t of [s - d, s + d]) if (t > 0.02 && t < 0.98 && !wet(t)) return t; return s; };
   const vertM = (yb - ya) / VEX * 10, horizM = hlen * 10;
   const done = (sup) => ({ dx, dz, hlen, ya, yb, sup, heading: Math.atan2(dx, dz), slopeM: Math.hypot(vertM, horizM), vertM, horizM });
   // A magic carpet's belt lies on the snow, following every bump.
@@ -6081,8 +6087,8 @@ function liftLayout(a, b, type, mid, cross) {
     // level line there would hang on towers as tall as the hill.
     let lift = 0, hump = 0;
     for (let j = 1; j < 60; j++) { lift = Math.max(lift, at(j / 60) + CLEAR - lerp(ya, yb, j / 60) - TERM_H); hump = Math.max(hump, at(j / 60) - lerp(ya, yb, j / 60)); }
-    for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: hump > 2 ? at(t / nT) + TOWER_H : lerp(ya, yb, t / nT) + TERM_H + lift });
-  } else for (let t = 1; t < nT; t++) sup.push({ s: t / nT, y: at(t / nT) + TOWER_H });
+    for (let t = 1; t < nT; t++) { const s = dry(t / nT); sup.push({ s, y: hump > 2 ? at(s) + TOWER_H : lerp(ya, yb, s) + TERM_H + lift }); }
+  } else for (let t = 1; t < nT; t++) { const s = dry(t / nT); sup.push({ s, y: at(s) + TOWER_H }); }
   // A mid-station: the cable comes down to station height partway up, with no tower crowding it.
   if (mid) { for (let k = sup.length - 1; k >= 0; k--) if (!sup[k].term && Math.abs(sup[k].s - mid) * hlen < 2) sup.splice(k, 1); sup.push({ s: mid, y: at(mid) + TERM_H, term: true, mid: true }); }
   sup.sort((p, q) => p.s - q.s);
@@ -6115,6 +6121,12 @@ function liftLayout(a, b, type, mid, cross) {
     // in another lift's path the towers either side stand taller instead
     const z = zones.find((z) => worst.s > z.s0 && worst.s < z.s1), own = z ? sup.filter((p) => p.x === z) : [];
     if (own.length) { for (const p of own) p.y += worst.d + 0.02; continue; }
+    // over a pond: no tower in the water; the ones either side stand taller instead (a new one only on dry ground)
+    if (orig.size && wet(worst.s)) {
+      const k = sup.findIndex((p) => p.s > worst.s), ends = [sup[k - 1], sup[k]].filter((p) => p && !p.term);
+      if (ends.length) { for (const p of ends) p.y += worst.d + 0.02; continue; }
+      const s = dry(worst.s); if (!wet(s)) { sup.push({ s, y: at(s) + TOWER_H }); sup.sort((p, q) => p.s - q.s); continue; }
+    }
     sup.push({ s: worst.s, y: at(worst.s) + TOWER_H });
     sup.sort((p, q) => p.s - q.s);
   }
@@ -29392,6 +29404,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.6.1', date: 'Nov 10, 2026', title: 'Lifts span ponds', small: true, items: [
+    'A chairlift or gondola over a snowmaking pond now spans it from towers on dry ground, keeping to the slope, instead of dipping down into a pond dug into a hillside. Lifts already over a pond are fixed when you load.'] },
   { v: '4.6', date: 'Nov 10, 2026', title: 'Smoother on more computers', items: [
     'The forest is drawn far more simply when you\'re zoomed out, where nobody can see the difference: about three times faster to draw the whole mountain. Close up, trees look just as they did.',
     'If your computer\'s graphics can\'t keep up, the game now draws a slightly softer picture to stay smooth, and remembers that for next time. If it\'s still slow, it suggests Low graphics, once. Switching Graphics back to Standard in the menu starts afresh.'] },

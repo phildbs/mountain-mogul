@@ -53,6 +53,17 @@ export default async function ({ browser, url }) {
     return { low, station: evalLift({ x: ${x}, z: ${z} }, b, 'gondola', false).problems.some((m) => m.includes('pond')) }; })()`);
   assert(over.low > 1.2 && over.low < Infinity, `the cable clears the water by ${over.low.toFixed(2)}`);
   assert(over.station, 'a station in the pond is refused');
+  // and it spans the pond from dry ground, keeping to the slope as it was before digging rather than dipping into the
+  // hole (Phil, Nov 10: a pond dug into a hillside pulled the cable down into it)
+  for (const type of ['double', 'gondola']) {
+    const span = await g.ev(`(() => { const P = world.ponds[0], a = { x: ${x}, z: ${z} - 18 }, b = { x: ${x}, z: ${z} + 18 }, orig = new Map(P.orig);
+      const lay = liftLayout(a, b, '${type}'), pt = (s) => ({ x: a.x + lay.dx * s, z: a.z + lay.dz * s }), key = (q) => (Math.round(q.z) + HALF) * NV + Math.round(q.x) + HALF;
+      const wetTowers = lay.sup.filter((p) => !p.term && (pondWaterAt(pt(p.s).x, pt(p.s).z) > -Infinity || orig.has(key(pt(p.s))))).length;
+      let low = Infinity; for (let i = 1; i < 200; i++) { const s = i / 200, q = pt(s); if (!orig.has(key(q))) continue; low = Math.min(low, cableAt(lay, s) - orig.get(key(q)) * VEX); }
+      return { wetTowers, low }; })()`);
+    eq(span.wetTowers, 0, `${type}: no tower in the pond or on its dug banks`);
+    assert(span.low > 0.5 && span.low < Infinity, `${type}: the cable stays above the ground as it was before the pond (${span.low.toFixed(2)})`);
+  }
   eq(await g.ev(`(() => { world.lifts.push({ a: { x: ${x} + 30, z: ${z} }, b: { x: ${x} + 30, z: ${z} + 40 } }); const why = pondCellProblem(${x} + 27, ${z}, null); world.lifts.pop(); return why; })()`), 'too close to a lift station', 'no pond dug at a lift station');
 
   // a trail can't run into it; a building can't sit in it
