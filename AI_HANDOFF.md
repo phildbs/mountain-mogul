@@ -398,8 +398,8 @@ the player's to draw; raising land brings the land around it up too, with detail
   lift whose top is at the base becomes a way home; guests ski down first and ride up to leave. Then `edCheck`'s base
   rule relaxes. (Claude, Nov 10)
 - **Sharing by link** (step 2, second half; Phil's calls Nov 10: makers can delete, Copy to edit included and the
-  maker can turn it off, a player name is required). SQL `supabase/shared-mountains.sql` (**NOT yet run on live**; run
-  it in the SQL editor before Publish; additive: a new table and two functions): `shared_mountains` (id = the game's
+  maker can turn it off, a player name is required). SQL `supabase/shared-mountains.sql` (LIVE: Phil ran it Nov 10;
+  additive: new tables and functions): `shared_mountains` (id = the game's
   `mapIdOf` fingerprint, owner, creator, name, doc jsonb under 400 KB, vertical ft, allow_copy, created_at); anyone
   reads; makers delete their own; `share_mountain(pid, pdoc, pvertical, pallow)` (signed-in profile user with a
   profile name, which is stamped as `creator` even if the profile is private; at most 30 each; sharing the same id again
@@ -420,13 +420,24 @@ the player's to draw; raising land brings the land around it up too, with detail
   mountain with likes, average stars (count) and resorts started on it, sorted Newest, Most liked, Top rated, Most
   played, with a name/maker search, and a Make your own button (`?editor=1`). A row opens `openSharedMountain(id, row)`
   (Back to the list), which now also has Like and 1 to 5 stars for signed-in players on others' mountains ("This is
-  your mountain" on your own; guests are asked to sign in). SQL, added to `supabase/shared-mountains.sql` (still not
-  run on live): `shared_mountain_likes` and `shared_mountain_ratings` (own rows only, one each, not on your own, no
+  your mountain" on your own; guests are asked to sign in). SQL, added to `supabase/shared-mountains.sql` (LIVE,
+  Nov 10): `shared_mountain_likes` and `shared_mountain_ratings` (own rows only, one each, not on your own, no
   guests, removed with the mountain), an index on `mountains ((summary ->> 'mt'))`, and
   `shared_mountain_list(psort, psearch, plimit, poffset)` (anyone; totals; rating sorted with two pretend 3-star votes;
   resorts = rows in `mountains` whose summary mt is the id, any owner; at most 60). 35 checks in
   `tests/sql/shared-mountains.sql`. Fake DB: `d.sLikes`, `d.sRatings`. Scenario 214-mountain-browser. CSS note: the
   old slider builder already uses `.mb`, so the browser's modal class is `mbrowse`. (Claude, Nov 10)
+- **SQL is LIVE:** Phil ran `supabase/shared-mountains.sql` (sharing, likes, ratings, the list) on Nov 10. No written
+  reviews (Phil's call).
+- **Look around** (Phil, Nov 10): a shared mountain's card has Look around (`sharedLook`): it keeps the document in
+  sessionStorage (`keepMapDoc(doc, true)`) and opens `?look=<id without c:m>` (`LOOK`, in `NO_SAVE`; `MOUNTAIN` is
+  `mountainDef(LOOK)`). `lookStart` shows it read only like the editor (body `mapview editor look`, the badge reads
+  "Shared mountain", the game menu with Back to title): its numbers (`edNumbers`), road/streams/ponds (ponds dug by
+  `mountainPonds` through `applySave`), Steepness, Trees, Whole mountain, Play, Copy to edit when allowed, and Like and
+  stars (`lookLoad` after sign-in, which `initCloud` now does for `LOOK` as for the editor). Back goes to the card
+  (`?mountain=`) or, when it was opened from the browser, back to the list (`?maps=1&browse=1`). A `?look=` link with no
+  document in the tab goes to the card instead. The card's parts are shared helpers now: `fetchShared`, `rateBox` (Like
+  is `[data-like]`), `sharedPlay`, `sharedCopy`. Scenario 214 covers it. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

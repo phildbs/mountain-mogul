@@ -616,6 +616,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
 .ed-reset { margin: 8px 0 0; font-size: 12.5px; }
+#lkRate { display: grid; gap: 10px; margin-top: 10px; }
 .modal-bg.mbrowse .modal { width: min(620px, 100%); }
 .mb-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .mb-tools input { flex: 1; min-width: 160px; font: 14px var(--ui); padding: 8px 10px; border-radius: 9px; border: 1px solid rgba(20, 36, 58, 0.2); }
 .mb-list { display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
@@ -2170,11 +2171,13 @@ const MATCH_PREVIEW = !!MATCH_Q('matchMap') || MATCH_DEMO || !!MAP_VIEW;
 const EDITOR = new URLSearchParams(location.search).has('editor');
 // The mountain browser on the title screen: hidden until the editor ships (?maps=1 shows it in a preview).
 const MAPS_ON = new URLSearchParams(location.search).has('maps');
+// Look around a shared mountain (?look= and its fingerprint): read only, nothing saved.
+const LOOK = (() => { const v = new URLSearchParams(location.search).get('look'); return v && /^[0-9a-z]{14}$/.test(v) ? 'c:m' + v : null; })();
 // ?summerDemo=1 is a quick look at the summer season (hidden until 4.0): a starter resort on Juniper Ridge, already in
 // summer, with buttons to jump to any part of it, change the weather and play a day. ?summerDemo=maple, raven or twin
 // picks another mountain. Nothing is saved.
 const SUMMER_DEMO = (() => { const v = new URLSearchParams(location.search).get('summerDemo'); return !v ? null : ['maple', 'raven', 'twin'].includes(v) ? v : 'juniper'; })();
-const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW || !!SUMMER_DEMO || EDITOR;
+const NO_SAVE = REFERRAL_PREVIEW || MATCH_PREVIEW || !!SUMMER_DEMO || EDITOR || !!LOOK;
 // Playing your own resort in a running match: you build on your copy and each change goes to the match server.
 let matchPlay = null;
 // Phones show Trails, Lifts and Buildings in the bottom bar; the other lists sit behind More.
@@ -3207,7 +3210,7 @@ function stripFrame(M, slot) {
 }
 // Leaderboards: one per built-in mountain, and one for every custom mountain together.
 const boardOf = (mt) => (isCustomId(mt) ? 'custom' : mt || 'juniper');
-const MOUNTAIN = EDITOR ? editorMountain() : mountainDef(bootMountainId());
+const MOUNTAIN = EDITOR ? editorMountain() : mountainDef(LOOK || bootMountainId());
 const START_CASH = MOUNTAIN.cash;
 
 /* =====================================================================
@@ -25716,6 +25719,7 @@ async function openMapBrowser() {
 }
 async function mbLoad() {
   const box = $('mbList'), seq = ++MB.seq; if (!box) return;
+  if (!CLOUD.ready && CLOUD.status === 'connecting') { setTimeout(() => { if (seq === MB.seq) mbLoad(); }, 400); return; } // still signing in (just opened)
   if (!CLOUD.ready) { box.innerHTML = '<p class="help">Can’t reach the server right now. Try again in a moment.</p>'; return; }
   const { data, error } = await CLOUD.sb.rpc('shared_mountain_list', { psort: MB.sort, psearch: MB.search.slice(0, 40), plimit: 60, poffset: 0 });
   if (seq !== MB.seq || !$('mbList')) return;
@@ -25728,58 +25732,130 @@ async function mbLoad() {
 }
 // Opened from a shared mountain's link or the browser: who made it, its likes, rating and resorts, and play it (a new
 // resort on it) or copy it to edit. Signed-in players like and rate other players' mountains here.
-async function openSharedMountain(id, row) {
+// A shared mountain from the server, checked against its fingerprint, with its totals from the list.
+async function fetchShared(id, row) {
   const { data: r, error } = await CLOUD.sb.from('shared_mountains').select('id, owner, creator, name, doc, vertical, allow_copy').eq('id', id).maybeSingle();
-  if (error || !r) { toast(error && !sharedMissing(error) ? 'Couldn’t reach the server to open that mountain. Try the link again in a moment.' : 'That mountain isn’t shared any more.', true); return; }
-  const doc = r.doc;
-  if (!validMapDoc(doc) || mapIdOf(mapDocOf(doc)) !== id) { toast('That mountain’s link is broken.', true); return; }
-  const from = MOUNTAINS[doc.from], fromList = !!row && !$('crisis').hidden && $('crisis').classList.contains('mbrowse');
-  if (!row) { const { data: L } = await CLOUD.sb.rpc('shared_mountain_list', { psort: 'new', psearch: doc.name.slice(0, 40), plimit: 60, poffset: 0 }); row = (L || []).find((x) => x.id === id) || null; }
-  const mine = r.owner === CLOUD.uid, canRate = !CLOUD.guest && !mine;
-  let liked = false, stars = 0;
-  if (canRate) {
-    const [l, s] = await Promise.all([CLOUD.sb.from('shared_mountain_likes').select('mountain_id').eq('mountain_id', id), CLOUD.sb.from('shared_mountain_ratings').select('stars').eq('mountain_id', id)]);
-    liked = !!(l.data && l.data.length); stars = (s.data && s.data[0] && s.data[0].stars) || 0;
-  }
-  const nums = row ? `<div class="mb-nums big"><span>❤ ${row.likes}</span><span>${starsOfRow(row)}</span><span>${row.resorts} resort${row.resorts === 1 ? '' : 's'} started on it</span></div>` : '';
-  const rate = canRate ? `<div class="mb-rate"><button class="btn secondary" id="smLike" aria-pressed="${liked}">${liked ? '❤ Liked' : '♡ Like'}</button>
-      <span class="mb-stars" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</span></div>`
-    : mine ? '<p class="help">This is your mountain.</p>' : '<p class="help">Sign in on the title screen to like and rate mountains.</p>';
+  if (error || !r) { toast(error && !sharedMissing(error) ? 'Couldn’t reach the server to open that mountain. Try the link again in a moment.' : 'That mountain isn’t shared any more.', true); return null; }
+  if (!validMapDoc(r.doc) || mapIdOf(mapDocOf(r.doc)) !== id) { toast('That mountain’s link is broken.', true); return null; }
+  if (!row) { const { data: L } = await CLOUD.sb.rpc('shared_mountain_list', { psort: 'new', psearch: r.doc.name.slice(0, 40), plimit: 60, poffset: 0 }); row = (L || []).find((x) => x.id === id) || null; }
+  return { r, row, doc: r.doc };
+}
+const sharedNums = (row) => (row ? `<div class="mb-nums big"><span class="mb-likes">❤ ${row.likes}</span><span>${starsOfRow(row)}</span><span>${row.resorts} resort${row.resorts === 1 ? '' : 's'} started on it</span></div>` : '');
+// Like and stars, for signed-in players on other players' mountains: the markup, then wiring it up inside `root`.
+async function rateBox(S) {
+  const mine = S.r.owner === CLOUD.uid, canRate = !CLOUD.guest && !mine;
+  if (!canRate) return { html: mine ? '<p class="help">This is your mountain.</p>' : '<p class="help">Sign in on the title screen to like and rate mountains.</p>', wire() {} };
+  const id = S.r.id, [l, st] = await Promise.all([CLOUD.sb.from('shared_mountain_likes').select('mountain_id').eq('mountain_id', id), CLOUD.sb.from('shared_mountain_ratings').select('stars').eq('mountain_id', id)]);
+  let liked = !!(l.data && l.data.length), stars = (st.data && st.data[0] && st.data[0].stars) || 0;
+  return {
+    html: `<div class="mb-rate"><button class="btn secondary" data-like aria-pressed="${liked}">${liked ? '❤ Liked' : '♡ Like'}</button>
+      <span class="mb-stars" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</span></div>`,
+    wire(root) {
+      const lb = root.querySelector('[data-like]');
+      lb.onclick = async () => {
+        const q = CLOUD.sb.from('shared_mountain_likes'), { error: e } = liked ? await q.delete().eq('mountain_id', id) : await q.insert({ mountain_id: id });
+        if (e) { toast('Couldn’t save that. Try again in a moment.', true); return; }
+        liked = !liked; if (S.row) S.row.likes += liked ? 1 : -1;
+        lb.textContent = liked ? '❤ Liked' : '♡ Like'; lb.setAttribute('aria-pressed', liked);
+        const n = root.querySelector('.mb-likes'); if (n && S.row) n.textContent = `❤ ${S.row.likes}`;
+      };
+      for (const b of root.querySelectorAll('[data-star]')) b.onclick = async () => {
+        const n = +b.dataset.star, { error: e } = await CLOUD.sb.from('shared_mountain_ratings').upsert({ mountain_id: id, stars: n });
+        if (e) { toast('Couldn’t save your rating. Try again in a moment.', true); return; }
+        stars = n; for (const o of root.querySelectorAll('[data-star]')) o.classList.toggle('on', +o.dataset.star <= n);
+        toast(`You gave ${S.doc.name} ${n} star${n > 1 ? 's' : ''}.`);
+      };
+    },
+  };
+}
+// Play: a new resort of your own on the mountain.
+function sharedPlay(doc) {
+  if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one on the title screen to start another.`, true); return; }
+  const mt = keepMapDoc(mapDocOf(doc));
+  if (!mt) { toast(STORAGE_FULL_MSG, true); return; }
+  try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt })); } catch (e) { /* ignore */ }
+  location.href = location.pathname;
+}
+// Copy to edit: a new draft in your own editor.
+function sharedCopy(doc) {
+  if (draftList().length >= MAX_DRAFTS) { toast(`Your editor keeps ${MAX_DRAFTS} mountains. Open the editor and delete one under My mountains first.`, true); return; }
+  const key = Math.random().toString(36).slice(2, 10);
+  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ ...mapDocOf(doc), name: mapName(`${doc.name} copy`.slice(0, 28)), at: Date.now() })); localStorage.setItem(DRAFT_OPEN, key); }
+  catch (e) { toast(STORAGE_FULL_MSG, true); return; }
+  location.href = `${location.pathname}?editor=1`;
+}
+// Look around: the mountain in 3D, read only (?look=), carried over the reload for this tab only.
+function sharedLook(doc, back) {
+  const mt = keepMapDoc(mapDocOf(doc), true);
+  if (!mt) { toast(STORAGE_FULL_MSG, true); return; }
+  try { sessionStorage.setItem('mm.lookBack', back ? '1' : ''); } catch (e) { /* ignore */ }
+  location.href = `${location.pathname}?look=${mt.slice(3)}`;
+}
+async function openSharedMountain(id, row) {
+  const S = await fetchShared(id, row); if (!S) return;
+  const { r, doc } = S, from = MOUNTAINS[doc.from], fromList = !!row && !$('crisis').hidden && $('crisis').classList.contains('mbrowse');
+  const rb = await rateBox(S);
   showCrisis(`<div><div class="eyebrow">A shared mountain</div><h2 id="crTitle">${esc(doc.name)}</h2></div>
     <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${esc(from.name)}’s weather.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
-    ${nums}${rate}
-    <p class="help">Play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
-    `<button class="btn" id="smPlay">Play this mountain</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
+    ${sharedNums(S.row)}${rb.html}
+    <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
+    `<button class="btn" id="smPlay">Play this mountain</button><button class="btn secondary" id="smLook">Look around</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
   $('crNo').onclick = () => { if (fromList) openMapBrowser(); else { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); } };
-  if (canRate) {
-    $('smLike').onclick = async () => {
-      const q = CLOUD.sb.from('shared_mountain_likes'), { error: e } = liked ? await q.delete().eq('mountain_id', id) : await q.insert({ mountain_id: id });
-      if (e) { toast('Couldn’t save that. Try again in a moment.', true); return; }
-      liked = !liked; if (row) row.likes += liked ? 1 : -1;
-      $('smLike').textContent = liked ? '❤ Liked' : '♡ Like'; $('smLike').setAttribute('aria-pressed', liked);
-      if (row) $('crBody').querySelector('.mb-nums span').textContent = `❤ ${row.likes}`;
-    };
-    for (const b of document.querySelectorAll('#crisis [data-star]')) b.onclick = async () => {
-      const n = +b.dataset.star, { error: e } = await CLOUD.sb.from('shared_mountain_ratings').upsert({ mountain_id: id, stars: n });
-      if (e) { toast('Couldn’t save your rating. Try again in a moment.', true); return; }
-      stars = n; for (const o of document.querySelectorAll('#crisis [data-star]')) o.classList.toggle('on', +o.dataset.star <= n);
-      toast(`You gave ${doc.name} ${n} star${n > 1 ? 's' : ''}.`);
-    };
-  }
-  $('smPlay').onclick = () => {
-    if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one on the title screen to start another.`, true); return; }
-    const mt = keepMapDoc(mapDocOf(doc));
-    if (!mt) { toast(STORAGE_FULL_MSG, true); return; }
-    try { sessionStorage.setItem(BOOT_KEY, JSON.stringify({ then: 'newMap', mt })); } catch (e) { /* ignore */ }
-    location.href = location.pathname;
-  };
-  if (r.allow_copy) $('smCopy').onclick = () => {
-    if (draftList().length >= MAX_DRAFTS) { toast(`Your editor keeps ${MAX_DRAFTS} mountains. Open the editor and delete one under My mountains first.`, true); return; }
-    const key = Math.random().toString(36).slice(2, 10);
-    try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ ...mapDocOf(doc), name: mapName(`${doc.name} copy`.slice(0, 28)), at: Date.now() })); localStorage.setItem(DRAFT_OPEN, key); }
-    catch (e) { toast(STORAGE_FULL_MSG, true); return; }
-    location.href = `${location.pathname}?editor=1`;
-  };
+  rb.wire($('crBody'));
+  $('smPlay').onclick = () => sharedPlay(doc);
+  $('smLook').onclick = () => sharedLook(doc, fromList);
+  if (r.allow_copy) $('smCopy').onclick = () => sharedCopy(doc);
+}
+/* ---------- Look around (?look=): a shared mountain in 3D, read only, with Play, Copy to edit, Like and stars ---------- */
+function lookStart() {
+  document.body.classList.add('mapview', 'editor', 'look');
+  winterView = true; styleSnowVisuals();
+  $('resortName').textContent = MOUNTAIN.name; $('resortSub').textContent = 'Shared mountain';
+  const el = document.createElement('div');
+  el.className = 'panel mapview'; el.id = 'edPanel';
+  el.innerHTML = `<div class="vhead"><div><h2>${esc(MOUNTAIN.name)}</h2><p id="lkBy">A shared mountain</p></div>
+      <button class="vfold" id="edFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
+    <div id="edBody">
+      <div class="vrow" id="edNums"></div>
+      <ul class="ed-ready" id="lkHas"></ul>
+      <div id="lkRate"></div>
+      <div class="ed-go"><button class="btn" id="lkPlay">Play this mountain</button><button class="btn secondary" id="lkCopy" hidden>Copy to edit</button></div>
+      <p class="ed-reset"><button class="link" id="lkBack">Back</button></p>
+      <h3>View</h3>
+      <div class="vtog"><button id="edSlope" title="Colour the ground by how steep it is">Steepness</button><button id="edTrees" aria-pressed="true">Trees</button><button id="edHome">Whole mountain</button></div>
+      <p class="vhelp">${isCoarse ? 'Drag to move, pinch to zoom, two fingers to turn and tilt.' : 'Drag to move, right-drag to turn and tilt, scroll to zoom.'} Turn on Steepness to see what’s green, blue and black. The dashed line is the land a resort starts with.</p>
+    </div>`;
+  $('hud').appendChild(el);
+  const below = () => { const b = $('badge').getBoundingClientRect().bottom; if (b > 0) { el.style.top = `${Math.round(b + 8)}px`; el.style.maxHeight = `calc(100dvh - ${Math.round(b + 20)}px)`; } };
+  below(); requestAnimationFrame(below); window.addEventListener('resize', below);
+  for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
+  const doc = MOUNTAIN.doc, nc = (doc.creeks || creekPoints(MOUNTAINS[doc.from])).length, np = (doc.ponds || []).length;
+  $('lkHas').innerHTML = `<li class="ok"><span>Access road and base</span></li><li class="${nc ? 'ok' : 'opt'}"><span>${nc ? `${nc} stream${nc > 1 ? 's' : ''}` : 'No streams'}</span></li>
+    <li class="${np ? 'ok' : 'opt'}"><span>${np ? `${np} snowmaking pond${np > 1 ? 's' : ''}, dug and free for a resort here` : 'No snowmaking ponds'}</span></li>`;
+  $('mTitle').onclick = () => { closeMenu(); location.href = location.pathname; };
+  let back = ''; try { back = sessionStorage.getItem('mm.lookBack') || ''; } catch (e) { /* ignore */ }
+  $('lkBack').textContent = back ? 'Back to custom mountains' : 'Back to its card';
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'lkPlay') sharedPlay(doc);
+    else if (b.id === 'lkCopy') sharedCopy(doc);
+    else if (b.id === 'lkBack') location.href = back ? `${location.pathname}?maps=1&browse=1` : `${location.pathname}?mountain=${MOUNTAIN.id.slice(3)}`;
+    else if (b.id === 'edSlope') { setSlope(!overlay.slope); b.setAttribute('aria-pressed', overlay.slope); }
+    else if (b.id === 'edTrees') { treeMesh.visible = !treeMesh.visible; renderer.shadowMap.needsUpdate = true; b.setAttribute('aria-pressed', treeMesh.visible); }
+    else if (b.id === 'edHome') recenter();
+    else if (b.id === 'edFold') { const open = $('edBody').hidden; $('edBody').hidden = !open; b.textContent = open ? '–' : '+'; b.setAttribute('aria-expanded', open); }
+  });
+  if (isPhone()) { $('edBody').hidden = true; $('edFold').textContent = '+'; $('edFold').setAttribute('aria-expanded', 'false'); }
+  window.addEventListener('keydown', (e) => { if (!typingIn(document.activeElement) && !dialogOpen() && !e.ctrlKey && !e.metaKey && /^[1-6bkptl]$/i.test(e.key)) e.stopImmediatePropagation(); }, true); // no building tools or days here
+  edNumbers();
+}
+// Once online: who made it, its totals, whether it can be copied, and Like and stars.
+async function lookLoad() {
+  const S = await fetchShared(MOUNTAIN.id); if (!S) return;
+  $('lkBy').innerHTML = `Made by <b>${esc(S.r.creator)}</b> · ${esc(MOUNTAINS[S.doc.from].name)}’s weather`;
+  $('lkCopy').hidden = !S.r.allow_copy;
+  const rb = await rateBox(S);
+  $('lkRate').innerHTML = sharedNums(S.row) + rb.html; rb.wire($('lkRate'));
 }
 // Opened from a share link: visit that resort, or explain why not.
 async function visitFromLink(id) {
@@ -25985,7 +26061,7 @@ function readAuthReturn() {
 
 }
 async function initCloud() {
-  if (NO_SAVE && !EDITOR) { CLOUD.status = 'offline'; return; }
+  if (NO_SAVE && !EDITOR && !LOOK) { CLOUD.status = 'offline'; return; }
   if (!window.supabase || !window.supabase.createClient) { CLOUD.status = 'offline'; dropCover(); refreshCommunity(); return; }
   try {
     const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
@@ -25997,7 +26073,7 @@ async function initCloud() {
       session = r.data.session;
     }
     setSession(session);
-    if (EDITOR) { CLOUD.status = 'live'; CLOUD.ready = true; await loadProfile(); return; } // the editor only shares: who you are and your name, nothing saved
+    if (EDITOR || LOOK) { CLOUD.status = 'live'; CLOUD.ready = true; await loadProfile(); if (LOOK && MOUNTAIN.id === LOOK) lookLoad(); return; } // the editor and Look around: who you are and your name, nothing saved
     await acceptReferralLink();
     sendSource();
     readAuthReturn();
@@ -28967,6 +29043,7 @@ function tutTick() {
 }
 $('tutBtn').onclick = startTutorial;
 $('mapsCard').hidden = !MAPS_ON; $('mapsCard').onclick = () => openMapBrowser();
+if (new URLSearchParams(location.search).has('browse')) setTimeout(() => openMapBrowser(), 0); // back from looking round one
 
 $('mGoalsMenu').onclick = openGoals;
 $('glClose').onclick = () => { $('goalsBox').hidden = true; };
@@ -30982,6 +31059,14 @@ function start(hot) {
       : 'Multiplayer map preview: your slice of Crown Peak is inside the orange line, from your base up to the flat summit. Rivals have the other two slices. Nothing here is saved.');
   }
   if (!EDITOR) pruneMapDocs();
+  if (LOOK) { // looking round a shared mountain: no resort, nothing kept
+    if (MOUNTAIN.id !== LOOK) location.replace(`${location.pathname}?mountain=${LOOK.slice(3)}`); // opened without its mountain: the card fetches it
+    else {
+      $('title').hidden = true; $('hud').hidden = false; state.started = true; state.welcomed = true;
+      refreshTimebar(true); select(null);
+      lookStart();
+    }
+  }
   if (EDITOR) { // straight into the mountain editor: no resort, nothing but the mountain is kept
     $('title').hidden = true; $('hud').hidden = false; state.started = true;
     state.resortName = ED.name; state.welcomed = true;
