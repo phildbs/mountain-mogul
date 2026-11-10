@@ -401,12 +401,18 @@ leaderboards (decide at piece 5).
   still owed, "summer, all in", days open, best day, one tip. **Records and leaderboards count winter seasons only**
   (as before; said in the report). Phil to confirm.
 - `devSimulate` no longer loops forever in a summer with the switch on.
-- Balance (first pass, `tests/summer-bench.mjs`, a one-off like `balance-ops.mjs`): sightseers `SUMMER_GUESTS` 600 to
-  480; wedding fee $240 to $70 a guest, retreat $140 to $45; offers half as often (0.3 to 0.15); zip line 35% to 15%
-  of guests at the top. Juniper starter, condensed: winter $339k; summer with scenic rides only −$78k (covers about
-  60% of the $199k bill; design aimed for half); with a pavilion taking every booking, a zip line and a bike trail
-  +$48k all in (14% of winter; aim 15 to 25%), bikes $219k, scenic $352k, events $164k (10), zip $75k.
-## Known issues
+- Balance (first pass, `tests/summer-bench.mjs [mountains] [full|short]`, a one-off like `balance-ops.mjs`: the
+  game's starter resort, 6 more parking sections, a winter season, then the summer with scenic rides only and with
+  everything: a pavilion taking every booking, a zip line, a bike trail; full summers open Fri to Sun and holidays).
+  Changed: sightseers `SUMMER_GUESTS` 600 to 480; weddings $240 to $100 a guest, retreats $140 to $60; offers half as
+  often (0.3 to 0.15); zip line 35% to 20% of guests at the top. Results (condensed; winter / scenic only / everything,
+  all in): Juniper $405k / −$85k / +$114k (28%); Raven $191k / −$121k / +$39k (20%); Maple $551k / −$19k / −$71k.
+  Juniper full summer: −$62k / −$22k (before the last fee bump), close to condensed. Aim: scenic only covers about half
+  the bill, everything earns 15 to 25% of a winter. Open questions for playtesting: Maple stays parking-bound (6,600
+  turned away with everything: bikers park all day and push sightseers out), and summer guests don't grow with resort
+  size while costs do, so a big resort does better skipping summer (the 26-lift test resort isn't a fair check: it
+  loses $18M in winter). The demo buttons now build on the lift the Summer plan runs (`summerMainLift`); the report
+  says when the bike lift is off in the plan.
 
 - Custom mountain creation is disabled (`CUSTOM_OFF = true`): Gentle/Easy settings could still make
   cliffs. Existing custom mountains still play.
