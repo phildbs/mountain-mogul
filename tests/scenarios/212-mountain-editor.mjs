@@ -31,6 +31,7 @@ export default async function ({ browser, url }) {
   await g.click('#edMaps');
   await g.ev(`document.getElementById('edFrom').value = 'juniper'`); await g.click('#crisis [data-ed-new=shape]'); await g.reloaded();
   assert(await g.ev(`MOUNTAIN.from === 'juniper' && !ED.blank && !ED.noRoad && ED.name === 'My Juniper Ridge' && draftList().length === 1`), 'a new mountain from Juniper Ridge’s own shape');
+  await g.page.fill('#edAskName', 'My Juniper Ridge'); await g.click('#edAskGo'); // (named as it was, for the rest of the test)
   // packing the ground: small, and exact to 1/64
   const pack = await g.ev(`(() => { const h = encodeHeights(ED.E), D = decodeHeights(h); let m = 0; for (let k = 0; k < D.length; k++) m = Math.max(m, Math.abs(D[k] - ED.E[k])); return [h.length, m, decodeHeights(h.slice(0, 900)), decodeHeights('zz!')]; })()`);
   assert(pack[0] < 60000 && pack[1] <= 1 / 128 + 1e-6, `the ground packs small and comes back the same (${pack[0]} characters, off by ${pack[1]})`);
@@ -195,6 +196,17 @@ export default async function ({ browser, url }) {
   await g.page.reload(); await g.reloaded();
   assert(await g.ev(`MOUNTAIN.id === 'juniper' && !onThisMountain()`), 'without its mountain the resort isn’t opened or saved over');
   eq(g.errors, [], 'no errors');
+  // a new mountain asks for its name first; an empty name isn't taken; once named it opens straight away
+  const nm = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
+  assert(await nm.ev(`!document.getElementById('crisis').hidden && !!document.getElementById('edAskName')`), 'a new mountain asks for its name');
+  await nm.click('#edAskGo'); assert((await nm.ev(`document.getElementById('edAskMsg').textContent`)).includes('Type a name'), 'an empty name isn’t taken');
+  await nm.page.fill('#edAskName', '  Eagle   Peak '); await nm.page.press('#edAskName', 'Enter');
+  eq(await nm.ev(`[document.getElementById('crisis').hidden, ED.name, document.getElementById('edName').value, document.getElementById('resortName').textContent, draftList().map((d) => d.name)]`), [true, 'Eagle Peak', 'Eagle Peak', 'Eagle Peak', ['Eagle Peak']], 'named: kept, and shown on the panel and the mountain button');
+  await nm.page.reload(); await nm.reloaded();
+  assert(await nm.ev(`document.getElementById('crisis').hidden && ED.name === 'Eagle Peak'`), 'once named, it opens without asking');
+  await nm.click('#edMaps'); await nm.click('#crisis [data-ed-new=blank]'); await nm.reloaded();
+  assert(await nm.ev(`!!document.getElementById('edAskName') && !document.getElementById('crisis').hidden`), 'a new one from My mountains asks too');
+  eq(nm.errors, [], 'no errors naming'); await nm.page.close();
   // Back to title screen from the editor's menu: the mountain is kept, and the title screen opens
   const bt = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
   await bt.ev(`(() => { const p = { x: 0, z: -40 }; edStrokeStart(p); for (let i = 0; i < 5; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);

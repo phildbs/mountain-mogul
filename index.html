@@ -3178,11 +3178,11 @@ const NO_ROAD = [[-0.3, -0.16], [-0.16, -0.16]];
 /* The editor's own mountains: drafts kept on this device, each under its own key, shaped freely. Playing one makes
    the fixed document above from the draft as it stands, so shaping it further never touches a resort built on it. */
 const DRAFT_KEY = 'mm.mapdraft.', DRAFT_OPEN = 'mm.mapdraft', MAX_DRAFTS = 8;
-const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, ponds: [], set: null, noRoad: false, blank: false, pondObjs: [], tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
+const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, ponds: [], set: null, noRoad: false, blank: false, unnamed: false, pondObjs: [], tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
 // The draft as a document.
 const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}), ...(ED.ponds.length ? { ponds: ED.ponds } : {}), ...(ED.set ? { set: { ...ED.set } } : {}) });
 // What a draft keeps besides the document: whether it's a blank slate, and still has no road of its own.
-const edDraft = () => ({ ...edDoc(), ...(ED.noRoad && !ED.road ? { noRoad: true } : {}), ...(ED.blank ? { blank: true } : {}), at: Date.now() });
+const edDraft = () => ({ ...edDoc(), ...(ED.noRoad && !ED.road ? { noRoad: true } : {}), ...(ED.blank ? { blank: true } : {}), ...(ED.unnamed ? { unnamed: true } : {}), at: Date.now() });
 function draftList() {
   const out = [];
   try {
@@ -3200,8 +3200,8 @@ function editorMountain() {
   let key = null, d = null;
   try { key = localStorage.getItem(DRAFT_OPEN); d = key && JSON.parse(localStorage.getItem(DRAFT_KEY + key)); } catch (e) { /* ignore */ }
   let E = validMapDoc(d) ? decodeHeights(d.h) : null;
-  if (!E) { key = null; d = { name: 'My mountain', from: 'juniper', creeks: [], noRoad: true, blank: true }; E = gridOf(MOUNTAINS.juniper, true); }
-  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, ponds: d.ponds || [], set: validSet(d.set) ? { ...d.set } : null, noRoad: !d.road && !!d.noRoad, blank: !!d.blank, saved: true }); // (an untouched new one has nothing to keep yet)
+  if (!E) { key = null; d = { name: 'My mountain', from: 'juniper', creeks: [], noRoad: true, blank: true, unnamed: true }; E = gridOf(MOUNTAINS.juniper, true); }
+  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, ponds: d.ponds || [], set: validSet(d.set) ? { ...d.set } : null, noRoad: !d.road && !!d.noRoad, blank: !!d.blank, unnamed: !!d.unnamed, saved: true }); // (an untouched new one has nothing to keep yet)
   const M = mapMountain({ ...d, v: 1, h: '' }, 'c:m!editor', E);
   if (ED.noRoad) { M.road = NO_ROAD; M.lotWest = false; for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k]; }
   return M;
@@ -25741,7 +25741,7 @@ async function openMapBrowser() {
     <div class="mb-tools"><div class="seg" role="group" aria-label="Sort">${MB_SORTS.map(([k, l]) => `<button data-mb-sort="${k}" aria-pressed="${MB.sort === k}">${l}</button>`).join('')}</div>
       <input id="mbSearch" type="search" placeholder="Search names and makers" value="${esc(MB.search)}" aria-label="Search"></div>
     <div class="mb-list" id="mbList"><p class="help">Loading…</p></div>`,
-    '<button class="btn secondary" id="mbMake">Make your own</button><button class="btn secondary" id="crNo">Close</button>');
+    '<button class="btn" id="mbMake">Make your own</button><button class="btn secondary" id="crNo">Close</button>');
   $('crisis').classList.add('mbrowse'); $('crNo').onclick = () => { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); };
   $('mbMake').onclick = () => { location.href = `${location.pathname}?editor=1`; };
   for (const b of document.querySelectorAll('#crisis [data-mb-sort]')) b.onclick = () => { MB.sort = b.dataset.mbSort; for (const o of document.querySelectorAll('#crisis [data-mb-sort]')) o.setAttribute('aria-pressed', o === b); mbLoad(); };
@@ -25814,7 +25814,7 @@ function sharedPlay(doc, sandbox) {
 function sharedCopy(doc) {
   if (draftList().length >= MAX_DRAFTS) { toast(`Your editor keeps ${MAX_DRAFTS} mountains. Open the editor and delete one under My mountains first.`, true); return; }
   const key = Math.random().toString(36).slice(2, 10);
-  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ ...mapDocOf(doc), name: mapName(`${doc.name} copy`.slice(0, 28)), at: Date.now() })); localStorage.setItem(DRAFT_OPEN, key); }
+  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify({ ...mapDocOf(doc), name: mapName(`${doc.name} copy`.slice(0, 28)), unnamed: true, at: Date.now() })); localStorage.setItem(DRAFT_OPEN, key); }
   catch (e) { toast(STORAGE_FULL_MSG, true); return; }
   location.href = `${location.pathname}?editor=1`;
 }
@@ -27586,8 +27586,8 @@ function edNew(from, blank, copyOf) {
   const names = new Set(list.map((d) => d.name)), stem = copyOf ? mapName(`${ED.name} copy`.slice(0, 28)) : blank ? 'My mountain' : mapName(`My ${MOUNTAINS[from].name}`);
   let name = stem; for (let n = 2; names.has(name); n++) name = mapName(`${stem.slice(0, 25)} ${n}`);
   const key = Math.random().toString(36).slice(2, 10);
-  const d = copyOf ? { ...edDraft(), name } : blank ? { v: 1, name, from: 'juniper', h: encodeHeights(gridOf(MOUNTAINS.juniper, true)), creeks: [], noRoad: true, blank: true, at: Date.now() }
-    : { v: 1, name, from, h: encodeHeights(gridOf(MOUNTAINS[from])), at: Date.now() };
+  const d = { ...(copyOf ? { ...edDraft(), name } : blank ? { v: 1, name, from: 'juniper', h: encodeHeights(gridOf(MOUNTAINS.juniper, true)), creeks: [], noRoad: true, blank: true, at: Date.now() }
+    : { v: 1, name, from, h: encodeHeights(gridOf(MOUNTAINS[from])), at: Date.now() }), unnamed: true }; // asked for a name when it opens
   try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify(d)); }
   catch (e) { toast('This browser’s storage is full. Delete a mountain you no longer want.', true); return; }
   edOpen(key);
@@ -27774,6 +27774,23 @@ function edSetChanged() {
   ED.saved = false; clearTimeout(edSaveT); edSaveT = setTimeout(edSave, 600);
   edSync();
 }
+// A new mountain is named first: a name it keeps (and shows when shared), changeable later at the top of the panel.
+function edAskName() {
+  showCrisis(`<div><div class="eyebrow">Mountain editor</div><h2 id="crTitle">Name your mountain</h2></div>
+    <p class="help">${ED.blank ? 'You’re starting from a blank slate.' : `You’re starting from ${esc(ED.name)}.`} What’s your mountain called? You can change it later at the top of the editor.</p>
+    <input id="edAskName" class="ed-pname" maxlength="28" value="${esc(ED.name === 'My mountain' ? '' : ED.name)}" placeholder="e.g. Eagle Peak" aria-label="Mountain name"><p class="help warn" id="edAskMsg"></p>`,
+    '<button class="btn" id="edAskGo">Start shaping</button>');
+  const go = () => {
+    const n = $('edAskName').value.replace(/\s+/g, ' ').trim();
+    if (!n) { $('edAskMsg').textContent = 'Type a name first.'; $('edAskName').focus(); return; }
+    ED.name = mapName(n); ED.unnamed = false; MOUNTAIN.name = ED.name;
+    $('edName').value = ED.name; $('resortName').textContent = ED.name; state.resortName = ED.name;
+    ED.saved = false; edSave(); $('crisis').hidden = true;
+  };
+  $('edAskGo').onclick = go;
+  $('edAskName').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  setTimeout(() => { const i = $('edAskName'); if (i) { i.focus(); i.select(); } }, 50);
+}
 // My mountains: the drafts on this device, and starting a new one.
 function edMaps() {
   const list = draftList(), full = list.length >= MAX_DRAFTS;
@@ -27872,7 +27889,7 @@ function editorStart() {
   for (const inp of document.querySelectorAll('#edPanel [data-set]')) inp.oninput = (e) => edSetValue(e.target.dataset.set, +e.target.value);
   $('edSize').oninput = (e) => { ED.r = +e.target.value; edSync(); };
   $('edStr').oninput = (e) => { ED.k = +e.target.value; edSync(); };
-  $('edName').onchange = (e) => { ED.name = mapName(e.target.value); e.target.value = ED.name; MOUNTAIN.name = ED.name; $('resortName').textContent = ED.name; ED.saved = false; edSave(); };
+  $('edName').onchange = (e) => { ED.unnamed = false; ED.name = mapName(e.target.value); e.target.value = ED.name; MOUNTAIN.name = ED.name; $('resortName').textContent = ED.name; ED.saved = false; edSave(); };
   if (isPhone()) { $('edBody').hidden = true; $('edFold').textContent = '+'; $('edFold').setAttribute('aria-expanded', 'false'); }
   window.addEventListener('pagehide', edSave);
   window.addEventListener('keydown', (e) => {
@@ -27884,7 +27901,8 @@ function editorStart() {
   if (ED.noRoad) { if (roadMesh) roadMesh.visible = false; lotGroup.visible = false; } // the stub road off in the corner isn't drawn
   if (ED.ponds.length) edSetPonds(ED.ponds);
   edSync(); edNumbers(); edStatus();
-  toast(ED.blank && !ED.key ? 'Mountain editor: a blank slate. Raise a mountain with the brush, then draw the access road. It’s kept on this device as you go.' : 'Mountain editor: pick a brush and drag on the ground to shape it. Your mountain is kept on this device as you go.');
+  if (ED.unnamed) edAskName();
+  else toast(ED.blank && !ED.key ? 'Mountain editor: a blank slate. Raise a mountain with the brush, then draw the access road. It’s kept on this device as you go.' : 'Mountain editor: pick a brush and drag on the ground to shape it. Your mountain is kept on this device as you go.');
 }
 // While the brush is held down it keeps working, whether or not it moves.
 function edTick(dt) {

@@ -451,6 +451,10 @@ the player's to draw; raising land brings the land around it up too, with detail
   `[data-sandbox]`) sits by Play on a shared mountain's card, in Look around and in the editor; `sharedPlay(doc,
   sandbox)` and `edPlay` set `setSandboxNext`, which `newMountain` picks up after the reload, as the title's Sandbox
   does. Scenario 213 plays a shared mountain as a sandbox. (Claude, Nov 10)
+- **Name first** (Phil, Nov 10): a mountain not yet named (draft flag `unnamed`, set for a fresh blank slate, every new
+  one from My mountains, and Copy to edit) opens with `edAskName` (Name your mountain, Start shaping or Enter; an empty
+  name isn't taken), which names and keeps the draft. Renaming at the top of the panel also clears it. Older drafts
+  have no flag, so they open as before. The browser's Make your own is orange (`btn`). (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
