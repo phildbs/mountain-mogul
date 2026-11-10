@@ -30,7 +30,9 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`(() => { select({ kind: 'lift', obj: world.lifts[0] }); return /bike carriers fitted/.test($('sheet').textContent); })()`), true, 'the lift panel says it carries bikes');
 
   // a summer day: riders come, lap the trail and pay; a save mid-day keeps them riding
+  eq(await g.ev(`document.querySelector('#manage [data-m=snow]').textContent`), 'Snow', 'the side menu has its Snow button in winter');
   await g.ev(toSummer);
+  eq(await g.ev(`[document.querySelector('#manage [data-m=snow]').textContent, !!document.querySelector('#manage [data-m=snow] circle')]`), ['Summer', true], '…and a Summer button with a sun in summer');
   await g.ev(`(() => { state.sum.wx = { type: 'sumsun', hi: 80, lo: 55, snow: 0, wind: 5 }; openDay(); })()`); await g.ev(play(780));
   eq(await g.ev(`new Set(guests.map((x) => Object.keys(x).join(','))).size`), 1, 'summer guests keep one object shape, so days stay quick');
   const drawn = await g.ev(`(() => { cam.viewH = 40; drawPeople(); const by = (f) => guests.filter((x) => x.bike && f(x)).length;
@@ -50,6 +52,7 @@ export default async function ({ browser, url }) {
   eq(crew, [true, 0.5, 0], 'the trail crew fixes the wear overnight; without it the trail stays rough and costs nothing');
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(true))); applySave(sv); const B = world.buildings.find(isBike); return [B.wear, !!B.crewOff, world.lifts[0].bikes]; })()`), [0.5, true, true], 'wear, crew and carriers are saved');
   eq(await g.ev(`(() => { openManage('prices'); return /Bike park day ticket price/.test($('sheet').textContent); })()`), true, 'its price sits with the scenic ride');
+  eq(await g.ev(`(() => { summerEnd(); return document.querySelector('#manage [data-m=snow]').textContent; })()`), 'Snow', 'back to Snow when winter starts');
   eq(g.errors, [], 'no page errors');
   return 'bike trails: under Trails, placing rules, a winding trail with carriers, shut in winter, a summer day of riders, a mid-day save, wear and the trail crew, price';
 }

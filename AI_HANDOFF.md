@@ -367,6 +367,23 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
   rides; the trail crew $830 a day. Retune at piece 5. Not done yet: injuries on bikes, bike rentals at the rental shop,
   a bike race event, rain closing trails.
 
+**Side menu (Nov 10, Phil):** the Snow button turns into a **Summer** button with a sun while summer days are played
+(`seasonButton`, from `styleSnowVisuals`), and back to Snow when winter starts; the More list's row too.
+
+**Still to do before 4.0 can launch** (Claude, Nov 10; Phil to pick what's in):
+1. Publish pieces 2 to 4 to `main` (still hidden), so they stop drifting from `main`.
+2. Balance (piece 5) on all four mountains, small, medium and large resorts: summer is richer than the design aimed
+   for; weddings, zip line and bike numbers are first guesses; summer must never beat winter.
+3. A proper end-of-summer report, and decide whether summer profit counts in records and leaderboards.
+4. Loose ends found in pieces 1 to 4: the welcome card still says "the snow is in" and "holiday crowds on Dec 24" when
+   a game is in summer (seen in the summer preview); the Summer plan shows après, night skiing and patrol rows that do
+   nothing; guests wear winter clothes; hunger notes say "skiing"; day-report tips are off in summer; condos are shut.
+5. Designed but not built (in or later?): thunderstorms (lightning holds), a lookout deck, bike injuries and patrol,
+   bike rentals, a bike race event, rain closing bike trails, the coaster's replacement ("something better later").
+6. Check on a phone: the bike trail tapping, the summer panel and the preview card.
+7. Launch itself: the switch on, a `CHANGES` entry for 4.0, the guide (summer days, events, zip line, bike park),
+   the roadmap card, and the full GitHub run.
+
 **Known gaps in piece 1, for later pieces:** condos are shut in summer; the Summer plan editor still shows
 après, night skiing and patrol rows that do nothing; guests wear winter clothes; day-report tips are switched off in
 summer; hunger notes still say "skiing"; no thunderstorms or lookout deck yet; summer profit is not in records or
