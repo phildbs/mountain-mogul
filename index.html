@@ -8042,7 +8042,7 @@ function draftTap(p) {
 function chainTap(p) {
   const C = draft.chain || (draft.chain = []), q = { x: Math.round(p.x * 4) / 4, z: Math.round(p.z * 4) / 4 }, last = C[C.length - 1], c = CHAIN[draft.btype];
   if (last && distXZ(q, last) < 0.6) return;
-  if (C.length >= c.max) { toast(draft.btype === 'zip' ? 'A zip line has two towers. Build it, then start another.' : `A ${draft.btype === 'mfence' ? 'fence' : draft.btype === 'coaster' ? 'coaster track' : 'chain'} can have up to ${c.max} ${c.post}s. Build it, then start another.`, true); return; }
+  if (C.length >= c.max) { toast(draft.btype === 'zip' ? 'A zip line has two towers. Build it, then start another.' : `A ${draft.btype === 'mfence' ? 'fence' : 'chain'} can have up to ${c.max} ${c.post}s. Build it, then start another.`, true); return; }
   if (last && distXZ(q, last) > (c.span || CHAIN_SPAN)) { toast(`${c.post[0].toUpperCase() + c.post.slice(1)}s can be up to ${fmtFt((c.span || CHAIN_SPAN) * FT_PER_UNIT)} apart. Tap a little closer to the last one.`, true); return; }
   C.push(q); draft.bpos = { x: C[0].x, z: C[0].z };
   recomputeBldDraft(); renderSheet();
@@ -8592,8 +8592,11 @@ function liftDraftSheet() {
     ${draft.liftType === 'carpet' && !world.areas.length ? '<p class="help">A carpet works best inside a learning area. <button class="link" data-action="trailMode" data-v="area">Paint one first</button></p>' : ''}
     ${LIFT_TYPES[draft.liftType].surface ? `<p class="help">${draft.liftType === 'carpet' ? `A covered conveyor belt for gentle slopes up to about ${units.metric ? '180 m' : '590 ft'}. Perfect for a learning area at the base.` : `Pulls skiers up on their skis, up to about ${units.metric ? '800 m' : '2,600 ft'}. Cheap to run and keeps going in wind that stops chairlifts.`}</p>` : ''}
     ${body}
-    ${buildRow(info, info && !info.problems.length)}`;
+    ${buildRow(info, info && !info.problems.length)}
+    ${SUMMER_ON && !draft.pts.length ? zipCard() : ''}`;
 }
+// The zip line (summer, hidden until 4.0) is a building underneath, but players look for it with the lifts.
+const zipCard = () => { const t = BTYPES.zip; return `<div class="field-label">Summer ride</div><div class="bpick rows"><button data-action="transitPick" data-v="zip"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon('zip', 0)}</i><span><b>${t.name}</b><em>${BBLURB.zip}</em><small>Top tower by a lift’s top, bottom tower at a base</small></span><span class="bp">from ${money(2 * t.cost)}</span></button></div>`; };
 
 // Moving a lift: drag either station; it keeps its name, type, colour and history.
 function liftMoveSheet() {
@@ -9769,7 +9772,7 @@ const SUMMER_STOPS = [
 const SUMMER_EARLY_FALL = { name: 'Early fall', pull: 0.75 }; // the quiet weeks after Labor Day (a full summer only)
 const SUMMER_COND = 2.5; // a condensed summer plays 18 of the busy days: each stands in for this many
 const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic', 'condo']; // nothing for them to do until the snow is back (hotels stay open)
-const WINTER_SHUT = ['pavilion', 'zip']; // summer only (the coaster runs all year)
+const WINTER_SHUT = ['pavilion', 'zip']; // summer only
 const SUMMER_GUESTS = 600, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -12206,7 +12209,6 @@ function baseDecision(g, skipHub = false) {
   if (g.hotel && g.fat > g.stam * 0.6 && napOk(g) && Math.random() < 0.2) { goNap(g, 'Getting tired. A rest in the room, then back out.'); return goCar(g); }
   if (maybeVisit(g, g, 14, true, { k: 'base' })) return;
   if (seekMeal(g, { k: 'base', p: g }, { k: 'base' })) return;
-  if (!g.triedC && state.time > 660) { g.triedC = true; if (rideStop(g, 'coaster', g.family ? 0.15 : g.ab === 0 ? 0.1 : 0.04)) return; } // a coaster break between runs
   let best = null, bv = -Infinity;
   const memo = new Map();
   const zg = baseCount() > 1 ? baseOf(g) : 0;
@@ -12532,9 +12534,9 @@ function makeGuest(car, x, z) {
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
     xUntil: undefined, xZone: undefined, xFinal: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined,
-    // summer (hidden until 4.0): views, weddings and events, the coaster and the zip line
+    // summer (hidden until 4.0): views, weddings and events, the zip line
     told: undefined, viewL: undefined, evt: undefined, evSeat: undefined, evB: undefined, evDone: undefined, noLift: undefined, heard: undefined,
-    triedC: undefined, triedZ: undefined, rqB: undefined, rs: undefined
+    triedZ: undefined, rqB: undefined, rs: undefined
   };
   // Shoppers browse for souvenirs, each at their own time between 10:30 and 3 so they don't all queue at once; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.shopAt = 630 + Math.random() * 270; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -12904,7 +12906,7 @@ function updateGuest(g, dt) {
     case 'watch': if (state.time >= TORCH.parade[1] + 8) showOver(g); break;
     case 'view': if (state.time >= g.until || state.time >= closeTime()) rideDown(g); break;
     case 'evt': if (state.time >= g.until) eventLeave(g); break;
-    case 'coast': case 'zip': rideMove(g, dt); break;
+    case 'zip': rideMove(g, dt); break;
     case 'topq': if (!g.L.open) { g.L.topQ = g.L.topQ.filter((x) => x !== g); hikeOut(g, 'The lift stopped, so I walked down.'); } break;
     default: break;
   }
@@ -13286,7 +13288,7 @@ function endDay() {
   state.dayUse = { day: today.day, runs: { ...today.trailRuns }, night: { ...today.night.runs }, heat: today.heat || {} };
   const trailsDay = trailsDayReport();
   state.lastReport = {
-    rides: today.coasterRides || today.zipRides ? { coaster: today.coasterRides || 0, zip: today.zipRides || 0 } : null,
+    rides: today.zipRides ? { zip: today.zipRides } : null,
     event: evToday ? evToday.type : null, sev: today.sevOut && today.sevOut.length ? today.sevOut : null,
     liftRides: Object.fromEntries(world.lifts.map((L) => [L.id, today.liftRiders[L.id] || 0])), // favourites, for which lot guests choose
     lotCars: today.lotCars || null,
@@ -14259,7 +14261,7 @@ function writeFig(n, x, y, z, yaw, sy, g, pitch = 0) {
   _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e); _s.set(figScale, sy * figScale, figScale); _v.set(x, y, z);
   _m.compose(_v, _q, _s);
   for (const k of ['jacket', 'pants', 'head']) _m.toArray(figMeshes[k].instanceMatrix.array, n * 16);
-  (g.rack != null || g.sight || g.st === 'coast' || g.st === 'zip' || g.st === 'rq' ? NO_SKIS : _m).toArray(figMeshes.skis.instanceMatrix.array, n * 16); // sightseers (every summer guest) have no skis
+  (g.rack != null || g.sight || g.st === 'zip' || g.st === 'rq' ? NO_SKIS : _m).toArray(figMeshes.skis.instanceMatrix.array, n * 16); // sightseers (every summer guest) have no skis
   figMeshes.jacket.instanceColor.setXYZ(n, ...hexRGB(g.jc));
   figMeshes.pants.instanceColor.setXYZ(n, ...hexRGB(g.pc));
   figMeshes.head.instanceColor.setXYZ(n, ...hexRGB(g.hc));
@@ -14316,7 +14318,7 @@ function guestPos(g) {
     const B = bldById(g.bid), st = B && B.seatsW[g.deck];
     if (st) return { x: st.x, y: st.y - 0.12, z: st.z, yaw: st.yaw, sy: 0.72 };
   }
-  if (g.st === 'coast' || g.st === 'zip') { const p = ridePos(g); if (p) return p; }
+  if (g.st === 'zip') { const p = ridePos(g); if (p) return p; }
   if (g.st === 'evt' && g.evSeat >= 0) {
     const B = bldById(g.evB), st = B && B.seatsW[g.evSeat];
     if (st) return { x: st.x, y: st.y - 0.12, z: st.z, yaw: st.yaw, sy: 0.72 };
@@ -14614,9 +14616,7 @@ const BTYPES = {
       { label: 'Large', title: 'Event hall', guests: 300, w: 7.2, d: 5.2, upkeep: 1300, cost: 260000, roof: true },
     ],
   },
-  // Summer rides (hidden until 4.0), drawn as chains: cost and upkeep are per point, plus the track or cable by length (CHAIN).
-  coaster: { name: 'Mountain coaster', where: 'base', cost: 20000, sign: 'COASTER', accent: 0xd9662b, w: 2.6, d: 2.6, upkeep: 60, noPad: true, // sits on the ground: no pad to level
-    desc: 'Riders are hauled up the mountain in little sleds and race back down on rails. Draw the track from the station at the base up the mountain. Runs all year: in winter, families and beginners take a ride between runs.' },
+  // The zip line (summer, hidden until 4.0) is a chain of two towers: cost and upkeep per tower, plus the cable by length (CHAIN).
   zip: { name: 'Zip line', where: 'any', cost: 120000, sign: 'ZIP LINE', accent: 0x2a8a88, w: 1.4, d: 1.4, upkeep: 250, noPad: true,
     desc: 'A cable from a tower by the top of a chairlift or gondola down to a base. Summer guests at the top zip down instead of riding the lift. Shut in winter.' },
   // Homes to sell: `value` is what one home sells for before ski-in/ski-out and the owners' mood; `dues` a day each once sold.
@@ -14630,12 +14630,12 @@ const BTYPES = {
     ],
   },
 };
-const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tmap', 'tlight', 'flood', 'lamp', 'strlight', 'mfence', 'xtree', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel', 'condo', 'pavilion', 'coaster', 'zip'];
+const BORDER = ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar', 'tree', 'bench', 'picnic', 'rack', 'tmap', 'tlight', 'flood', 'lamp', 'strlight', 'mfence', 'xtree', 'firepit', 'rental', 'tuning', 'store', 'gift', 'school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest', 'shuttle', 'transit', 'hotel', 'condo', 'pavilion', 'zip'];
 // The build menu's sections.
 // The build menu's tabs: [key, label, building types].
 const BGROUPS = [['food', 'Food', ['truck', 'cafe', 'lodge', 'restaurant', 'fine', 'bar']], ['shops', 'Shops', ['rental', 'tuning', 'store', 'gift']],
   ['services', 'Services', ['school', 'kids', 'patrol', 'clinic', 'restroom', 'hrest']], ['stay', 'Lodging', ['hotel', 'condo']], ['decor', 'Decor', ['tree', 'bench', 'picnic', 'rack', 'tmap', 'firepit', 'lamp', 'strlight', 'mfence', 'xtree', 'tlight', 'flood']],
-  ...(SUMMER_ON ? [['summer', 'Summer', ['pavilion', 'coaster', 'zip']]] : [])]; // summer buildings are hidden until 4.0
+  ...(SUMMER_ON ? [['summer', 'Summer', ['pavilion']]] : [])]; // summer buildings are hidden until 4.0 (the zip line is under Lifts)
 // The tab you were on last, remembered on this device.
 let bTabNow = null;
 function bTab() { if (bTabNow == null) { try { bTabNow = localStorage.getItem('mm.bTab') || 'food'; } catch (e) { bTabNow = 'food'; } } return bTabNow; }
@@ -14679,7 +14679,6 @@ const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes 
   condo: '<path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 9.5V20.5h13V9.5"/><path d="M10 20.5v-5h4v5"/><path d="M8.5 12.5h.01M15.5 12.5h.01"/><path d="M16 6.5V3.5h2.5v5"/>',
   condo1: '<path d="M1.5 12L7 6.5l5 5 5-5 5.5 5.5"/><path d="M3.5 10.5v10h17v-10"/><path d="M12 11.5v9"/><path d="M6 20.5v-4h2.5v4M15.5 20.5v-4H18v4"/>',
   condo2: '<path d="M1.5 11l3.5-4 3.5 4 3.5-4 3.5 4 3.5-4 3.5 4"/><path d="M2.5 10v10.5h19V10"/><path d="M8.5 11v9.5M15.5 11v9.5"/><path d="M4.5 20.5v-3h2v3M11 20.5v-3h2v3M17.5 20.5v-3h2v3"/>',
-  coaster: '<path d="M2 20c3-9 6-14 9-14s4 6 7 6 3-3 4-5"/><path d="M2 20h20"/><path d="M6 20v-5M11 20V9M16 20v-6"/>',
   zip: '<path d="M3 5l18 10"/><path d="M3 3v18M21 13v8"/><path d="M12 10v3"/><circle cx="12" cy="15" r="1.6"/><path d="M12 16.5v3M10.5 21l1.5-1.5 1.5 1.5"/>',
   pavilion: '<path d="M2.5 11L12 4l9.5 7"/><path d="M4.5 9.5V20M19.5 9.5V20"/><path d="M9 20v-6a3 3 0 0 1 6 0v6"/><path d="M2 20.5h20"/>',
   car: '<path d="M3 13l2-5.3A2 2 0 0 1 6.9 6.5h10.2a2 2 0 0 1 1.9 1.2L21 13v4H3z"/><path d="M3 13h18"/><circle cx="7" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/>',
@@ -14687,7 +14686,7 @@ const BICON = { // line icons drawn like the toolbar's: 24 units, round strokes 
 const bIcon = (k, tier) => ((k === 'lodge' || k === 'condo') && tier ? bIcon(k + tier) : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BICON[k] || BICON.lodge}</svg>`);
 const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a warm-up', lodge: 'Lunch, warm-up and restrooms', restaurant: 'Sit-down lunch', fine: 'Pricey meals, big spenders', bar: 'Drinks and après-ski',
   rental: 'Rents skis to guests', tuning: 'Rentals plus ski tuning', store: 'Sells gear and clothing', gift: 'Souvenirs and small treats', school: 'Lessons for beginners', kids: 'Day camp for young kids',
-  patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over', condo: 'Homes to sell, or rent by the night', pavilion: 'Weddings and summer events', coaster: 'A ride down on rails, all year', zip: 'Fly down from a lift’s top',
+  patrol: 'Reaches injured skiers', clinic: 'Patches up the injured', restroom: 'A quick stop', hrest: 'A warmer, bigger stop', shuttle: 'Town buses and parking shuttles', transit: 'Bigger buses, two bays', hotel: 'Rooms for guests who stay over', condo: 'Homes to sell, or rent by the night', pavilion: 'Weddings and summer events', zip: 'Fly down from a lift’s top',
   tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 40 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing',
   tmap: 'Your trails, on a board', strlight: 'A chain of bulbs on poles', mfence: 'Orange mesh between posts', xtree: 'A lit tree with a star', flood: 'Bright light for wide trails' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
@@ -14843,7 +14842,7 @@ const bspec = (b, P) => isChain(b.type) && b.pts ? { ...BTYPES[b.type], upkeep: 
 // What a building costs at a size: lodges come small, medium or large, each its own choice in the build menu.
 const tierName = (t, s) => s.title || `${s.label} ${t.name.replace('Ski ', '').toLowerCase()}`;
 const sizeCost = (type, tier = 0) => BTYPES[type].cost + (BTYPES[type].tiers || []).slice(1, tier + 1).reduce((a, t) => a + (t.cost || 0), 0);
-const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0, room: 180, coaster: 15, zip: 35 };
+const PRICE_DEFAULTS = { night: 35, food: 16, snack: 11, dining: 38, fine: 85, drinks: 18, rental: 45, tune: 35, gear: 60, gift: 14, lesson: 95, camp: 110, scenic: 25, parking: 0, room: 180, zip: 35 };
 const PRICE_INFO = {
   snack: { label: 'Snack (truck, café)', min: 3, max: 30, step: 1 },
   food: { label: 'Lodge meal', min: 5, max: 60, step: 1 },
@@ -14858,7 +14857,6 @@ const PRICE_INFO = {
   lesson: { label: 'Group lesson', min: 20, max: 250, step: 5 },
   camp: { label: 'Kids’ camp (per child)', min: 20, max: 300, step: 5 },
   scenic: { label: 'Scenic gondola ride', min: 5, max: 80, step: 5 },
-  coaster: { label: 'Mountain coaster ride', min: 5, max: 50, step: 1 },
   zip: { label: 'Zip line ride', min: 10, max: 120, step: 5 },
   parking: { label: 'Parking', min: 0, max: 40, step: 5 },
   room: { label: 'Hotel room, a night', min: 60, max: 600, step: 10 },
@@ -15186,9 +15184,9 @@ function modelFlood() {
 // between them. Pieces placed before chains (preview only) have two posts.
 // Mesh fences (`mfence`) are chains too: posts instead of poles, mesh instead of bulbs.
 const CHAIN_SPAN = 4, CHAIN_MAX = 16, CHAIN_PER_UNIT = 200, POLE_H = 1.5;
-const CHAIN_TYPES = ['strlight', 'mfence', 'coaster', 'zip'], isChain = (type) => CHAIN_TYPES.includes(type);
+const CHAIN_TYPES = ['strlight', 'mfence', 'zip'], isChain = (type) => CHAIN_TYPES.includes(type);
 const CHAIN = { strlight: { max: CHAIN_MAX, perUnit: CHAIN_PER_UNIT, post: 'pole' }, mfence: { max: 30, perUnit: 40, post: 'post' },
-  coaster: { max: 40, perUnit: 11000, post: 'point', span: 6 }, zip: { max: 2, perUnit: 2500, post: 'tower', span: 80 } }; // the summer rides
+  zip: { max: 2, perUnit: 2500, post: 'tower', span: 80 } }; // the summer zip line
 const chainPts = (b) => b.pts || [[-1.22, 0], [1.22, 0]];
 const chainCost = (pts, type = 'strlight') => pts.length * BTYPES[type].cost + Math.round(pts.slice(1).reduce((a, q, i) => a + Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0) * CHAIN[type].perUnit / 50) * 50;
 // Points along each span (world x/z, height above the first pole's ground), for bulbs and their light.
@@ -17196,40 +17194,17 @@ function pavSeason() {
     B.yday = y; B.evUse = use;
   }
 }
-/* ---------- Mountain coaster and zip line models (summer, hidden until 4.0) ----------
-   Chains: the coaster's station sits at the first point, its twin rails run on short posts through every point,
-   following the ground; the zip line's top tower is at the first point and the bottom one at the second, with a
-   sagging cable between. Classic look only. */
-const COASTER_RED = accentMat(0xd9662b);
-const COASTER_RAIL = 0.3, ZIP_TOP = 3.0, ZIP_BOT = 1.5, ZIP_SAG = 0.012; // rail height; cable height at each tower; its sag
-// The height the building is drawn from (as buildingVisual places a building with no pad), so the track meets the ground.
+/* ---------- Zip line model (summer, hidden until 4.0) ----------
+   A chain of two: the top tower at the first point and the bottom one at the second, with a sagging cable between.
+   Classic look only. */
+const ZIP_TOP = 3.0, ZIP_BOT = 1.5, ZIP_SAG = 0.012; // cable height at each tower; its sag
+// The height the building is drawn from (as buildingVisual places a building with no pad), so it meets the ground.
 const rideY0 = (b) => footprintStats(boxOf(b)).hmax * VEX + 0.03;
 function railSpan(k, a, c, w, h, mat) { // a box from a to c (local, with y), w wide and h tall
   const L = Math.hypot(c.lx - a.lx, c.lz - a.lz);
   k.push((a.lx + c.lx) / 2, (a.y + c.y) / 2, (a.lz + c.lz) / 2, Math.atan2(-(c.lz - a.lz), c.lx - a.lx));
   k.add(bx(Math.hypot(L, c.y - a.y), h, w), mat, 0, 0, 0, 0, 0, Math.atan2(c.y - a.y, L));
   k.pop();
-}
-function modelCoaster(tier, b) {
-  const k = new Kit(), P = b ? chainPts(b) : [[0, 0]], y0 = b ? rideY0(b) : 0, at = (lx, lz) => (b ? heightAt(b.x + lx, b.z + lz) - y0 : 0);
-  // the station: a deck under an orange roof
-  k.add(bx(2.2, 0.08, 2.2), BM.plank, 0, 0.04, 0);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.add(bx(0.08, 1.0, 0.08), BM.wood, sx * 1.0, 0.5, sz * 1.0);
-  k.add(bx(2.5, 0.1, 2.5), COASTER_RED, 0, 1.05, 0);
-  k.add(bx(1.6, 0.1, 1.6), COASTER_RED, 0, 1.15, 0);
-  sign(k, 'coaster', 0, 0.85, 1.06, 0.9);
-  // the rails, through every point; posts every couple of samples
-  const S = [];
-  for (let i = 0; i < P.length - 1; i++) {
-    const [ax, az] = P[i], [cx, cz] = P[i + 1], n = Math.max(1, Math.ceil(Math.hypot(cx - ax, cz - az) / 0.8));
-    for (let j = i ? 1 : 0; j <= n; j++) { const f = j / n, lx = lerp(ax, cx, f), lz = lerp(az, cz, f); S.push({ lx, lz, y: at(lx, lz) + COASTER_RAIL }); }
-  }
-  for (let i = 0; i < S.length - 1; i++) {
-    const a = S[i], c = S[i + 1], dx = c.lx - a.lx, dz = c.lz - a.lz, d = Math.hypot(dx, dz) || 1, nx = -dz / d, nz = dx / d;
-    for (const side of [-0.2, 0.2]) railSpan(k, { lx: a.lx + nx * side, lz: a.lz + nz * side, y: a.y }, { lx: c.lx + nx * side, lz: c.lz + nz * side, y: c.y }, 0.08, 0.06, BM.steel);
-    if (i % 2 === 0) { k.add(bx(0.06, COASTER_RAIL + 0.1, 0.06), BM.dark, a.lx, a.y - COASTER_RAIL / 2 - 0.03, a.lz); k.add(bx(0.06, 0.03, 0.5), BM.dark, a.lx, a.y - 0.03, a.lz, 0, Math.atan2(dx, dz), 0); }
-  }
-  return k;
 }
 function zipTower(k, x, z, h) {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.add(bx(0.08, h, 0.08), BM.wood, x + sx * 0.45, h / 2, z + sz * 0.45);
@@ -17255,7 +17230,7 @@ function modelZip(tier, b) {
   sign(k, 'zip', 0, 0.9, 0.52, 0.7);
   return k;
 }
-MODELS.coaster = modelCoaster; MODELS.zip = modelZip;
+MODELS.zip = modelZip;
 /* ---------- Building themes ----------
    Some buildings come in more than one look. The theme is chosen in the build menu and kept with each
    building; a type without that theme's model falls back to the classic one. Look only: size, seats,
@@ -17404,7 +17379,6 @@ const OTHER_NAMES = {
   hrest: ['Heated Restrooms', 'Warm Stalls', 'The Cozy Stalls'],
   transit: ['Transit Center', 'Bus Terminal'],
   hotel: ['Summit House Hotel', 'The Alpenglow', 'Powder Inn', 'Snowberry Lodge Hotel', 'The Timberline', 'Firstlight Hotel', 'Ridgeview Inn', 'The Lift Line Hotel'],
-  coaster: ['Alpine Coaster', 'Timber Twister', 'The Mountain Flyer', 'Ridge Runner', 'The Wild Sled'],
   zip: ['Zip Line', 'Eagle Zip', 'Skyline Zip', 'The Raven Line', 'Hawk Run Zip'],
   pavilion: ['Meadow Pavilion', 'Wildflower Lawn', 'The Aspen Pavilion', 'Summit Lawn', 'Larkspur Pavilion', 'The Valley View', 'Sunset Meadow'],
   condo: ['Trailside Condos', 'Slopeside Homes', 'Snowbird Townhomes', 'Fir Hollow Chalets', 'The Ski-In Cabins', 'Powder Ridge Homes', 'Aspen Row', 'Hearthstone Condos', 'Ptarmigan Place', 'Snowcrest Village'],
@@ -17453,7 +17427,7 @@ function addBuilding(b) {
   b.group = v.group; b.baseY = v.baseY;
   const s = bspec(b);
   b.door = toWorld(b, 0, s.d / 2 + 0.35);
-  if (RIDE_TYPES.includes(b.type)) rideDoor(b);
+  if (isRide(b)) rideDoor(b);
   b.isBase = isBase(b.door);
   const a = b.rot * Math.PI / 2;
   b.seatsW = v.seats.map((st) => ({ ...toWorld(b, st.x, st.z), y: b.baseY + st.y, yaw: st.yaw + a }));
@@ -17645,7 +17619,7 @@ function priceOf(svc, prices) {
   if (svc === 'shop') return prices.gift ?? 14;
   if (svc === 'camp') return prices.camp ?? 110;
   if (svc === 'scenic') return prices.scenic ?? 25;
-  if (svc === 'coaster' || svc === 'zip') return prices[svc] ?? PRICE_DEFAULTS[svc];
+  if (svc === 'zip') return prices.zip ?? PRICE_DEFAULTS.zip;
   return svc === 'food' ? prices.food : svc === 'snack' ? prices.snack ?? 11 : svc === 'finedine' ? prices.fine ?? 85 : svc === 'warm' ? Math.round(prices.food * 0.45) : svc === 'dine' ? prices.dining
     : svc === 'apres' ? Math.round(prices.dining * 0.7) : svc === 'rent' ? prices.rental : svc === 'lesson' ? prices.lesson : 0;
 }
@@ -19187,7 +19161,6 @@ function capOf(type, s) {
     case 'patrol': return `${s.crew} patrollers`;
     case 'restroom': return `${s.stalls} stalls`;
     case 'hotel': return `${s.rooms} rooms · up to ${s.rooms * ROOM_GUESTS} guests a night${s.seats ? ` · restaurant, ${s.seats} seats` : ''}`;
-    case 'coaster': return 'Draw the track from a station at the base up the mountain · riders pay each ride';
     case 'zip': return 'Two towers and a cable, from beside the top of a lift down to a base';
     case 'pavilion': return `Up to ${s.guests} guests · ${s.roof ? 'under a roof' : 'an open lawn, at the mercy of the weather'}`;
     case 'condo': return `${s.units} ${s.units === 1 ? 'home' : 'homes'} to sell · each sleeps ${CONDO_GUESTS} · about ${money(s.value)} a home`;
@@ -19224,16 +19197,15 @@ function hoverGhost(p) {
 // like a small building, spans can be up to CHAIN_SPAN long, and trees right under the string are cleared.
 function evalChain(chain, type = 'strlight') {
   const o = chain[0], pts = chain.map((q) => [Math.round((q.x - o.x) * 100) / 100, Math.round((q.z - o.z) * 100) / 100]), post = CHAIN[type].post;
-  const problems = [], treeSet = new Set(), span = CHAIN[type].span || CHAIN_SPAN, ride = RIDE_TYPES.includes(type), clear = type === 'coaster' ? 0.6 : 0.3;
-  // a ride's station and towers are checked as themselves; the coaster's track points like a small post
-  chain.forEach((q, i) => { for (const p of validateBuilding(ride && i && !(type === 'zip') ? 'tlight' : type, 0, q.x, q.z, 0).problems) if (!problems.includes(p)) problems.push(p); });
-  chain.forEach((q, i) => { const big = ride && (!i || type === 'zip'); footprintTrees({ x: q.x, z: q.z, rot: 0 }, big ? BTYPES[type].w : 0.3, big ? BTYPES[type].d : 0.3, 0.15, treeSet); }); // a station or tower clears its own spot
+  const problems = [], treeSet = new Set(), span = CHAIN[type].span || CHAIN_SPAN, ride = type === 'zip', clear = 0.3;
+  for (const q of chain) for (const p of validateBuilding(type, 0, q.x, q.z, 0).problems) if (!problems.includes(p)) problems.push(p);
+  chain.forEach((q, i) => { const big = ride; // a zip tower clears its own spot footprintTrees({ x: q.x, z: q.z, rot: 0 }, big ? BTYPES[type].w : 0.3, big ? BTYPES[type].d : 0.3, 0.15, treeSet); }); // a station or tower clears its own spot
   for (let i = 1; i < chain.length; i++) {
     const a = chain[i - 1], b = chain[i], L = distXZ(a, b);
     if (L > span + 0.01) { problems.push(`${post[0].toUpperCase() + post.slice(1)}s can be up to ${fmtFt(span * FT_PER_UNIT)} apart.`); break; }
     treesInBrush({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, L / 2 + clear, (k) => { if (distToSeg({ x: trees.x[k], z: trees.z[k] }, a, b) < clear) treeSet.add(k); });
   }
-  if (chain.length < 2) problems.push(type === 'coaster' ? 'Tap up the mountain to draw the track.' : type === 'zip' ? 'Now tap where the bottom tower goes, in a base area.' : `Add at least one more ${post}.`);
+  if (chain.length < 2) problems.push(type === 'zip' ? 'Now tap where the bottom tower goes, in a base area.' : `Add at least one more ${post}.`);
   if (ride) for (const p of rideProblems(type, chain)) problems.push(p);
   const bb = bAABB(type, 0, o.x, o.z, 0), build = chainCost(pts, type);
   return { problems, treeSet, bb, fs: footprintStats(bb), lotWarn: false, padY: null, grading: 0, tier: 0, x: o.x, z: o.z, pts, build, cost: build + treeSet.size * TREE_COST };
@@ -19319,8 +19291,7 @@ function bldDraftSheet() {
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? tierName(t, s) : t.name;
   const chain = isChain(draft.btype) ? (draft.chain || []) : null, post = chain && CHAIN[draft.btype].post;
-  const help = chain && draft.btype === 'coaster' ? (chain.length ? `${chain.length} ${chain.length === 1 ? 'point' : 'points'}. Keep ${isCoarse ? 'tapping' : 'clicking'} up the mountain, up to ${fmtFt(CHAIN.coaster.span * FT_PER_UNIT)} at a time; zigzag across steep ground. Riders are hauled up beside the track and ride back down it.` : `${isCoarse ? 'Tap' : 'Click'} where the station goes, in a base area, then up the mountain to draw the track.`)
-    : chain && draft.btype === 'zip' ? (chain.length ? `${isCoarse ? 'Tap' : 'Click'} where the bottom tower goes, in a base area, downhill from the top.` : `${isCoarse ? 'Tap' : 'Click'} where the top tower goes, beside the top of a chairlift or gondola from the base.`)
+  const help = chain && draft.btype === 'zip' ? (chain.length ? `${isCoarse ? 'Tap' : 'Click'} where the bottom tower goes, in a base area, downhill from the top.` : `${isCoarse ? 'Tap' : 'Click'} where the top tower goes, beside the top of a chairlift or gondola from the base.`)
     : chain ? (chain.length ? `${chain.length} ${post}${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${fmtFt(CHAIN_SPAN * FT_PER_UNIT)} from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first ${post} goes, then each ${post} after it. ${draft.btype === 'mfence' ? 'The mesh is strung between them.' : 'The lights hang between them.'}`)
     : draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
     : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door right by a trail, in the lower third of the mountain.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
@@ -19500,7 +19471,7 @@ function bldLive(B) {
   }
 }
 // Prices in sections, each with what guests consider normal.
-const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine', 'drinks']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', SUMMER_ON ? ['scenic', 'coaster', 'zip'] : ['scenic']], ['Night skiing', ['night']], ['Hotels and condos', ['room']]];
+const PRICE_GROUPS = [['Food and drink', ['snack', 'food', 'dining', 'fine', 'drinks']], ['Rentals and shops', ['rental', 'tune', 'gear', 'gift']], ['Lessons and camp', ['lesson', 'camp']], ['Scenic rides', SUMMER_ON ? ['scenic', 'zip'] : ['scenic']], ['Night skiing', ['night']], ['Hotels and condos', ['room']]];
 const groupedPrices = () => `<p class="help">Guests compare each price with what’s normal, shown beside it. Charge more and some will pass.</p>`
   + PRICE_GROUPS.map(([label, keys]) => `<h4 class="price-group">${label}</h4>${keys.map(priceStepper).join('')}`).join('');
 function priceStepper(key) {
@@ -21873,7 +21844,6 @@ function summerDemand() {
   if (lifts.some((L) => world.buildings.some((B) => isEatery(B) && bldMode(B) !== 'closed' && distXZ(B.door, L.b) <= 8))) amen += 0.2; // lunch with a view
   if (has('lodge') || has('restaurant') || has('cafe')) amen += 0.06;
   if (has('gift') || has('store')) amen += 0.03;
-  if (has('coaster')) amen += 0.12; // more to do than the ride up
   if (has('zip')) amen += 0.08;
   const day = Math.max(dow === 6 ? 1 : dow === 0 ? 0.9 : dow === 5 ? 0.6 : 0.4, S.holiday ? 0.8 : 0); // a holiday is busy whatever the day
   const priceF = clamp(Math.exp(-(svcPrice('scenic') - 25) / 25 * 1.5), 0.1, 1.5);
@@ -21886,7 +21856,6 @@ function summerDemand() {
 function summerBase(g) {
   if (g.evt) { if (!g.evDone) return eventGo(g); g.leaving = true; return goCar(g); }
   if (g.sawView && !g.leaving && concertStop(g)) return;
-  if (g.sawView && !g.leaving && !g.triedC) { g.triedC = true; if (rideStop(g, 'coaster', 0.45)) return; }
   if (!g.sawView) {
     const L = !g.leaving && state.time < closeTime() ? scenicLift(g) : null;
     if (L && canLoad(L)) {
@@ -22239,33 +22208,19 @@ function sevPanel() {
   }
   return h;
 }
-/* ---------- Mountain coaster and zip line (summer piece 3, hidden until 4.0) ----------
-   Both are chains (see CHAIN): the coaster's first point is its station at the base, and each tap after it draws
-   the track up the mountain. Riders are hauled up beside the track and ride back down the way it was drawn. It
-   runs in winter too: skiers with young kids, beginners and a few others take a ride at the base.
-   The zip line is two towers: the top one by the top of a chairlift or gondola from the base, the bottom one at a
-   base. Summer guests at the top may zip down instead of riding the lift. Shut in winter.
-   Riders wait in B.rq (guest ids), one launched every RIDE[type].gap minutes, and pay per ride. */
-const RIDE = {
-  coaster: { gap: 0.35, haul: 0.16 / PACE, speed: 0.5 / PACE, rail: COASTER_RAIL },
-  zip: { gap: 0.8, speed: 0.8 / PACE, top: ZIP_TOP, bot: ZIP_BOT, sag: ZIP_SAG },
-};
-const RIDE_TYPES = ['coaster', 'zip'], isRide = (B) => RIDE_TYPES.includes(B.type);
-const COASTER_CLIMB = 40, COASTER_STEEP = 0.7, ZIP_MIN = 0.05, ZIP_MAX = 0.5; // metres above the station; slopes
+/* ---------- Zip line (summer piece 3, hidden until 4.0) ----------
+   A chain of two towers (see CHAIN), picked under Lifts: the top one by the top of a chairlift or gondola from the
+   base, the bottom one at a base. Summer guests at the top may zip down instead of riding the lift. Shut in winter.
+   Riders wait in B.rq (guest ids), one launched every RIDE.zip.gap minutes, and pay per ride.
+   (A mountain coaster was built here too and taken out, Phil's call, Nov 10: something better later.) */
+const RIDE = { zip: { gap: 0.8, speed: 0.8 / PACE, top: ZIP_TOP, bot: ZIP_BOT, sag: ZIP_SAG } };
+const isRide = (B) => B.type === 'zip';
+const ZIP_MIN = 0.05, ZIP_MAX = 0.5; // the cable's slope
 const zipLiftAt = (p) => world.lifts.find((L) => L.fromBase && !LIFT_TYPES[L.type].surface && !isVillage(L) && distXZ(L.b, p) <= SEV_NEAR) || null;
-// Where the coaster's rules or the zip line's are broken, from the points tapped so far (world x/z).
+// Where the zip line's rules are broken, from the towers tapped so far (world x/z).
 function rideProblems(type, C) {
   const out = [], m = (p) => trueY(p.x, p.z) * 10; // metres
   if (C.length < 2) return out;
-  if (type === 'coaster') {
-    for (let i = 1; i < C.length; i++) {
-      const a = C[i - 1], b = C[i], L = distXZ(a, b) * 10, dy = m(b) - m(a);
-      if (dy < -5) { out.push('The track dips on the way up. On the ride down it would have to climb: keep each point higher than the last.'); break; }
-      if (Math.abs(dy) / Math.max(1, L) > COASTER_STEEP) { out.push('Too steep for a coaster between two of the points. Zigzag across the slope.'); break; }
-    }
-    if (m(C[C.length - 1]) - m(C[0]) < COASTER_CLIMB) out.push(`The track needs to climb at least ${fmtFt(COASTER_CLIMB * 3.281)} above the station. Keep tapping up the mountain.`);
-    return out;
-  }
   const [a, b] = C, L = distXZ(a, b), drop = (m(a) - m(b)) / (L * 10);
   if (!zipLiftAt(a)) out.push('Put the top tower beside the top of a chairlift or gondola from the base, so riders can get up to it.');
   if (!isBase(b)) out.push('The bottom tower has to be in a base area, so riders can walk back.');
@@ -22284,21 +22239,15 @@ function rideTrack(B) {
   const sig = `${B.x},${B.z},${JSON.stringify(chainPts(B))}`;
   if (B.trk && B.trk.sig === sig) return B.trk;
   const W = chainPts(B).map(([lx, lz]) => toWorld(B, lx, lz)), p = [], cum = [];
-  if (B.type === 'zip') {
+  if (W.length > 1) {
     const [a, b] = W, L = distXZ(a, b), ya = heightAt(a.x, a.z) + RIDE.zip.top, yb = heightAt(b.x, b.z) + RIDE.zip.bot, n = Math.max(2, Math.ceil(L / 0.5));
     for (let i = 0; i <= n; i++) { const f = i / n; p.push({ x: lerp(a.x, b.x, f), z: lerp(a.z, b.z, f), y: lerp(ya, yb, f) - L * RIDE.zip.sag * Math.sin(f * Math.PI) }); }
-  } else {
-    for (let i = 0; i < W.length - 1; i++) {
-      const a = W[i], b = W[i + 1], n = Math.max(1, Math.ceil(distXZ(a, b) / 0.5));
-      for (let j = i ? 1 : 0; j <= n; j++) { const f = j / n, x = lerp(a.x, b.x, f), z = lerp(a.z, b.z, f); p.push({ x, z, y: heightAt(x, z) + RIDE.coaster.rail }); }
-    }
-    if (!p.length) p.push({ ...W[0], y: heightAt(W[0].x, W[0].z) + RIDE.coaster.rail });
   }
   let s = 0;
   p.forEach((q, i) => { if (i) s += Math.hypot(q.x - p[i - 1].x, q.z - p[i - 1].z); cum.push(s); });
   return (B.trk = { sig, p, cum, L: s });
 }
-// A point s along the track, with a sideways offset (the coaster's two rails).
+// A point s along the cable.
 function rideAt(T, s, side = 0) {
   const p = T.p, c = T.cum;
   s = clamp(s, 0, T.L);
@@ -22340,59 +22289,45 @@ function rideStep(B) {
   if (!g || g.st !== 'rq') return;
   const price = svcPrice(B.type);
   state.cash += price * AGENT; today.rev.rides = (today.rev.rides || 0) + price * AGENT; B.today.revenue += price * AGENT; B.today.visits += AGENT;
-  const k = B.type === 'zip' ? 'zipRides' : 'coasterRides'; today[k] = (today[k] || 0) + AGENT;
+  today.zipRides = (today.zipRides || 0) + AGENT;
   today.waitSum += state.time - g.qT; today.waitN++;
-  g.st = B.type === 'zip' ? 'zip' : 'coast'; g.rs = 0;
+  g.st = 'zip'; g.rs = 0;
   B.rNext = state.time + RIDE[B.type].gap;
 }
 function rideMove(g, dt) {
   const B = bldById(g.rqB);
   if (!B) return rideDone(g, false);
   const T = rideTrack(B), R = RIDE[B.type];
-  g.rs += (B.type === 'coaster' && g.rs < T.L ? R.haul : R.speed) * dt;
-  if (g.rs >= (B.type === 'coaster' ? T.L * 2 : T.L)) rideDone(g, true);
+  g.rs += R.speed * dt;
+  if (g.rs >= T.L) rideDone(g, true);
 }
 function ridePos(g) {
   const B = bldById(g.rqB);
   if (!B) return null;
   const T = rideTrack(B);
-  if (B.type === 'zip') { const p = rideAt(T, g.rs); return { x: p.x, y: p.y - 0.5, z: p.z, yaw: p.yaw, sy: 1 }; }
-  const up = g.rs < T.L, p = up ? rideAt(T, g.rs, 0.2) : rideAt(T, T.L * 2 - g.rs, -0.2);
-  return { x: p.x, y: p.y - 0.02, z: p.z, yaw: up ? p.yaw : p.yaw + Math.PI, sy: 0.72 };
+  const p = rideAt(T, g.rs);
+  return { x: p.x, y: p.y - 0.5, z: p.z, yaw: p.yaw, sy: 1 }; // hanging under the cable
 }
-// Off at the bottom: the coaster's station, or the zip line's bottom tower. Then on with the day.
+// Off at the bottom tower. Then on with the day.
 function rideDone(g, rode) {
   const B = bldById(g.rqB);
   if (B && rode) {
     const T = rideTrack(B), end = B.type === 'zip' ? T.p[T.p.length - 1] : B.door;
     g.x = end.x + (Math.random() - 0.5) * 0.6; g.z = end.z + (Math.random() - 0.5) * 0.6;
     g.sat = clamp(g.sat + 8, 0, 100);
-    thought(g, B.type === 'zip' ? pick(['Flew down the mountain on the zip line!', 'That zip line was a rush!']) : pick(['The coaster was so much fun!', 'Faster, faster! Best ride on the mountain.', 'The kids loved the mountain coaster.']));
+    thought(g, pick(['Flew down the mountain on the zip line!', 'That zip line was a rush!']));
   } else if (B && !rode) thought(g, `${B.name} closed before my turn.`);
   g.st = 'walk'; g.then = null; g.rs = 0;
   if (summerNow() && g.sight) return summerBase(g);
   g.onSkis = false;
   baseDecision(g);
 }
-// The summer preview's button, and tests: a coaster beside the base lift and a zip line from its top, free.
+// The summer preview's button, and tests: a zip line from beside the top of the base lift down to the base, free.
 function demoRides() {
   const L = world.lifts.find((x) => x.fromBase && !LIFT_TYPES[x.type].surface) || world.lifts[0];
   if (!L) return [];
   const dx = L.b.x - L.a.x, dz = L.b.z - L.a.z, d = Math.hypot(dx, dz), ux = dx / d, uz = dz / d, sx = -uz, sz = ux, made = [], cash = state.cash;
   const at = (s, o) => ({ x: Math.round((L.a.x + ux * s + sx * o) * 4) / 4, z: Math.round((L.a.z + uz * s + sz * o) * 4) / 4 });
-  const ok = (type, p) => !validateBuilding(type, 0, p.x, p.z, 0).problems.length;
-  for (const off of [6, -6, 9, -9, 12, -12, 15, -15]) {
-    if (made.some((B) => B.type === 'coaster')) break;
-    const C = [at(1, off)];
-    if (!ok('coaster', C[0])) continue;
-    for (let s = 5; s < d - 2 && C.length < CHAIN.coaster.max; s += 4.5) {
-      const p = [0, 1.2, -1.2, 2.4, -2.4].map((w) => at(s, off + w)).find((q) => ok('tlight', q) && distXZ(q, C[C.length - 1]) <= CHAIN.coaster.span);
-      if (!p) break;
-      C.push(p);
-    }
-    const v = evalChain(C, 'coaster');
-    if (!v.problems.length) { const B = commitBuilding(v, 'coaster', v.x, v.z, 0); B.spent = 0; made.push(B); }
-  }
   zip: for (const top of [3, -3, 5, -5, 7, -7]) for (const along of [0, 0.1, 0.2, 0.3]) for (const bot of [-8, 8, -11, 11, -14, 14, -18, 18]) {
     const t = at(d + 1, top), b = at(Math.max(1, d * along), bot);
     if (!isBase(b)) continue;
@@ -22420,8 +22355,8 @@ function summerDemo() {
         : `<div class="field-label" style="margin-top:8px">Jump to</div><div class="tabs" style="flex-wrap:wrap">${SUMMER_STOPS.map((x, k) => `<button data-d="stop" data-v="${k}" aria-pressed="${x === S}">${x.name}</button>`).join('')}</div>
           <div class="field-label" style="margin-top:8px">Weather</div><div class="tabs">${WXS.map(([k, l]) => `<button data-d="wx" data-v="${k}" aria-pressed="${todayWx().type === k}">${l}</button>`).join('')}</div>
           <div class="row" style="margin-top:10px"><button class="btn" data-d="play" ${state.phase === 'closed' ? '' : 'disabled'}>Play this day</button><button class="btn secondary" data-d="wed" ${state.phase === 'closed' ? '' : 'disabled'}>Wedding offer</button></div>
-          <div class="row" style="margin-top:6px"><button class="btn secondary" data-d="rides" ${state.phase === 'closed' && !world.buildings.some((B) => B.type === 'coaster') ? '' : 'disabled'}>Add a coaster and zip line</button></div>
-          <p class="help" style="margin:6px 0 0">Jumps to the Saturday of each stop. Wedding offer builds a pavilion by the base if you have none and offers a wedding next Saturday. Add a coaster and zip line builds both beside the lift, free. Nothing here is saved.</p>`);
+          <div class="row" style="margin-top:6px"><button class="btn secondary" data-d="rides" ${state.phase === 'closed' && !world.buildings.some(isRide) ? '' : 'disabled'}>Add a zip line</button></div>
+          <p class="help" style="margin:6px 0 0">Jumps to the Saturday of each stop. Wedding offer builds a pavilion by the base if you have none and offers a wedding next Saturday. Add a zip line builds one from the top of the lift down to the base, free. Nothing here is saved.</p>`);
   };
   el.onclick = (e) => {
     const b = e.target.closest('[data-d]');
@@ -22441,7 +22376,7 @@ function summerDemo() {
     } else if (d === 'wx') { state.sum.wx = { ...state.sum.wx, type: b.dataset.v }; applyWeatherLook(); refreshTimebar(true); renderSheet(); }
     else if (d === 'play' && state.phase === 'closed') { autoDays = 0; openDay(); if (state.phase === 'open') state.speed = 4; }
     else if (d === 'wed') demoWedding();
-    else if (d === 'rides') { const m = demoRides(); toast(m.length ? `Built ${m.map((B) => B.name).join(' and ')}. Play a day to see riders.` : 'No room beside the lift for them.', !m.length); }
+    else if (d === 'rides') { const m = demoRides(); toast(m.length ? `Built ${m[0].name}. Play a day to see riders.` : 'No room for a zip line beside the lift.', !m.length); }
     draw();
   };
   let key = '';
@@ -22665,7 +22600,7 @@ function showReport(r = state.lastReport, past = false) {
   note(4, ...opsNotes(r));
   if (r.goals && r.goals.length) note(5, ...r.goals.map((t) => `<b class="rp-goal">★ Goal complete: ${esc(t)}</b>`));
   note(5, ...sevReportNotes(r));
-  if (r.rides) note(1, [r.rides.coaster && `${r.rides.coaster.toLocaleString('en-US')} rides on the mountain coaster`, r.rides.zip && `${r.rides.zip.toLocaleString('en-US')} rides down the zip line`].filter(Boolean).join(' and ') + '.');
+  if (r.rides) note(1, `${r.rides.zip.toLocaleString('en-US')} rides down the zip line.`);
   if (r.event) note(5, `<b>${esc(EVENTS[r.event].name)}</b> drew a bigger crowd today${r.sat >= 65 ? ', and guests loved it: your reputation got a boost.' : '. Guests weren’t happy enough for it to help your reputation.'}`);
   if (r.race && r.race.best) note(5, `${r.race.runs} racers ran the gates on <b>${esc(r.race.trail)}</b>. Fastest run: bib ${r.race.best.bib} in ${raceTime(r.race.best.secs)}.`);
   if (r.pond && r.pond.runs) note(5, `${r.pond.runs} skiers in costume tried to skim the pond at the bottom of <b>${esc(r.pond.trail)}</b>. ${r.pond.dry ? `${r.pond.dry} made it across dry.` : 'Every one of them went in.'}`);
@@ -22755,7 +22690,7 @@ function showReport(r = state.lastReport, past = false) {
     <div class="rp-lines">
       <span class="h">Revenue</span>
       <span>${r.summer ? 'Scenic rides' : 'Lift tickets'}</span><span>${money(rv.tickets)}</span>${line(`Season passes (${r.passesSold} sold)`, rv.passes)}
-      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Weddings and events', rv.events)}${line('Coaster and zip line', rv.rides)}${line('Hotel rooms', rv.lodging)}${line('Condo dues and rentals', rv.condo)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
+      ${line('Lodge food', rv.food)}${line('Restaurant and bar', rv.dining)}${line('Rentals and tuning', rv.rentals)}${line('Shops', rv.retail)}${line(r.campers ? 'Lessons and camp' : 'Lessons', rv.lessons)}${line('Parking', rv.parking)}${line('Après (bar and restaurants)', rv.apres)}${line('Weddings and events', rv.events)}${line('Zip line', rv.rides)}${line('Hotel rooms', rv.lodging)}${line('Condo dues and rentals', rv.condo)}${line('Night tickets', rv.night)}${rv.refunds ? `<span>Ticket refunds</span><span class="neg">−${money(rv.refunds)}</span>` : ''}
       <span class="tot">Total revenue</span><span class="tot">${money(revTotal)}</span>
       <span class="h">Expenses</span>
       <span>Lift operations</span><span>${money(ex.lifts)}</span>

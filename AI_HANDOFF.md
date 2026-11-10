@@ -270,7 +270,7 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 |---|---|---|
 | 1 | Summer days, scenic lift rides, fall colours | On `main`, hidden (Nov 9, run 561 green). Phil confirmed the 2.5x condensed rule and the no-changelog rule (Nov 10). |
 | 2 | Weddings and events: event pavilion, bookings, summer events; hotels open in summer | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
-| 3 | Mountain coaster (runs in winter too), zip line | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
+| 3 | Zip line (the coaster was dropped, Phil, Nov 10) | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
 | 4 | Mountain biking: narrow dirt bike trails, bike carriers, trail crew | Not started |
 | 5 | Balance on every mountain, a proper end-of-summer report, guide, roadmap, changelog, switch on | Not started |
 
@@ -322,23 +322,20 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 - Preview card: **Wedding offer** builds a free medium pavilion by the base if there's none and offers next Saturday.
 - Balance first guess: a 120-guest wedding pays about $30k against a $230k pavilion. Retune at piece 5.
 
-**How piece 3 works** (sections `Mountain coaster and zip line` in `index.html`, models and sim; test `204-summer-rides`):
-- Both are chains (`CHAIN`, `evalChain`, `chainTap`), so they're drawn by tapping (Phil chose "draw the route", Nov 10).
-  Coaster: first point is the station (base only), then up to 40 points up the mountain, 6 apart; `rideProblems` wants
-  each point no lower than the last (5 m slack), no span steeper than 0.7, and 40 m of climb. Zip line: two towers,
-  the top within 12 of a base chair or gondola's top (`zipLiftAt`), the bottom in a base, a 5 to 50% drop, the cable
-  clear of the ground. Both `noPad` (placing them used to level the ground to 0: chains have no pad height).
-- Cost: $20k a point plus $11k a unit of track (a 12-point coaster about $780k); zip $120k a tower plus $2.5k a unit.
-  Upkeep is per point (`bspec` for chains). The zip line is in `WINTER_SHUT`; the coaster runs all year.
-- Riders: `rideStop` sends a guest to the station (`k: 'rq'`), `rideJoin` lines them up in `B.rq`, `rideStep` launches
-  one every `RIDE[type].gap` minutes and takes `svcPrice` ($15 coaster, $35 zip; under Prices › Scenic rides only
-  with the switch) into `today.rev.rides`. States `coast` / `zip` move along `rideTrack(B)` (`rideMove`, `ridePos`);
-  `rideDone` sets them down and back to `summerBase` or `baseDecision`. Who rides: summer sightseers after the view
-  (coaster 45%), at the top beside a zip line (35%); in winter, skiers at the base after 11:00 (families 15%,
-  beginners 10%, others 4%), once a day. Coaster +0.12 and zip +0.08 to summer draw.
-- Preview card: **Add a coaster and zip line** builds both beside the base lift, free (`demoRides`).
-- Balance first guess: a summer Saturday on the starter resort gave about 100 coaster and 70 zip rides ($3.8k).
-  Pays back slowly, as designed; retune at piece 5.
+**How piece 3 works** (section `Zip line` in `index.html`, models and sim; test `204-summer-rides`):
+- Phil (Nov 10): the mountain coaster is **out** (not what he pictured; something better after summer is done), and
+  the zip line belongs **under Lifts**, not Build. It was built and removed on this branch; nothing of it is on `main`.
+- The zip line is a chain of two towers (`CHAIN.zip`, `evalChain`, `chainTap`), picked from a card at the foot of the
+  Lifts sheet (`zipCard`, reusing `transitPick` like Roads › Transit). Top tower within 12 of a base chair or
+  gondola's top (`zipLiftAt`), bottom tower in a base, a 5 to 50% slope, cable clear of the ground (`rideProblems`).
+  `noPad` (placing it used to level the ground to 0: chains have no pad height). $120k a tower plus $2.5k a unit of
+  cable; upkeep per tower. In `WINTER_SHUT`.
+- Riders: summer guests at the top beside a zip line (35%, `topLinger`) go to its door (`rideStop`, `k: 'rq'`), line
+  up in `B.rq` (`rideJoin`), are launched every 0.8 min by `rideStep` and pay $35 (`today.rev.rides`, Prices › Scenic
+  rides, only with the switch), hang under the cable (state `zip`, `rideMove`, `ridePos`) and land at the bottom tower
+  (`rideDone`, then `summerBase`). +0.08 to summer draw.
+- Preview card: **Add a zip line** builds one from beside the top of the base lift down to the base, free (`demoRides`).
+- New guest fields are declared up front in `makeGuest` (the 112 speed test wants one object shape).
 
 **Known gaps in piece 1, for later pieces:** condos are shut in summer; the Summer plan editor still shows
 après, night skiing and patrol rows that do nothing; guests wear winter clothes; day-report tips are switched off in
