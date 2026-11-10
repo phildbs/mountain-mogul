@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
-**4.3.2 (branch `ccr-3942b770-09neiw`, waiting for Publish):** Weather and money sliders on phones: each is now a
+**Live: 4.3.2 Editor sliders fit on phones** (published Nov 10 on Phil's "Publish"; quick-fix tier): Weather and money sliders on phones: each is now a
 row of name and setting (`.ed-slide`: grid, the slider full width below), so the words aren't cut off. Scenario 212. (Claude, Nov 10)
 
 **Live: 4.3.1 Custom mountains button fix** (published Nov 10 on Phil's "Publish"; quick-fix tier, scenarios 214 and 18): the new-mountain list's Custom mountains button used
