@@ -36,8 +36,11 @@ export default async function ({ browser, url }) {
   eq(await b.ev(`[document.querySelector('#crisis [data-like]').textContent, document.querySelectorAll('#crisis .mb-stars .on').length]`), ['❤ Liked', 5], 'liked, and rated five stars');
   await b.click('#crisis [data-like]'); await b.wait(200); await b.click('#crisis [data-like]'); await b.wait(200); // unlike and like again
   await b.click('#crisis [data-star="4"]'); await b.wait(200); // changing the rating
+  // report it: once, with a reason, sent to the owner
+  await b.click('#crisis [data-report]'); await b.page.fill('#crisis .mb-reportbox input', 'Rude name'); await b.click('#crisis [data-report-send]'); await b.wait(300);
+  assert((await dlg(b)).includes('Reported. Thanks'), 'Report: sent, and the card says so');
   const sd = await b.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')));
-  eq([sd.sLikes.length, sd.sRatings.length, sd.sRatings[0].stars], [1, 1, 4], 'one like and one rating each, changeable');
+  eq([sd.sLikes.length, sd.sRatings.length, sd.sRatings[0].stars, sd.sReports.length, sd.sReports[0].reason], [1, 1, 4, 1, 'Rude name'], 'one like, one rating (changeable) and one report each');
   await b.click('#crNo'); await b.wait(300);
   assert(await b.ev(`!!document.getElementById('mbList')`), 'Back to the list');
   await b.click('#crisis [data-mb-sort=likes]'); await b.wait(300);
@@ -63,6 +66,14 @@ export default async function ({ browser, url }) {
   await b.ev(`document.querySelector('#mbList [data-mb-open="${first}"]').click()`); await b.wait(400); await b.click('#smLook'); await b.reloaded();
   await b.click('#lkPlay'); await b.reloaded();
   eq(await b.ev(`[MOUNTAIN.id, state.started, !LOOK, world.ponds.length]`), [first, true, true, 1], 'Play from Look around starts a resort on it');
+  // the owner's stats page: totals, the reported mountain first with its reason, and Remove
+  await b.page.evaluate(() => localStorage.setItem('FAKE_SESSION', JSON.stringify({ user: { id: 'owner', is_anonymous: false, email: 'phildbs@gmail.com' } })));
+  await b.page.goto(url + 'stats.html?owner#custom'); await b.page.waitForSelector('#custom table', { timeout: 10000 });
+  const st = await b.page.innerText('#custom');
+  assert(/shared\s*2/i.test(st) && /Second Bowl[\s\S]*Moss[\s\S]*Rude name[\s\S]*First Peak/.test(st) && (await b.page.innerText('#cBadge')) === '1', `stats: totals, the reported one first with its reason, a badge (${st.slice(0, 400)})`);
+  await b.click(`[data-cremove="${second}"]`); await b.click(`[data-cremove="${second}"]`); await b.wait(500);
+  eq(await b.page.evaluate(() => JSON.parse(localStorage.getItem('FAKE_DB')).shared.map((m) => m.name)), ['First Peak'], 'Remove takes it off');
+  assert(!/Second Bowl/.test(await b.page.innerText('#custom')), 'and off the list');
   eq(b.errors, [], 'no errors'); await b.page.close();
   // a Look around link opened on its own goes to the mountain's card, which fetches it
   const e = await openGame(browser, url);

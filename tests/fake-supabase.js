@@ -66,9 +66,9 @@
         return { data: q.single ? data[0] || null : data, error: null };
       }
       // a shared mountain's likes and ratings: your own rows only; one each; never on your own mountain; no guests
-      if (table === 'shared_mountain_likes' || table === 'shared_mountain_ratings') {
-        if (d.noShared) return { data: null, error: { code: '42P01', message: 'relation does not exist' } };
-        const key = table === 'shared_mountain_likes' ? 'sLikes' : 'sRatings', list = d[key] || (d[key] = []);
+      if (table === 'shared_mountain_likes' || table === 'shared_mountain_ratings' || table === 'shared_mountain_reports') {
+        if (d.noShared || (table === 'shared_mountain_reports' && d.noSharedAdmin)) return { data: null, error: { code: '42P01', message: 'relation does not exist' } };
+        const key = { shared_mountain_likes: 'sLikes', shared_mountain_ratings: 'sRatings', shared_mountain_reports: 'sReports' }[table], list = d[key] || (d[key] = []);
         let rows = list.filter((r) => r.user_id === me);
         for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
         if (q.op === 'select') return { data: rows.map((r) => ({ ...r })), error: null };
@@ -78,7 +78,7 @@
         if (key === 'sRatings' && !(q.obj.stars >= 1 && q.obj.stars <= 5)) return { data: null, error: { code: '23514', message: 'check constraint' } };
         const ex = list.find((r) => r.mountain_id === m.id && r.user_id === me);
         if (ex && q.op === 'insert') return { data: null, error: { code: '23505', message: 'duplicate key' } };
-        if (ex) ex.stars = q.obj.stars; else list.push({ mountain_id: m.id, user_id: me, ...(key === 'sRatings' ? { stars: q.obj.stars } : {}) });
+        if (ex) ex.stars = q.obj.stars; else list.push({ mountain_id: m.id, user_id: me, ...(key === 'sRatings' ? { stars: q.obj.stars } : {}), ...(key === 'sReports' ? { reason: q.obj.reason || null } : {}) });
         put(d); return { data: null, error: null };
       }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
@@ -260,6 +260,18 @@
       const owner = ((sess() || {}).user || {}).email === 'phildbs@gmail.com';
       if (/^admin_/.test(fn) && !owner) return { data: null, error: { code: '42501', message: 'not allowed' } };
       if (fn === 'admin_stats') return { data: { generated: new Date().toISOString(), per_day: [], visitors: 3, started: 2, built_lift: 1, opened: 1, goals3: 0, season2: 0, mountains: 1, mountains_built: 1, by_mountain: [], by_mountain_built: [], top: [], top_built: [], new_24h: 1, new_7d: 2, played_24h: 1, played_7d: 1, signed_in: 1, invited_joined: 0, feedback: [], feedback_count: 0 }, error: null };
+      if (fn === 'admin_shared_mountains' || fn === 'admin_shared_remove') {
+        if (d.noSharedAdmin) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
+        if (fn === 'admin_shared_remove') { const n = (d.shared || []).length; d.shared = (d.shared || []).filter((m) => m.id !== args.pid); for (const k of ['sLikes', 'sRatings', 'sReports']) d[k] = (d[k] || []).filter((r) => r.mountain_id !== args.pid); put(d); return { data: d.shared.length < n, error: null }; }
+        const of = (k, id) => (d[k] || []).filter((r) => r.mountain_id === id), sh = d.shared || [];
+        const list = sh.map((m) => { const rs = of('sRatings', m.id); return { id: m.id, name: m.name, creator: m.creator, owner: m.owner, created_at: m.created_at, vertical: m.vertical, allow_copy: m.allow_copy,
+          likes: of('sLikes', m.id).length, ratings: rs.length, rating: rs.length ? Math.round(rs.reduce((a, r) => a + r.stars, 0) / rs.length * 10) / 10 : null,
+          resorts: d.rows.filter((r) => r.summary && r.summary.mt === m.id).length, reports: of('sReports', m.id).length, reasons: of('sReports', m.id).map((r) => r.reason).filter(Boolean) }; })
+          .sort((a, b) => b.reports - a.reports || String(b.created_at).localeCompare(String(a.created_at)));
+        return { data: { totals: { shared: sh.length, makers: new Set(sh.map((m) => m.owner)).size, shared_7d: sh.length, likes: (d.sLikes || []).length, ratings: (d.sRatings || []).length, stars: null,
+          hand_resorts: d.rows.filter((r) => String((r.summary || {}).mt || '').startsWith('c:m')).length, hand_resorts_built: 0, shared_resorts: d.rows.filter((r) => sh.some((m) => m.id === (r.summary || {}).mt)).length,
+          reports: (d.sReports || []).length }, mountains: list }, error: null };
+      }
       if (['admin_errors', 'admin_reactions', 'admin_players', 'admin_feedback', 'admin_retention', 'admin_funnel', 'admin_sources', 'admin_board_opens'].includes(fn)) return { data: null, error: { message: 'no function ' + fn } };
       if (fn.startsWith('admin_match') || fn.startsWith('admin_chat')) {
         const m = d.match || (d.match = {}), L = m.lobbies || (m.lobbies = []);
@@ -409,6 +421,7 @@
         if (!n) return { data: null, error: { code: '22023', message: 'name_needed' } };
         const doc = args.pdoc || {};
         if (!/^c:m[0-9a-z]{14}$/.test(args.pid) || doc.v !== 1 || !doc.h || !String(doc.name || '').trim()) return { data: null, error: { code: '22023', message: 'bad_mountain' } };
+        if (!d.noSharedAdmin && /\bshit\b/i.test(doc.name)) return { data: null, error: { code: '22023', message: 'name_not_allowed' } }; // shared-mountains-admin.sql (match_clean; one word stands in for its list)
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'shared_by_another' } }; ex.allow_copy = allow; }
         else {
           if (list.filter((r) => r.owner === me).length >= 30) return { data: null, error: { code: 'P0001', message: 'share_limit' } };

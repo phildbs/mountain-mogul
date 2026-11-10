@@ -18,6 +18,10 @@ export default async function ({ browser, url }) {
   assert((await dlg(a)).includes('already called taken'), 'a name another player has is refused');
   await a.page.fill('#edPName', 'Moss'); await a.click('#edPSave'); await a.wait(300);
   assert((await dlg(a)).includes('It shows your name, Moss'), 'with a name, the share dialog');
+  // a name the word filter blocks can't be shared
+  await a.ev(`ED.name = 'Shit Hill'`); await a.click('#edShare'); await a.wait(300); await a.click('#edShareGo'); await a.wait(300);
+  assert(await a.ev(`document.getElementById('toast').textContent.includes('name isn’t allowed') && !(JSON.parse(localStorage.getItem('FAKE_DB')).shared || []).length`), 'a blocked word in the name is refused');
+  await a.ev(`ED.name = 'My Juniper Ridge'`); await a.click('#edShare'); await a.wait(300);
   // share it, with copying off
   await a.ev(`document.getElementById('edAllow').checked = false`); await a.click('#edShareGo'); await a.wait(400);
   const id = await a.ev('mapIdOf(edDoc())');

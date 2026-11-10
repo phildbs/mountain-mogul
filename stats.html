@@ -188,6 +188,8 @@ details > summary { cursor: pointer; }
 .kchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .kchip[aria-pressed="true"] { background: var(--ink) !important; color: #fff !important; border-color: var(--ink) !important; }
 .klobby .kclose { color: var(--bad); }
+#custom .btn.small { border: 1px solid var(--line); background: #fff; color: var(--ink); font: 600 12.5px var(--ui); padding: 6px 10px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+#custom tr.flag td { background: #fff3e6; }
 </style>
 </head>
 <body>
@@ -204,6 +206,7 @@ details > summary { cursor: pointer; }
     <button role="tab" data-tab="resorts">Resorts</button>
     <button role="tab" data-tab="health">Health<span class="badge warn" id="errBadge" hidden></span></button>
     <button role="tab" data-tab="kotm">King of the Mountain<span class="badge warn" id="kBadge" hidden></span></button>
+    <button role="tab" data-tab="custom">Custom mountains<span class="badge warn" id="cBadge" hidden></span></button>
   </nav>
   <div id="out"></div>
   <p class="note" style="text-align:center;margin:18px 0 8px">Mountain Mogul · a <a href="https://mossquake.com">MossQuake</a> game</p>
@@ -243,6 +246,7 @@ details > summary { cursor: pointer; }
     loadSources();
     loadBoardOpens();
     sb.rpc('admin_chat_reports').then(({ data }) => { const n = (data || []).filter((r) => !r.hidden).length; $('kBadge').hidden = !n; $('kBadge').textContent = n; }, () => {});
+    loadCustom();
   }
 
   async function loadRetention() {
@@ -406,6 +410,7 @@ details > summary { cursor: pointer; }
         <section class="card" id="players">${playersHtml(players)}</section>
       </div>
       <div class="panel" data-panel="kotm" id="kotm"></div>
+      <div class="panel" data-panel="custom" id="custom"><section class="card"><h2>Custom mountains</h2><p class="note">Loading…</p></section></div>
       <div class="panel" data-panel="health">
         <section class="card" id="errs">${errorsHtml(errs)}</section>
         <section class="card" id="reacts">${reactionsHtml(reacts)}</section>
@@ -561,7 +566,7 @@ details > summary { cursor: pointer; }
   });
 
   // Tabs: the page shows one area at a time and remembers the last one (or the one in the address, like #feedback).
-  const TABS = ['overview', 'feedback', 'resorts', 'health', 'kotm'];
+  const TABS = ['overview', 'feedback', 'resorts', 'health', 'kotm', 'custom'];
   let tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : (() => { try { return localStorage.getItem('mm.stats.tab'); } catch (e) { return null; } })();
   if (!TABS.includes(tab)) tab = 'overview';
   function showTab(t) {
@@ -572,6 +577,29 @@ details > summary { cursor: pointer; }
     document.querySelectorAll('.panel').forEach((p) => { p.hidden = p.dataset.panel !== t; });
     if (t === 'feedback') { renderFeedback(); markFeedbackSeen(); }
     if (t === 'kotm') loadKotm();
+    if (t === 'custom') loadCustom();
+  }
+  // Custom mountains (supabase/shared-mountains-admin.sql): how the editor is used, and every shared mountain with its
+  // likes, rating, resorts and reports (reported first), each removable.
+  let custom = null;
+  async function loadCustom() {
+    const { data, error } = await sb.rpc('admin_shared_mountains');
+    const el = $('custom'); if (!el) return;
+    if (error) { el.innerHTML = `<section class="card"><h2>Custom mountains</h2><p class="note">${/admin_shared_mountains/.test(error.message) && !/not allowed/.test(error.message) ? 'Not set up yet. Run <b>supabase/shared-mountains-admin.sql</b> in the Supabase SQL Editor.' : `<span class="err">${esc(error.message)}</span>`}</p></section>`; return; }
+    custom = data; const t = data.totals || {}, list = data.mountains || [], reported = list.filter((m) => m.reports > 0).length;
+    $('cBadge').hidden = !reported; $('cBadge').textContent = reported;
+    el.innerHTML = `<dl class="grid">
+        <div class="card tile"><dt>Shared</dt><dd>${num(t.shared)}</dd><small>by ${num(t.makers)} players · ${num(t.shared_7d)} this week</small></div>
+        <div class="card tile"><dt>Resorts on hand-shaped mountains</dt><dd>${num(t.hand_resorts)}</dd><small>${num(t.hand_resorts_built)} built a lift · ${num(t.shared_resorts)} on shared ones</small></div>
+        <div class="card tile"><dt>Likes</dt><dd>${num(t.likes)}</dd><small>${num(t.ratings)} ratings${t.stars ? ` · ★ ${t.stars} on average` : ''}</small></div>
+        <div class="card tile"><dt>Reports</dt><dd>${num(t.reports)}</dd><small>${num(reported)} mountains reported</small></div>
+      </dl>
+      <section class="card"><h2>Shared mountains</h2><p class="note">Reported first, then newest. A name opens the mountain in the game. Remove stops sharing it: its link stops working, and resorts already on it still play.</p>
+      ${list.length ? `<div class="scroll"><table class="cohorts"><thead><tr><th>Mountain</th><th>Maker</th><th>Shared</th><th class="num">Likes</th><th class="num">Rating</th><th class="num">Resorts</th><th>Reports</th><th></th></tr></thead><tbody>
+      ${list.map((m) => `<tr${m.reports ? ' class="flag"' : ''}><td><a href="index.html?mountain=${esc(m.id.slice(3))}" target="_blank" rel="noopener">${esc(m.name)}</a></td><td>${esc(m.creator)}</td><td>${esc(ago(m.created_at))}</td>
+        <td class="num">${num(m.likes)}</td><td class="num">${m.ratings ? `★ ${m.rating} <small>(${num(m.ratings)})</small>` : '–'}</td><td class="num">${num(m.resorts)}</td>
+        <td>${m.reports ? `<b>${num(m.reports)}</b>${(m.reasons || []).length ? ` <small>${m.reasons.slice(0, 3).map(esc).join(' · ')}</small>` : ''}` : ''}</td>
+        <td><button class="btn small" data-cremove="${esc(m.id)}">Remove</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="note">None shared yet.</p>'}</section>`;
   }
 
   // Feedback and feature ideas, each with who sent it and the resort they were most likely playing.
@@ -721,6 +749,14 @@ details > summary { cursor: pointer; }
     if (e.target.id === 'playersFold') try { localStorage.setItem('mm.stats.playersOpen', e.target.open ? '1' : '0'); } catch (err) {}
   }, true);
   document.addEventListener('click', async (e) => {
+    const cr = e.target.closest('[data-cremove]');
+    if (cr) {
+      if (!cr.dataset.sure) { cr.dataset.sure = '1'; cr.textContent = 'Really remove?'; return; }
+      cr.disabled = true;
+      const { error } = await sb.rpc('admin_shared_remove', { pid: cr.dataset.cremove });
+      if (error) { cr.textContent = 'Failed'; return; }
+      return loadCustom();
+    }
     const tb = e.target.closest('[data-tab]');
     if (tb) { showTab(tb.dataset.tab); return window.scrollTo({ top: 0 }); }
     const fk = e.target.closest('[data-fbkind]');

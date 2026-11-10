@@ -633,6 +633,8 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mb-nums.big { font-size: 14px; font-weight: 600; }
 .mb-nums > span { white-space: nowrap; }
 .mb-rate { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mb-report { font-size: 12.5px; color: var(--ink-2); margin-left: auto; } .mb-reported { color: var(--ink-2); margin-left: auto; }
+.mb-reportbox { display: flex; gap: 8px; margin-top: 8px; } .mb-reportbox input { flex: 1; min-width: 0; font: 13px var(--ui); padding: 8px; border-radius: 8px; border: 1px solid rgba(20, 36, 58, 0.2); }
 .mb-stars button { border: 0; background: none; font-size: 24px; line-height: 1; color: #cdd3dc; cursor: pointer; padding: 2px; } .mb-stars button.on { color: #e9a920; }
 @media (max-width: 520px) { .mb-list .mb-row { display: block; } .mb-list .mb-row > b, .mb-list .mb-row > small { display: block; } .mb-list .mb-row .mb-nums { margin-top: 5px; } }
 .ed-check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; font-size: 13.5px; line-height: 1.35; } .ed-check input { margin-top: 2px; accent-color: var(--accent); }
@@ -25776,11 +25778,15 @@ const sharedNums = (row) => (row ? `<div class="mb-nums big"><span class="mb-lik
 async function rateBox(S) {
   const mine = S.r.owner === CLOUD.uid, canRate = !CLOUD.guest && !mine;
   if (!canRate) return { html: mine ? '<p class="help">This is your mountain.</p>' : '<p class="help">Sign in on the title screen to like and rate mountains.</p>', wire() {} };
-  const id = S.r.id, [l, st] = await Promise.all([CLOUD.sb.from('shared_mountain_likes').select('mountain_id').eq('mountain_id', id), CLOUD.sb.from('shared_mountain_ratings').select('stars').eq('mountain_id', id)]);
+  const id = S.r.id, [l, st, rp] = await Promise.all([CLOUD.sb.from('shared_mountain_likes').select('mountain_id').eq('mountain_id', id), CLOUD.sb.from('shared_mountain_ratings').select('stars').eq('mountain_id', id),
+    CLOUD.sb.from('shared_mountain_reports').select('mountain_id').eq('mountain_id', id)]);
   let liked = !!(l.data && l.data.length), stars = (st.data && st.data[0] && st.data[0].stars) || 0;
+  const reported = !!(rp.data && rp.data.length), canReport = !rp.error; // (no reports table yet: no Report link)
   return {
     html: `<div class="mb-rate"><button class="btn secondary" data-like aria-pressed="${liked}">${liked ? '❤ Liked' : '♡ Like'}</button>
-      <span class="mb-stars" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</span></div>`,
+      <span class="mb-stars" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</span>
+      ${!canReport ? '' : reported ? '<small class="mb-reported">Reported. Thanks for letting us know.</small>' : '<button class="link mb-report" data-report>Report</button>'}</div>
+      <div class="mb-reportbox" hidden><input maxlength="200" placeholder="What’s wrong with it? (optional)" aria-label="Why you’re reporting it"><button class="btn secondary" data-report-send>Send report</button></div>`,
     wire(root) {
       const lb = root.querySelector('[data-like]');
       lb.onclick = async () => {
@@ -25795,6 +25801,18 @@ async function rateBox(S) {
         if (e) { toast('Couldn’t save your rating. Try again in a moment.', true); return; }
         stars = n; for (const o of root.querySelectorAll('[data-star]')) o.classList.toggle('on', +o.dataset.star <= n);
         toast(`You gave ${S.doc.name} ${n} star${n > 1 ? 's' : ''}.`);
+      };
+      // Report: a rude name or anything else that shouldn't be there, sent to the game's owner.
+      const rb = root.querySelector('[data-report]'), box = root.querySelector('.mb-reportbox');
+      if (rb) rb.onclick = () => { box.hidden = false; rb.hidden = true; box.querySelector('input').focus(); };
+      const send = root.querySelector('[data-report-send]');
+      if (send) send.onclick = async () => {
+        send.disabled = true;
+        const reason = box.querySelector('input').value.replace(/\s+/g, ' ').trim().slice(0, 200);
+        const { error: e } = await CLOUD.sb.from('shared_mountain_reports').insert({ mountain_id: id, ...(reason ? { reason } : {}) });
+        if (e && e.code !== '23505') { toast('Couldn’t send the report. Try again in a moment.', true); send.disabled = false; return; }
+        box.hidden = true; if (rb) rb.outerHTML = '<small class="mb-reported">Reported. Thanks for letting us know.</small>';
+        toast('Thanks. The report went to the game’s owner, who will take a look.');
       };
     },
   };
@@ -27700,7 +27718,7 @@ async function copyLink(url, text) {
   if (navigator.share && isCoarse) { navigator.share({ title: 'Mountain Mogul', text, url }).catch(() => {}); return; }
   try { await navigator.clipboard.writeText(url); toast(`Link copied: ${url}`); } catch (e) { toast(`Share this link: ${url}`); }
 }
-const SHARE_ERR = { sign_in_needed: 'Sign in to share a mountain.', name_needed: 'Pick a player name first.', share_limit: 'You can share 30 mountains at once. Stop sharing one to share another.',
+const SHARE_ERR = { name_not_allowed: 'That mountain’s name isn’t allowed. Rename it at the top of the editor, then share it.', sign_in_needed: 'Sign in to share a mountain.', name_needed: 'Pick a player name first.', share_limit: 'You can share 30 mountains at once. Stop sharing one to share another.',
   shared_by_another: 'Another player shared this exact mountain first.', bad_mountain: 'This mountain couldn’t be shared.' };
 const shareErr = (e) => (sharedMissing(e) ? 'Sharing mountains isn’t switched on yet.' : SHARE_ERR[Object.keys(SHARE_ERR).find((k) => ((e && e.message) || '').includes(k))] || 'Couldn’t reach the server. Try again in a moment.');
 async function edShare(msg) {
