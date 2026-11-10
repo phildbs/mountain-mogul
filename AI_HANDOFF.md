@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
-**4.3.1 (branch `ccr-3942b770-09neiw`, waiting for Publish):** the new-mountain list's Custom mountains button used
+**Live: 4.3.1 Custom mountains button fix** (published Nov 10 on Phil's "Publish"; quick-fix tier, scenarios 214 and 18): the new-mountain list's Custom mountains button used
 `data-slot="browse"`, which the title's slot handler already sends to the leaderboard's Browse; it is `customs` now.
 Scenarios 214 and 18 pass. (Claude, Nov 10)
 
