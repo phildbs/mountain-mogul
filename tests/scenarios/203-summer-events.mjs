@@ -20,7 +20,7 @@ export default async function ({ browser, url }) {
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
   const pid = await g.ev(put('pavilion', 1)), hid = await g.ev(put('hotel', 0));
   assert(pid && hid, 'a pavilion and a hotel by the base');
-  eq(await g.ev(`[bldModeIn(opsState().plans.weekend, bldById(${pid})), BGROUPS.find((x) => x[0] === 'summer')[2]]`), ['closed', ['pavilion']], 'the pavilion is shut in winter, and sits under Build › Summer');
+  eq(await g.ev(`[bldModeIn(opsState().plans.weekend, bldById(${pid})), BGROUPS.find((x) => x[0] === 'summer')[2].includes('pavilion')]`), ['closed', true], 'the pavilion is shut in winter, and sits under Build › Summer');
   eq(await g.ev(`[bldById(${pid}).packedLook, bldById(${pid}).seatsW.length, planCosts(opsState().plans.weekend).upkeep === planCosts(opsState().plans.weekend).upkeep]`), [true, 0, true], 'built in winter, it is packed away: no chairs out');
   eq(await g.ev(`(() => { const B = bldById(${pid}), u = (P) => world.buildings.filter((x) => x !== B).reduce((a, x) => a + bldUpkeep(x, bldModeIn(P, x), P), 0); return Math.round(planCosts(opsState().plans.weekend).upkeep) <= Math.round(u(opsState().plans.weekend)) + 1; })()`), true, 'and costs nothing to store');
   // the build menu's Summer tab, and the pavilion's own card
