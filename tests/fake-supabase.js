@@ -189,7 +189,7 @@
             if (r.status.claimed >= 3) return { data: null, error: { message: 'referral_cap' } };
             f.claimed = true; r.status.claimed++;
             (r.balances || (r.balances = {}))[row.id] = (r.balances?.[row.id] || 0) + 100000;
-            row.save.cash += 100000; row.save.clock.referralCredit = r.balances[row.id];
+            row.save.cash += 100000; row.save.clock.referralCredit = r.balances[row.id]; row.updated_at = new Date().toISOString(); // as the real one (statement_timestamp)
             r.claims = (r.claims || 0) + 1;
           }
           put(d);

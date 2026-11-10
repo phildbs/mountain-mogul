@@ -4007,7 +4007,7 @@ function scheduleSave() {
 }
 let lastSaveLen = 0;
 function saveNow() {
-  if (NO_SAVE || matchPlay) return;
+  if (NO_SAVE || matchPlay || leaving) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   let stored = false;
@@ -24895,6 +24895,7 @@ async function cloudSave(manual, forReferral = false) {
   if (!state.started && !loadSave()) return;
   // Never upload over newer progress made on another device.
   if (onlineIsAhead(slot)) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; return; }
+  if (leaving) return;
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
   CLOUD.uploading = true; CLOUD.lastUp = Date.now();
@@ -24911,16 +24912,21 @@ async function cloudSave(manual, forReferral = false) {
     const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
     if (json.length > 1500000) throw { code: 'too_big' };
     if (json !== CLOUD.sentJson || sendPhoto) {
-      const { error } = await CLOUD.sb.from('mountains').upsert({ id: slot.id, public: listed(), summary, save, updated_at: new Date().toISOString(), ...(sendPhoto ? { photo } : {}) });
+      // Another device may have saved since this page last looked: never send an older resort over it; load that one.
+      if (await checkOnline(slot)) { CLOUD.uploading = false; if (!(await loadNewerSave(slot))) CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; refreshCommunity(); return; }
+      if (CLOUD.uid !== uploadUid || slots.active !== slot.id || leaving) { CLOUD.uploading = false; return; }
+      const sentAt = new Date().toISOString();
+      const { error } = await CLOUD.sb.from('mountains').upsert({ id: slot.id, public: listed(), summary, save, updated_at: sentAt, ...(sendPhoto ? { photo } : {}) });
       if (error) throw error;
       if (sendPhoto) CLOUD.photoUp = { id: slot.id, photo, at: Date.now() };
       if (CLOUD.uid !== uploadUid || slots.active !== slot.id) { CLOUD.uploading = false; return; }
       CLOUD.sentJson = json;
       CLOUD.verified = true;
       slot.savedAt = slot.baseAt = Date.now(); // the online copy is this device's own: not 'newer' than it
+      slot.seenAt = Date.parse(sentAt);
       if (!slot.owner) slot.owner = CLOUD.uid;
       writeSlots();
-      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo, public: listed(), updatedAt: Date.now() });
+      CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo, public: listed(), updatedAt: Date.parse(sentAt) });
     }
     CLOUD.error = '';
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
@@ -24947,9 +24953,11 @@ async function adminMountain(id) {
 // Saves from before 2.89.1 (or an older open tab) keep the photo inside the save; that copy is the newer one when present.
 const onlinePhoto = (inSave, column) => validResortPhoto(inSave) ? inSave : validResortPhoto(column) ? column : null;
 async function fetchSave(id) {
-  let { data, error } = await CLOUD.sb.from('mountains').select('save, photo').eq('id', id).maybeSingle();
+  fetchSave.at = 0;
+  let { data, error } = await CLOUD.sb.from('mountains').select('save, photo, updated_at').eq('id', id).maybeSingle();
   if (!error && !data) data = await adminMountain(id);
   if (error || !data || !data.save) return null;
+  fetchSave.at = Date.parse(data.updated_at) || 0; // when that copy was saved: the device that loads it has seen it
   const sv = { ...data.save, photo: onlinePhoto(data.save.photo, data.photo), sim: null };
   if (sv.clock && sv.clock.phase === 'open') sv.clock = { ...sv.clock, phase: 'closed', time: DAY_OPEN };
   return sv;
@@ -25036,6 +25044,13 @@ async function loadMine() {
   const { data, error } = await CLOUD.sb.from('mountains').select('id, summary, public, updated_at, photo, savePhoto:save->>photo').eq('owner', CLOUD.uid);
   if (error) throw error;
   CLOUD.own = data.map((r) => ({ ...r.summary, id: r.id, photo: onlinePhoto(r.savePhoto, r.photo), public: r.public, updatedAt: Date.parse(r.updated_at) }));
+  // Mountains from before seenAt: where the clocks agree this device is up to date, remember what's online now.
+  let noted = false;
+  for (const s of slots.list) {
+    const m = !s.seenAt && s.owner === CLOUD.uid && CLOUD.own.find((x) => x.id === s.id);
+    if (m && !onlineIsNewer(s) && !onlineIsAhead(s)) { s.seenAt = m.updatedAt; noted = true; }
+  }
+  if (noted) writeSlots();
 }
 /* ---------- Undo: put back the last change made overnight ----------
    Before each change (clearing or leveling ground, building, removing, upgrading) the resort is
@@ -25255,6 +25270,7 @@ async function claimReferral(invitation) {
     if (error) throw error;
     if (CLOUD.uid !== uid || slots.active !== id) return;
     if (!applyReferralCredit(data, uid)) throw new Error('another_mountain');
+    await seenOwnChange(activeSlot()); // the server just saved the reward into it: that's this device's change, not another's
     toast('$100,000 received for inviting a friend.');
     CLOUD.sentJson = ''; scheduleCloud();
   } catch (e) {
@@ -25527,13 +25543,58 @@ async function pullMountain(id, then) {
   let s = slotById(id);
   if (!s) slots.list.push(s = { id });
   Object.assign(s, { owner: CLOUD.uid, mountain: sv.mt || m.mt || 'juniper', name: m.name || 'Juniper Ridge', when: m.when || '', savedAt: m.updatedAt || Date.now() });
+  if (fetchSave.at) s.seenAt = fetchSave.at;
   return useSlot(id, sv, then);
 }
+// seenAt: the online copy's save time when this device last had it (its own upload, or a download). Any other time
+// online means another device saved since, whatever either device's clock says. Older lists without it compare clocks.
+const changedOnline = (s, m) => s.seenAt ? Math.abs((m.updatedAt || 0) - s.seenAt) > 1 : null; // a different save time, earlier or later
 // Is the online copy newer than this device's copy (the one a load would read)?
-const onlineIsNewer = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.localAt ?? s.savedAt ?? 0) + 60000); };
+const onlineIsNewer = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (changedOnline(s, m) ?? (m.updatedAt || 0) > (s.localAt ?? s.savedAt ?? 0) + 60000)); };
 // Is the online copy newer than the resort on screen? baseAt is when the state that was loaded was made (applySave),
 // or the last upload; later saves of an old state don't make it new, so it's never sent over newer progress.
-const onlineIsAhead = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.baseAt ?? s.savedAt ?? 0) + 60000); };
+const onlineIsAhead = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (changedOnline(s, m) ?? (m.updatedAt || 0) > (s.baseAt ?? s.savedAt ?? 0) + 60000)); };
+// Ask the server now (an open tab's list can be hours old) whether another device has saved this mountain since.
+async function checkOnline(slot) {
+  if (!slot || !CLOUD.ready || !CLOUD.uid || !CLOUD.sb) return false;
+  const { data, error } = await CLOUD.sb.from('mountains').select('updated_at').eq('id', slot.id).maybeSingle();
+  if (error || !data) return false;
+  const m = (CLOUD.own || []).find((x) => x.id === slot.id);
+  if (m) m.updatedAt = Date.parse(data.updated_at); else return false;
+  return onlineIsAhead(slot);
+}
+// A change made online on this device's behalf (a referral reward): take the copy's new save time as already seen.
+async function seenOwnChange(slot) {
+  try { await checkOnline(slot); } catch (e) { return; }
+  const m = slot && (CLOUD.own || []).find((x) => x.id === slot.id);
+  if (m && m.updatedAt) { slot.seenAt = m.updatedAt; writeSlots(); }
+}
+// Played further on another device while this one had the resort open: load that save here, rather than carry on with
+// (and later send online) the older one. The page reloads straight into the game with it.
+let leaving = false; // a newer save is on its way in: nothing on screen may be saved over it
+async function loadNewerSave(slot) {
+  if (leaving || visiting || practice || matchPlay || !slot || slots.active !== slot.id) return false;
+  let sv = null;
+  try { sv = await fetchSave(slot.id); } catch (e) { sv = null; }
+  if (!sv || slots.active !== slot.id) return false;
+  const m = (CLOUD.own || []).find((x) => x.id === slot.id) || {};
+  if (!storeSet(slotKey(slot.id), JSON.stringify(sv))) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; toast(STORAGE_FULL_MSG, true); return false; }
+  const at = fetchSave.at || m.updatedAt || Date.now();
+  Object.assign(slot, { name: m.name || slot.name, when: m.when || slot.when, savedAt: at, localAt: Date.now(), seenAt: fetchSave.at || slot.seenAt });
+  writeSlots();
+  leaving = true;
+  try { sessionStorage.setItem(SAVE_KEY + '.pulled', m.when || '1'); } catch (e) { /* ignore */ }
+  reloadInto('start');
+  return true;
+}
+// Back to an open tab or app: anything newer from another device?
+let checkedAt = 0;
+async function checkNewerElsewhere() {
+  if (!state.started || visiting || practice || matchPlay || leaving || Date.now() - checkedAt < 10000) return;
+  checkedAt = Date.now();
+  const slot = activeSlot();
+  if (slot && slot.owner === CLOUD.uid && await checkOnline(slot)) await loadNewerSave(slot);
+}
 function setSession(session) {
   const u = session && session.user;
   const changed = (u ? u.id : null) !== CLOUD.uid;
@@ -27989,7 +28050,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '4.2.2', date: 'Nov 10, 2026', title: 'No duplicate mountains', small: true, items: [
+  { v: '4.2.2', date: 'Nov 10, 2026', title: 'Safer saves across devices', small: true, items: [
+    'Fixed: playing on one device, then going back to another that still had the game open, could save the older resort online over your newer progress. The game now checks before every online save, and whenever you come back to it, and loads your newer save automatically.',
+    'A newer save now counts as newer even if your devices’ clocks don’t agree.',
     'Fixed: a copy of one of your resorts left on a device by another account (or a guest session) could be added to your account a second time, taking up one of your five slots. It now says it’s already in your account and offers to remove it from that device.',
   ] },
   { v: '4.2.1', date: 'Nov 10, 2026', title: 'Tidier title screen', items: [
@@ -29674,6 +29737,7 @@ $('titleSlots').addEventListener('click', async (e) => {
   else if (act === 'delYes') { slotAsk = null; await deleteMountain(id); return; }
   else if (act === 'adopt') return adoptMountain(id);
   else if (act === 'play') {
+    if (CLOUD.ready && CLOUD.uid) await refreshMine(); // the list may be hours old
     const s = slotById(id);
     const here = s && !onlineIsNewer(s) ? useSlot(id, null, 'start') : await pullMountain(id, 'start');
     if (here) startGame(); // otherwise the page is reloading onto that mountain
@@ -29956,7 +30020,11 @@ function start(hot) {
     updateCamera();
   } else {
     showTitle();
-    if (BOOT.then === 'start' && activeSlot()) startGame();
+    if (BOOT.then === 'start' && activeSlot()) {
+      startGame();
+      let pulled = null; try { pulled = sessionStorage.getItem(SAVE_KEY + '.pulled'); sessionStorage.removeItem(SAVE_KEY + '.pulled'); } catch (e) { /* ignore */ }
+      if (pulled) setTimeout(() => toast(`You played further on another device, so that save is loaded here${pulled !== '1' ? ` (${pulled})` : ''}.`), 900);
+    }
     else if (BOOT.then === 'tutorial') startTutorial();
   }
   if (hold === '') requestAnimationFrame(dropCover); // your own mountain or the tutorial: there once the first frame is drawn
@@ -29965,10 +30033,12 @@ function start(hot) {
     cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH, el: EL },
   }));
   window.addEventListener('pagehide', saveNow);
+  window.addEventListener('focus', () => { if (state.started) checkNewerElsewhere(); });
   // Switching away (closing the tab, another app on a tablet) is often the last chance to upload.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && state.started && !visiting) { saveNow(); cloudSaveNow(); }
     else if (!document.hidden && !state.started && CLOUD.ready) refreshMine(); // back on the title: anything newer from another device?
+    else if (!document.hidden && state.started) checkNewerElsewhere(); // back in the game: played further somewhere else?
   });
   initCloud();
   if (MOUNTAIN.match) document.body.classList.add('matchmap'); // a match map: no What next? (as in a match)

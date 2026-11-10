@@ -30,6 +30,9 @@ export default async function ({ browser, url }) {
     const before = await g.ev('state.cash');
     await g.ev(`claimReferral('${friend}')`);
     eq(await g.ev('[state.cash,state.referralCredit]'),[before+100000,100000],'real claim credits active resort once');
+    await g.ev(`state.cash += 1; saveNow(); cloudSave(true)`); await g.page.waitForFunction(() => window.__dbg('!CLOUD.uploading'), null, { timeout: 10000 }); await g.wait(300);
+    eq(await g.ev('[leaving, state.cash]'),[false,before+100001],'the reward saved online is this device\'s own change: the next upload goes through, no reload');
+    await g.ev(`state.cash -= 1; saveNow()`);
     await g.ev(`claimReferral('${friend}')`);
     eq(await g.ev('state.cash'),before+100000,'repeat claim does not duplicate cash');
     await g.ev('syncReferralBalance();');
