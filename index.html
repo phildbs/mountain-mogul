@@ -20384,7 +20384,9 @@ function digPond(P) {
   P.orig = orig;
   P.mask = m;
 }
-// Where the pumphouse stands: on the bank, on the side nearest the base, facing the water.
+// Where the pumphouse stands: on the bank, on the side nearest the base, facing the water. Never down in the creek bed
+// (carved within 1.9 of its middle) or on the road: a pond may be painted close to both, and its bank reaches further.
+const pumpWet = (x, z) => creekDist(x, z) < 2.6 || roadDist(x, z) < ROAD_HW + 1;
 function pumpSpot(P) {
   const goal = roadEnd(); let best = null, bd = Infinity, cx = 0, cz = 0;
   for (const k of P.cells) { cx += keyX(k); cz += keyZ(k); }
@@ -20392,7 +20394,7 @@ function pumpSpot(P) {
   for (const [idx, v] of P.mask) {
     if (v < 0.05 || v > 0.16) continue;
     const x = (idx % NV) - HALF, z = Math.floor(idx / NV) - HALF;
-    if (!inProperty(x, z) || areaAt(x, z) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2) || realTrails().some((t) => t.samples.some((s) => distXZ(s, { x, z }) < trailHW(t) + 1))) continue;
+    if (!inProperty(x, z) || pumpWet(x, z) || areaAt(x, z) || world.buildings.some((B) => boxDist({ x, z }, boxOf(B)) < 1.2) || realTrails().some((t) => t.samples.some((s) => distXZ(s, { x, z }) < trailHW(t) + 1))) continue;
     const d = Math.hypot(x - goal.x, z - goal.z);
     if (d < bd) { bd = d; best = { x, z }; }
   }
@@ -20412,6 +20414,7 @@ function addPond(P) {
   P.mask = pondMask(P);
   if (P.water == null) { let low = Infinity; for (const [idx, v] of P.mask) if (v > 0.15 && v < 0.6) low = Math.min(low, HT[idx]); P.water = low - 0.12; }
   for (const [idx, v] of P.mask) PM[idx] = Math.max(PM[idx], v);
+  if (P.pump && pumpWet(P.pump.x, P.pump.z)) delete P.pump; // one saved standing in the creek moves up onto the bank
   P.pump ||= pumpSpot(P);
   const g = new THREE.Group();
   // The water: a flat sheet a little wider than the pond; the banks rise through its edge, so the shore follows the ground.
@@ -29369,6 +29372,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.5.1', date: 'Nov 10, 2026', title: 'Pumphouses stay out of the creek', small: true, items: [
+    'A snowmaking pond dug close to the creek no longer puts its pumphouse down in the creek bed. It stands on the dry bank, and one already in the creek moves out when you load.'] },
   { v: '4.5', date: 'Nov 10, 2026', title: 'Lifts cross over each other', items: [
     'Where two lifts cross, one now goes over the other instead of running through it. The newer lift stands on taller towers either side of the crossing and carries its cable over the top; a gondola always goes over a chairlift, and a T-bar or magic carpet stays on the snow underneath.',
     'Neither lift puts a tower in the other\'s path any more. Lifts that already cross are fixed when you load.'] },
