@@ -52,7 +52,12 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-11-09)
+## Current status (updated 2026-11-10)
+
+**Live: 4.0 Summer** (published Nov 10 by Claude on Phil's "start the launch work, and when the full suite runs green,
+publish"). Summer is on for everyone: `SUMMER_ON` is true unless the link has `?summer=0`. All of pieces 1 to 4 and
+the launch list's items 2 to 4 are in; see "Summer 4.0" below. Step 5 (thunderstorms, lookout deck, bike crashes and
+rentals, a bike race, a coaster replacement) is next, as 4.x releases, each a normal visible release now.
 
 **Live: 3.16** (published Nov 9 by Claude on Phil's "Publish", GitHub run 544 green on 9d5cca1, then main's 3.15.3 merged in (changelog only conflicted) with the overlapping scenarios green locally: 15, 32, 36, 45, 131, 193–195, 198). Roads, parking and transit: a Roads tool, lots of any size and angle, painted and rerouted roads, bridges, bus pull-outs, removable main lot. A big change: the notes ask players to report bugs. See the Nov 9 note. Match maps keep the old sections.
 
@@ -242,12 +247,12 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-8e48ae82-8z11ac` | Claude | **Summer season (4.0), built in hidden pieces.** See "Summer 4.0: hidden pieces" below for what is in, what is next and the rules. Piece 1 (summer days, scenic rides, fall colours) published hidden Nov 9 (Phil: fine hidden, simpler). Keep using this branch for every piece (Phil, Nov 9). Next: piece 2. | Nov 9, 2026 |
+| `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
 | `feature/terrain-parks-preview` | ChatGPT | **Superseded** by Claude's rebuild above (Phil's call, Nov 1). Left as it was; don't merge it. Delete it once 2.70 ships, if Phil agrees. | Oct 30, 2026 |
 
-## Summer 4.0: hidden pieces
+## Summer 4.0 (published Nov 10; built in hidden pieces)
 
 Phil wants the whole summer season (design and his decisions: `SUMMER_BRAINSTORM.md`) to reach players as **one major
 release, 4.0**. `main` moves too fast for a long-lived branch, so it is built in pieces that are published to `main`
