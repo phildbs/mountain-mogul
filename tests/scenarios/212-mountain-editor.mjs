@@ -1,0 +1,93 @@
+// The mountain editor (?editor=1): brushes shape the ground, the mountain is kept on this device, and playing it
+// starts a resort whose save carries the mountain, so it opens again without the editor's copy.
+import { openGame, eq, assert } from '../harness.mjs';
+export default async function ({ browser, url }) {
+  let g = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
+  assert(await g.ev(`MOUNTAIN.hand && MOUNTAIN.from === 'juniper' && !!document.getElementById('edPanel')`), 'the editor opens on a copy of Juniper Ridge');
+  eq(await g.ev(`draftList().length`), 0, 'nothing is kept until the ground changes');
+  // packing the ground: small, and exact to 1/64
+  const pack = await g.ev(`(() => { const h = encodeHeights(ED.E), D = decodeHeights(h); let m = 0; for (let k = 0; k < D.length; k++) m = Math.max(m, Math.abs(D[k] - ED.E[k])); return [h.length, m, decodeHeights(h.slice(0, 900)), decodeHeights('zz!')]; })()`);
+  assert(pack[0] < 60000 && pack[1] <= 1 / 128 + 1e-6, `the ground packs small and comes back the same (${pack[0]} characters, off by ${pack[1]})`);
+  assert(pack[2] === null && pack[3] === null, 'a broken document is refused');
+  // each brush does its job, and the world follows
+  const at = `{ x: 10, z: -20 }`, h = `heightAt(10, -20) / VEX`;
+  const h0 = await g.ev(h), n0 = await g.ev('trees.n');
+  await g.ev(`(() => { const p = ${at}; ED.tool = 'raise'; ED.r = 10; ED.k = 5; edStrokeStart(p); for (let i = 0; i < 30; i++) edBrush(p, 0.05); edStrokeEnd(); edRegrow(); })()`);
+  const h1 = await g.ev(h);
+  assert(h1 > h0 + 8, `Raise lifts the ground (${h0.toFixed(1)} to ${h1.toFixed(1)})`);
+  assert(await g.ev(`Math.abs(terrainGeo.attributes.position.array[((-20 + HALF) * NV + 10 + HALF) * 3 + 1] - heightAt(10, -20)) < 1e-3 && Math.abs(MOUNTAIN.summitH - Math.max(...HT.filter((_, k) => inGridLand(k % NV, Math.floor(k / NV))))) < 1e-3`), 'the drawn ground and the summit follow');
+  assert(await g.ev('trees.n') !== n0, 'the forest grows back to suit the new ground');
+  await g.ev(`(() => { const p = ${at}; ED.tool = 'lower'; edStrokeStart(p); for (let i = 0; i < 10; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  const h2 = await g.ev(h); assert(h2 < h1 - 2, 'Lower digs it down');
+  const rough = () => g.ev(`(() => { let s = 0; for (let j = -24; j < -16; j++) for (let i = 6; i < 14; i++) s += Math.abs(4 * ED.E[(j + HALF) * NV + i + HALF] - ED.E[(j + HALF) * NV + i + HALF - 1] - ED.E[(j + HALF) * NV + i + HALF + 1] - ED.E[(j + HALF - 1) * NV + i + HALF] - ED.E[(j + HALF + 1) * NV + i + HALF]); return s; })()`);
+  await g.ev(`(() => { const p = ${at}; ED.tool = 'rough'; edStrokeStart(p); for (let i = 0; i < 20; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  const r1 = await rough();
+  await g.ev(`(() => { const p = ${at}; ED.tool = 'smooth'; edStrokeStart(p); for (let i = 0; i < 20; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  assert(await rough() < r1 * 0.6, 'Roughen adds bumps and Smooth takes them out');
+  await g.ev(`(() => { const p = ${at}; ED.tool = 'flatten'; ED.k = 10; edStrokeStart(p); for (let i = 0; i < 40; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  assert(await g.ev(`sampleGrid(GR, 10 + HALF, -20 + HALF)`) < 0.03, 'Flatten levels the ground');
+  // undo and redo, a stroke at a time
+  const sum = () => g.ev(`ED.E.reduce((a, b) => a + b, 0)`), flat = await sum();
+  await g.ev('edUndo(false)'); assert(Math.abs(await sum() - flat) > 0.5 && await g.ev(`sampleGrid(GR, 10 + HALF, -20 + HALF)`) > 0.03, 'Undo takes the last stroke back');
+  await g.ev('edUndo(true)'); assert(Math.abs(await sum() - flat) < 1e-3, 'Redo puts it back');
+  for (let i = 0; i < 5; i++) await g.ev('edUndo(false)');
+  assert(Math.abs(await g.ev(h) - h0) < 1e-4 && await g.ev('ED.undo.length') === 0, 'undoing every stroke gives the mountain it started as');
+  for (let i = 0; i < 5; i++) await g.ev('edUndo(true)');
+  // a real drag on the map is a stroke; with Move on, it moves the view instead
+  await g.ev(`ED.tool = 'raise'; ED.paint = true; edSync()`);
+  let s0 = await sum();
+  await g.page.mouse.move(800, 450); await g.page.mouse.down(); await g.page.mouse.move(820, 460, { steps: 3 }); await g.page.mouse.up();
+  assert(await sum() > s0, 'dragging on the map uses the brush');
+  await g.click('#edPanel [data-mode=move]'); s0 = await sum();
+  const cx = await g.ev('cam.target.x');
+  await g.page.mouse.move(800, 450); await g.page.mouse.down(); await g.page.mouse.move(700, 400, { steps: 3 }); await g.page.mouse.up();
+  assert(await sum() === s0 && await g.ev('cam.target.x') !== cx, 'with Move on, a drag moves the view and leaves the ground alone');
+  // the name, and keeping it on this device
+  await g.ev(`(() => { const el = document.getElementById('edName'); el.value = '  Stony <b>Top</b>  '; el.onchange({ target: el }); })()`);
+  eq(await g.ev('ED.name'), 'Stony bTop/b', 'the name is tidied');
+  assert(await g.ev(`edSave() && ED.saved`), 'kept');
+  eq(await g.ev(`draftList().map((d) => d.name + '/' + d.from)`), ['Stony bTop/b/juniper'], 'one mountain under My mountains');
+  const keep = await g.ev(`[${h}, encodeHeights(ED.E)]`);
+  await g.page.reload(); await g.reloaded();
+  assert(await g.ev(`ED.name === 'Stony bTop/b' && encodeHeights(ED.E)`) === keep[1] && Math.abs(await g.ev(h) - keep[0]) < 0.02, 'the editor opens it again as it was left');
+  // My mountains: a new one from another mountain, and back
+  await g.click('#edMaps');
+  await g.ev(`document.getElementById('edFrom').value = 'maple'`); await g.click('#crisis [data-ed-new=plain]'); await g.reloaded();
+  assert(await g.ev(`MOUNTAIN.from === 'maple' && ED.name === 'My mountain' && draftList().length === 2`), 'a new mountain starts from Maple Notch as a plain slope');
+  assert(await g.ev(`edStats().mix[4]`) === 0, 'a plain slope has nothing too steep to ski');
+  await g.click('#edMaps');
+  await g.ev(`document.querySelector('#crisis [data-ed-open]').click()`); await g.reloaded();
+  eq(await g.ev('ED.name'), 'Stony bTop/b', 'opening the first one again');
+  // Play: a resort starts on a copy of the mountain
+  await g.click('#edPlay'); await g.reloaded();
+  const id = await g.ev('MOUNTAIN.id');
+  assert(/^c:m[0-9a-z]{14}$/.test(id) && await g.ev(`state.started && !EDITOR && MOUNTAIN.hand && MOUNTAIN.custom && isCustomId(MOUNTAIN.id) && boardOf(MOUNTAIN.id) === 'custom'`), `playing starts a resort on the mountain (${id})`);
+  assert(Math.abs(await g.ev(h) - keep[0]) < 0.02, 'with the ground as shaped');
+  eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', await g.ev('MOUNTAINS.juniper.cash'), id, true], 'its name, Juniper Ridge’s money, the custom goals');
+  await g.ev(`state.cash -= 12345; saveNow()`);
+  const cash = await g.ev('state.cash'), n = await g.ev('trees.n');
+  assert(await g.ev(`mapIdOf(JSON.parse(localStorage.getItem(saveKey())).map)`) === id, 'the save carries the mountain');
+  // the save alone brings the mountain back (another device has no editor copy), and shaping the draft further doesn't touch it
+  await g.ev(`localStorage.removeItem(mapKey(MOUNTAIN.id)); for (const d of draftList()) localStorage.removeItem(DRAFT_KEY + d.key)`);
+  await g.page.reload(); await g.reloaded();
+  eq(await g.ev(`[MOUNTAIN.id, trees.n, state.cash]`), [id, n, cash], 'the resort opens again from its save alone');
+  assert(await g.ev(`document.querySelector('#titleSlots .sc-badge') && [...document.querySelectorAll('#titleSlots .sc-badge')].some((b) => b.textContent === 'Hand-shaped')`), 'its card says Hand-shaped');
+  // another player visiting it: the mountain comes with the resort's save, fetched before the page turns to it
+  const theirs = await g.ev(`localStorage.getItem(saveKey())`);
+  const v = await openGame(browser, url);
+  await v.ev(`__fakeSwitch('user-B', 'b@example.com')`); await v.wait(600);
+  await v.page.evaluate(({ theirs, id }) => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); d.users.other = { anon: false };
+    d.rows.push({ id: 'theirs', owner: 'other', public: true, summary: { name: 'Sam Summit', creator: 'Sam', mt: id }, save: JSON.parse(theirs), updated_at: new Date().toISOString() });
+    localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, { theirs, id });
+  await v.ev(`loadBoard(true)`); await v.wait(300);
+  assert(await v.ev(`mapDef('${id}') === null && mountainDef('${id}').id === 'juniper'`), 'a device that has never seen the mountain');
+  await v.ev(`visitResort('theirs')`); await v.reloaded();
+  await v.page.waitForFunction(() => window.__dbg('!!visiting'), null, { timeout: 15000 });
+  eq(await v.ev(`[visiting.name, MOUNTAIN.id, MOUNTAIN.name, state.cash, localStorage.getItem(mapKey(MOUNTAIN.id))]`), ['Sam Summit', id, 'Stony bTop/b', cash, null], 'a visit opens on their mountain, which isn’t kept on the visitor’s device');
+  eq(v.errors, [], 'no errors visiting'); await v.page.close();
+  // a mountain whose document is missing never opens as something else that could be saved over it
+  await g.ev(`(() => { const sv = JSON.parse(localStorage.getItem(saveKey())); delete sv.map; localStorage.setItem(saveKey(), JSON.stringify(sv)); window.removeEventListener('pagehide', saveNow); })()`);
+  await g.page.reload(); await g.reloaded();
+  assert(await g.ev(`MOUNTAIN.id === 'juniper' && !onThisMountain()`), 'without its mountain the resort isn’t opened or saved over');
+  eq(g.errors, [], 'no errors');
+}
