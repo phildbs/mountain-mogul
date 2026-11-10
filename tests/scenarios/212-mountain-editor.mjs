@@ -17,6 +17,9 @@ export default async function ({ browser, url }) {
   await g.click('#edPanel [data-tool=pond]');
   eq(await g.ev(ui), ['pond', 'Paint a sno', true, false, false], 'Pond: a brush size only');
   await g.click('#edPanel [data-tool=raise]');
+  await g.click('#edPanel [data-tool=raise]');
+  eq(await g.ev(`[ED.paint, document.querySelector('#edPanel [data-tool=raise]').getAttribute('aria-pressed'), document.getElementById('edHint').textContent.slice(0, 15)]`), [false, 'false', 'Looking around:'], 'tapping the tool in hand puts it down, to look around');
+  await g.click('#edPanel [data-tool=raise]'); eq(await g.ev('ED.paint'), true, 'and tapping it again picks it up');
   eq(await g.ev(`draftList().length`), 0, 'nothing is kept until the ground changes');
   // editing one of the game's own mountains
   await g.click('#edMaps');
@@ -162,4 +165,13 @@ export default async function ({ browser, url }) {
   await g.page.reload(); await g.reloaded();
   assert(await g.ev(`MOUNTAIN.id === 'juniper' && !onThisMountain()`), 'without its mountain the resort isn’t opened or saved over');
   eq(g.errors, [], 'no errors');
+  // on a phone the editor opens looking around: a touch moves the view until a tool is picked
+  const ph = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh', width: 390, height: 800, hasTouch: true });
+  if (await ph.ev('edTouch')) {
+    eq(await ph.ev(`[ED.paint, document.querySelector('#edPanel [data-mode=move]').getAttribute('aria-pressed')]`), [false, 'true'], 'a phone opens the editor looking around');
+    const s1 = await ph.ev(`ED.E.reduce((a, b) => a + b, 0)`);
+    await ph.page.touchscreen.tap(250, 500); await ph.wait(200);
+    eq(await ph.ev(`ED.E.reduce((a, b) => a + b, 0)`), s1, 'a touch on the map leaves the ground alone');
+  }
+  eq(ph.errors, [], 'no errors on a phone'); await ph.page.close();
 }

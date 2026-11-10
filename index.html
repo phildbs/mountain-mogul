@@ -27406,7 +27406,7 @@ function edSync() {
   $('edUndo').disabled = !ED.undo.length; $('edRedo').disabled = !ED.redo.length;
   $('edSlope').setAttribute('aria-pressed', overlay.slope); $('edTrees').setAttribute('aria-pressed', ED.trees); $('edWide').setAttribute('aria-pressed', ED.wide);
   const brush = !edDrawing(), shape = ED_TOOLS.some(([id]) => id === ED.tool);
-  $('edHint').textContent = ED.paint ? ED_HINT[ED.tool] : (isCoarse ? 'Drag to move the view. Pick a tool to shape again.' : 'Drag to move the view. Pick a tool to shape again.');
+  $('edHint').textContent = ED.paint ? `${ED_HINT[ED.tool]}${edTouch ? ' Tap it again to put it down and look around.' : ''}` : edTouch ? 'Looking around: drag to move, pinch to zoom, two fingers to turn and tilt. Pick a tool to start shaping.' : 'Looking around: drag to move the view. Pick a tool to start shaping.';
   $('edSizeRow').hidden = !brush; $('edStrRow').hidden = !shape; $('edWideRow').hidden = !(ED.tool === 'raise' || ED.tool === 'lower');
   const r = ED.tool === 'pond' ? edPondR() : ED.r;
   $('edSizeV').textContent = fmtFt(Math.round(r * 2 * FT_PER_UNIT / 10) * 10); $('edStrV').textContent = ED.k;
@@ -27436,8 +27436,11 @@ function edMaps() {
   for (const b of document.querySelectorAll('#crisis [data-ed-del]')) b.onclick = () => { if (b.dataset.sure) edDelete(b.dataset.edDel); else { b.dataset.sure = '1'; b.textContent = 'Really delete?'; } };
   for (const b of document.querySelectorAll('#crisis [data-ed-new]')) b.onclick = () => edNew($('edFrom') && $('edFrom').value, b.dataset.edNew === 'blank', b.dataset.edNew === 'copy');
 }
+// Phones and tablets: a finger on the map shapes it only once a tool is picked, so the editor opens looking around.
+const edTouch = isCoarse || matchMedia('(hover: none)').matches;
 function editorStart() {
   document.body.classList.add('mapview', 'editor');
+  if (edTouch) ED.paint = false;
   winterView = true; styleSnowVisuals();
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'edPanel';
@@ -27461,7 +27464,7 @@ function editorStart() {
       <p class="ed-reset"><button class="link danger-link" id="edReset">Start over</button></p>
       <p class="vhelp" id="edStatus"></p>
       <h3>View</h3>
-      <div class="vtog ed-view"><button data-mode="move" title="Drag to move the view instead of shaping">${ico('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>')}Move the view</button><button id="edSlope" title="Colour the ground by how steep it is">Steepness</button><button id="edTrees" title="Show or hide the forest">Trees</button><button id="edHome">Whole mountain</button></div>
+      <div class="vtog ed-view"><button data-mode="move" title="Drag to move the view instead of shaping">${ico('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>')}Look around</button><button id="edSlope" title="Colour the ground by how steep it is">Steepness</button><button id="edTrees" title="Show or hide the forest">Trees</button><button id="edHome">Whole mountain</button></div>
       <details class="ed-help"><summary>How it works</summary>
         <p>${isCoarse ? 'Pick a tool, then drag a finger on the ground. Hold still to keep going. Two fingers move, zoom, turn and tilt the view.' : 'Pick a tool, then drag on the ground; hold still to keep going. Right-drag turns and tilts, Space-drag or the middle button moves, scroll zooms, and [ and ] size the brush. Ctrl+Z undoes.'}</p>
         <p>Rough out the mountain with Raise and <b>Wide reach</b>, then turn it off to add ridges, gullies and more peaks. Smooth tidies up, Flatten makes room for a base or a pond. Turn on <b>Steepness</b> to see what’s green, blue and black.</p>
@@ -27472,7 +27475,7 @@ function editorStart() {
   for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.tool || b.dataset.pick) { ED.tool = b.dataset.tool || b.dataset.pick; ED.paint = true; }
+    if (b.dataset.tool || b.dataset.pick) { const t = b.dataset.tool || b.dataset.pick; ED.paint = !(b.dataset.tool && ED.paint && ED.tool === t); ED.tool = t; } // the tool in hand again: put it down, to look around
     else if (b.dataset.mode) ED.paint = !ED.paint; // Move the view: on, or back to shaping
     else if (b.id === 'edUndo') edUndo(false);
     else if (b.id === 'edRedo') edUndo(true);

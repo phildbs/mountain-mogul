@@ -370,6 +370,10 @@ the player's to draw; raising land brings the land around it up too, with detail
 - **Start over** (Phil, Nov 10): `#edReset` asks once (the label changes for 4 s), then `edReset` writes the draft back
   as it began (blank slate, or the built-in mountain's own shape with its road and streams), keeping its key and name,
   and reloads (the road is laid out at load). It can't be undone. (Claude, Nov 10)
+- **Phones look first** (Phil, Nov 10): on touch (`edTouch`: coarse pointer or no hover) the editor opens with
+  `ED.paint` off, so a finger moves the view until a tool is picked. Tapping the tool in hand again puts it down (also
+  on desktop). The Move the view chip is now "Look around"; the hint says how to put a tool down. Scenario 212 checks a
+  390-wide touch page. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
