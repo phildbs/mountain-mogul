@@ -391,6 +391,12 @@ the player's to draw; raising land brings the land around it up too, with detail
   top follows the badge's bottom). Resort-only items are hidden by
   `body.editor` CSS (goals, leaderboard, profile, invite, trail edges, help bulb, controls hint, start over, KotM).
   `mTitle` is replaced in the editor: it keeps the draft and loads the page without `?editor=1`. (Claude, Nov 10)
+- **Bases away from the bottom** (Phil, Nov 10): the first release keeps today's rule, base on the lowest ground,
+  so every shared mountain works. "Base anywhere" (a summit or mid-mountain base) is a later game feature. It would
+  mean: the base set by the road's end, not the lowest ground (base ground a band round that height, joined to the
+  lot; snow and temperature still by real height); in `flowSets`, trails that start at the base become ways in and a
+  lift whose top is at the base becomes a way home; guests ski down first and ride up to leave. Then `edCheck`'s base
+  rule relaxes. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
