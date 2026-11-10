@@ -3991,14 +3991,20 @@ function saveNow() {
   if (NO_SAVE || matchPlay) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
+  let stored = false;
   try {
     const text = JSON.stringify(saveData(true));
     lastSaveLen = text.length;
-    storeSet(saveKey(), text); // storage unavailable or full: the game still plays, and the online copy keeps it
+    stored = storeSet(saveKey(), text); // storage unavailable or full: the game still plays, and the online copy keeps it
   } catch (e) { /* ignore */ }
   const s = !practice && activeSlot();
-  if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); writeSlots(); }
+  // localAt: when this device's copy was last written. Only a write that went in counts: a full browser used to leave
+  // an old copy here while the list said "saved just now", and the old copy was later loaded and sent online over the
+  // newer one (Adum888, Nov 10).
+  if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); if (stored) s.localAt = Date.now(); writeSlots(); }
+  if (s && !stored && !storeWarned) { storeWarned = true; toast(CLOUD.uid && !CLOUD.guest ? 'This browser’s storage is full, so your progress is only saved online (after each day). Delete a mountain you no longer play, or clear this site’s other data, to keep a copy here too.' : 'This browser’s storage is full, so your latest progress can’t be saved on this device. Sign in to keep it safe online, or delete a mountain you no longer play.', true); }
 }
+let storeWarned = false;
 const newId = () => crypto.randomUUID();
 const slotById = (id) => slots.list.find((s) => s.id === id) || null;
 const activeSlot = () => slotById(slots.active);
@@ -4118,7 +4124,7 @@ function useSlotIn(id, sv, then) {
   const s = activeSlot();
   // the save goes in first: freeing space for it can drop other mountains from the list written next
   let stored = true;
-  if (sv && s) { try { stored = storeSet(slotKey(id), JSON.stringify(sv)); } catch (e) { stored = false; } }
+  if (sv && s) { try { stored = storeSet(slotKey(id), JSON.stringify(sv)); } catch (e) { stored = false; } if (stored) s.localAt = s.savedAt; } // a copy fetched from online, now here too
   stored = writeSlots() && stored;
   CLOUD.sentJson = ''; CLOUD.offered = false; CLOUD.error = '';
   if (s && slotMt(s) !== MOUNTAIN.id) {
@@ -4154,6 +4160,7 @@ function saveData(withSim) {
 function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
 function applySave(sv) {
+  { const s = !visiting && !practice && !matchPlay && sv && activeSlot(); if (s) s.baseAt = sv.savedAt || s.savedAt || 0; } // how old the resort now on screen is (see onlineIsAhead); online copies have savedAt 0 and their time on the slot
   levelDraft = null; clearUndo(); heatStamp = null; profitStamp = null;
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
@@ -22535,7 +22542,8 @@ function evalBike(chain) {
   const line = bikeLine(chain.length > 1 ? chain : [o, { x: o.x + 0.01, z: o.z }]), treeSet = new Set(), r = BIKE_HW + 0.15;
   for (const s of line.S) treesInBrush(s, r, (k) => treeSet.add(k));
   const problems = bikeProblems(chain, line), bb = bAABB('bike', 0, o.x, o.z, 0), build = chainCost(pts, 'bike');
-  return { problems, treeSet, bb, fs: footprintStats(bb), lotWarn: false, padY: null, grading: 0, tier: 0, x: o.x, z: o.z, pts, build, cost: build + treeSet.size * TREE_COST, an: line.an };
+  // an.problems too: code that sees an `an` reads a trail's problems from it (a planned bike trail crashed overnight in 4.0)
+  return { problems, treeSet, bb, fs: footprintStats(bb), lotWarn: false, padY: null, grading: 0, tier: 0, x: o.x, z: o.z, pts, build, cost: build + treeSet.size * TREE_COST, an: { ...line.an, problems } };
 }
 // The model: a dirt ribbon that follows the ground, and a trail sign at the top. While placing, bad stretches show red.
 const BIKE_MAT = new THREE.MeshLambertMaterial({ color: 0x8a6440, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -24813,7 +24821,7 @@ async function cloudSave(manual, forReferral = false) {
   if (!slot || (slot.owner && slot.owner !== CLOUD.uid) || !onThisMountain()) return;
   if (!state.started && !loadSave()) return;
   // Never upload over newer progress made on another device.
-  if (onlineIsNewer(slot)) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; return; }
+  if (onlineIsAhead(slot)) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; return; }
   if (state.phase === 'open') { if (manual) toast('Your resort saves online once the day is over.'); scheduleCloud(); return; }
   if (CLOUD.uploading) { scheduleCloud(); return; }
   CLOUD.uploading = true; CLOUD.lastUp = Date.now();
@@ -24836,7 +24844,7 @@ async function cloudSave(manual, forReferral = false) {
       if (CLOUD.uid !== uploadUid || slots.active !== slot.id) { CLOUD.uploading = false; return; }
       CLOUD.sentJson = json;
       CLOUD.verified = true;
-      slot.savedAt = Date.now(); // the online copy is this device's own: not 'newer' than it
+      slot.savedAt = slot.baseAt = Date.now(); // the online copy is this device's own: not 'newer' than it
       if (!slot.owner) slot.owner = CLOUD.uid;
       writeSlots();
       CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo, public: listed(), updatedAt: Date.now() });
@@ -25448,7 +25456,11 @@ async function pullMountain(id, then) {
   Object.assign(s, { owner: CLOUD.uid, mountain: sv.mt || m.mt || 'juniper', name: m.name || 'Juniper Ridge', when: m.when || '', savedAt: m.updatedAt || Date.now() });
   return useSlot(id, sv, then);
 }
-const onlineIsNewer = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.savedAt || 0) + 60000); };
+// Is the online copy newer than this device's copy (the one a load would read)?
+const onlineIsNewer = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.localAt ?? s.savedAt ?? 0) + 60000); };
+// Is the online copy newer than the resort on screen? baseAt is when the state that was loaded was made (applySave),
+// or the last upload; later saves of an old state don't make it new, so it's never sent over newer progress.
+const onlineIsAhead = (s) => { const m = s && (CLOUD.own || []).find((x) => x.id === s.id); return !!(m && (m.updatedAt || 0) > (s.baseAt ?? s.savedAt ?? 0) + 60000); };
 function setSession(session) {
   const u = session && session.user;
   const changed = (u ? u.id : null) !== CLOUD.uid;
@@ -25535,7 +25547,7 @@ async function initCloud() {
   }
 }
 function offerCloudSave() {
-  if (CLOUD.offered || visiting || practice || !onlineIsNewer(activeSlot())) return;
+  if (CLOUD.offered || visiting || practice || !onlineIsAhead(activeSlot())) return;
   CLOUD.offered = true;
   toast('This mountain has a newer save in your account. Go back to the title screen to load it.');
 }

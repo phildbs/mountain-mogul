@@ -29,6 +29,13 @@ export default async function ({ browser, url }) {
   eq(await g.ev(`world.buildings.filter(isBike).map((B) => [bldModeIn(opsState().plans.weekend, B), bspec(B).upkeep > 0])`), [['closed', true]], 'shut in winter; its upkeep is the trail crew');
   eq(await g.ev(`(() => { select({ kind: 'lift', obj: world.lifts[0] }); return /bike carriers fitted/.test($('sheet').textContent); })()`), true, 'the lift panel says it carries bikes');
 
+  // a bike trail saved as a blueprint is built overnight (in 4.0 this crashed: "problems is undefined")
+  const bp = await g.ev(`(() => { const B = world.buildings.find(isBike), W = chainPts(B).map(([x, z]) => toWorld(B, x, z)); removeBuilding(B);
+    pickBuilding('bike'); for (const p of W) chainTap(p); const n = world.plans.length; sheetAct({ dataset: { action: 'saveBlueprint' } }); setTool('explore');
+    const p = world.plans[world.plans.length - 1], made = world.plans.length === n + 1 && buildPlan(p); return { made, bikes: world.buildings.filter(isBike).length }; })()`);
+  eq(bp, { made: true, bikes: 1 }, 'a bike trail blueprint is built overnight');
+  await g.ev(`(() => { for (const p of [...world.plans]) cancelPlan(p); })()`);
+
   // a summer day: riders come, lap the trail and pay; a save mid-day keeps them riding
   eq(await g.ev(`document.querySelector('#manage [data-m=snow]').textContent`), 'Snow', 'the side menu has its Snow button in winter');
   await g.ev(toSummer);
