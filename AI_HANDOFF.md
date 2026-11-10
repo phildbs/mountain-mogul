@@ -271,7 +271,7 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 | 1 | Summer days, scenic lift rides, fall colours | On `main`, hidden (Nov 9, run 561 green). Phil confirmed the 2.5x condensed rule and the no-changelog rule (Nov 10). |
 | 2 | Weddings and events: event pavilion, bookings, summer events; hotels open in summer | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
 | 3 | Zip line (the coaster was dropped, Phil, Nov 10) | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
-| 4 | Mountain biking: narrow dirt bike trails, bike carriers, trail crew | Not started |
+| 4 | Mountain biking: narrow dirt bike trails, bike carriers, trail crew | Built on `ccr-e39f50db-ipao7i` (Nov 10, on top of pieces 2 and 3; the session on `ccr-8e48ae82-8z11ac` ran out mid-piece). Not yet on `main`. |
 | 5 | Balance on every mountain, a proper end-of-summer report, guide, roadmap, changelog, switch on | Not started |
 
 **How piece 1 works** (section `SUMMER DAYS` in `index.html`):
@@ -336,6 +336,36 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
   (`rideDone`, then `summerBase`). +0.08 to summer draw.
 - Preview card: **Add a zip line** builds one from beside the top of the base lift down to the base, free (`demoRides`).
 - New guest fields are declared up front in `makeGuest` (the 112 speed test wants one object shape).
+
+**How piece 4 works** (section `Bike trails` in `index.html`, after the zip line; test `205-summer-bikes`):
+- A bike trail is a chain building (`CHAIN.bike`, up to 40 points, 14 units apart; `isBike`), so saving, undo, removing
+  and the Summer plan's open/closed come for free. Picked under **Trails** (a button in `TRAIL_MODES`, only with the
+  switch). `evalBike` checks it: start within 12 of the top of a base chair or gondola (`bikeLiftAt`), end in a base,
+  on your land, no pond, road or building in the way, never climbing, not too steep. The path is smoothed through the
+  points (`bikeLine`, reusing `trailSamples`) and rated by its steepest 10 units: green to 12%, blue to 25%, black to
+  32%, steeper refused (`BIKE_RATE`), so a straight line down the starter lift (33%) needs switchbacks. Narrow
+  (`BIKE_HW` 0.42), so it cuts few trees. $500 a point plus $150 a unit; a 140-unit trail is about $28k.
+- Look: `modelBike` draws a dirt ribbon on the ground and a sign post in the rating's colour at the top; while placing,
+  bad stretches show red. Winter (`bikeSeason`, from `styleSnowVisuals`): a faint pale line under the snow, still
+  pickable. `WINTER_SHUT`. No rotating or moving (remove and redraw).
+- Bike carriers: `L.bikes` (saved), fitted from the lift panel (`bikeCarrierSection`, $15k + $350 a chair). A gondola
+  carries bikes as it is (`carriesBikes`).
+- Riders: `summerDemand` adds `bikePull()` on top of the sightseers (more trails, more ratings, longer, cheaper, dry,
+  smooth = more); `bikeShare` is their part, kept in `today.bikeShare`. `payTicket` makes that share riders
+  (`bikeGuest`: skill 0 to 2, 3 to 7 laps wanted) and charges the bike park ticket ($55, `today.rev.bikes`, Prices ›
+  Scenic rides). `summerBase` → `bikeBase` (queue for the bike lift with the shortest wait), `topLinger` → `bikeTop`
+  (pick an open trail from that lift top that suits them; if every one is too hard, one nervous lap and home),
+  `bstart` → state `bike` (`bikeMove`, `bikePos`, a bike drawn under them: `BIKE_FIG` in `drawPeople`), `bikeDone`
+  at the bottom (wear, laps, thoughts) and back to `summerBase`.
+- Wear and the trail crew: each lap adds `BIKE_WEAR` (more on harder trails), a wet day 0.12; rough trails are slower
+  and less fun. `bikeNight` (in `summerNext`) fixes 0.4 a night with the crew on. The crew is the trail's upkeep
+  (`bikeCrewCost`, $6 a unit a day, summer only); turning it off (`B.crewOff`, saved with `B.wear`) costs nothing.
+- Day report: `r.bikes` (laps, riders, rough, too hard, no lift with carriers) and a "Bike park tickets" line.
+- Preview card: **Add a bike trail** fits carriers to the base lift and builds the gentlest winding trail it can find
+  from its top to the base, free (`demoBike`).
+- First-guess numbers (starter resort, a July Saturday): 120 riders, 287 laps, $6.6k in tickets beside $8.3k of scenic
+  rides; the trail crew $830 a day. Retune at piece 5. Not done yet: injuries on bikes, bike rentals at the rental shop,
+  a bike race event, rain closing trails.
 
 **Known gaps in piece 1, for later pieces:** condos are shut in summer; the Summer plan editor still shows
 après, night skiing and patrol rows that do nothing; guests wear winter clothes; day-report tips are switched off in
