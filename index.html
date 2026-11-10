@@ -255,6 +255,10 @@ body.visiting .tips-btn, body.no-tips .tips-btn, #menu:not([hidden]) ~ .tips-btn
 .lbar .sort { margin-left: auto; }
 .lgroup { display: flex; gap: 8px; align-items: center; margin: 8px 2px 0; font-size: 12.5px; color: var(--ink-2); }
 .lgroup b { color: var(--ink); }
+.lgroup[data-action] { cursor: pointer; border-radius: 6px; padding: 2px 4px; margin-left: -2px; }
+.lgroup[data-action]:hover { background: var(--line, rgba(0,0,0,0.05)); }
+.lgroup .fold { width: 10px; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .lgroup span:last-child { margin-left: auto; font-variant-numeric: tabular-nums; }
 .lgroup .neg, .flabel .neg, .lrow .l2 .neg { color: var(--steep); }
 .llist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -5094,6 +5098,9 @@ function trailMaterial() {
 }
 const ratingTint = (r) => RATINGS[r].col.map((c) => lerp(1, c, 0.75));
 // Trails show their rating colour along the edges unless the player turns it off (remembered on this device).
+// A small list kept on this device (folded building types, types left off the profit map); storage may be blocked.
+const storedList = (k) => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { return []; } };
+const storeList = (k, set) => { try { if (set.size) localStorage.setItem(k, JSON.stringify([...set])); else localStorage.removeItem(k); } catch (e) { /* storage blocked */ } };
 let trailEdges = true;
 try { trailEdges = localStorage.getItem('mm.edges') !== 'off'; } catch (e) { /* storage blocked */ }
 const edgeTint = (r) => (trailEdges ? ratingTint(r) : null);
@@ -8180,6 +8187,8 @@ function renderSheet() {
   if (sheet.contains(document.activeElement) && typingIn(document.activeElement) && sheetContext === sheetContextKey()) return;
   showReserve();
   setTimeout(markNew, 0);
+  const ctxWas = sheetContext, ctxNow = sheetContextKey(), listOf = (c) => (/^manage:(trails|lifts|blds)$/.exec(c || '') || [])[1];
+  if (ctxWas !== ctxNow && listOf(ctxWas) && !sheet.hidden) listScroll[listOf(ctxWas)] = sheet.scrollTop; // leaving a list: remember where it was
   let html = '';
   if (state.tool === 'bld') html = bldDraftSheet();
   else if (state.tool === 'clear') html = landSheet();
@@ -8211,8 +8220,10 @@ function renderSheet() {
   }
   lastSheetHtml = html;
   layoutSheet();
+  if (ctxWas !== ctxNow && listOf(ctxNow) && listScroll[listOf(ctxNow)]) sheet.scrollTop = listScroll[listOf(ctxNow)]; // back to a list: where you left it
 }
 let lastSheetHtml = '';
+const listScroll = {}; // Trails, Lifts and Buildings lists: how far down each was, for this visit
 // Card layout is session-only: it never changes a resort or its draft.
 let sheetMode = 'full', sheetContext = '', sheetAuto = false, sheetPos = null, sheetDrag = null;
 const phoneSheet = () => matchMedia('(max-width: 640px)').matches;
@@ -8792,7 +8803,7 @@ sheet.addEventListener('click', (e) => {
 // A panel button's action. The match server calls this too, with a stand-in button, to do a player's action overnight.
 function sheetAct(b) {
   const a = b.dataset.action;
-  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'bldSort', 'profitMap', ...(matchView ? ['pastReport', 'matchSlot', 'matchWho'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read, and a spectator picks whose resort to follow)
+  if (visiting && !['close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'bldSort', 'bldGroup', 'profitType', 'profitMap', ...(matchView ? ['pastReport', 'matchSlot', 'matchWho'] : [])].includes(a)) return; // visits are read only (a match's past reports can be read, and a spectator picks whose resort to follow)
   const obj = selected && selected.obj;
   if (a === 'width') { draft.width = b.dataset.v; draft.ws = null; draft.dirty = true; renderSheet(); }
   else if (a === 'liftType') { draft.liftType = b.dataset.v; draft.dirty = true; renderSheet(); }
@@ -9031,6 +9042,8 @@ function sheetAct(b) {
   else if (a === 'buildDecor') pickBuilding('lamp');
   else if (a === 'listFilter') { listView[b.dataset.k].filter = b.dataset.v; renderSheet(); }
   else if (a === 'bldSort') { const o = Object.keys(BLD_SORTS); listView.blds.sort = o[(o.indexOf(listView.blds.sort) + 1) % o.length]; renderSheet(); }
+  else if (a === 'bldGroup') { const sh = listView.blds.shut; if (b.dataset.v === '*') sh.clear(); else if (sh.has(b.dataset.v)) sh.delete(b.dataset.v); else sh.add(b.dataset.v); storeList('mm.bldShut', sh); renderSheet(); }
+  else if (a === 'profitType') { const k = b.dataset.v; if (profitHide.has(k)) profitHide.delete(k); else profitHide.add(k); storeList('mm.profitHide', profitHide); labelsDirty = true; refreshProfitMap(); renderSheet(); }
   else if (a === 'profitMap') { const o = Object.keys(PROFIT_MAP); setProfitMap(o[(o.indexOf(overlay.profit || 'off') + 1) % o.length]); renderSheet(); }
   else if (a === 'listSort') { const o = ['status', 'popular', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'qOpen') { const t = trailById(+b.dataset.id); if (t) setOpen('trail', t, !t.open); }
@@ -9077,6 +9090,7 @@ sheet.addEventListener('change', (e) => {
 sheet.addEventListener('focusout', () => setTimeout(() => renderSheet(), 0));
 sheet.addEventListener('keydown', (e) => {
   if (e.target.id === 'nameInput' && e.key === 'Enter') e.target.blur();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('li[role=button][data-action]')) { e.preventDefault(); e.target.click(); } // a folding list heading
   e.stopPropagation();
 });
 
@@ -9429,7 +9443,7 @@ function updateLabels() {
         else if (B.type === 'patrol') { const out = B.crew.filter((c) => c.st !== 'idle').length; cnt = out ? `<b>${out}</b> on calls` : ''; }
       }
       const shut = open && !bldOpenNow(B);
-      if (overlay.profit && bldProfit(B) != null) cnt = `<span class="${bldProfit(B) < 0 ? 'neg' : ''}">${signedMoney(bldProfit(B))}</span> last day`;
+      if (overlay.profit && bldProfit(B) != null && !profitHide.has(B.type)) cnt = `<span class="${bldProfit(B) < 0 ? 'neg' : ''}">${signedMoney(bldProfit(B))}</span> last day`;
       const pm = overlay.profit && profitMarks && profitMarks.children.find((m) => m.userData.B === B);
       setLabel(B.labelEl, `<i class="bdot" style="background:${pm ? '#' + pm.material.color.getHexString() : hexOf(BTYPES[B.type].accent)}"></i><span>${esc(B.name)}</span>${shut ? `<em>${bldMode(B) === 'lunch' ? 'Lunch only' : 'Closed'}</em>` : cnt ? `<span class="cnt">${cnt}</span>` : ''}`);
       B.labelEl.classList.toggle('sel', !!(selected && selected.obj === B));
@@ -11106,15 +11120,21 @@ function roadCheck(d) {
     if (A) add(`It crosses ${A.name}.`);
     if (world.ponds.length && pondAt(p.x, p.z)) add('A snowmaking pond is in the way.');
   }
+  // Steepness over each short stretch, measured along the road (not straight across, which made every hairpin of a
+  // switchback look like a cliff); the steep stretches show red while drawing.
+  let steep = 0; const steepAt = [];
   for (let i = 4; i < P.length; i += 2) {
     const a = P[i - 4], b = P[i]; if (overCreek(a.x, a.z) || overCreek(b.x, b.z)) continue;
-    const g = Math.abs(trueY(b.x, b.z) - trueY(a.x, a.z)) / (distXZ(a, b) || 1);
-    if (g > ROAD_GRADE) { add(`Too steep in places, about ${Math.round(g * 100)}%. A road can climb ${Math.round(ROAD_GRADE * 100)}% at most: wind it across the slope.`); break; }
+    let run = 0; for (let j = i - 3; j <= i; j++) run += distXZ(P[j], P[j - 1]);
+    const g = Math.abs(trueY(b.x, b.z) - trueY(a.x, a.z)) / (run || 1);
+    steep = Math.max(steep, g);
+    if (g > ROAD_GRADE) { const r = steepAt[steepAt.length - 1]; if (r && r[1] >= i - 4) r[1] = i; else steepAt.push([i - 4, i]); }
   }
+  if (steepAt.length) add(`Too steep in places (in red), up to about ${Math.round(steep * 100)}%. A road can climb ${Math.round(ROAD_GRADE * 100)}% at most: wind it across the slope.`);
   if (len < 3) add('Too short. Drag further, or tap to add points.');
   if (d.main) for (const B of world.buildings.filter((B) => BY_ROAD.includes(B.type))) if (P.every((q) => distXZ(q, B) > ROAD_HW + 5) && branchPath().every((q) => distXZ(q, B) > ROAD_HW + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
   const build = Math.round(fresh * k.cost + bridge * BRIDGE_U);
-  return { P, len, fresh, bridge, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, door: door ? parks()[door.i] : null };
+  return { P, len, fresh, bridge, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, door: door ? parks()[door.i] : null, steep, steepAt };
 }
 // What a change would cut off: lots with no way in, and roads left without the road they join. Worked out by trying it.
 function cutOff(apply) {
@@ -11132,6 +11152,7 @@ const roadsTab = () => { if (!rtab) { try { rtab = localStorage.getItem('mm.rtab
 function setRoadsTab(k) { rtab = k; try { localStorage.setItem('mm.rtab', k); } catch (e) { /* storage blocked */ } clearRDraft(); renderSheet(); }
 const ROAD_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 const ROAD_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8402f, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+const ROAD_GHOST_STEEP = new THREE.MeshBasicMaterial({ color: 0xe0281a, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, side: THREE.DoubleSide }); // the too-steep stretches of a road being drawn
 function clearRGhost() { for (const m of rGhost) { scene.remove(m); m.geometry.dispose(); } rGhost = []; }
 function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = null; lotAsk = 0; fullDraftPanel = false; }
 function openRoads(tab) {
@@ -11150,7 +11171,9 @@ function showRGhost() {
   }
   if (rdraft && rdraft.pts.length >= 2) {
     const info = rdraft.info || (rdraft.info = roadCheck(rdraft)), k = rkind(rdraft.main ? MAIN_ROAD : { kind: rdraft.kind });
-    const m = roadRibbon(info.P, 0.12, info.problems.length ? ROAD_GHOST_BAD : ROAD_GHOST_OK, () => k.hw); m.renderOrder = 6; rGhost.push(m);
+    const bad = info.problems.some((t) => !t.startsWith('Too steep in places')); // steepness alone: green, with the steep stretches red
+    const m = roadRibbon(info.P, 0.12, bad ? ROAD_GHOST_BAD : ROAD_GHOST_OK, () => k.hw); m.renderOrder = 6; rGhost.push(m);
+    for (const [i0, i1] of info.steepAt || []) { const q = roadRibbon(info.P.slice(i0, i1 + 1), 0.16, ROAD_GHOST_STEEP, () => k.hw + 0.05); q.renderOrder = 7; rGhost.push(q); } // where it's too steep
   } else if (rdraft && rdraft.pts.length === 1) {
     const [x, z] = rdraft.pts[0], m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 20).rotateX(-Math.PI / 2).translate(x, roadY(x, z) + 0.15, z), ROAD_GHOST_OK);
     m.renderOrder = 6; scene.add(m); rGhost.push(m);
@@ -11251,10 +11274,10 @@ function roadsTap(p) {
   const tab = roadsTab();
   if (tab === 'roads') {
     if (!rdraft && roadsOk() && lotBuildable()) { // a tap on your own road changes it; a tap on any road starts a new one there (keep tapping to lay it out)
-      const r = tapR(p, fingerPx(), 1.2), R = proadAt(p);
+      const r = tapR(p, fingerPx(), 1.2), R = proadAt(p), h = roadHit(p);
+      // a new road starts here, on your road too (Adum888, Nov 10); the panel offers changing that road instead
+      if (h && (R || h.d < r + ROAD_HW)) { rdraft = { R: null, kind: lastKind, pts: [[Math.round(h.pt.x * 100) / 100, Math.round(h.pt.z * 100) / 100]], info: null, from: R ? R.id : undefined }; showRGhost(); renderSheet(); return; }
       if (R) { startRoadEdit(R); return; }
-      const h = roadHit(p);
-      if (h && h.d < r + ROAD_HW) { rdraft = { R: null, kind: lastKind, pts: [[Math.round(h.pt.x * 100) / 100, Math.round(h.pt.z * 100) / 100]], info: null }; showRGhost(); renderSheet(); return; }
       toast(`Start on a road: ${isCoarse ? 'tap' : 'click'} the access road, or one of yours, where the new road should leave it.`);
       return;
     }
@@ -11409,7 +11432,8 @@ function roadDraftHtml() {
   return `<div class="field-label">${d.main ? 'The access road' : d.R ? esc(d.R.name) : 'New road'}</div>
     ${!d.main ? `<div class="seg" role="group" aria-label="Road type">${Object.entries(RKIND).map(([k, v]) => `<button data-action="roadKind" data-v="${k}" aria-pressed="${k === d.kind}">${v.label}</button>`).join('')}</div>` : ''}
     <p class="help">${d.main ? 'Drag its points to reroute it inside your land; drag a small dot to add a bend. Where it comes onto your land stays put.' : d.R ? 'Drag its points to change its route; drag a small dot to add a bend.' : `${d.pts.length < 2 ? `<b>${tap} where the road goes</b>, point by point, or drag on from here.` : `${tap} to add more road, or drag on from its end.`} End it on a lot’s edge to bring cars there. Drag the points to adjust it.`}</p>
-    ${info ? problemsHtml(info.problems) : ''}
+    ${info ? `<p class="help">Steepest: <b class="${info.steep > ROAD_GRADE ? 'neg' : ''}">${Math.round(info.steep * 100)}%</b> (a road can climb ${Math.round(ROAD_GRADE * 100)}%)</p>${problemsHtml(info.problems)}` : ''}
+    ${!d.R && d.from && d.pts.length < 2 && proads().some((Q) => Q.id === d.from) ? `<button class="link" data-action="roadPick" data-id="${d.from}">Change ${esc(proads().find((Q) => Q.id === d.from).name)} instead</button>` : ''}
     ${warns.length ? `<p class="help warn">${esc(warns.join('. '))}.</p>` : ''}
     ${info ? `<div class="costs"><span>${d.R ? 'New road' : 'Road'} · ${ftOfU(info.fresh)}</span><span>${money(Math.round(info.build - info.bridge * BRIDGE_U))}</span>
       ${info.bridge ? `<span>A bridge over the creek · ${ftOfU(info.bridge)}</span><span>${money(Math.round(info.bridge * BRIDGE_U))}</span>` : ''}
@@ -23316,7 +23340,7 @@ if (lotCount() > 1) MANAGE_TITLE.lotgrow = 'Grow your parking'; // more than one
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'reputation', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
-const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all' }, blds: { filter: 'all', sort: 'built' } };
+const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all' }, blds: { filter: 'all', sort: 'built', shut: new Set(storedList('mm.bldShut')) } };
 function openManage(key) {
   if (visiting && !VISIT_MANAGE.includes(key)) return;
   if (state.tool !== 'explore') setTool('explore');
@@ -23618,6 +23642,12 @@ function eventsPanel() {
 const NO_PROFIT = ['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'];
 const bldProfit = (B) => (NO_PROFIT.includes(B.type) || !B.yday ? null : B.yday.profit);
 const BLD_SORTS = { built: 'Built', profit: 'Profit', type: 'By type' };
+// With the profit map on: a chip per type that earns, to leave that type off the map (condos, say).
+function profitTypesHtml() {
+  const types = [...new Set(realBlds().filter((B) => bldProfit(B) != null).map((B) => B.type))].sort((a, b) => BTYPES[a].name.localeCompare(BTYPES[b].name));
+  if (types.length < 2) return '';
+  return `<div class="field-label">On the profit map</div><div class="chips">${types.map((k) => `<button class="chip" data-action="profitType" data-v="${k}" aria-pressed="${!profitHide.has(k)}">${esc(BTYPES[k].name)}</button>`).join('')}</div>`;
+}
 function bldsList() {
   const v = listView.blds, live = state.phase === 'open';
   let Bs = realBlds();
@@ -23641,10 +23671,12 @@ function bldsList() {
     // While the day plays, sorted by profit or with the profit map on: last day's profit beside today's numbers, so the order makes sense.
     const yp = live && y && !NO_PROFIT.includes(B.type) && (v.sort !== 'built' || overlay.profit) ? `<span>Last day <b class="${y.profit < 0 ? 'neg' : ''}">${signedMoney(y.profit)}</b></span>` : '';
     let head = '';
+    const shut = v.sort === 'type' && v.shut.has(B.type);
     if (v.sort === 'type' && B.type !== lastType) {
       lastType = B.type; const gp = groups.get(B.type);
-      head = `<li class="lgroup"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(t.name)}</b><span>${gp.n}</span>${gp.p > -Infinity && y ? `<span class="${gp.p < 0 ? 'neg' : ''}">${signedMoney(gp.p)} last day</span>` : ''}</li>`;
+      head = `<li class="lgroup" data-action="bldGroup" data-v="${B.type}" role="button" tabindex="0" aria-expanded="${!shut}" title="${shut ? 'Show' : 'Hide'} the ${esc(t.name.toLowerCase())} list"><span class="fold" aria-hidden="true">${shut ? '▸' : '▾'}</span><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(t.name)}</b><span>${gp.n}</span>${gp.p > -Infinity && y ? `<span class="${gp.p < 0 ? 'neg' : ''}">${signedMoney(gp.p)} last day</span>` : ''}</li>`;
     }
+    if (shut) return head;
     return `${head}<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
       <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>${yp}` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
@@ -23653,6 +23685,7 @@ function bldsList() {
   }).join('');
   return `<p class="lsum"><b>${Bs.length}</b> ${Bs.length === 1 ? 'building' : 'buildings'} · upkeep and patrol pay <b>${money(Bs.reduce((a, B) => a + bspec(B).upkeep, 0))}</b> a day before plan savings</p>
     ${Bs.length ? `<div class="lbar"><button class="chip" data-action="profitMap" aria-pressed="${!!overlay.profit}">${PROFIT_MAP[overlay.profit || 'off']}</button><button class="chip sort" data-action="bldSort">Sort: ${BLD_SORTS[v.sort]}</button></div>` : ''}
+    ${overlay.profit ? profitTypesHtml() : ''}${v.sort === 'type' && groups.size > 1 ? `<p class="help">Tap a type’s heading to fold its list away${v.shut.size ? ` · <button class="link" data-action="bldGroup" data-v="*">Show every list</button>` : ''}.</p>` : ''}
     <ul class="llist">${rows}${lamps || fires ? `<li class="lrow" data-action="manage" data-v="evenings"><div class="l1"><span class="swatch" style="background:#e0702a"></span><b>Lights and fire pits</b><span class="pill on">›</span></div><div class="l2"><span>${[lamps ? `${lamps} light${lamps === 1 ? '' : 's'}` : '', fires ? `${fires} fire pit${fires === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</span></div></li>` : ''}${visiting ? '' : `<li class="lrow" data-action="manage" data-v="parking"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>Parking and buses</b><span class="pill on">›</span></div><div class="l2"><span>Main lot, off-site parking, shuttle stations and buses</span></div></li>`}</ul>
     ${Bs.length ? '' : '<p class="help">No buildings yet. A lodge is the place to start: guests need food, warmth and restrooms.</p>'}`;
 }
@@ -24309,6 +24342,8 @@ function setTraffic(mode) {
    Red lost money, yellow about broke even, green earned the most. "By type" compares each building with others
    of its kind (the best café is green even if lodges earn far more). Buildings with no takings of their own get no disc. */
 const PROFIT_MAP = { off: 'Profit map', all: 'Profit map: all buildings', type: 'Profit map: by type' };
+// Types left off the profit map, chosen in the Buildings list (remembered on this device).
+const profitHide = new Set(storedList('mm.profitHide'));
 
 function setProfitMap(mode) {
   overlay.profit = mode === 'off' ? false : mode;
@@ -24326,7 +24361,7 @@ function profitCol(f, c) {
 }
 // Each building's place on the scale, -1 to 1, or null for no disc.
 function profitScale(mode) {
-  const out = new Map(), Bs = realBlds().filter((B) => bldProfit(B) != null);
+  const out = new Map(), Bs = realBlds().filter((B) => bldProfit(B) != null && !profitHide.has(B.type));
   if (mode === 'all') {
     // Gains against the best earner, losses against the worst, so any loss reads red; square root so small ones still show.
     const hi = Math.max(1, ...Bs.map(bldProfit)), lo = Math.max(1, ...Bs.map((B) => -bldProfit(B)));
@@ -24342,7 +24377,7 @@ function profitScale(mode) {
   return out;
 }
 function refreshProfitMap() {
-  const stamp = overlay.profit ? `${overlay.profit}:${state.day}:${state.phase}:${world.buildings.length}` : '';
+  const stamp = overlay.profit ? `${overlay.profit}:${state.day}:${state.phase}:${world.buildings.length}:${[...profitHide].join()}` : '';
   if (stamp === profitStamp) return;
   profitStamp = stamp;
   if (profitMarks) { scene.remove(profitMarks); profitMarks.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); profitMarks = null; }
@@ -26940,7 +26975,7 @@ async function matchApplyPending() {
 // Your changes, sent to the match server. Builds go as they're made; prices whenever they've changed.
 const MATCH_ACTIONS = ['shrinkLotAsk', 'shrinkLotNo', 'close', 'board', 'boardMt', 'visit', 'manage', 'goTo', 'listFilter', 'listSort', 'exitTool', 'build', 'undo', 'cancel', 'width', 'liftType',
   'rotB', 'pickB', 'bTab', 'turnBld', 'buildDecor', 'bulbHue', 'price', 'pricePeak', 'setPrice', 'passPrice', 'resortTab', 'pastReport', 'expandLot', 'landMode',
-  'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
+  'remove', 'removeNo', 'landSel', 'landList', 'bTheme', 'bldSort', 'bldGroup', 'profitType', 'profitMap', 'liftUpOpen', 'liftUpClose', 'midOpen',
   'parkPick', 'parkSel', 'parkMove', 'parkHere', 'parkBuild', 'parkRemove', 'saveBlueprint', 'planGo', 'planMove', 'planPause', 'planDrop', 'planNow', 'cancelPlan',
   'moveLift', 'liftMoveReset', 'moveTrail', 'trailMoveCancel', 'trailMoveReset', 'gradeTrail', 'chainUndo', 'shapeTrail', 'shapeAll', 'shapeReset', 'shapeCancel', 'shapeApply', 'moveBld', 'seasonEnd', 'seasonNo', 'seasonYes'];
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
@@ -27847,6 +27882,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.1', date: 'Nov 10, 2026', title: 'Tidier lists, easier roads', items: [
+    'Buildings sorted by type: tap a type’s heading to fold its list away. Your Trails, Lifts and Buildings lists open where you left them. Thanks Adum888!',
+    'The profit map can leave types out: while it’s on, tap a type’s chip in the Buildings list (condos, say) to take it off the map.',
+    'Roads: a tap on one of your roads now starts a new road there, like the access road. To reroute it instead, choose Change it on the panel, or pick it from the list.',
+    'Roads show their steepest part as you draw, and any stretch that’s too steep turns red.',
+    'Fixed: a road that winds across a slope was measured straight across each bend, so switchbacks always looked too steep. It’s measured along the road now.',
+  ] },
   { v: '4.0', date: 'Nov 10, 2026', title: 'Summer', items: [
     'Summer is here. When the snow melts you can keep the resort open, day by day from late June to the fall colours in October, or play a condensed summer of 18 busy weekend days. Or skip straight to next winter, as before.',
     'Summer guests ride your chairlifts and gondolas for the view, look around at the top, eat and shop, and ride back down. The Summer plan chooses which lifts and buildings run, and summer upkeep is paid day by day.',
