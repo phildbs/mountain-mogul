@@ -438,6 +438,15 @@ the player's to draw; raising land brings the land around it up too, with detail
   (`?mountain=`) or, when it was opened from the browser, back to the list (`?maps=1&browse=1`). A `?look=` link with no
   document in the tab goes to the card instead. The card's parts are shared helpers now: `fetchShared`, `rateBox` (Like
   is `[data-like]`), `sharedPlay`, `sharedCopy`. Scenario 214 covers it. (Claude, Nov 10)
+- **Weather and money** (Phil, Nov 10): the document's optional `set` {snow, wind, thaw, town 0–9, cash 0–2} (`MAP_SET_KEYS`,
+  `validSet`; in `mapIdOf` only when present, so older ids are unchanged). `applyMapSet` turns it into `weather`, `draw`,
+  `costs` and `cash` with the old designer's formulas (makeCustom) and `CUSTOM_CASH` (3.0M / 2.2M / 1.5M). Without it a
+  mountain keeps its starting mountain's. Editor: a "Weather and money" fold (`#edSet`) with Snowfall, Wind, Thaws, Town
+  sliders and the three starting-money buttons; they show the starting mountain's nearest values (`mapSetOf`) until
+  one is changed (`edSetValue`), which makes them all the mountain's own; "Use X's weather and money" clears it.
+  Words: `mapSetWord(s)` (no `money()` there: it isn't defined yet when a mountain is read at boot). The card and Look
+  around describe them. Scenario 212 covers it. Not yet: skier mix (still the starting mountain's), base elevation,
+  treeline. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

@@ -616,6 +616,11 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
 .ed-reset { margin: 8px 0 0; font-size: 12.5px; }
+.ed-set { margin-top: 14px; border-top: 1px solid rgba(20, 36, 58, 0.08); padding-top: 8px; }
+.ed-set summary { cursor: pointer; font: 700 11px var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+#edPanel .ed-slide { display: grid; grid-template-columns: 62px 1fr 116px; } #edPanel .ed-slide span { width: auto; font-size: 12px; }
+.ed-cash-label { margin: 10px 0 -4px; font-weight: 600; color: var(--ink); font-size: 13px; }
+.ed-cash button { font-size: 12px !important; }
 #lkRate { display: grid; gap: 10px; margin-top: 10px; }
 .modal-bg.mbrowse .modal { width: min(620px, 100%); }
 .mb-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .mb-tools input { flex: 1; min-width: 160px; font: 14px var(--ui); padding: 8px 10px; border-radius: 9px; border: 1px solid rgba(20, 36, 58, 0.2); }
@@ -3018,7 +3023,9 @@ function customBlurb(r) {
    as, which still gives it its weather and crowds; `h` is the height of every point of the ground, packed small.
    `road` (the access road's points, from off the map to the base) and `creeks` (each stream's points) are there once
    the player has drawn their own; without them the mountain keeps the ones it started with. `ponds` (each snowmaking
-   pond's squares, as cellKey numbers) come with the mountain: a resort on it starts with them dug, free.
+   pond's squares, as cellKey numbers) come with the mountain: a resort on it starts with them dug, free. `set` is the
+   maker's own weather and money (snow, wind, thaw, town 0 to 9; cash 0 to 2, as the old designer's recipes); without
+   it the mountain keeps the weather, crowds and money of the one it started from.
    Its id is "c:m" and a fingerprint of the document, so a mountain can never change under a resort built on it
    (a changed mountain is another mountain), and it counts as a custom mountain everywhere (the Custom leaderboard,
    the custom goals). Every save on one carries the document (`map`), so the resort opens on any device. */
@@ -3058,19 +3065,22 @@ function decodeHeights(b64) {
   return n + 1 >= s.length * 2 ? E : null;
 }
 function mapIdOf(doc) {
-  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}|${JSON.stringify(doc.road || 0)}|${JSON.stringify(doc.creeks || 0)}${doc.ponds ? '|' + JSON.stringify(doc.ponds) : ''}`;
+  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}|${JSON.stringify(doc.road || 0)}|${JSON.stringify(doc.creeks || 0)}${doc.ponds ? '|' + JSON.stringify(doc.ponds) : ''}${doc.set ? '|' + MAP_SET_KEYS.map((k) => doc.set[k]).join('') : ''}`;
   let a = 0x811c9dc5, b = 0x1b873593;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995) + 0x9e3779b9 | 0; }
   return 'c:m' + (a >>> 0).toString(36).padStart(7, '0') + (b >>> 0).toString(36).padStart(7, '0');
 }
 const mapName = (n) => String(n || '').replace(/[<>&"']/g, '').replace(/\s+/g, ' ').trim().slice(0, 28) || 'My mountain';
 const MAX_CREEKS = 8, MAX_LINE = 48, MAX_PONDS = 6, POND_MAX_CELLS = 600;
+const MAP_SET_KEYS = ['snow', 'wind', 'thaw', 'town', 'cash'], MAP_SET_MAX = { snow: 9, wind: 9, thaw: 9, town: 9, cash: 2 };
+const validSet = (o) => !!o && typeof o === 'object' && MAP_SET_KEYS.every((k) => Number.isInteger(o[k]) && o[k] >= 0 && o[k] <= MAP_SET_MAX[k]);
 const validPond = (P) => Array.isArray(P) && P.length >= 16 && P.length <= POND_MAX_CELLS && P.every((k) => Number.isInteger(k) && Math.abs(Math.round(k / 4096)) < HALF && Math.abs(k - Math.round(k / 4096) * 4096) < HALF); // (cellKey numbers: keyX and keyZ aren't set up yet when the mountain is read)
 const validLine = (L) => Array.isArray(L) && L.length >= 2 && L.length <= MAX_LINE && L.every((p) => Array.isArray(p) && p.length === 2 && p.every((x) => Number.isFinite(x) && x > -2 && x < 3));
 const validMapDoc = (d) => !!d && d.v === 1 && MAP_FROM.includes(d.from) && typeof d.name === 'string' && d.name === mapName(d.name) && typeof d.h === 'string' && d.h.length < 400000
   && (d.road == null || validLine(d.road)) && (d.creeks == null || (Array.isArray(d.creeks) && d.creeks.length <= MAX_CREEKS && d.creeks.every(validLine)))
-  && (d.ponds == null || (Array.isArray(d.ponds) && d.ponds.length && d.ponds.length <= MAX_PONDS && d.ponds.every(validPond)));
-const mapDocOf = (d) => ({ v: d.v, name: d.name, from: d.from, h: d.h, ...(d.road ? { road: d.road } : {}), ...(d.creeks ? { creeks: d.creeks } : {}), ...(d.ponds ? { ponds: d.ponds } : {}) }); // the document alone
+  && (d.ponds == null || (Array.isArray(d.ponds) && d.ponds.length && d.ponds.length <= MAX_PONDS && d.ponds.every(validPond)))
+  && (d.set == null || validSet(d.set));
+const mapDocOf = (d) => ({ v: d.v, name: d.name, from: d.from, h: d.h, ...(d.road ? { road: d.road } : {}), ...(d.creeks ? { creeks: d.creeks } : {}), ...(d.ponds ? { ponds: d.ponds } : {}), ...(d.set ? { set: Object.fromEntries(MAP_SET_KEYS.map((k) => [k, d.set[k]])) } : {}) }); // the document alone
 const mapKey = (id) => 'mm.map.' + id.slice(3);
 // The document behind an id: kept on this device when the mountain was made or first played, carried over a reload
 // for a visit, or inside a save on it.
@@ -3110,8 +3120,28 @@ function mapMountain(doc, id, E) {
   }
   if (doc.creeks) setCreeks(M, doc.creeks);
   setMapPonds(M, doc.ponds);
+  if (doc.set) applyMapSet(M, doc.set);
   return M;
 }
+// The maker's weather and money, worked out as the old designer's recipes did (makeCustom).
+function applyMapSet(M, r) {
+  const f = (k) => r[k] / 9;
+  M.weather = { storm: 0.75 + 0.55 * f('snow'), wind: 0.5 + 1.7 * f('wind'), warm: 0.7 + 0.9 * f('thaw'), temp: -3 + 8 * f('thaw'), ice: 1 + 1.5 * f('thaw') };
+  M.draw = 0.8 + 0.4 * f('town'); M.costs = 1.12 - 0.17 * f('town'); M.cash = CUSTOM_CASH[r.cash];
+  M.blurb = `A hand-shaped mountain with its own weather: ${mapSetWords(r)}.`;
+}
+// The nearest settings to a mountain's own weather and money, for the editor's sliders to start from.
+function mapSetOf(B) {
+  const w = B.weather || {}, d = (x, a, b) => clamp(Math.round((x - a) / b * 9), 0, 9);
+  return { snow: d(w.storm ?? 1, 0.75, 0.55), wind: d(w.wind ?? 1, 0.5, 1.7), thaw: d(w.warm ?? 1, 0.7, 0.9), town: d(B.draw ?? 1, 0.8, 0.4),
+    cash: CUSTOM_CASH.reduce((bi, c, i) => (Math.abs(c - B.cash) < Math.abs(CUSTOM_CASH[bi] - B.cash) ? i : bi), 0) };
+}
+const MAP_SET_WORDS = { snow: ['Very little snow', 'Light snow', 'Average snow', 'Heavy snow', 'Deep snow'], wind: ['Calm', 'Light winds', 'Some wind', 'Windy', 'Very windy'],
+  thaw: ['Rare thaws', 'Few thaws', 'Some thaws', 'Frequent thaws', 'Constant thaws'], town: ['Remote', 'Far from town', 'A fair drive from town', 'Near town', 'Right by the city'] };
+const mapSetWord = (k, v) => (k === 'cash' ? `${CUSTOM_CASH_WORD[v]} start` : MAP_SET_WORDS[k][Math.min(4, Math.floor(v / 2))]); // (no money(): it isn't set up yet when a mountain is read)
+const mapSetWords = (r) => MAP_SET_KEYS.map((k) => mapSetWord(k, r[k]).toLowerCase()).join(', ');
+// Where a mountain's weather comes from, in a few words.
+const mapWeatherWords = (doc) => (doc.set ? 'its own weather' : `${MOUNTAINS[doc.from].name}’s weather`);
 // A mountain's streams from the player's own points (none at all is fine: the first one is kept off the map).
 function setCreeks(M, list) {
   M.creek = list.length ? catmull(list[0], 4) : [[9, 9], [9.1, 9]];
@@ -3147,9 +3177,9 @@ const NO_ROAD = [[-0.3, -0.16], [-0.16, -0.16]];
 /* The editor's own mountains: drafts kept on this device, each under its own key, shaped freely. Playing one makes
    the fixed document above from the draft as it stands, so shaping it further never touches a resort built on it. */
 const DRAFT_KEY = 'mm.mapdraft.', DRAFT_OPEN = 'mm.mapdraft', MAX_DRAFTS = 8;
-const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, ponds: [], noRoad: false, blank: false, pondObjs: [], tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
+const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, ponds: [], set: null, noRoad: false, blank: false, pondObjs: [], tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
 // The draft as a document.
-const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}), ...(ED.ponds.length ? { ponds: ED.ponds } : {}) });
+const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}), ...(ED.ponds.length ? { ponds: ED.ponds } : {}), ...(ED.set ? { set: { ...ED.set } } : {}) });
 // What a draft keeps besides the document: whether it's a blank slate, and still has no road of its own.
 const edDraft = () => ({ ...edDoc(), ...(ED.noRoad && !ED.road ? { noRoad: true } : {}), ...(ED.blank ? { blank: true } : {}), at: Date.now() });
 function draftList() {
@@ -3170,7 +3200,7 @@ function editorMountain() {
   try { key = localStorage.getItem(DRAFT_OPEN); d = key && JSON.parse(localStorage.getItem(DRAFT_KEY + key)); } catch (e) { /* ignore */ }
   let E = validMapDoc(d) ? decodeHeights(d.h) : null;
   if (!E) { key = null; d = { name: 'My mountain', from: 'juniper', creeks: [], noRoad: true, blank: true }; E = gridOf(MOUNTAINS.juniper, true); }
-  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, ponds: d.ponds || [], noRoad: !d.road && !!d.noRoad, blank: !!d.blank, saved: true }); // (an untouched new one has nothing to keep yet)
+  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, ponds: d.ponds || [], set: validSet(d.set) ? { ...d.set } : null, noRoad: !d.road && !!d.noRoad, blank: !!d.blank, saved: true }); // (an untouched new one has nothing to keep yet)
   const M = mapMountain({ ...d, v: 1, h: '' }, 'c:m!editor', E);
   if (ED.noRoad) { M.road = NO_ROAD; M.lotWest = false; for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k]; }
   return M;
@@ -25796,7 +25826,7 @@ async function openSharedMountain(id, row) {
   const { r, doc } = S, from = MOUNTAINS[doc.from], fromList = !!row && !$('crisis').hidden && $('crisis').classList.contains('mbrowse');
   const rb = await rateBox(S);
   showCrisis(`<div><div class="eyebrow">A shared mountain</div><h2 id="crTitle">${esc(doc.name)}</h2></div>
-    <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${esc(from.name)}’s weather.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
+    <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${doc.set ? esc(mapSetWords(doc.set)) : `${esc(from.name)}’s weather`}.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
     ${sharedNums(S.row)}${rb.html}
     <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
     `<button class="btn" id="smPlay">Play this mountain</button><button class="btn secondary" id="smLook">Look around</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
@@ -25818,6 +25848,7 @@ function lookStart() {
     <div id="edBody">
       <div class="vrow" id="edNums"></div>
       <ul class="ed-ready" id="lkHas"></ul>
+      <p class="vhelp" id="lkSet"></p>
       <div id="lkRate"></div>
       <div class="ed-go"><button class="btn" id="lkPlay">Play this mountain</button><button class="btn secondary" id="lkCopy" hidden>Copy to edit</button></div>
       <p class="ed-reset"><button class="link" id="lkBack">Back</button></p>
@@ -25832,6 +25863,7 @@ function lookStart() {
   const doc = MOUNTAIN.doc, nc = (doc.creeks || creekPoints(MOUNTAINS[doc.from])).length, np = (doc.ponds || []).length;
   $('lkHas').innerHTML = `<li class="ok"><span>Access road and base</span></li><li class="${nc ? 'ok' : 'opt'}"><span>${nc ? `${nc} stream${nc > 1 ? 's' : ''}` : 'No streams'}</span></li>
     <li class="${np ? 'ok' : 'opt'}"><span>${np ? `${np} snowmaking pond${np > 1 ? 's' : ''}, dug and free for a resort here` : 'No snowmaking ponds'}</span></li>`;
+  $('lkSet').textContent = doc.set ? `Weather and money: ${mapSetWords(doc.set)}.` : `Weather, crowds and money: ${MOUNTAINS[doc.from].name}’s.`;
   $('mTitle').onclick = () => { closeMenu(); location.href = location.pathname; };
   let back = ''; try { back = sessionStorage.getItem('mm.lookBack') || ''; } catch (e) { /* ignore */ }
   $('lkBack').textContent = back ? 'Back to custom mountains' : 'Back to its card';
@@ -25852,7 +25884,7 @@ function lookStart() {
 // Once online: who made it, its totals, whether it can be copied, and Like and stars.
 async function lookLoad() {
   const S = await fetchShared(MOUNTAIN.id); if (!S) return;
-  $('lkBy').innerHTML = `Made by <b>${esc(S.r.creator)}</b> · ${esc(MOUNTAINS[S.doc.from].name)}’s weather`;
+  $('lkBy').innerHTML = `Made by <b>${esc(S.r.creator)}</b> · ${esc(mapWeatherWords(S.doc))}`;
   $('lkCopy').hidden = !S.r.allow_copy;
   const rb = await rateBox(S);
   $('lkRate').innerHTML = sharedNums(S.row) + rb.html; rb.wire($('lkRate'));
@@ -27642,6 +27674,14 @@ function edSync() {
     <li class="${nc ? 'ok' : 'opt'}"><span>${nc ? `${nc} stream${nc > 1 ? 's' : ''}` : 'No streams (optional)'}</span>${nc ? '<button class="link" id="edNoStreams">Clear</button>' : ''}</li>
     <li class="${np ? 'ok' : 'opt'}"><span>${np ? `${np} snowmaking pond${np > 1 ? 's' : ''}` : 'No snowmaking ponds (optional)'}</span>${np ? '<button class="link" id="edNoPonds">Clear</button>' : ''}</li>`;
   $('edPlay').classList.toggle('secondary', !ready);
+  // weather and money: the maker's own, or the starting mountain's (shown on the sliders all the same)
+  const st = ED.set || mapSetOf(MOUNTAINS[ED.from]);
+  for (const el of document.querySelectorAll('#edPanel [data-set]')) el.value = st[el.dataset.set];
+  for (const el of document.querySelectorAll('#edPanel [data-setv]')) el.textContent = mapSetWord(el.dataset.setv, st[el.dataset.setv]);
+  for (const b of document.querySelectorAll('#edPanel [data-cash]')) b.setAttribute('aria-pressed', +b.dataset.cash === st.cash);
+  $('edSetFrom').textContent = ED.set ? 'This mountain has its own weather and money.' : `Now: ${MOUNTAINS[ED.from].name}’s weather, crowds and money. Change any of them to make them this mountain’s own.`;
+  $('edSetReset').hidden = !ED.set;
+  $('edSub').textContent = `${ED.blank ? 'Blank slate' : `Started from ${MOUNTAINS[ED.from].name}`} · ${ED.set ? 'own weather' : `${MOUNTAINS[ED.from].name}’s weather`}`;
   canvas.style.cursor = ED.paint ? 'crosshair' : '';
 }
 /* ---------- Sharing a mountain (supabase/shared-mountains.sql) ----------
@@ -27720,6 +27760,14 @@ async function edShare(msg) {
     if (e) toast(shareErr(e), true); else edShare();
   };
 }
+// Weather and money: changing any one makes them all this mountain's own (starting from the mountain it came from).
+function edSetValue(k, v) { ED.set = { ...(ED.set || mapSetOf(MOUNTAINS[ED.from])), [k]: v }; edSetChanged(); }
+function edSetChanged() {
+  const B = MOUNTAINS[ED.from];
+  if (ED.set) applyMapSet(MOUNTAIN, ED.set); else Object.assign(MOUNTAIN, { weather: B.weather, draw: B.draw, costs: B.costs, cash: B.cash });
+  ED.saved = false; clearTimeout(edSaveT); edSaveT = setTimeout(edSave, 600);
+  edSync();
+}
 // My mountains: the drafts on this device, and starting a new one.
 function edMaps() {
   const list = draftList(), full = list.length >= MAX_DRAFTS;
@@ -27747,7 +27795,7 @@ function editorStart() {
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'edPanel';
   const ico = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  el.innerHTML = `<div class="vhead"><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name" title="Rename your mountain"><p>${ED.blank ? `Blank slate · ${esc(MOUNTAINS[ED.from].name)}’s weather` : `Started from ${esc(MOUNTAINS[ED.from].name)}`}</p></div>
+  el.innerHTML = `<div class="vhead"><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name" title="Rename your mountain"><p id="edSub"></p></div>
       <button class="ed-icon" id="edUndo" aria-label="Undo" title="Undo (Ctrl+Z)">${ED_UNDO}</button><button class="ed-icon flip" id="edRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">${ED_UNDO}</button>
       <button class="vfold" id="edFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
     <div id="edBody">
@@ -27759,6 +27807,14 @@ function editorStart() {
       <label class="vtilt" id="edSizeRow">Size <input type="range" id="edSize" min="2" max="30" step="1" value="${ED.r}"><span id="edSizeV"></span></label>
       <label class="vtilt" id="edStrRow">Strength <input type="range" id="edStr" min="1" max="10" step="1" value="${ED.k}"><span id="edStrV"></span></label>
       <div class="ed-switch" id="edWideRow"><button id="edWide" role="switch" aria-label="Wide reach"></button><span><b>Wide reach</b> · the land around comes too, the way a mountain forms. Turn it off for cliffs, ridges and gullies.</span></div>
+      <details class="ed-set" id="edSet"><summary>Weather and money</summary>
+        <p class="vhelp" id="edSetFrom"></p>
+        ${['snow', 'wind', 'thaw', 'town'].map((k) => `<label class="vtilt ed-slide">${{ snow: 'Snowfall', wind: 'Wind', thaw: 'Thaws', town: 'Town' }[k]} <input type="range" min="0" max="9" step="1" data-set="${k}"><span data-setv="${k}"></span></label>`).join('')}
+        <p class="ed-cash-label">Starting money</p>
+        <div class="vtog ed-cash" role="group" aria-label="Starting money">${CUSTOM_CASH.map((c, i) => `<button data-cash="${i}">${CUSTOM_CASH_WORD[i]} · ${money(c)}</button>`).join('')}</div>
+        <p class="vhelp">Snowfall, wind and thaws set the weather. Town is how far the city is: near brings bigger crowds and lower running costs, remote fewer guests and higher costs. Starting money is what a new resort here begins with.</p>
+        <p class="ed-reset"><button class="link" id="edSetReset">Use ${esc(MOUNTAINS[ED.from].name)}’s weather and money</button></p>
+      </details>
       <h3>This mountain</h3>
       <div class="vrow" id="edNums"></div>
       <ul class="ed-ready" id="edReady"></ul>
@@ -27797,6 +27853,8 @@ function editorStart() {
     else if (b.id === 'edPlay') edPlay();
     else if (b.id === 'edMaps') edMaps();
     else if (b.id === 'edShare') edShare();
+    else if (b.dataset.cash) edSetValue('cash', +b.dataset.cash);
+    else if (b.id === 'edSetReset') { ED.set = null; edSetChanged(); }
     else if (b.id === 'edReset') {
       if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = ED.blank ? 'Back to a blank slate? This can’t be undone' : `Back to ${MOUNTAINS[ED.from].name} as it was? This can’t be undone`; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Start over'; }, 4000); return; }
       edReset(); return;
@@ -27804,6 +27862,7 @@ function editorStart() {
     else if (b.id === 'edFold') { const open = $('edBody').hidden; $('edBody').hidden = !open; b.textContent = open ? '–' : '+'; b.setAttribute('aria-expanded', open); }
     edSync();
   });
+  for (const inp of document.querySelectorAll('#edPanel [data-set]')) inp.oninput = (e) => edSetValue(e.target.dataset.set, +e.target.value);
   $('edSize').oninput = (e) => { ED.r = +e.target.value; edSync(); };
   $('edStr').oninput = (e) => { ED.k = +e.target.value; edSync(); };
   $('edName').onchange = (e) => { ED.name = mapName(e.target.value); e.target.value = ED.name; MOUNTAIN.name = ED.name; $('resortName').textContent = ED.name; ED.saved = false; edSave(); };

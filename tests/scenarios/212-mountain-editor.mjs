@@ -139,6 +139,15 @@ export default async function ({ browser, url }) {
   await g.click('#edMaps');
   await g.ev(`document.querySelector('#crisis [data-ed-open]').click()`); await g.reloaded();
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'opening the first one again');
+  // weather and money: the starting mountain's until changed; changing one makes them all its own; Use … puts them back
+  eq(await g.ev(`[ED.set, document.querySelector('#edPanel [data-setv=snow]').textContent]`), [null, 'Average snow'], 'Juniper Ridge’s weather to start with');
+  await g.ev(`(() => { const i = document.querySelector('#edPanel [data-set=snow]'); i.value = 9; i.oninput({ target: i }); })()`);
+  await g.click('#edPanel [data-cash="0"]');
+  eq(await g.ev(`[ED.set.snow, ED.set.cash, ED.set.wind, MOUNTAIN.weather.storm, MOUNTAIN.cash, document.getElementById('edSub').textContent.includes('own weather')]`), [9, 0, 3, 1.3, 3000000, true], 'deep snow and a relaxed start: its own weather and money');
+  const idA = await g.ev('mapIdOf(edDoc())');
+  await g.click('#edSetReset'); eq(await g.ev('[ED.set, MOUNTAIN.cash]'), [null, await g.ev('MOUNTAINS.juniper.cash')], 'Use Juniper Ridge’s weather and money puts them back');
+  assert(await g.ev('mapIdOf(edDoc())') !== idA, 'its own weather makes it another mountain');
+  await g.ev(`edSetValue('snow', 9); edSetValue('town', 9); edSetValue('cash', 0); edSave()`);
   // Play: a resort starts on a copy of the mountain
   // the playable check: this road ends on a hillside, so Play waits, and the list says why and where
   const checks = `edCheck().map((c) => c.ok)`;
@@ -155,7 +164,8 @@ export default async function ({ browser, url }) {
   const id = await g.ev('MOUNTAIN.id');
   assert(/^c:m[0-9a-z]{14}$/.test(id) && await g.ev(`state.started && !EDITOR && MOUNTAIN.hand && MOUNTAIN.custom && isCustomId(MOUNTAIN.id) && boardOf(MOUNTAIN.id) === 'custom'`), `playing starts a resort on the mountain (${id})`);
   assert(Math.abs(await g.ev(h) - keep[0]) < 0.02, 'with the ground as shaped');
-  eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', await g.ev('MOUNTAINS.juniper.cash'), id, true], 'its name, Juniper Ridge’s money, the custom goals');
+  eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, START_CASH, state.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', 3000000, 3000000, 3000000, id, true], 'its name, its own starting money, the custom goals');
+  eq(await g.ev(`[MOUNTAIN.weather.storm, Math.round(MOUNTAIN.draw * 100), Math.round(MOUNTAIN.costs * 100)]`), [1.3, 120, 95], 'and its own weather and crowds');
   eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), CREEKD[(-30 + HALF) * NV + 20 + HALF] < 1, parks().length > 0 || state.lotSections > 0]`), [40, 44, true, true], 'with the road, the base and the stream as drawn');
   eq(await g.ev(`[world.ponds.length, world.ponds[0].free, world.ponds[0].cost, state.cash === START_CASH, pondGuns() > 0, HT[(10 + HALF) * NV - 30 + HALF] < HT0[(10 + HALF) * NV - 30 + HALF] - 0.5]`), [1, true, 0, true, true, true], 'its pond is dug, free, and adds snow guns');
   await g.ev(`state.cash -= 12345; saveNow()`);
