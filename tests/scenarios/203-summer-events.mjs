@@ -10,8 +10,8 @@ const put = (type, tier) => `(() => { state.cash = 1e8; const L = world.lifts[0]
   for (let r = 6; r < 40; r += 1.5) for (let a = 0; a < 24; a++) { const x = L.a.x + Math.cos(a / 24 * Math.PI * 2) * r, z = L.a.z + Math.sin(a / 24 * Math.PI * 2) * r;
     const i = evalBuilding('${type}', x, z, 0, false, null, null, ${tier}); if (!i.problems.length && isBase({ x, z })) return commitBuilding(i, '${type}', x, z, 0).id; } return null; })()`;
 export default async function ({ browser, url }) {
-  // without the switch there's no Summer tab
-  let g = await openGame(browser, url);
+  // with the switch off (?summer=0, from 4.0) there's no Summer tab
+  let g = await openGame(browser, url, { query: '?summer=0' });
   eq(await g.ev(`[BGROUPS.some((x) => x[0] === 'summer'), SUMMER_ON]`), [false, false], 'no summer buildings without the switch');
   await g.page.close();
 

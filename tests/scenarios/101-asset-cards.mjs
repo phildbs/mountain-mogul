@@ -9,7 +9,7 @@ export default async function ({ browser, url }) {
     if(!rental||!second)throw Error('Need real second lift and rental building');computeNetwork();syncLabels();
     opsEdit='quiet';select({kind:'bld',obj:B});return {lodge:B.id,rental:rental.id,lift:L.id,second:second.id};
   })()`);
-  eq(await g.ev(`$('sheet').querySelectorAll('[data-action=opsBld]').length`),9,'eatery card has three choices for each of three plans');
+  eq(await g.ev(`$('sheet').querySelectorAll('[data-action=opsBld]').length`),12,'eatery card has three choices for each of four plans (the Summer plan too)');
   await g.click('[data-action=opsBld][data-plan=weekday][data-v=closed]');
   await g.click('[data-action=opsBld][data-plan=quiet][data-v=lunch]');
   eq(await g.ev(`[bldModeIn(opsState().plans.weekday,bldById(${ids.lodge})),bldModeIn(opsState().plans.quiet,bldById(${ids.lodge})),opsEdit]`),['closed','lunch','quiet'],'card edits exact plans without changing the Operations tab selection');
@@ -21,7 +21,7 @@ export default async function ({ browser, url }) {
   await g.ev(`select({kind:'bld',obj:bldById(${ids.rental})})`);
   eq(await g.ev(`[$('sheet').querySelectorAll('[data-action=opsBld]').length,$('sheet').querySelectorAll('[data-v=lunch]').length,opsAction('opsBld',{dataset:{id:'${ids.rental}',plan:'quiet',v:'lunch'}})]`),[6,0,false],'non-eateries have Open/Closed only and reject invalid lunch mode');
   await g.ev(`select({kind:'lift',obj:liftById(${ids.lift})})`);
-  eq(await g.ev(`[$('sheet').querySelectorAll('[data-action=opsLift]').length,$('sheet').querySelectorAll('[data-action=liftColor]').length]`),[9,8],'lift card has three modes per plan and eight colors');
+  eq(await g.ev(`[$('sheet').querySelectorAll('[data-action=opsLift]').length,$('sheet').querySelectorAll('[data-action=liftColor]').length]`),[12,8],'lift card has three modes for each of four plans (the Summer plan too) and eight colors');
   await g.click('[data-action=opsLift][data-plan=weekday][data-v=slow]');
   await g.click('[data-action=opsLift][data-plan=quiet][data-v=off]');
   eq(await g.ev(`[liftModeIn(opsState().plans.weekday,liftById(${ids.lift})),liftModeIn(opsState().plans.quiet,liftById(${ids.lift}))]`),['slow','off'],'lift card plans saved independently');
