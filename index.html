@@ -3587,7 +3587,16 @@ try {
   throw e;
 }
 try { sessionStorage.removeItem('mm.glRetry'); } catch (e) { /* ignore */ }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, { full: 2, phone: 1.25, low: 1 }[GFX]));
+// How sharp the picture is drawn: up to twice the screen's pixels on a computer. A computer whose graphics can't keep up
+// is turned down (perfWatch), and that's remembered (mm.dpr) so the next visit starts there.
+const DPR_MAX = Math.min(window.devicePixelRatio || 1, { full: 2, phone: 1.25, low: 1 }[GFX]);
+const PR_U = { value: 1 }, glowMats = []; // point sprites are sized in screen pixels, so they follow it
+function setDpr(v, start) {
+  renderer.setPixelRatio(v); PR_U.value = v;
+  for (const [m, size] of glowMats) m.size = size * v;
+  if (!start) renderer.setSize(W, H, false);
+}
+setDpr((() => { try { const v = +localStorage.getItem('mm.dpr'); if (v >= 1) return Math.min(DPR_MAX, v); } catch (e) { /* ignore */ } return DPR_MAX; })(), true);
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = GFX !== 'low';
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -3797,12 +3806,8 @@ function buildFar() {
   farMesh.receiveShadow = true;
   scene.add(farMesh);
   recolorFar();
-  const geo = buildTreeGeometry();
   farTreeHaze = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, farTrees.n)), 1);
-  geo.setAttribute('ihaze', farTreeHaze);
-  farTreeMesh = new THREE.InstancedMesh(geo, treeMaterial(), Math.max(1, farTrees.n));
-  farTreeMesh.setColorAt(0, new THREE.Color(1, 1, 1));
-  farTreeMesh.castShadow = true; farTreeMesh.frustumCulled = false;
+  farTreeMesh = treeInstances(farTreeHaze, Math.max(1, farTrees.n));
   scene.add(farTreeMesh);
   packFarTrees();
 }
@@ -3874,16 +3879,18 @@ function recolorFar() {
   farGeo.attributes.color.needsUpdate = true;
 }
 
-function buildTreeGeometry() {
+// A tree: a trunk and three tiers of branches. `far` is the one drawn zoomed out, where a tree is a few pixels
+// tall: one tier and no trunk, about a fifth of the drawing (the forest is nearly all of what the game draws).
+function buildTreeGeometry(far) {
   const parts = [];
   const trunk = new THREE.CylinderGeometry(0.045, 0.07, 0.36, GFX === 'full' ? 5 : 3, 1, true);
   trunk.translate(0, 0.17, 0);
-  parts.push([trunk, () => [0.3, 0.2, 0.14]]);
-  const layers = [[0.46, 0.62, 0.22, 0.0], [0.36, 0.56, 0.55, 0.15], [0.25, 0.52, 0.88, 0.3]];
-  if (GFX === 'low') layers[2] = [0.3, 0.62, 0.78, 0.3];
-  if (GFX === 'low') layers.splice(1, 1); // Low graphics: two tiers instead of three
+  if (!far) parts.push([trunk, () => [0.3, 0.2, 0.14]]);
+  const layers = far ? [[0.44, 1.26, 0.14, 0.1]] : [[0.46, 0.62, 0.22, 0.0], [0.36, 0.56, 0.55, 0.15], [0.25, 0.52, 0.88, 0.3]];
+  if (GFX === 'low' && !far) layers[2] = [0.3, 0.62, 0.78, 0.3];
+  if (GFX === 'low' && !far) layers.splice(1, 1); // Low graphics: two tiers instead of three
   for (const [r, h, b, snowBias] of layers) {
-    const cone = new THREE.ConeGeometry(r, h, GFX === 'full' ? 7 : 5, 2, true); // fewer sides on phones
+    const cone = new THREE.ConeGeometry(r, h, far ? 5 : GFX === 'full' ? 7 : 5, 2, true); // fewer sides on phones
     cone.translate(0, b + h / 2, 0);
     parts.push([cone, (y) => {
       const t = (y - b) / h;
@@ -3946,20 +3953,35 @@ function treeMatrix(k) {
   dummy.updateMatrix();
   return dummy.matrix;
 }
+// An instanced tree mesh with both shapes, sharing its per-tree haze; treeLod picks the shape for the zoom.
+const TREE_LOD = 75; // zoomed out past this, trees are drawn with the simple shape
+const treeMeshes = [];
+function treeInstances(haze, cap) {
+  const near = buildTreeGeometry(), far = buildTreeGeometry(true);
+  near.setAttribute('ihaze', haze); far.setAttribute('ihaze', haze);
+  const m = new THREE.InstancedMesh(near, treeMaterial(), cap);
+  m.userData.lod = { near, far };
+  m.setColorAt(0, new THREE.Color(1, 1, 1));
+  m.castShadow = true; m.frustumCulled = false;
+  treeMeshes.push(m);
+  return m;
+}
+function treeLod() {
+  const far = cam.viewH > TREE_LOD;
+  for (const m of treeMeshes) {
+    const g = far ? m.userData.lod.far : m.userData.lod.near;
+    if (m.geometry !== g) { m.geometry = g; if (renderer) renderer.shadowMap.needsUpdate = true; }
+  }
+}
 // Only living trees are drawn: they're packed at the front of the instance buffer and each tree knows
 // its slot, so a cleared tree costs nothing to draw (a big resort clears thousands).
 let treeSlot = null, slotTree = null, treeHaze = null;
 function buildTrees() {
-  const geo = buildTreeGeometry();
   const cap = EDITOR ? WN * WN * 2 : trees.n; // the editor's forest grows back as the ground is shaped, so it has room for the most there can be
   treeHaze = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
-  geo.setAttribute('ihaze', treeHaze);
-  treeMesh = new THREE.InstancedMesh(geo, treeMaterial(), cap);
-  treeMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  treeMesh = treeInstances(treeHaze, cap);
   treeSlot = new Int32Array(cap); slotTree = new Int32Array(cap);
   packTrees();
-  treeMesh.castShadow = true;
-  treeMesh.frustumCulled = false;
   scene.add(treeMesh);
 }
 
@@ -4041,7 +4063,7 @@ function rehaze() {
 /* ---------- Point sprites: snowfall and clearing puffs ---------- */
 function pointMaterial(color, size) {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(color) }, uSize: { value: size }, uPR: { value: renderer.getPixelRatio() } },
+    uniforms: { uColor: { value: new THREE.Color(color) }, uSize: { value: size }, uPR: PR_U },
     vertexShader: 'attribute float a; attribute float sz; varying float va; uniform float uSize; uniform float uPR;\n' +
       'void main(){ va = a; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize * sz * uPR; }',
     fragmentShader: 'varying float va; uniform vec3 uColor;\n' +
@@ -13962,6 +13984,7 @@ function glowPoints(n, size, color) {
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
   geo.setDrawRange(0, 0);
   const m = new THREE.Points(geo, new THREE.PointsMaterial({ size: size * renderer.getPixelRatio(), sizeAttenuation: false, map: GLOW_TEX, color, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glowMats.push([m.material, size]);
   m.frustumCulled = false; m.renderOrder = 8;
   scene.add(m);
   return m;
@@ -17988,12 +18011,8 @@ function syncPlanted() {
   const list = world.buildings.filter((B) => B.type === 'tree');
   if (!plantMesh) {
     if (!list.length) return;
-    const geo = buildTreeGeometry();
     plantHaze = new THREE.InstancedBufferAttribute(new Float32Array(PLANT_CAP), 1);
-    geo.setAttribute('ihaze', plantHaze);
-    plantMesh = new THREE.InstancedMesh(geo, treeMaterial(), PLANT_CAP);
-    plantMesh.setColorAt(0, new THREE.Color(1, 1, 1));
-    plantMesh.castShadow = true; plantMesh.frustumCulled = false;
+    plantMesh = treeInstances(plantHaze, PLANT_CAP);
     scene.add(plantMesh);
   }
   let n = 0;
@@ -25192,7 +25211,8 @@ musicSync();
 $('mEdges').onclick = () => { closeMenu(); setTrailEdges(!trailEdges); toast(trailEdges ? 'Trails show their green, blue and black edges' : 'Clean trails: rating edges hidden'); };
 $('mGfx').onclick = () => {
   closeMenu();
-  try { if (GFX === 'low') localStorage.removeItem('mm.gfx'); else localStorage.setItem('mm.gfx', 'low'); localStorage.removeItem('mm.glresets'); } catch (e) { /* ignore */ }
+  // back to Standard is a fresh start: full sharpness again, and watched again
+  try { if (GFX === 'low') { localStorage.removeItem('mm.gfx'); localStorage.removeItem('mm.dpr'); localStorage.removeItem('mm.gfxTip'); } else localStorage.setItem('mm.gfx', 'low'); localStorage.removeItem('mm.glresets'); } catch (e) { /* ignore */ }
   reloadSame();
 };
 $('mReset').onclick = () => {
@@ -29372,6 +29392,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.6', date: 'Nov 10, 2026', title: 'Smoother on more computers', items: [
+    'The forest is drawn far more simply when you\'re zoomed out, where nobody can see the difference: about three times faster to draw the whole mountain. Close up, trees look just as they did.',
+    'If your computer\'s graphics can\'t keep up, the game now draws a slightly softer picture to stay smooth, and remembers that for next time. If it\'s still slow, it suggests Low graphics, once. Switching Graphics back to Standard in the menu starts afresh.'] },
   { v: '4.5.1', date: 'Nov 10, 2026', title: 'Pumphouses stay out of the creek', small: true, items: [
     'A snowmaking pond dug close to the creek no longer puts its pumphouse down in the creek bed. It stands on the dry bank, and one already in the creek moves out when you load.'] },
   { v: '4.5', date: 'Nov 10, 2026', title: 'Lifts cross over each other', items: [
@@ -31220,9 +31243,36 @@ function fitsWithRoom(r) {
 }
 
 let lastT = performance.now(), clock = 0, autosaveT = 0, liveT = 0, fitT = 0, heatT = 0;
+// Watching for a computer whose graphics can't keep up. Over a few seconds of play, if frames come slowly (under about
+// 30 a second) while the game's own work each frame is small, the drawing is what's slow: draw fewer pixels (2x, then
+// 1.5x, then the screen's own). Still slow at that, suggest Low graphics once. A busy day's simulation is slow work,
+// not slow drawing, so it never turns the picture down.
+const perf = { iv: [], work: [], since: 0, tipped: false };
+function perfWatch(interval, work) {
+  if (GFX === 'low' || document.hidden) { perf.iv.length = perf.work.length = 0; return; }
+  if (interval > 1000) return; // switched away and back: a pause, not a slow frame (the middle of 90 frames ignores the odd save)
+  if ((perf.since += interval) < 3000) return; // the first seconds after loading are always uneven
+  perf.iv.push(interval); perf.work.push(work);
+  if (perf.iv.length < 90) return;
+  const mid = (a) => a.slice().sort((p, q) => p - q)[a.length >> 1], iv = mid(perf.iv), wk = mid(perf.work);
+  perf.iv.length = perf.work.length = 0;
+  if (iv < 34 || wk > iv * 0.5) return;
+  const pr = renderer.getPixelRatio();
+  if (pr > 1.01) {
+    const v = Math.max(1, Math.round((pr - 0.5) * 2) / 2);
+    setDpr(v); perf.since = 0;
+    try { localStorage.setItem('mm.dpr', String(v)); } catch (e) { /* ignore */ }
+  } else if (!perf.tipped) {
+    perf.tipped = true;
+    try { if (localStorage.getItem('mm.gfxTip')) return; localStorage.setItem('mm.gfxTip', '1'); } catch (e) { return; }
+    toast('The game is running slowly on this device. Low graphics can make it smoother.', false, { label: 'Use Low graphics', fn: () => $('mGfx').onclick() });
+  }
+}
+let perfLast = 0;
 function frame(now) {
+  const fs = performance.now();
   // While days are fast-forwarded, skip drawing so the simulation gets the whole processor.
-  if (simulating || skipRun) { lastT = now; requestAnimationFrame(frame); return; }
+  if (simulating || skipRun) { lastT = now; perfLast = 0; requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; clock += dt;
 
@@ -31313,6 +31363,9 @@ function frame(now) {
   if (EDITOR) edTick(dt);
   updateLotMarks(); updateRoadMarks();
   updateHandles();
+  treeLod();
+  if (perfLast) perfWatch(now - perfLast, performance.now() - fs);
+  perfLast = now;
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
 }
