@@ -9,6 +9,14 @@ export default async function ({ browser, url }) {
   assert(await g.ev(`(!roadMesh || !roadMesh.visible) && !lotGroup.visible && CREEKD.every((d) => d > 2)`), 'no road, lot or creek drawn');
   await g.click('#edPlay');
   assert(await g.ev(`EDITOR && ED.noRoad`), 'Play waits for an access road');
+  // the panel: a hint for the tool in hand, and only the settings it uses
+  const ui = `[ED.tool, document.getElementById('edHint').textContent.slice(0, 11), !document.getElementById('edSizeRow').hidden, !document.getElementById('edStrRow').hidden, !document.getElementById('edWideRow').hidden]`;
+  eq(await g.ev(ui), ['raise', 'Drag on the', true, true, true], 'Raise: its hint, size, strength and Wide reach');
+  await g.click('#edReady [data-pick=road]');
+  eq(await g.ev(ui), ['road', 'Drag from t', false, false, false], 'Draw an access road picks the road tool, which needs no brush settings');
+  await g.click('#edPanel [data-tool=pond]');
+  eq(await g.ev(ui), ['pond', 'Paint a sno', true, false, false], 'Pond: a brush size only');
+  await g.click('#edPanel [data-tool=raise]');
   eq(await g.ev(`draftList().length`), 0, 'nothing is kept until the ground changes');
   // editing one of the game's own mountains
   await g.click('#edMaps');

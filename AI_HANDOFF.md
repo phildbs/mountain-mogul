@@ -362,6 +362,11 @@ the player's to draw; raising land brings the land around it up too, with detail
   pond sheet says it came with the mountain). Running snow guns on pond water is paid as usual (`POND_PRICE`), which is
   Phil's "pay for operating". Play refuses a pond that runs into the road, a stream or past the property line.
   `validPond` can't use `keyX` (not set up when the mountain is read at boot). Scenario 212 covers all of this. (Claude, Nov 10)
+- **Friendlier panel** (Phil, Nov 10): tool tiles with line icons (`ED_ICON`, `edTile`) in two groups, Shape the land
+  and Add to it; a one-line hint for the tool in hand (`ED_HINT`, `#edHint`); Size, Strength and the Wide reach switch
+  show only for the tools that use them; undo and redo are icons by the name; a "ready to play" list (`#edReady`: road,
+  streams, ponds, with Clear links; "Draw an access road" picks the road tool via `data-pick`); Play is greyed until
+  there's a road; View chips (Move the view toggles); the long instructions sit in a closed "How it works". (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the
