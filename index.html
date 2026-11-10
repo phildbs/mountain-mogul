@@ -27989,6 +27989,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.2.2', date: 'Nov 10, 2026', title: 'No duplicate mountains', small: true, items: [
+    'Fixed: a copy of one of your resorts left on a device by another account (or a guest session) could be added to your account a second time, taking up one of your five slots. It now says it’s already in your account and offers to remove it from that device.',
+  ] },
   { v: '4.2.1', date: 'Nov 10, 2026', title: 'Tidier title screen', items: [
     'On computers and tablets, the whole title screen fits at once. Only your list of mountains scrolls, and the one you’ll play next and New mountain are always in view.',
     'The sign-in card moved to the right-hand column, under Community.',
@@ -29427,7 +29430,8 @@ function slotCard(r, active) {
       <p>Delete ${esc(r.name)}${r.foreign ? ' from this device' : ''}? This can’t be undone.</p>
       <div class="actions"><button class="btn danger" data-slot="delYes" data-id="${r.id}">Delete</button><button class="link" data-slot="delNo">Keep it</button></div></div></article>`;
   }
-  const badge = r.foreign ? 'Another account’s · this device only' : r.online ? 'Saved online' : r.newer ? 'Newer save online' : CLOUD.ready && !CLOUD.guest ? 'Saved online' : 'On this device';
+  const dup = r.foreign && ownCopyOf(r);
+  const badge = dup ? 'Already in your account · this device only' : r.foreign ? 'Another account’s · this device only' : r.online ? 'Saved online' : r.newer ? 'Newer save online' : CLOUD.ready && !CLOUD.guest ? 'Saved online' : 'On this device';
   const facts = [
     sum.cash != null && `<div><dt>Cash</dt><dd>${cashWord(sum.cash)}</dd></div>`,
     sum.lifts != null && `<div><dt>Lifts · trails</dt><dd>${sum.lifts} · ${sum.trails}</dd></div>`,
@@ -29437,6 +29441,7 @@ function slotCard(r, active) {
   const level = r.name !== M.name ? `${M.level} · ${M.name}` : `${M.level} mountain`;
   const play = active
     ? `<button class="btn" ${live ? 'id="startBtn"' : `data-slot="play" data-id="${r.id}"`}>${has || !live ? 'Continue' : 'Start building'}</button>`
+    : dup ? `<button class="btn secondary" data-slot="del" data-id="${r.id}">Remove from this device</button>` // adding it would only make a second copy
     : r.foreign && CLOUD.ready && ownIds().size < MAX_MOUNTAINS ? `<button class="btn secondary" data-slot="adopt" data-id="${r.id}">Add to my account</button>`
     : `<button class="btn secondary" data-slot="play" data-id="${r.id}">Play</button>`;
   return `<article class="panel scard ${active ? 'on' : ''}">
@@ -29471,10 +29476,18 @@ async function deleteMountain(id) {
   toast(`Deleted ${name}`);
   refreshTitle();
 }
+// Another account's mountain on this device that you already have: same mountain, name and day. Signing in and out on
+// one device leaves the old account's copy behind, and adding it made a duplicate that took a slot (Phil, Nov 10).
+function ownCopyOf(r) {
+  const day = (x) => x.when || (x.sum && x.sum.when) || '';
+  return slotRows().find((o) => !o.foreign && o.id !== r.id && o.mt === r.mt && o.name === r.name && day(o) === day(r)) || null;
+}
 // Another account's mountain on this device becomes a copy in this account.
 function adoptMountain(id) {
   const s = slotById(id);
   if (!s || ownIds().size >= MAX_MOUNTAINS) return;
+  const row = slotRows().find((x) => x.id === id);
+  if (row && ownCopyOf(row)) { toast(`${s.name || 'That mountain'} is already in your account.`); refreshTitle(); return; }
   const nid = newId();
   try {
     localStorage.setItem(slotKey(nid), localStorage.getItem(slotKey(id)));

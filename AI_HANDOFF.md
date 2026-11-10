@@ -54,6 +54,13 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
+**On a branch: 4.2.2 No duplicate mountains** (`ccr-d825b226-13nd5k`, waiting for Phil). Phil's account had two MQ Frost
+Run rows, identical games: a guest-owned copy left on a device since Nov 4 was added again with **Add to my account**
+(`adoptMountain`, a new id each time) at 11:31 UTC Nov 10, using his fifth slot. `ownCopyOf(r)` finds one of your own
+rows with the same `mt`, name and day (`when`). Such a foreign card then reads "Already in your account · this device
+only" and offers Remove from this device (the usual `del` flow, local only), and `adoptMountain` refuses it. Phil deletes his
+existing extra copy himself, from the card's ⋯ menu. Scenario `210-duplicate-copy`. (Claude, Nov 10)
+
 **Live: 4.2.1 Tidier title screen** (published Nov 10 on Phil's "Publish", GitHub run 597 green on f535b67). The wide title layout
 (`WIDE_TITLE` and the `.tside` CSS) now starts at 760px wide, not 900, so upright tablets get two columns. In it, `#title`
 reserves the right column with `padding-right` (`--tside-w`, clamp 300 to 360px). `.shelf` (`#titleSlots`) is the only
@@ -291,6 +298,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `ccr-d825b226-13nd5k` | Claude | **4.2.2 No duplicate mountains** (preview, not published). | Nov 10, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
