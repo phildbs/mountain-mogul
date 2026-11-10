@@ -1192,6 +1192,8 @@ a.vtag { text-decoration: none; }
 .flabel.sel em { color: #ffb59c; }
 .flabel.off:not(.sel) { background: rgba(232, 236, 242, 0.92); color: var(--ink-2); }
 .flabel em.slow { color: #8a5d00; }
+#guestTag { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: #fff; font: 700 11px/1.3 var(--ui); white-space: nowrap; box-shadow: 0 2px 8px rgba(20, 36, 58, 0.25); }
+#guestTag::after { content: ''; position: absolute; left: 50%; bottom: -4px; width: 7px; height: 7px; margin-left: -3.5px; background: inherit; transform: rotate(45deg); }
 .flabel .ldot { width: 10px; height: 10px; border-radius: 3px; display: block; }
 .flabel svg { display: block; }
 .handle.rh.mid { width: 12px; height: 12px; margin: -6px 0 0 -6px; opacity: 0.85; }
@@ -1701,6 +1703,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 
   <div id="hud" hidden>
     <div class="layer" id="labels"></div>
+    <div class="layer"><div id="guestTag" hidden></div></div>
     <div class="layer" id="chips"></div>
     <div class="layer" id="landTags"></div>
     <div class="layer" id="lotTags"></div>
@@ -8477,6 +8480,7 @@ function select(feat) {
   if (feat && feat.kind === 'manage') lastManage = feat.obj;
   listBack = null;
   const prev = selected;
+  if (follow && (!feat || feat.obj !== follow)) follow = null; // following ends with the guest's card
   if (!feat || !prev || feat.obj !== prev.obj) liftUpFor = null; // the upgrade choices close with the panel
   selected = feat;
   if (prev && prev.kind === 'trail' && world.trails.includes(prev.obj)) styleTrail(prev.obj);
@@ -9177,6 +9181,7 @@ function sheetAct(b) {
   else if (a === 'transitPick') { setTool('bld'); draft.btype = b.dataset.v; draft.btier = 0; draft.info = null; renderSheet(); }
   else if (a === 'build') buildDraft();
   else if (a === 'close') select(null);
+  else if (a === 'followGuest' && selected && selected.kind === 'guest') { if (follow === selected.obj) stopFollow(); else { startFollow(selected.obj); renderSheet(); } }
   else if (a === 'board') { CLOUD.board = b.dataset.v; renderSheet(); }
   else if (a === 'boardMt') { toggleBoardMt(b.dataset.v); renderSheet(); }
   else if (a === 'visit') visitResort(b.dataset.v);
@@ -24463,9 +24468,42 @@ function guestSheet(g) {
   return `${head}
     <p class="help"><span class="rsym">${ratingSymbol(g.pref, 12)}</span> ${ABILITY[g.ab]} skier who likes ${RATINGS[g.pref].name.toLowerCase()} runs</p>
     <p class="conn"><b>${esc(guestActivity(g))}</b></p>
+    <button class="btn${follow === g ? ' secondary' : ''} wide" data-action="followGuest">${follow === g ? 'Stop following' : 'Follow with the camera'}</button>
     <div style="display:grid;gap:7px">${meter('Mood', sat, mood)}${meter('Energy', energy, energy > 0.6 ? 'Fresh' : energy > 0.3 ? 'Tiring' : 'Spent')}${meter('Hunger', hungerOf(g), hungerOf(g) > 0.75 ? 'Starving' : hungerOf(g) > 0.5 ? 'Peckish' : 'Fine', true)}</div>
     <dl class="kv"><div><dt>Runs today</dt><dd>${g.runs}</dd></div><div><dt>Vertical</dt><dd>${fmtFt(g.vert * FT_PER_UNIT)}</dd></div></dl>
     ${g.th.length ? `<div class="field-label">Thinking</div><ul class="thoughts">${g.th.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}`;
+}
+
+// Follow on a guest's card keeps the camera on them: in the open part of the view (above a phone's panel, beside a
+// desktop's), so they stay in sight all day. Turning and zooming keep following; dragging the map, closing the card or
+// the guest going home stops it. (A player's idea, Nov 10)
+let follow = null, followRoom = null;
+function followRoomNow() {
+  const r = sheet.hidden ? null : sheet.getBoundingClientRect(), side = r && r.left > W * 0.3, t = $('timebar').getBoundingClientRect();
+  followRoom = { top: Math.min(H * 0.5, t.bottom > 0 ? t.bottom : 60), bottom: r && !side && r.top > H * 0.2 ? r.top : H, right: side ? r.left : W }; // a desktop's card is beside the view, a phone's below it
+}
+function startFollow(g) { follow = g; camTween = null; glide = null; cam.zoomPt = null; cam.viewGoal = Math.min(cam.viewH, 45); }
+function stopFollow() { if (!follow) return; follow = null; if (selected && selected.kind === 'guest') renderSheet(); }
+// A name tag over the guest whose card is open, so you can pick them out of the crowd.
+const guestTag = $('guestTag');
+function placeGuestTag() {
+  const g = selected && selected.kind === 'guest' && state.tool === 'explore' && state.phase === 'open' ? selected.obj : null;
+  const p = g && g.px != null && gById.has(g.id) && g.st !== 'incar' ? project(g.px, g.py + 1.1 * figScale, g.pz) : null;
+  if (!p || !p.ok) { if (!guestTag.hidden) guestTag.hidden = true; return; }
+  if (guestTag.hidden) guestTag.hidden = false;
+  if (guestTag.textContent !== g.name) guestTag.textContent = g.name;
+  guestTag.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+}
+function followTick(dt) {
+  const g = follow;
+  if (state.phase !== 'open' || !gById.has(g.id) || g.st === 'incar' || g.gone) return stopFollow();
+  if (!followRoom) followRoomNow();
+  const p = guestPos(g), s = (cam.target.y - p.y) / Math.sin(EL), R = followRoom;
+  const up = (H / 2 - (R.top + R.bottom) / 2) / H * cam.viewH / Math.sin(EL), side = (W / 2 - R.right / 2) / H * cam.viewH;
+  const sa = Math.sin(cam.az), ca = Math.cos(cam.az);
+  const tx = p.x + sa * Math.cos(EL) * s + sa * up + ca * side, tz = p.z + ca * Math.cos(EL) * s + ca * up - sa * side;
+  const k = 1 - Math.exp(-dt * 5); // eased, so a chair's sway or a turn on the snow doesn't shake the view
+  cam.target.x += (tx - cam.target.x) * k; cam.target.z += (tz - cam.target.z) * k;
 }
 
 /* =====================================================================
@@ -24548,6 +24586,7 @@ canvas.addEventListener('pointermove', (e) => {
     gesture.t = now;
     gesture.x = e.clientX; gesture.y = e.clientY;
     if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > (e.pointerType === 'mouse' ? 4 : 9)) gesture.moved = true;
+    if (gesture.moved && follow) stopFollow(); // dragging the map lets go of the guest
   } else if (gesture.type === 'rdraw') {
     roadsGestureMove(gesture, pickTerrain(e.clientX, e.clientY));
   } else if (gesture.type === 'paint') {
@@ -24648,6 +24687,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'BUTTON' && e.key === 'Enter') return;
   const k = e.key.toLowerCase();
   const step = cam.viewH * 0.08;
+  if (follow && !e.shiftKey && /^(arrow(left|right|up|down)|[wasd])$/.test(k)) stopFollow(); // panning lets go of a followed guest
   if (e.shiftKey && /^arrow/.test(k)) { e.preventDefault(); if (k === 'arrowup' || k === 'arrowdown') orbitAt(W / 2, H / 2, 0, (k === 'arrowup' ? -5 : 5) * Math.PI / 180); else orbitAt(W / 2, H / 2, (k === 'arrowleft' ? 1 : -1) * Math.PI / 24, 0); }
   else if (k === 'q') rotate(-1);
   else if (k === 'e') rotate(1);
@@ -29205,6 +29245,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.4', date: 'Nov 10, 2026', title: 'Follow a guest', items: [
+    'Tap a guest on the mountain, then Follow with the camera on their card: the view stays with them as they ride, ski, queue and stop for lunch, until you drag the map, close the card or they go home. You can still turn and zoom while following. Thanks for the idea!',
+    'The guest whose card is open now has a name tag over their head, so you can pick them out of the crowd.'] },
   { v: '4.3.2', date: 'Nov 10, 2026', title: 'Editor sliders fit on phones', small: true, items: [
     'Fixed: in the mountain editor’s Weather and money, the words beside the sliders were cut off on phones. Each slider now has its name and setting above it.',
   ] },
@@ -31080,6 +31123,7 @@ function frame(now) {
       if (Math.hypot(glide.vx, glide.vy) < 30) { glide = null; scheduleSave(); }
       moved = true;
     }
+    if (follow && !pointers.size) { followTick(dt); moved = true; }
     if (moved) { updateCamera(); hover.dirty = true; }
   }
 
@@ -31103,6 +31147,7 @@ function frame(now) {
     if (state.phase === 'open') {
       labelsDirty = true;
       if (selected && selected.kind !== 'trail') renderSheet();
+      if (follow) followRoomNow(); // the card's size changes as it updates
       if (overlay.traffic === 'now') for (const t of world.trails) styleTrail(t);
       // the whole-day map changes once a game minute; repaint it every few seconds at most
       else if (overlay.traffic === 'day' && (heatT += 0.5) >= 3 && prepHeat()) { heatT = 0; for (const t of world.trails) styleTrail(t); }
@@ -31128,7 +31173,7 @@ function frame(now) {
   }
   processHover();
   if (plantDirty) syncPlanted();
-  updateLabels();
+  updateLabels(); placeGuestTag();
   updateChips();
   updateLandMarks();
   if (MAP_VIEW) viewTagsTick();

@@ -54,6 +54,11 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-10)
 
+**Branch `claude/new-session-mrjasl`: 4.4 Follow a guest** (not published; a player's idea from feedback, Nov 10). Follow with the camera on a
+guest's card: `follow` holds the guest; `followTick` eases `cam.target` so they sit in the middle of the open view (`followRoom`:
+below the time bar, above a phone's card or left of a desktop's). Dragging, arrow/WASD keys, closing the card or the guest going
+home stop it; turning and zooming don't. `#guestTag` is a name tag over the open card's guest. Scenario 215. (Claude, Nov 10)
+
 **Live: 4.3.2 Editor sliders fit on phones** (published Nov 10 on Phil's "Publish"; quick-fix tier): Weather and money sliders on phones: each is now a
 row of name and setting (`.ed-slide`: grid, the slider full width below), so the words aren't cut off. Scenario 212. (Claude, Nov 10)
 
@@ -329,6 +334,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `claude/new-session-mrjasl` | Claude | **4.4 Follow a guest** with the camera, and a name tag on the open card's guest. | Nov 10, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
