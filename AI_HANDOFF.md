@@ -415,6 +415,18 @@ the player's to draw; raising land brings the land around it up too, with detail
   with Play (keeps the document, boots `newMap`) and Copy to edit when allowed (a new draft "<name> copy", opens
   `?editor=1`). Fake DB: `d.shared`, `d.noShared`. Scenario 213-shared-mountains. Previews use the live database, so
   sharing from a preview only works once the SQL is run, and then writes real rows. (Claude, Nov 10)
+- **Mountain browser** (Phil, Nov 10): a Custom mountains card on the title screen (`#mapsCard`, hidden unless
+  `MAPS_ON`, which is `?maps=1` for now; turn it on when the editor ships) opens `openMapBrowser`: every shared
+  mountain with likes, average stars (count) and resorts started on it, sorted Newest, Most liked, Top rated, Most
+  played, with a name/maker search, and a Make your own button (`?editor=1`). A row opens `openSharedMountain(id, row)`
+  (Back to the list), which now also has Like and 1 to 5 stars for signed-in players on others' mountains ("This is
+  your mountain" on your own; guests are asked to sign in). SQL, added to `supabase/shared-mountains.sql` (still not
+  run on live): `shared_mountain_likes` and `shared_mountain_ratings` (own rows only, one each, not on your own, no
+  guests, removed with the mountain), an index on `mountains ((summary ->> 'mt'))`, and
+  `shared_mountain_list(psort, psearch, plimit, poffset)` (anyone; totals; rating sorted with two pretend 3-star votes;
+  resorts = rows in `mountains` whose summary mt is the id, any owner; at most 60). 35 checks in
+  `tests/sql/shared-mountains.sql`. Fake DB: `d.sLikes`, `d.sRatings`. Scenario 214-mountain-browser. CSS note: the
+  old slider builder already uses `.mb`, so the browser's modal class is `mbrowse`. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

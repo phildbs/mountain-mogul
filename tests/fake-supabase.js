@@ -65,6 +65,22 @@
         const data = rows.map((r) => (cols ? Object.fromEntries(cols.map((c) => [c, r[c]])) : { ...r }));
         return { data: q.single ? data[0] || null : data, error: null };
       }
+      // a shared mountain's likes and ratings: your own rows only; one each; never on your own mountain; no guests
+      if (table === 'shared_mountain_likes' || table === 'shared_mountain_ratings') {
+        if (d.noShared) return { data: null, error: { code: '42P01', message: 'relation does not exist' } };
+        const key = table === 'shared_mountain_likes' ? 'sLikes' : 'sRatings', list = d[key] || (d[key] = []);
+        let rows = list.filter((r) => r.user_id === me);
+        for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+        if (q.op === 'select') return { data: rows.map((r) => ({ ...r })), error: null };
+        if (q.op === 'delete') { d[key] = list.filter((r) => !rows.includes(r)); put(d); return { data: null, error: null }; }
+        const m = (d.shared || []).find((x) => x.id === q.obj.mountain_id);
+        if (!me || (d.users[me] || {}).anon || !m || m.owner === me) return { data: null, error: { code: '42501', message: 'row-level security' } };
+        if (key === 'sRatings' && !(q.obj.stars >= 1 && q.obj.stars <= 5)) return { data: null, error: { code: '23514', message: 'check constraint' } };
+        const ex = list.find((r) => r.mountain_id === m.id && r.user_id === me);
+        if (ex && q.op === 'insert') return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        if (ex) ex.stars = q.obj.stars; else list.push({ mountain_id: m.id, user_id: me, ...(key === 'sRatings' ? { stars: q.obj.stars } : {}) });
+        put(d); return { data: null, error: null };
+      }
       // featured: the staff picks, readable by anyone, written only by the owner (not from the game)
       if (table === 'update_reactions') {
         if (q.op !== 'upsert') return { data: null, error: null };
@@ -370,6 +386,19 @@
         if (!free.length) return { data: null, error: { message: 'this lobby is full' } };
         P.push({ lobby_id: L.id, slot: free[0], user_id: me, resort_name: String(args.rname).slice(0, 40) }); put(d);
         return { data: free[0], error: null };
+      }
+      if (fn === 'shared_mountain_list') { // as supabase/shared-mountains.sql: totals, sorts and search
+        if (d.noShared) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
+        const q = String(args.psearch || '').toLowerCase();
+        const rows = (d.shared || []).filter((m) => !q || m.name.toLowerCase().includes(q) || m.creator.toLowerCase().includes(q)).map((m) => {
+          const rs = (d.sRatings || []).filter((r) => r.mountain_id === m.id), tot = rs.reduce((a, r) => a + r.stars, 0);
+          return { id: m.id, owner: m.owner, creator: m.creator, name: m.name, vertical: m.vertical, allow_copy: m.allow_copy, created_at: m.created_at,
+            likes: (d.sLikes || []).filter((l) => l.mountain_id === m.id).length, rating: rs.length ? Math.round(tot / rs.length * 10) / 10 : null, ratings: rs.length,
+            resorts: d.rows.filter((r) => r.summary && r.summary.mt === m.id).length, _r: (tot + 6) / (rs.length + 2) };
+        });
+        const k = args.psort;
+        rows.sort((a, b) => (k === 'likes' ? b.likes - a.likes : k === 'resorts' ? b.resorts - a.resorts : k === 'rating' ? b._r - a._r : 0) || String(b.created_at).localeCompare(String(a.created_at)));
+        return { data: rows.slice(0, 60).map(({ _r, ...r }) => r), error: null };
       }
       if (fn === 'share_mountain' || fn === 'set_shared_copy') { // as supabase/shared-mountains.sql
         if (d.noShared) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };

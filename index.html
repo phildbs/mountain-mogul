@@ -616,6 +616,18 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .ed-ready li > .link { font-size: 12px; }
 .ed-view button svg { width: 15px; height: 15px; }
 .ed-reset { margin: 8px 0 0; font-size: 12.5px; }
+.modal-bg.mbrowse .modal { width: min(620px, 100%); }
+.mb-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .mb-tools input { flex: 1; min-width: 160px; font: 14px var(--ui); padding: 8px 10px; border-radius: 9px; border: 1px solid rgba(20, 36, 58, 0.2); }
+.mb-list { display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.mb-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; padding: 10px 12px; border: 1px solid rgba(20, 36, 58, 0.12); border-radius: 11px; background: #fff; cursor: pointer; font: 14px var(--ui); color: var(--ink); }
+.mb-row:hover { border-color: rgba(20, 36, 58, 0.35); } .mb-row small { grid-column: 1; color: var(--ink-2); font-size: 12.5px; }
+.mb-row .mb-nums { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.mb-nums { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; } .mb-nums small { color: var(--ink-2); }
+.mb-nums.big { font-size: 14px; font-weight: 600; }
+.mb-nums > span { white-space: nowrap; }
+.mb-rate { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mb-stars button { border: 0; background: none; font-size: 24px; line-height: 1; color: #cdd3dc; cursor: pointer; padding: 2px; } .mb-stars button.on { color: #e9a920; }
+@media (max-width: 520px) { .mb-list .mb-row { display: block; } .mb-list .mb-row > b, .mb-list .mb-row > small { display: block; } .mb-list .mb-row .mb-nums { margin-top: 5px; } }
 .ed-check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; font-size: 13.5px; line-height: 1.35; } .ed-check input { margin-top: 2px; accent-color: var(--accent); }
 .ed-link { display: flex; gap: 8px; margin: 8px 0; } .ed-link input { flex: 1; min-width: 0; font: 13px var(--ui); padding: 8px; border-radius: 8px; border: 1px solid rgba(20, 36, 58, 0.2); }
 .ed-pname { width: 100%; box-sizing: border-box; font: 600 15px var(--ui); padding: 10px; border-radius: 9px; border: 1px solid rgba(20, 36, 58, 0.25); margin-top: 6px; }
@@ -1989,6 +2001,11 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <span class="mh-txt"><small>Multiplayer <span class="mh-tag">New valley</span></small><b>King of the Mountain</b><em class="mh-flag" id="mpFlag" hidden></em></span>
       <span class="mh-go">Play <i aria-hidden="true">›</i></span>
     </button>
+    <button class="panel guidecard mapscard" id="mapsCard" type="button" hidden>
+      <span class="gc-ico" aria-hidden="true">🏔</span>
+      <span class="gc-txt"><small>Made by players</small><b>Custom mountains</b><em class="gc-short">Play or make your own</em><span>Ski mountains other players shaped in the mountain editor, or make your own.</span></span>
+      <i aria-hidden="true">›</i>
+    </button>
     <button class="panel guidecard tutcard" id="tutBtn" type="button">
       <span class="gc-ico" aria-hidden="true">🎓</span>
       <span class="gc-txt"><small>Tutorial</small><b>Learn the basics</b><em class="gc-short">3-minute guided start</em><span>A 3-minute guided start: build a lift, a trail and a lodge, then run your first day.</span></span>
@@ -2151,6 +2168,8 @@ const MATCH_PREVIEW = !!MATCH_Q('matchMap') || MATCH_DEMO || !!MAP_VIEW;
 // ?editor=1 is the mountain editor (hidden while it's built): shape the ground with brushes, and keep the mountains you
 // make on this device to play on. It has no resort of its own, so nothing but the mountain is saved.
 const EDITOR = new URLSearchParams(location.search).has('editor');
+// The mountain browser on the title screen: hidden until the editor ships (?maps=1 shows it in a preview).
+const MAPS_ON = new URLSearchParams(location.search).has('maps');
 // ?summerDemo=1 is a quick look at the summer season (hidden until 4.0): a starter resort on Juniper Ridge, already in
 // summer, with buttons to jump to any part of it, change the weather and play a day. ?summerDemo=maple, raven or twin
 // picks another mountain. Nothing is saved.
@@ -25678,18 +25697,75 @@ async function fetchSummary(id) {
   if (!error && !data) data = await adminMountain(id);
   return error || !data ? null : { ...data.summary, id: data.id, owner: data.owner };
 }
-// Opened from a shared mountain's link: who made it, and play it (a new resort on it) or copy it to edit.
-async function openSharedMountain(id) {
-  const { data: r, error } = await CLOUD.sb.from('shared_mountains').select('id, creator, name, doc, vertical, allow_copy').eq('id', id).maybeSingle();
+/* ---------- The mountain browser: every shared mountain, sorted by newest, likes, rating or resorts started ---------- */
+const MB = { sort: 'new', search: '', rows: [], seq: 0 };
+const MB_SORTS = [['new', 'Newest'], ['likes', 'Most liked'], ['rating', 'Top rated'], ['resorts', 'Most played']];
+const starsOfRow = (r) => (r.ratings ? `★ ${Number(r.rating).toFixed(1)} <small>(${r.ratings})</small>` : '<small>No ratings yet</small>');
+async function openMapBrowser() {
+  showCrisis(`<div><div class="eyebrow">Made by players</div><h2 id="crTitle">Custom mountains</h2></div>
+    <p class="help">Mountains other players shaped in the mountain editor. Open one to play it, or to rate it.</p>
+    <div class="mb-tools"><div class="seg" role="group" aria-label="Sort">${MB_SORTS.map(([k, l]) => `<button data-mb-sort="${k}" aria-pressed="${MB.sort === k}">${l}</button>`).join('')}</div>
+      <input id="mbSearch" type="search" placeholder="Search names and makers" value="${esc(MB.search)}" aria-label="Search"></div>
+    <div class="mb-list" id="mbList"><p class="help">Loading…</p></div>`,
+    '<button class="btn secondary" id="mbMake">Make your own</button><button class="btn secondary" id="crNo">Close</button>');
+  $('crisis').classList.add('mbrowse'); $('crNo').onclick = () => { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); };
+  $('mbMake').onclick = () => { location.href = `${location.pathname}?editor=1`; };
+  for (const b of document.querySelectorAll('#crisis [data-mb-sort]')) b.onclick = () => { MB.sort = b.dataset.mbSort; for (const o of document.querySelectorAll('#crisis [data-mb-sort]')) o.setAttribute('aria-pressed', o === b); mbLoad(); };
+  let t = 0; $('mbSearch').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { MB.search = e.target.value.trim(); mbLoad(); }, 300); };
+  mbLoad();
+}
+async function mbLoad() {
+  const box = $('mbList'), seq = ++MB.seq; if (!box) return;
+  if (!CLOUD.ready) { box.innerHTML = '<p class="help">Can’t reach the server right now. Try again in a moment.</p>'; return; }
+  const { data, error } = await CLOUD.sb.rpc('shared_mountain_list', { psort: MB.sort, psearch: MB.search.slice(0, 40), plimit: 60, poffset: 0 });
+  if (seq !== MB.seq || !$('mbList')) return;
+  if (error) { box.innerHTML = `<p class="help">${sharedMissing(error) ? 'Custom mountains aren’t switched on yet.' : 'Couldn’t reach the server. Try again in a moment.'}</p>`; return; }
+  MB.rows = data || [];
+  box.innerHTML = MB.rows.length ? MB.rows.map((r) => `<button class="mb-row" data-mb-open="${esc(r.id)}"><b>${esc(r.name)}</b><small>by ${esc(r.creator)} · ${fmtFt(Math.round(r.vertical / 10) * 10)} vertical</small>
+      <span class="mb-nums"><span>❤ ${r.likes}</span><span>${starsOfRow(r)}</span><span>${r.resorts} resort${r.resorts === 1 ? '' : 's'}</span></span></button>`).join('')
+    : `<p class="help">${MB.search ? 'No mountains match that.' : 'No shared mountains yet. Make the first one!'}</p>`;
+  for (const b of box.querySelectorAll('[data-mb-open]')) b.onclick = () => openSharedMountain(b.dataset.mbOpen, MB.rows.find((r) => r.id === b.dataset.mbOpen));
+}
+// Opened from a shared mountain's link or the browser: who made it, its likes, rating and resorts, and play it (a new
+// resort on it) or copy it to edit. Signed-in players like and rate other players' mountains here.
+async function openSharedMountain(id, row) {
+  const { data: r, error } = await CLOUD.sb.from('shared_mountains').select('id, owner, creator, name, doc, vertical, allow_copy').eq('id', id).maybeSingle();
   if (error || !r) { toast(error && !sharedMissing(error) ? 'Couldn’t reach the server to open that mountain. Try the link again in a moment.' : 'That mountain isn’t shared any more.', true); return; }
   const doc = r.doc;
   if (!validMapDoc(doc) || mapIdOf(mapDocOf(doc)) !== id) { toast('That mountain’s link is broken.', true); return; }
-  const from = MOUNTAINS[doc.from];
+  const from = MOUNTAINS[doc.from], fromList = !!row && !$('crisis').hidden && $('crisis').classList.contains('mbrowse');
+  if (!row) { const { data: L } = await CLOUD.sb.rpc('shared_mountain_list', { psort: 'new', psearch: doc.name.slice(0, 40), plimit: 60, poffset: 0 }); row = (L || []).find((x) => x.id === id) || null; }
+  const mine = r.owner === CLOUD.uid, canRate = !CLOUD.guest && !mine;
+  let liked = false, stars = 0;
+  if (canRate) {
+    const [l, s] = await Promise.all([CLOUD.sb.from('shared_mountain_likes').select('mountain_id').eq('mountain_id', id), CLOUD.sb.from('shared_mountain_ratings').select('stars').eq('mountain_id', id)]);
+    liked = !!(l.data && l.data.length); stars = (s.data && s.data[0] && s.data[0].stars) || 0;
+  }
+  const nums = row ? `<div class="mb-nums big"><span>❤ ${row.likes}</span><span>${starsOfRow(row)}</span><span>${row.resorts} resort${row.resorts === 1 ? '' : 's'} started on it</span></div>` : '';
+  const rate = canRate ? `<div class="mb-rate"><button class="btn secondary" id="smLike" aria-pressed="${liked}">${liked ? '❤ Liked' : '♡ Like'}</button>
+      <span class="mb-stars" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= stars ? 'on' : ''}">★</button>`).join('')}</span></div>`
+    : mine ? '<p class="help">This is your mountain.</p>' : '<p class="help">Sign in on the title screen to like and rate mountains.</p>';
   showCrisis(`<div><div class="eyebrow">A shared mountain</div><h2 id="crTitle">${esc(doc.name)}</h2></div>
     <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${esc(from.name)}’s weather.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
+    ${nums}${rate}
     <p class="help">Play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>`,
-    `<button class="btn" id="smPlay">Play this mountain</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">Not now</button>`);
-  $('crNo').onclick = () => { $('crisis').hidden = true; };
+    `<button class="btn" id="smPlay">Play this mountain</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
+  $('crNo').onclick = () => { if (fromList) openMapBrowser(); else { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); } };
+  if (canRate) {
+    $('smLike').onclick = async () => {
+      const q = CLOUD.sb.from('shared_mountain_likes'), { error: e } = liked ? await q.delete().eq('mountain_id', id) : await q.insert({ mountain_id: id });
+      if (e) { toast('Couldn’t save that. Try again in a moment.', true); return; }
+      liked = !liked; if (row) row.likes += liked ? 1 : -1;
+      $('smLike').textContent = liked ? '❤ Liked' : '♡ Like'; $('smLike').setAttribute('aria-pressed', liked);
+      if (row) $('crBody').querySelector('.mb-nums span').textContent = `❤ ${row.likes}`;
+    };
+    for (const b of document.querySelectorAll('#crisis [data-star]')) b.onclick = async () => {
+      const n = +b.dataset.star, { error: e } = await CLOUD.sb.from('shared_mountain_ratings').upsert({ mountain_id: id, stars: n });
+      if (e) { toast('Couldn’t save your rating. Try again in a moment.', true); return; }
+      stars = n; for (const o of document.querySelectorAll('#crisis [data-star]')) o.classList.toggle('on', +o.dataset.star <= n);
+      toast(`You gave ${doc.name} ${n} star${n > 1 ? 's' : ''}.`);
+    };
+  }
   $('smPlay').onclick = () => {
     if (ownIds().size >= MAX_MOUNTAINS) { toast(`You can keep ${MAX_MOUNTAINS} mountains. Delete one on the title screen to start another.`, true); return; }
     const mt = keepMapDoc(mapDocOf(doc));
@@ -28890,6 +28966,7 @@ function tutTick() {
   scheduleSave();
 }
 $('tutBtn').onclick = startTutorial;
+$('mapsCard').hidden = !MAPS_ON; $('mapsCard').onclick = () => openMapBrowser();
 
 $('mGoalsMenu').onclick = openGoals;
 $('glClose').onclick = () => { $('goalsBox').hidden = true; };
