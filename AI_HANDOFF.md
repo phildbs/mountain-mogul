@@ -346,6 +346,22 @@ the player's to draw; raising land brings the land around it up too, with detail
   applies live (`edApply(…, full)` redoes `ROADD`/`CREEKD`), a road saves and reloads the page, because the base, lot
   and drive are laid out at load (`ROAD_WORLD`, `LOT_DRIVE`). Drafts live in `mm.mapdraft.<key>` (8 at
   most), autosaved; Play freezes the draft into a document and boots `{ then: 'newMap', mt }`.
+- **Blank slate and ponds** (Phil, Nov 10): the editor now opens on a blank slate (`gridOf(M, true)`: gently tilted
+  land, about 14 units of rise front to back plus soft swells, nearly all Easier), with no streams (`creeks: []`) and no
+  road. A draft with no road yet carries `noRoad: true` (and `blank: true` for its label); these live only in the draft
+  (`edDraft()`), never in the document, so ids don't change. Until a road is drawn the mountain uses `NO_ROAD`, a stub
+  off in the corner past the land (the base, lot and drive are laid out from the road at load, so there has to be one),
+  and the road and lot meshes are hidden. Play refuses until a road is drawn. My mountains offers Blank slate, A copy of
+  this one, and Edit this mountain (a built-in one's own shape; the old "plain slope" is gone). An untouched new mountain
+  isn't kept until it changes. **Ponds**: the Pond tool paints squares (`edPondR`, brush up to 8); `edPondEnd` keeps the
+  squares `pondCellProblem` allows and the biggest connected piece (16 to `POND_MAX_CELLS` 600, `MAX_PONDS` 6). They are
+  the document's `ponds` (cellKey numbers; in `mapIdOf` only when present, so older ids are unchanged). In the editor
+  `edApply` digs each pond the change reaches into the fresh ground (`ED.pondObjs`, real `addPond` meshes). The forest
+  keeps two squares off them (`M.pondSet`, `nearMapPond` in `growForest`), so a resort's tree count matches. A new resort
+  on the mountain gets them in `applySave` (`mountainPonds`): dug, with pumphouse, `cost: 0`, `free: true` (saved; the
+  pond sheet says it came with the mountain). Running snow guns on pond water is paid as usual (`POND_PRICE`), which is
+  Phil's "pay for operating". Play refuses a pond that runs into the road, a stream or past the property line.
+  `validPond` can't use `keyX` (not set up when the mountain is read at boot). Scenario 212 covers all of this. (Claude, Nov 10)
 - **Next steps, in the order agreed:** (2) a playable check before sharing (road reaches the base, flat room for a lot
   and lodge, a green way down; note `MOUNTAIN.baseH` is the lowest ground on the land, so a dug pit moves "base ground"),
   then share by link; (3) gallery, likes, per-map boards; (4) match maps from one mirrored slice. Also wanted in the

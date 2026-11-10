@@ -3,8 +3,17 @@
 import { openGame, eq, assert } from '../harness.mjs';
 export default async function ({ browser, url }) {
   let g = await openGame(browser, url, { query: '?editor=1', mountain: 'fresh' });
-  assert(await g.ev(`MOUNTAIN.hand && MOUNTAIN.from === 'juniper' && !!document.getElementById('edPanel')`), 'the editor opens on a copy of Juniper Ridge');
+  assert(await g.ev(`MOUNTAIN.hand && ED.blank && ED.noRoad && !ED.road && edCreeks().length === 0 && !!document.getElementById('edPanel')`), 'the editor opens on a blank slate: no road, no streams');
+  const mix = await g.ev(`(() => { const S = edStats(); return [S.mix[0] / S.cells, S.hi - S.lo]; })()`);
+  assert(mix[0] > 0.97 && mix[1] > 8 && mix[1] < 30, `gently tilted: nearly all of it Easier, a little rise from front to back (${mix.map((x) => x.toFixed(2))})`);
+  assert(await g.ev(`(!roadMesh || !roadMesh.visible) && !lotGroup.visible && CREEKD.every((d) => d > 2)`), 'no road, lot or creek drawn');
+  await g.click('#edPlay');
+  assert(await g.ev(`EDITOR && ED.noRoad`), 'Play waits for an access road');
   eq(await g.ev(`draftList().length`), 0, 'nothing is kept until the ground changes');
+  // editing one of the game's own mountains
+  await g.click('#edMaps');
+  await g.ev(`document.getElementById('edFrom').value = 'juniper'`); await g.click('#crisis [data-ed-new=shape]'); await g.reloaded();
+  assert(await g.ev(`MOUNTAIN.from === 'juniper' && !ED.blank && !ED.noRoad && ED.name === 'My Juniper Ridge' && draftList().length === 1`), 'a new mountain from Juniper Ridge’s own shape');
   // packing the ground: small, and exact to 1/64
   const pack = await g.ev(`(() => { const h = encodeHeights(ED.E), D = decodeHeights(h); let m = 0; for (let k = 0; k < D.length; k++) m = Math.max(m, Math.abs(D[k] - ED.E[k])); return [h.length, m, decodeHeights(h.slice(0, 900)), decodeHeights('zz!')]; })()`);
   assert(pack[0] < 60000 && pack[1] <= 1 / 128 + 1e-6, `the ground packs small and comes back the same (${pack[0]} characters, off by ${pack[1]})`);
@@ -67,6 +76,21 @@ export default async function ({ browser, url }) {
   await g.ev(`edStrokeStart({ x: 100, z: 20 }); for (let x = 96; x >= 40; x -= 4) edDrawTo({ x, z: 20 + (100 - x) * 0.4 }); edStrokeEnd()`);
   await g.reloaded();
   eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), ED.road[0][0] > 1.2, ROAD_WORLD.length > 10, !!lotCenter() && Math.hypot(lotCenter().x - 40, lotCenter().z - 44) < 20, ED.creeks.length]`), [40, 44, true, true, true, 2], 'the road comes in from off the map to the new base, with the lot at its end, and the streams are kept');
+  // a snowmaking pond, painted on flattened ground: dug into it, kept clear of trees, and undone like the rest
+  await g.ev(`(() => { const p = { x: -30, z: 10 }; ED.tool = 'flatten'; ED.r = 14; ED.k = 10; edStrokeStart(p); for (let i = 0; i < 40; i++) edBrush(p, 0.05); edStrokeEnd(); edRegrow(); })()`);
+  await g.ev(`(() => { ED.tool = 'pond'; ED.r = 5; edStrokeStart({ x: -33, z: 10 }); for (let x = -33; x <= -27; x++) edDrawTo({ x, z: 10 }); edStrokeEnd(); edRegrow(); })()`);
+  const pond = `[ED.ponds.length, world.ponds.length, HT[(10 + HALF) * NV - 30 + HALF] < ED.E[(10 + HALF) * NV - 30 + HALF] - 0.5, (() => { let n = 0; for (let k = 0; k < trees.n; k++) if (Math.hypot(trees.x[k] + 30, trees.z[k] - 10) < 3) n++; return n; })()]`;
+  eq(await g.ev(pond), [1, 1, true, 0], 'a painted pond is dug in, with no trees in it');
+  await g.ev(`(() => { ED.tool = 'pond'; edStrokeStart({ x: 60, z: 36 }); for (let z = 30; z <= 44; z++) edDrawTo({ x: 60, z }); edStrokeEnd(); })()`);
+  eq(await g.ev(`[ED.ponds.length, ED.ponds.length < 2 || ED.ponds[1].every((k) => roadDist(keyX(k), keyZ(k)) >= 2.5)]`), [2, true], 'a pond painted over the road keeps off it');
+  await g.ev(`ED.tool = 'pond'; ED.r = 2; edStrokeStart({ x: 0, z: -60 }); edStrokeEnd()`);
+  eq(await g.ev('ED.ponds.length'), 2, 'a pond too small is refused');
+  await g.ev('edUndo(false)');
+  await g.ev(`(() => { const p = { x: -30, z: 25 }; ED.tool = 'raise'; ED.r = 6; edStrokeStart(p); for (let i = 0; i < 10; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
+  eq((await g.ev(pond)).slice(0, 3), [1, 1, true], 'shaping the ground beside it keeps the pond');
+  await g.ev('edUndo(false); edUndo(false)'); eq((await g.ev(pond)).slice(0, 3), [0, 0, false], 'Undo takes the pond away');
+  await g.ev('edUndo(true)'); eq((await g.ev(pond)).slice(0, 3), [1, 1, true], 'Redo brings it back');
+  await g.ev('edUndo(true)');
   await g.ev(`ED.tool = 'raise'; edSync()`);
   // the name, and keeping it on this device
   await g.ev(`(() => { const el = document.getElementById('edName'); el.value = '  Stony <b>Top</b>  '; el.onchange({ target: el }); })()`);
@@ -78,9 +102,9 @@ export default async function ({ browser, url }) {
   assert(await g.ev(`ED.name === 'Stony bTop/b' && encodeHeights(ED.E)`) === keep[1] && Math.abs(await g.ev(h) - keep[0]) < 0.02, 'the editor opens it again as it was left');
   // My mountains: a new one from another mountain, and back
   await g.click('#edMaps');
-  await g.ev(`document.getElementById('edFrom').value = 'maple'`); await g.click('#crisis [data-ed-new=plain]'); await g.reloaded();
-  assert(await g.ev(`MOUNTAIN.from === 'maple' && ED.name === 'My mountain' && draftList().length === 2`), 'a new mountain starts from Maple Notch as a plain slope');
-  assert(await g.ev(`edStats().mix[4]`) === 0, 'a plain slope has nothing too steep to ski');
+  await g.click('#crisis [data-ed-new=blank]'); await g.reloaded();
+  assert(await g.ev(`ED.blank && ED.noRoad && ED.name === 'My mountain' && draftList().length === 2`), 'a new blank slate from My mountains');
+  assert(await g.ev(`edStats().mix[4]`) === 0, 'a blank slate has nothing too steep to ski');
   await g.click('#edMaps');
   await g.ev(`document.querySelector('#crisis [data-ed-open]').click()`); await g.reloaded();
   eq(await g.ev('ED.name'), 'Stony bTop/b', 'opening the first one again');
@@ -91,13 +115,14 @@ export default async function ({ browser, url }) {
   assert(Math.abs(await g.ev(h) - keep[0]) < 0.02, 'with the ground as shaped');
   eq(await g.ev(`[MOUNTAIN.name, MOUNTAIN.cash, activeSlot().mountain, goalList().length > 0]`), ['Stony bTop/b', await g.ev('MOUNTAINS.juniper.cash'), id, true], 'its name, Juniper Ridge’s money, the custom goals');
   eq(await g.ev(`[Math.round(roadEnd().x), Math.round(roadEnd().z), CREEKD[(-30 + HALF) * NV + 20 + HALF] < 1, parks().length > 0 || state.lotSections > 0]`), [40, 44, true, true], 'with the road, the base and the stream as drawn');
+  eq(await g.ev(`[world.ponds.length, world.ponds[0].free, world.ponds[0].cost, state.cash === START_CASH, pondGuns() > 0, HT[(10 + HALF) * NV - 30 + HALF] < HT0[(10 + HALF) * NV - 30 + HALF] - 0.5]`), [1, true, 0, true, true, true], 'its pond is dug, free, and adds snow guns');
   await g.ev(`state.cash -= 12345; saveNow()`);
   const cash = await g.ev('state.cash'), n = await g.ev('trees.n');
   assert(await g.ev(`mapIdOf(JSON.parse(localStorage.getItem(saveKey())).map)`) === id, 'the save carries the mountain');
   // the save alone brings the mountain back (another device has no editor copy), and shaping the draft further doesn't touch it
   await g.ev(`localStorage.removeItem(mapKey(MOUNTAIN.id)); for (const d of draftList()) localStorage.removeItem(DRAFT_KEY + d.key)`);
   await g.page.reload(); await g.reloaded();
-  eq(await g.ev(`[MOUNTAIN.id, trees.n, state.cash]`), [id, n, cash], 'the resort opens again from its save alone');
+  eq(await g.ev(`[MOUNTAIN.id, trees.n, state.cash, world.ponds.length, world.ponds[0].free]`), [id, n, cash, 1, true], 'the resort opens again from its save alone, pond and all');
   assert(await g.ev(`document.querySelector('#titleSlots .sc-badge') && [...document.querySelectorAll('#titleSlots .sc-badge')].some((b) => b.textContent === 'Hand-shaped')`), 'its card says Hand-shaped');
   // another player visiting it: the mountain comes with the resort's save, fetched before the page turns to it
   const theirs = await g.ev(`localStorage.getItem(saveKey())`);

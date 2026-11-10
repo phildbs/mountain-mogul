@@ -583,7 +583,7 @@ body.mapview #tTraffic, body.mapview #tLabels, body.mapview #labels, body.mapvie
 .mapview #edName { width: 100%; box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; background: transparent; padding: 2px 6px; margin: -3px 0 0 -7px; font: 800 19px var(--ui); color: var(--ink); }
 .mapview #edName:hover, .mapview #edName:focus { border-color: rgba(20, 36, 58, 0.25); background: #fff; outline: none; }
 #edPanel .vtilt span { width: 54px; white-space: nowrap; }
-.mapview .ed-mode button:disabled, #edNoStreams:disabled { opacity: 0.35; cursor: default; }
+.mapview .ed-mode button:disabled, #edNoStreams:disabled, #edNoPonds:disabled { opacity: 0.35; cursor: default; }
 .mapview .ed-go { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .mapview #edStatus.warn { color: var(--red, #c0392b); font-weight: 600; }
 .ed-list { display: grid; gap: 6px; margin: 8px 0 12px; max-height: 38vh; overflow: auto; }
@@ -2960,7 +2960,8 @@ function customBlurb(r) {
    A hand-shaped mountain is a document: { v, name, from, h, road, creeks }. `from` is the built-in mountain it started
    as, which still gives it its weather and crowds; `h` is the height of every point of the ground, packed small.
    `road` (the access road's points, from off the map to the base) and `creeks` (each stream's points) are there once
-   the player has drawn their own; without them the mountain keeps the ones it started with.
+   the player has drawn their own; without them the mountain keeps the ones it started with. `ponds` (each snowmaking
+   pond's squares, as cellKey numbers) come with the mountain: a resort on it starts with them dug, free.
    Its id is "c:m" and a fingerprint of the document, so a mountain can never change under a resort built on it
    (a changed mountain is another mountain), and it counts as a custom mountain everywhere (the Custom leaderboard,
    the custom goals). Every save on one carries the document (`map`), so the resort opens on any device. */
@@ -3000,17 +3001,19 @@ function decodeHeights(b64) {
   return n + 1 >= s.length * 2 ? E : null;
 }
 function mapIdOf(doc) {
-  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}|${JSON.stringify(doc.road || 0)}|${JSON.stringify(doc.creeks || 0)}`;
+  const s = `${doc.v}|${doc.from}|${doc.name}|${doc.h}|${JSON.stringify(doc.road || 0)}|${JSON.stringify(doc.creeks || 0)}${doc.ponds ? '|' + JSON.stringify(doc.ponds) : ''}`;
   let a = 0x811c9dc5, b = 0x1b873593;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995) + 0x9e3779b9 | 0; }
   return 'c:m' + (a >>> 0).toString(36).padStart(7, '0') + (b >>> 0).toString(36).padStart(7, '0');
 }
 const mapName = (n) => String(n || '').replace(/[<>&"']/g, '').replace(/\s+/g, ' ').trim().slice(0, 28) || 'My mountain';
-const MAX_CREEKS = 8, MAX_LINE = 48;
+const MAX_CREEKS = 8, MAX_LINE = 48, MAX_PONDS = 6, POND_MAX_CELLS = 600;
+const validPond = (P) => Array.isArray(P) && P.length >= 16 && P.length <= POND_MAX_CELLS && P.every((k) => Number.isInteger(k) && Math.abs(Math.round(k / 4096)) < HALF && Math.abs(k - Math.round(k / 4096) * 4096) < HALF); // (cellKey numbers: keyX and keyZ aren't set up yet when the mountain is read)
 const validLine = (L) => Array.isArray(L) && L.length >= 2 && L.length <= MAX_LINE && L.every((p) => Array.isArray(p) && p.length === 2 && p.every((x) => Number.isFinite(x) && x > -2 && x < 3));
 const validMapDoc = (d) => !!d && d.v === 1 && MAP_FROM.includes(d.from) && typeof d.name === 'string' && d.name === mapName(d.name) && typeof d.h === 'string' && d.h.length < 400000
-  && (d.road == null || validLine(d.road)) && (d.creeks == null || (Array.isArray(d.creeks) && d.creeks.length <= MAX_CREEKS && d.creeks.every(validLine)));
-const mapDocOf = (d) => ({ v: d.v, name: d.name, from: d.from, h: d.h, ...(d.road ? { road: d.road } : {}), ...(d.creeks ? { creeks: d.creeks } : {}) }); // the document alone
+  && (d.road == null || validLine(d.road)) && (d.creeks == null || (Array.isArray(d.creeks) && d.creeks.length <= MAX_CREEKS && d.creeks.every(validLine)))
+  && (d.ponds == null || (Array.isArray(d.ponds) && d.ponds.length && d.ponds.length <= MAX_PONDS && d.ponds.every(validPond)));
+const mapDocOf = (d) => ({ v: d.v, name: d.name, from: d.from, h: d.h, ...(d.road ? { road: d.road } : {}), ...(d.creeks ? { creeks: d.creeks } : {}), ...(d.ponds ? { ponds: d.ponds } : {}) }); // the document alone
 const mapKey = (id) => 'mm.map.' + id.slice(3);
 // The document behind an id: kept on this device when the mountain was made or first played, carried over a reload
 // for a visit, or inside a save on it.
@@ -3049,12 +3052,20 @@ function mapMountain(doc, id, E) {
     for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k];
   }
   if (doc.creeks) setCreeks(M, doc.creeks);
+  setMapPonds(M, doc.ponds);
   return M;
 }
 // A mountain's streams from the player's own points (none at all is fine: the first one is kept off the map).
 function setCreeks(M, list) {
   M.creek = list.length ? catmull(list[0], 4) : [[9, 9], [9.1, 9]];
   M.creeks = list.slice(1).map((L) => [catmull(L, 4), 1]); M.creekW = 1;
+}
+// The mountain's own ponds: the forest keeps off them and their banks.
+function setMapPonds(M, list) { M.ponds = list && list.length ? list : null; M.pondSet = M.ponds ? new Set(M.ponds.flat()) : null; }
+function nearMapPond(M, x, z) {
+  const i = Math.round(x), j = Math.round(z);
+  for (let b = -2; b <= 2; b++) for (let a = -2; a <= 2; a++) if (M.pondSet.has(cellKey(i + a, j + b))) return true;
+  return false;
 }
 // The streams a mountain starts with, as a few points each (the editor's to add to or clear).
 const creekPoints = (M) => [[M.creek, 1], ...(M.creeks || [])].map(([P]) => P.filter((_, i) => i % 6 === 0 || i === P.length - 1).slice(0, MAX_LINE).map(([u, v]) => [Math.round(u * 1000) / 1000, Math.round(v * 1000) / 1000]));
@@ -3064,40 +3075,48 @@ function mapDef(id) {
   return mapDefs.get(id);
 }
 // A built-in mountain's ground as a grid, before its road and creek are cut in: what the editor starts from.
-function gridOf(M, plain) {
+function gridOf(M, blank) {
   const E = new Float32Array(NV * NV);
   for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) {
     const u = (i - PLAY0) / PN, v = (PLAY1 - j) / PN;
-    // (a plain slope: an even rise to a rounded top, with nothing on it yet)
-    E[j * NV + i] = plain ? 2 + 26 * Math.pow(sstep(0.04, 1.02, v), 1.25) * (0.45 + 0.55 * Math.exp(-(((u - 0.5) / 0.5) ** 2))) + 16 * sstep(0.95, 1.4, v) : M.height(u, v);
+    // (a blank slate: gently tilted land, rising evenly toward the back with a few soft swells, for the player to raise a mountain on)
+    E[j * NV + i] = blank ? 4 + 14 * v + 1.2 * (fbm(u * 2.5, v * 2.5, 913, 3) - 0.5) : M.height(u, v);
   }
   return E;
 }
+// A blank slate has no road yet: until one is drawn, a stub of road sits off in the corner, outside the land, with
+// nothing drawn on it (the base, lot and drive are laid out from the road when the page loads).
+const NO_ROAD = [[-0.3, -0.16], [-0.16, -0.16]];
 /* The editor's own mountains: drafts kept on this device, each under its own key, shaped freely. Playing one makes
    the fixed document above from the draft as it stands, so shaping it further never touches a resort built on it. */
 const DRAFT_KEY = 'mm.mapdraft.', DRAFT_OPEN = 'mm.mapdraft', MAX_DRAFTS = 8;
-const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
+const ED = { key: null, name: 'My mountain', from: 'juniper', E: null, road: null, creeks: null, ponds: [], noRoad: false, blank: false, pondObjs: [], tool: 'raise', r: 9, k: 4, wide: true, paint: true, undo: [], redo: [], stroke: null, draw: null, saved: true, trees: true };
 // The draft as a document.
-const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}) });
+const edDoc = () => ({ v: 1, name: ED.name, from: ED.from, h: encodeHeights(ED.E), ...(ED.road ? { road: ED.road } : {}), ...(ED.creeks ? { creeks: ED.creeks } : {}), ...(ED.ponds.length ? { ponds: ED.ponds } : {}) });
+// What a draft keeps besides the document: whether it's a blank slate, and still has no road of its own.
+const edDraft = () => ({ ...edDoc(), ...(ED.noRoad && !ED.road ? { noRoad: true } : {}), ...(ED.blank ? { blank: true } : {}), at: Date.now() });
 function draftList() {
   const out = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i); if (!k.startsWith(DRAFT_KEY)) continue;
       let d = null; try { d = JSON.parse(localStorage.getItem(k)); } catch (e) { /* skip it */ }
-      if (validMapDoc(d)) out.push({ key: k.slice(DRAFT_KEY.length), name: d.name, from: d.from, at: d.at || 0 });
+      if (validMapDoc(d)) out.push({ key: k.slice(DRAFT_KEY.length), name: d.name, from: d.from, blank: !!d.blank, at: d.at || 0 });
     }
   } catch (e) { /* storage blocked */ }
   return out.sort((a, b) => b.at - a.at);
 }
-// The mountain the editor opens on: the draft last worked on, or a fresh copy of Juniper Ridge (kept once it's changed).
+// The mountain the editor opens on: the draft last worked on, or a blank slate (kept once it's changed). A blank
+// slate takes Juniper Ridge's weather and crowds until a mountain has settings of its own.
 function editorMountain() {
   let key = null, d = null;
   try { key = localStorage.getItem(DRAFT_OPEN); d = key && JSON.parse(localStorage.getItem(DRAFT_KEY + key)); } catch (e) { /* ignore */ }
   let E = validMapDoc(d) ? decodeHeights(d.h) : null;
-  if (!E) { key = null; d = { name: 'My mountain', from: 'juniper' }; E = gridOf(MOUNTAINS.juniper); }
-  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, saved: !!key });
-  return mapMountain({ ...d, v: 1, h: '' }, 'c:m!editor', E);
+  if (!E) { key = null; d = { name: 'My mountain', from: 'juniper', creeks: [], noRoad: true, blank: true }; E = gridOf(MOUNTAINS.juniper, true); }
+  Object.assign(ED, { key, name: d.name, from: d.from, E, road: d.road || null, creeks: d.creeks || null, ponds: d.ponds || [], noRoad: !d.road && !!d.noRoad, blank: !!d.blank, saved: true }); // (an untouched new one has nothing to keep yet)
+  const M = mapMountain({ ...d, v: 1, h: '' }, 'c:m!editor', E);
+  if (ED.noRoad) { M.road = NO_ROAD; M.lotWest = false; for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k]; }
+  return M;
 }
 // A mountain by id: one of the built-in ones, a hand-shaped one, or a custom recipe.
 function mountainDef(mt) {
@@ -3354,7 +3373,7 @@ function growForest(M) {
         p *= 1 - sstep(tl - 3, tl + 1.5, h);
         p *= 1 - sstep(0.55, 0.85, g);
         const rd = sampleGrid(ROADD, gx, gz), cd = sampleGrid(CREEKD, gx, gz);
-        if (rd < 2.6 || cd < 2.2) p = 0;
+        if (rd < 2.6 || cd < 2.2 || (M.pondSet && nearMapPond(M, gx - HALF, gz - HALF))) p = 0;
         if (M.town && Math.hypot(u - M.town[0], v - M.town[1]) < 0.12) p *= 0.15 + 0.85 * sstep(7, 11, rd); // yards round the town
         p *= 0.3 + 0.7 * sstep(2, 10, cd);
         if (!play) p *= 0.8;
@@ -4372,6 +4391,7 @@ function applySave(sv) {
   state.land = ok && sv.clock && Array.isArray(sv.clock.land) ? sv.clock.land : [];
   applyLand();
   rebuildWorld(ok ? sv.world : null);
+  if (!ok && MOUNTAIN.ponds && !EDITOR) mountainPonds();
   Object.assign(state, SIM_DEFAULTS, ok && sv.clock ? sv.clock : {});
   if (!Number.isInteger(state.referralCredit) || state.referralCredit < 0 || state.referralCredit > 300000 || state.referralCredit % 100000) state.referralCredit = 0;
   if (!Array.isArray(state.land)) state.land = [];
@@ -4845,7 +4865,7 @@ function processHover() {
   hover.doze = state.tool === 'clear' && state.landMode === 'doze' ? dozeTarget(hover.x, hover.y) : null;
   if (hover.doze) placeBrush(hover.doze, hover.doze.r, true);
   else if (state.tool === 'clear' && state.landMode !== 'doze' && p) placeBrush(p, state.brushR, inProperty(p.x, p.z));
-  else if (EDITOR && ED.paint && p) placeBrush(p, edDrawing() ? 1.6 : ED.r, true);
+  else if (EDITOR && ED.paint && p) placeBrush(p, edDrawing() ? 1.6 : ED.tool === 'pond' ? edPondR() : ED.r, true);
   else brushMesh.visible = false;
   if (draft.kind === 'bld') hoverGhost(p);
   else if (draft.kind) updateBand(p && !dragHandle ? p : null);
@@ -9911,7 +9931,7 @@ function serializeWorld() {
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
-    ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump })) : undefined,
+    ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump, free: P.free || undefined })) : undefined,
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
     noPoles: world.noPoles && world.noPoles.length ? world.noPoles : undefined, // automatic trail lights bulldozed
     plans: world.plans.map(planData),
@@ -20282,6 +20302,15 @@ function commitPond(info) {
   setTool('explore');
   select({ kind: 'pond', obj: P });
 }
+// A hand-shaped mountain's own ponds: a new resort on it starts with them dug, pumphouse and all, at no cost.
+function mountainPonds() {
+  const used = new Set(world.ponds.map((P) => P.name));
+  for (const cells of MOUNTAIN.ponds) {
+    const P = { id: world.nextId++, name: pickFree(POND_NAMES, used) || `Pond ${world.ponds.length + 1}`, cells: cells.slice(), cost: 0, free: true };
+    used.add(P.name); P.set = new Set(P.cells);
+    digPond(P); addPond(P); gradeAndRefresh(P.box);
+  }
+}
 function openPondTool() {
   if (visiting) return;
   if (!pondsHere()) { toast('Snowmaking ponds aren’t in King of the Mountain yet.', true); return; }
@@ -20302,7 +20331,7 @@ function pondPaintSheet(head) {
 function pondSheet(P) {
   const nc = state.nightCost || {};
   return `<div class="sheet-title"><span class="swatch" style="background:${hexOf(0x3f7fa6)}"></span><h3>${esc(P.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">Snowmaking pond · ${fmtAcres(acresOf(P.cells.length), 1)}. Its pumphouse supplies ${pondGunsOf(P)} snow guns, at about ${Math.round((1 - POND_PRICE) * 100)}% less than village water.</p>
+    <p class="help">Snowmaking pond · ${fmtAcres(acresOf(P.cells.length), 1)}${P.free ? ' · came with the mountain' : ''}. Its pumphouse supplies ${pondGunsOf(P)} snow guns, at about ${Math.round((1 - POND_PRICE) * 100)}% less than village water.</p>
     ${waterKv()}
     ${nc.want > nc.ran ? `<p class="conn warn">Last night ${nc.want} guns wanted to run and there was water for ${nc.ran}.</p>` : ''}
     ${sheetConfirm ? `<div class="confirm-box"><p>Fill in ${esc(P.name)}? The ground goes back as it was. There’s no refund.</p><div class="row"><button class="btn secondary" data-action="removeNo">Keep it</button><button class="btn danger" data-action="removeYes">Fill it in</button></div></div>`
@@ -27010,15 +27039,53 @@ function viewPanel() {
    ===================================================================== */
 const ED_TOOLS = [['raise', 'Raise', 'Push the ground up'], ['lower', 'Lower', 'Dig the ground down'], ['smooth', 'Smooth', 'Soften bumps and edges'],
   ['flatten', 'Flatten', 'Pull the ground toward the height where you start'], ['rough', 'Roughen', 'Add knobs and gullies']];
-const ED_DRAW = [['stream', 'Stream', 'Drag along a stream’s course, from its spring down'], ['road', 'Access road', 'Drag from the edge of the map to where the base should be']];
+const ED_DRAW = [['stream', 'Stream', 'Drag along a stream’s course, from its spring down'], ['road', 'Access road', 'Drag from the edge of the map to where the base should be'],
+  ['pond', 'Pond', 'Paint a snowmaking pond on fairly flat ground. It comes with the mountain, dug and free.']];
 const edDrawing = () => ED.tool === 'stream' || ED.tool === 'road';
-// What Undo keeps: the ground and the streams.
-const edSnap = () => ({ E: ED.E.slice(), creeks: ED.creeks });
+const edPondR = () => Math.min(ED.r, 8);
+// What Undo keeps: the ground, the streams and the ponds.
+const edSnap = () => ({ E: ED.E.slice(), creeks: ED.creeks, ponds: ED.ponds });
 function edRestore(S) {
   ED.E.set(S.E);
   const moved = S.creeks !== ED.creeks;
   if (moved) edSetCreeks(S.creeks);
+  if (S.ponds !== ED.ponds) edSetPonds(S.ponds, false);
   edApply(0, 0, WN, WN, true, moved);
+}
+// The mountain's snowmaking ponds: each a list of squares. They're dug into the ground as it's shaped (edApply).
+function edSetPonds(list, apply = true) {
+  ED.ponds = list; setMapPonds(MOUNTAIN, list);
+  for (const P of ED.pondObjs) if (P) removePond(P);
+  ED.pondObjs = [];
+  if (apply) edApply(0, 0, WN, WN, true);
+}
+const edPush = () => { ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift(); ED.redo = []; };
+function edClearPonds() {
+  if (!ED.ponds.length) return;
+  edPush(); edSetPonds([]);
+  edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
+}
+// A painted pond: the squares that can hold one (on the land, fairly flat, clear of the road, streams and other ponds),
+// in one piece (the biggest, if the paint left a few apart).
+function edPondEnd(D) {
+  if (ED.ponds.length >= MAX_PONDS) { toast(`A mountain can have ${MAX_PONDS} ponds. Clear them to paint others.`, true); return; }
+  const taken = new Map(); for (const P of ED.ponds) for (const k of P) taken.set(k, 'in another pond');
+  const why = new Map(), ok = new Set();
+  for (const k of D.cells) { const w = pondCellProblem(keyX(k), keyZ(k), taken); if (w) why.set(w, (why.get(w) || 0) + 1); else ok.add(k); }
+  let best = [];
+  while (ok.size > best.length) {
+    const k0 = ok.values().next().value, seen = new Set([k0]), q = [k0];
+    while (q.length) { const k = q.pop(), x = keyX(k), z = keyZ(k); for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const o = cellKey(x + dx, z + dz); if (ok.has(o) && !seen.has(o)) { seen.add(o); q.push(o); } } }
+    if (seen.size > best.length) best = [...seen];
+    for (const k of seen) ok.delete(k);
+  }
+  if (best.length < POND_MIN_CELLS) {
+    const w = [...why].sort((a, b) => b[1] - a[1])[0];
+    toast(w ? `Too little room for a pond here: most of that is ${w[0]}.` : 'Paint a bigger pond.', true); return;
+  }
+  if (best.length > POND_MAX_CELLS) { toast(`That pond is too big. Paint one under ${fmtAcres(acresOf(POND_MAX_CELLS), 0)}.`, true); return; }
+  edPush(); edSetPonds([...ED.ponds, best.sort((a, b) => a - b)]);
+  edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
 }
 // The mountain's streams: the player's own (a list of points each), or null for the ones it started with.
 function edSetCreeks(list) {
@@ -27031,13 +27098,26 @@ const edCreeks = () => ED.creeks || creekPoints(MOUNTAINS[ED.from]);
 let edLine = null;
 function edDrawLine() {
   if (edLine) { scene.remove(edLine); edLine.geometry.dispose(); edLine.material.dispose(); edLine = null; }
-  const D = ED.draw; if (!D || D.pts.length < 2) return;
+  const D = ED.draw;
+  if (D && D.kind === 'pond') { // the painted squares, as blue dots
+    edLine = new THREE.Points(new THREE.BufferGeometry().setFromPoints([...D.cells].map((k) => new THREE.Vector3(keyX(k), heightAt(keyX(k), keyZ(k)) + 0.3, keyZ(k)))),
+      new THREE.PointsMaterial({ color: 0x2f7fd0, size: 5, sizeAttenuation: false, depthTest: false }));
+    edLine.renderOrder = 6; edLine.frustumCulled = false; scene.add(edLine); return;
+  }
+  if (!D || D.pts.length < 2) return;
   edLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(D.pts.map((p) => new THREE.Vector3(p.x, heightAt(p.x, p.z) + 0.5, p.z))),
     new THREE.LineBasicMaterial({ color: D.kind === 'road' ? 0x2b2f38 : 0x2f7fd0, depthTest: false }));
   edLine.renderOrder = 6; edLine.frustumCulled = false; scene.add(edLine);
 }
 function edDrawTo(p) {
-  const D = ED.draw, l = D.pts[D.pts.length - 1];
+  const D = ED.draw;
+  if (D.kind === 'pond') {
+    const r = edPondR(), n = D.cells.size;
+    for (let z = Math.ceil(p.z - r); z <= p.z + r; z++) for (let x = Math.ceil(p.x - r); x <= p.x + r; x++) if (Math.hypot(x - p.x, z - p.z) <= r && D.cells.size < 2000) D.cells.add(cellKey(x, z));
+    if (D.cells.size !== n) edDrawLine();
+    return;
+  }
+  const l = D.pts[D.pts.length - 1];
   if (Math.hypot(p.x - l.x, p.z - l.z) < 2 || D.pts.length > 600) return;
   D.pts.push({ x: p.x, z: p.z }); edDrawLine();
 }
@@ -27054,12 +27134,13 @@ function edLinePoints(P) {
 }
 function edDrawEnd(cancel) {
   const D = ED.draw; ED.draw = null; edDrawLine();
+  if (!cancel && D && D.kind === 'pond') return edPondEnd(D);
   if (cancel || !D || D.pts.length < 2) return;
   const L = edLinePoints(D.pts);
   if (L.len < 10) { toast(D.kind === 'road' ? 'Drag the road from the edge of the map to where the base should be.' : 'Drag along the stream’s course to draw it.'); return; }
   if (D.kind === 'stream') {
     if (edCreeks().length >= MAX_CREEKS) { toast(`A mountain can have ${MAX_CREEKS} streams. Clear them to draw others.`, true); return; }
-    ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift(); ED.redo = [];
+    edPush();
     edSetCreeks([...edCreeks(), L.pts]);
     edApply(0, 0, WN, WN, true, true);
     edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
@@ -27071,12 +27152,12 @@ function edDrawEnd(cancel) {
   if (eu < 0.05 || eu > 0.95 || ev < 0.01 || ev > 0.95) { toast('End the road inside the dashed line: the base goes where it ends.', true); return; }
   const out = [[su + G, [-G - 0.16, sv]], [1 + G - su, [1 + G + 0.16, sv]], [sv + G, [su, -G - 0.16]], [1 + G - sv, [su, 1 + G + 0.16]]].sort((a, b) => a[0] - b[0])[0];
   ED.road = [out[1], ...(out[0] > 0.03 ? [L.pts[0]] : []), ...L.pts.slice(1)];
-  ED.saved = false;
+  ED.noRoad = false; ED.saved = false;
   if (edSave()) location.reload(); // the base, its lot and the drive in are laid out when the page loads
 }
 function edClearStreams() {
   if (!edCreeks().length) return;
-  ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift(); ED.redo = [];
+  edPush();
   edSetCreeks([]);
   edApply(0, 0, WN, WN, true, true);
   edChanged({ i0: 0, j0: 0, i1: WN, j1: WN });
@@ -27085,14 +27166,28 @@ function edClearStreams() {
 // mesh and its shading, grades, the trees standing there, colours.
 function edApply(i0, j0, i1, j1, shadows = true, full = false) {
   terrainRev++;
-  const a0 = Math.max(0, i0 - 5), b0 = Math.max(0, j0 - 5), a1 = Math.min(WN, i1 + 5), b1 = Math.min(WN, j1 + 5); // the roadbed reaches a little past the brush
+  let a0 = Math.max(0, i0 - 5), b0 = Math.max(0, j0 - 5), a1 = Math.min(WN, i1 + 5), b1 = Math.min(WN, j1 + 5); // the roadbed reaches a little past the brush
+  // a pond the change reaches is dug again into the new ground, so all of its ground is worked out afresh
+  const dig = [];
+  ED.ponds.forEach((cells, n) => {
+    let p0 = Infinity, p1 = -Infinity, q0 = Infinity, q1 = -Infinity;
+    for (const k of cells) { const i = keyX(k) + HALF, j = keyZ(k) + HALF; p0 = Math.min(p0, i - 4); p1 = Math.max(p1, i + 4); q0 = Math.min(q0, j - 4); q1 = Math.max(q1, j + 4); }
+    if (ED.pondObjs[n] && (p1 < a0 || p0 > a1 || q1 < b0 || q0 > b1)) return;
+    dig.push(n); a0 = Math.max(0, Math.min(a0, p0)); a1 = Math.min(WN, Math.max(a1, p1)); b0 = Math.max(0, Math.min(b0, q0)); b1 = Math.min(WN, Math.max(b1, q1));
+  });
   const pos = terrainGeo.attributes.position.array, nor = terrainGeo.attributes.normal.array;
   for (let j = b0; j <= b1; j++) for (let i = a0; i <= a1; i++) {
     const k = j * NV + i;
     if (full) [HT[k], ROADD[k], CREEKD[k]] = groundAt(MOUNTAIN, vu(i), vv(j)); // the streams moved: how far each point is from them, too
     else HT[k] = ROADD[k] >= 4.5 && CREEKD[k] >= 2 ? ED.E[k] : groundAt(MOUNTAIN, vu(i), vv(j))[0]; // away from the road and the streams the ground is just the ground
-    HT0[k] = HT[k]; pos[k * 3 + 1] = HT[k] * VEX;
+    HT0[k] = HT[k];
   }
+  for (const n of dig) {
+    if (ED.pondObjs[n]) removePond(ED.pondObjs[n]);
+    const P = { id: n + 1, name: POND_NAMES[n], cells: ED.ponds[n], cost: 0 };
+    P.set = new Set(P.cells); digPond(P); ED.pondObjs[n] = P;
+  }
+  for (let j = b0; j <= b1; j++) for (let i = a0; i <= a1; i++) { const k = j * NV + i; pos[k * 3 + 1] = HT[k] * VEX; }
   for (let j = Math.max(0, b0 - 1); j <= Math.min(WN, b1 + 1); j++) for (let i = Math.max(0, a0 - 1); i <= Math.min(WN, a1 + 1); i++) {
     const k = j * NV + i, l = Math.max(0, i - 1), r = Math.min(WN, i + 1), u = Math.max(0, j - 1), d = Math.min(WN, j + 1);
     const hx = (HT[j * NV + r] - HT[j * NV + l]) * VEX / (r - l), hz = (HT[d * NV + i] - HT[u * NV + i]) * VEX / (d - u), L = Math.hypot(hx, 1, hz);
@@ -27105,6 +27200,7 @@ function edApply(i0, j0, i1, j1, shadows = true, full = false) {
     for (let k = s0; k < e; k++) { trees.y[k] = heightAt(trees.x[k], trees.z[k]) - 0.06; if (trees.alive[k]) treeMesh.setMatrixAt(treeSlot[k], treeMatrix(k)); }
   }
   treeMesh.instanceMatrix.needsUpdate = true;
+  for (const n of dig) { const P = ED.pondObjs[n]; delete P.pump; addPond(P); }
   recolorTerrain(a0 - 1, b0 - 1, a1 + 1, b1 + 1);
   if (shadows) renderer.shadowMap.needsUpdate = true;
 }
@@ -27138,6 +27234,7 @@ function edBrush(p, dt) {
 }
 function edStrokeStart(p) {
   if (!p) return false;
+  if (ED.tool === 'pond') { ED.draw = { kind: 'pond', cells: new Set() }; edDrawTo(p); return true; }
   if (edDrawing()) { ED.draw = { kind: ED.tool, pts: [{ x: p.x, z: p.z }] }; return true; }
   ED.undo.push(edSnap()); if (ED.undo.length > 12) ED.undo.shift();
   ED.stroke = { target: sampleGrid(ED.E, p.x + HALF, p.z + HALF), seed: Math.random() * 500, box: null, t0: performance.now() };
@@ -27162,7 +27259,7 @@ function edChanged(box) {
   ED.saved = false;
   clearTimeout(edGrowT); edGrowT = setTimeout(edRegrow, 350);
   clearTimeout(edSaveT); edSaveT = setTimeout(edSave, 1200);
-  edNumbers();
+  edNumbers(); edSync();
 }
 function edRegrow() {
   clearTimeout(edGrowT);
@@ -27187,7 +27284,7 @@ function edSave() {
     ED.key = Math.random().toString(36).slice(2, 10);
   }
   try {
-    localStorage.setItem(DRAFT_KEY + ED.key, JSON.stringify({ ...edDoc(), at: Date.now() }));
+    localStorage.setItem(DRAFT_KEY + ED.key, JSON.stringify(edDraft()));
     localStorage.setItem(DRAFT_OPEN, ED.key);
   } catch (e) { edStatus('This browser’s storage is full, so this mountain isn’t saved. Delete a mountain you no longer want.', true); return false; }
   ED.saved = true; edStatus();
@@ -27195,18 +27292,21 @@ function edSave() {
 }
 function edStatus(msg, bad) {
   const el = $('edStatus'); if (!el) return;
-  el.textContent = msg || (ED.saved ? 'Saved on this device' : 'Not saved yet'); el.classList.toggle('warn', !!bad);
+  el.textContent = msg || (!ED.key ? 'Kept on this device once you change it' : ED.saved ? 'Saved on this device' : 'Not saved yet'); el.classList.toggle('warn', !!bad);
 }
 // Opens another draft (or a new one), which needs the page loaded again: the world is built once per page.
 function edOpen(key) { if (!edSave()) return; try { if (key) localStorage.setItem(DRAFT_OPEN, key); else localStorage.removeItem(DRAFT_OPEN); } catch (e) { /* ignore */ } location.reload(); }
-function edNew(from, plain, copyOf) {
+// A new draft: a blank slate, a built-in mountain to change, or a copy of this one.
+function edNew(from, blank, copyOf) {
   if (!edSave()) return;
   const list = draftList();
   if (list.length >= MAX_DRAFTS) { toast(`You can keep ${MAX_DRAFTS} mountains here. Delete one first.`, true); return; }
-  const names = new Set(list.map((d) => d.name)), stem = copyOf ? mapName(`${ED.name} copy`.slice(0, 28)) : 'My mountain';
+  const names = new Set(list.map((d) => d.name)), stem = copyOf ? mapName(`${ED.name} copy`.slice(0, 28)) : blank ? 'My mountain' : mapName(`My ${MOUNTAINS[from].name}`);
   let name = stem; for (let n = 2; names.has(name); n++) name = mapName(`${stem.slice(0, 25)} ${n}`);
-  const key = Math.random().toString(36).slice(2, 10), E = copyOf ? ED.E : gridOf(MOUNTAINS[from], plain);
-  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify(copyOf ? { ...edDoc(), name, at: Date.now() } : { v: 1, name, from, h: encodeHeights(E), at: Date.now() })); }
+  const key = Math.random().toString(36).slice(2, 10);
+  const d = copyOf ? { ...edDraft(), name } : blank ? { v: 1, name, from: 'juniper', h: encodeHeights(gridOf(MOUNTAINS.juniper, true)), creeks: [], noRoad: true, blank: true, at: Date.now() }
+    : { v: 1, name, from, h: encodeHeights(gridOf(MOUNTAINS[from])), at: Date.now() };
+  try { localStorage.setItem(DRAFT_KEY + key, JSON.stringify(d)); }
   catch (e) { toast('This browser’s storage is full. Delete a mountain you no longer want.', true); return; }
   edOpen(key);
 }
@@ -27216,6 +27316,9 @@ function edDelete(key) {
 }
 // Play: the draft as it stands becomes a mountain of its own, and a new resort starts on it.
 function edPlay() {
+  if (!ED.road && ED.noRoad) { toast('Draw an access road first: pick Access road and drag from the edge of the map to where the base should be.', true); return; }
+  const wet = ED.ponds.findIndex((P) => P.some((k) => roadDist(keyX(k), keyZ(k)) < 2.5 || sampleGrid(CREEKD, keyX(k) + HALF, keyZ(k) + HALF) < 1.8 || !inProperty(keyX(k), keyZ(k))));
+  if (wet >= 0) { toast(`${POND_NAMES[wet]} runs into the road, a stream or past the property line. Clear ponds and paint it again away from them.`, true); return; }
   if (!edSave()) return;
   const id = keepMapDoc(edDoc());
   if (!id) { toast('This browser’s storage is full, so this mountain can’t be played yet. Delete a mountain you no longer want.', true); return; }
@@ -27243,7 +27346,7 @@ function edSync() {
   for (const b of document.querySelectorAll('#edPanel [data-mode]')) b.setAttribute('aria-pressed', (b.dataset.mode === 'shape') === ED.paint);
   $('edUndo').disabled = !ED.undo.length; $('edRedo').disabled = !ED.redo.length;
   $('edSlope').setAttribute('aria-pressed', overlay.slope); $('edTrees').setAttribute('aria-pressed', ED.trees); $('edWide').setAttribute('aria-pressed', ED.wide);
-  $('edNoStreams').disabled = !edCreeks().length;
+  $('edNoStreams').disabled = !edCreeks().length; $('edNoPonds').disabled = !ED.ponds.length;
   $('edSizeV').textContent = fmtFt(Math.round(ED.r * 2 * FT_PER_UNIT / 10) * 10); $('edStrV').textContent = ED.k;
   canvas.style.cursor = ED.paint ? 'crosshair' : '';
 }
@@ -27251,24 +27354,26 @@ function edSync() {
 function edMaps() {
   const list = draftList(), full = list.length >= MAX_DRAFTS;
   showCrisis(`<div><div class="eyebrow">Mountain editor</div><h2 id="crTitle">My mountains</h2></div>
-    <div class="ed-list">${list.map((d) => `<div class="ed-row"><b>${esc(d.name)}</b><small>Started from ${esc(MOUNTAINS[d.from].name)}${d.key === ED.key ? ' · open now' : ''}</small>
+    <div class="ed-list">${list.map((d) => `<div class="ed-row"><b>${esc(d.name)}</b><small>${d.blank ? 'Started blank' : `Started from ${esc(MOUNTAINS[d.from].name)}`}${d.key === ED.key ? ' · open now' : ''}</small>
       <span>${d.key === ED.key ? '' : `<button class="btn secondary" data-ed-open="${d.key}">Open</button>`}<button class="link danger-link" data-ed-del="${d.key}">Delete</button></span></div>`).join('') || '<p class="help">Nothing kept yet: the mountain you’re shaping is kept once you change it.</p>'}</div>
     <div class="field-label">Start a new mountain</div>
-    <p class="help">${full ? `You can keep ${MAX_DRAFTS} mountains here. Delete one to start another.` : 'Pick the mountain to start from. Its road, creek, weather and crowds come with it; the ground is yours to shape.'}</p>
-    ${full ? '' : `<div class="ed-new"><select id="edFrom">${MAP_FROM.map((id) => `<option value="${id}"${id === ED.from ? ' selected' : ''}>${esc(MOUNTAINS[id].name)}</option>`).join('')}</select>
-      <button class="btn secondary" data-ed-new="shape">Its own shape</button><button class="btn secondary" data-ed-new="plain">A plain slope</button><button class="btn secondary" data-ed-new="copy">A copy of this one</button></div>`}`,
+    <p class="help">${full ? `You can keep ${MAX_DRAFTS} mountains here. Delete one to start another.` : 'A blank slate is gently tilted land with no road or streams: raise your mountain, then draw the road in.'}</p>
+    ${full ? '' : `<div class="ed-new"><button class="btn" data-ed-new="blank">Blank slate</button><button class="btn secondary" data-ed-new="copy">A copy of this one</button></div>
+      <p class="help">Or change one of the game’s mountains. Its road, creek, weather and crowds come with it.</p>
+      <div class="ed-new"><select id="edFrom">${MAP_FROM.map((id) => `<option value="${id}"${id === ED.from ? ' selected' : ''}>${esc(MOUNTAINS[id].name)}</option>`).join('')}</select>
+      <button class="btn secondary" data-ed-new="shape">Edit this mountain</button></div>`}`,
     '<button class="btn secondary" id="crNo">Close</button>');
   $('crNo').onclick = () => { $('crisis').hidden = true; };
   for (const b of document.querySelectorAll('#crisis [data-ed-open]')) b.onclick = () => edOpen(b.dataset.edOpen);
   for (const b of document.querySelectorAll('#crisis [data-ed-del]')) b.onclick = () => { if (b.dataset.sure) edDelete(b.dataset.edDel); else { b.dataset.sure = '1'; b.textContent = 'Really delete?'; } };
-  for (const b of document.querySelectorAll('#crisis [data-ed-new]')) b.onclick = () => edNew($('edFrom').value, b.dataset.edNew === 'plain', b.dataset.edNew === 'copy');
+  for (const b of document.querySelectorAll('#crisis [data-ed-new]')) b.onclick = () => edNew($('edFrom') && $('edFrom').value, b.dataset.edNew === 'blank', b.dataset.edNew === 'copy');
 }
 function editorStart() {
   document.body.classList.add('mapview', 'editor');
   winterView = true; styleSnowVisuals();
   const el = document.createElement('div');
   el.className = 'panel mapview'; el.id = 'edPanel';
-  el.innerHTML = `<div class="vhead"><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name"><p>Mountain editor · started from ${esc(MOUNTAINS[ED.from].name)}</p></div>
+  el.innerHTML = `<div class="vhead"><div><input id="edName" maxlength="28" value="${esc(ED.name)}" aria-label="Mountain name"><p>Mountain editor · ${ED.blank ? `blank slate, with ${esc(MOUNTAINS[ED.from].name)}’s weather` : `started from ${esc(MOUNTAINS[ED.from].name)}`}</p></div>
       <button class="vfold" id="edFold" aria-expanded="true" aria-label="Fold the panel">–</button></div>
     <div class="vtog ed-mode"><button data-mode="shape">Shape</button><button data-mode="move">Move the view</button>
       <button id="edUndo" aria-label="Undo" title="Undo (Ctrl+Z)">↶</button><button id="edRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">↷</button></div>
@@ -27277,13 +27382,14 @@ function editorStart() {
     <div id="edBody">
       <label class="vtilt">Size <input type="range" id="edSize" min="2" max="30" step="1" value="${ED.r}"><span id="edSizeV"></span></label>
       <label class="vtilt">Strength <input type="range" id="edStr" min="1" max="10" step="1" value="${ED.k}"><span id="edStrV"></span></label>
-      <div class="vtog"><button id="edSlope">Steepness</button><button id="edTrees">Trees</button><button id="edHome">Whole mountain</button><button id="edNoStreams">Clear streams</button></div>
+      <div class="vtog"><button id="edSlope">Steepness</button><button id="edTrees">Trees</button><button id="edHome">Whole mountain</button><button id="edNoStreams">Clear streams</button><button id="edNoPonds">Clear ponds</button></div>
       <h3>This mountain</h3><div class="vrow" id="edNums"></div>
       <p class="vhelp" id="edStatus"></p>
       <div class="ed-go"><button class="btn" id="edPlay">Play this mountain</button><button class="btn secondary" id="edMaps">My mountains</button></div>
       <p class="vhelp">${isCoarse ? 'With Shape on, drag a finger to use the brush; hold still to keep going. Two fingers move, zoom, turn and tilt the view.' : 'Drag to use the brush; hold still to keep going. Right-drag turns and tilts, Space-drag or the middle button moves, scroll zooms, [ and ] size the brush.'}</p>
       <p class="vhelp">With <b>Wide reach</b> on, Raise and Lower bring the land around along, the way a mountain forms: rough out the mountain first, then turn it off for cliffs, ridges, valleys and more peaks.</p>
-      <p class="vhelp"><b>Stream</b>: drag along its course. <b>Access road</b>: drag from the edge of the map to where the base should be; the parking lot goes at its end. The dashed line is the land a resort starts with. Playing makes a copy, so you can keep shaping afterwards.</p>
+      <p class="vhelp"><b>Stream</b>: drag along its course. <b>Access road</b>: drag from the edge of the map to where the base should be; the parking lot goes at its end. <b>Pond</b>: paint a snowmaking pond on fairly flat ground. A resort on this mountain starts with it dug, pumphouse and all, for free; running snow guns on its water still costs. The dashed line is the land a resort starts with. Playing makes a copy, so you can keep shaping afterwards.</p>
+      ${ED.noRoad && !ED.road ? '<p class="vhelp"><b>No road yet.</b> Draw the access road before you play: the base and parking go where it ends.</p>' : ''}
     </div>`;
   $('hud').appendChild(el);
   for (const ev of ['pointerdown', 'wheel']) el.addEventListener(ev, (e) => e.stopPropagation());
@@ -27298,6 +27404,7 @@ function editorStart() {
     else if (b.id === 'edHome') recenter();
     else if (b.id === 'edWide') ED.wide = !ED.wide;
     else if (b.id === 'edNoStreams') edClearStreams();
+    else if (b.id === 'edNoPonds') edClearPonds();
     else if (b.id === 'edPlay') edPlay();
     else if (b.id === 'edMaps') edMaps();
     else if (b.id === 'edFold') { const open = $('edBody').hidden; $('edBody').hidden = !open; b.textContent = open ? '–' : '+'; b.setAttribute('aria-expanded', open); }
@@ -27314,8 +27421,10 @@ function editorStart() {
     else if (!e.ctrlKey && !e.metaKey && /^[1-6bkptl]$/i.test(e.key)) e.stopImmediatePropagation(); // no building tools or days here
     else if (e.key === '[' || e.key === ']') { ED.r = clamp(ED.r + (e.key === ']' ? 1 : -1), 2, 30); $('edSize').value = ED.r; edSync(); hover.dirty = true; }
   }, true);
+  if (ED.noRoad) { if (roadMesh) roadMesh.visible = false; lotGroup.visible = false; } // the stub road off in the corner isn't drawn
+  if (ED.ponds.length) edSetPonds(ED.ponds);
   edSync(); edNumbers(); edStatus();
-  toast('Mountain editor: pick a brush and drag on the ground to shape it. Your mountain is kept on this device as you go.');
+  toast(ED.blank && !ED.key ? 'Mountain editor: a blank slate. Raise a mountain with the brush, then draw the access road. It’s kept on this device as you go.' : 'Mountain editor: pick a brush and drag on the ground to shape it. Your mountain is kept on this device as you go.');
 }
 // While the brush is held down it keeps working, whether or not it moves.
 function edTick(dt) {
