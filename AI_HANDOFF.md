@@ -268,8 +268,8 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 
 | Piece | What | State |
 |---|---|---|
-| 1 | Summer days, scenic lift rides, fall colours | On `main`, hidden (Nov 9, run 561 green). Phil has not yet confirmed the 2.5x condensed rule or the no-changelog rule. |
-| 2 | Weddings and events: event pavilion, bookings, summer events | Not started |
+| 1 | Summer days, scenic lift rides, fall colours | On `main`, hidden (Nov 9, run 561 green). Phil confirmed the 2.5x condensed rule and the no-changelog rule (Nov 10). |
+| 2 | Weddings and events: event pavilion, bookings, summer events; hotels open in summer | Built on `ccr-8e48ae82-8z11ac` (Nov 10). Not yet on `main`. |
 | 3 | Mountain coaster (runs in winter too), zip line | Not started |
 | 4 | Mountain biking: narrow dirt bike trails, bike carriers, trail crew | Not started |
 | 5 | Balance on every mountain, a proper end-of-summer report, guide, roadmap, changelog, switch on | Not started |
@@ -299,7 +299,26 @@ the switch (or default it on), write the changelog, guide and roadmap card, re-c
 - Looks: `TREE_U.uFall` turns about four trees in ten gold at the last stop (`fallColours()`); summer weather types are
   `sumsun`, `sumcloud`, `sumrain`.
 
-**Known gaps in piece 1, for later pieces:** hotels and condos are shut in summer; the Summer plan editor still shows
+**How piece 2 works** (section `Summer events` in `index.html`, just before the summer preview; test `203-summer-events`):
+- `pavilion` building (Build › Summer, a tab only with the switch): Small "Wedding lawn" (80 guests, open), Medium "Event
+  pavilion" (160, marquee roof), Large "Event hall" (300, roof). One model (`modelPavilion`) in all four themes, same
+  chairs (`k.seat`), so the theme tests now count 34 variants. `WINTER_SHUT` closes it in winter plans with no upkeep.
+- Bookings: `summerOffers()` each summer morning may add an offer to `state.sum.offers` (weddings Fri to Sun, retreats
+  Tue to Thu in a full summer only); the Summer panel (`sevPanel`) has Accept/Decline; accepted go to `state.sum.booked`.
+  Offers need a pavilion guests can reach (`pavReach`: at the base, or within 12 of the top of a scenic lift; top pays
+  1.3x). Concert (needs a roofed pavilion, $25k, 1.5x sightseers, some stop on the lawn) and Fall festival (colours
+  only, $15k, 1.4x) are booked for the next Saturday (`sevBook`).
+- The day: `sevMorning()` books hotel rooms for the guests who stay (before `bookHotels`, which now runs in summer too:
+  hotels left `SUMMER_SHUT`) and returns their arrivals; `eventGuest` marks them (`g.evt`, no ticket, catered);
+  `eventGo` / `eventWalk` / `eventArrive` / `eventLeave` take them up the lift or across the base to a chair
+  (`B.evUse`, `g.evSeat`, state `evt`) and home. `summerEventsEnd` pays the fee into `today.rev.events` before
+  `summerStandIn` (so condensed days count it 2.5x too): less 25% without a restaurant, lodge or hotel restaurant
+  within 12, less 30% more and −0.02 reputation if it went badly (rain on an open lawn, lift not running, unhappy
+  guests); +0.015 if it went well. A booking on a day you stay closed is lost (−0.03, `sevMissed`).
+- Preview card: **Wedding offer** builds a free medium pavilion by the base if there's none and offers next Saturday.
+- Balance first guess: a 120-guest wedding pays about $30k against a $230k pavilion. Retune at piece 5.
+
+**Known gaps in piece 1, for later pieces:** condos are shut in summer; the Summer plan editor still shows
 après, night skiing and patrol rows that do nothing; guests wear winter clothes; day-report tips are switched off in
 summer; hunger notes still say "skiing"; no thunderstorms or lookout deck yet; summer profit is not in records or
 leaderboards (decide at piece 5).

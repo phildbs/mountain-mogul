@@ -17,12 +17,12 @@ export default async function ({ browser, url }) {
     }
     return rows;
   })()`);
-  eq(checks.length, 31, 'all requested model variants'); // rental, school and kids' camp gained medium and large in 3.11
+  eq(checks.length, 34, 'all requested model variants'); // rental, school and kids' camp gained sizes in 3.11; the summer pavilion's three sizes came with 4.0
   eq(checks.filter((c) => c.type === 'patrol').map((c) => c.tier), [0], 'one patrol building honors the theme contracts');
   assert(checks.every((c) => c.seats && (c.type === 'shuttle' ? !c.glow : c.glow)), 'exact seat contracts and shared glow');
   const before = await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`);
   const all = await g.ev('previewStyles()');
-  eq(all.length, 62, 'all classic/modern pairs');
+  eq(all.length, 68, 'all classic/modern pairs');
   eq(await g.ev(`JSON.stringify({ buildings: world.buildings.length, cash: state.cash })`), before, 'preview does not place or charge buildings');
   for (const { type, tier } of checks) {
     await g.ev(`previewStyles({ types: ['${type}'], tier: ${tier} })`);
