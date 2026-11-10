@@ -1,12 +1,12 @@
-// Summer days (hidden until 4.0 behind ?summer=1): after the snow melts the summer is played day by day from late June to
+// Summer days (on for everyone from 4.0; ?summer=0 turns them off): after the snow melts the summer is played day by day from late June to
 // the fall colours (Full), or as 18 days, Friday to Sunday at six stops (Condensed). Guests buy a scenic ride, get off at the top, ride down and may eat at the base.
 // The summer upkeep is spread over the days. Without the switch, summer is the quiet build phase it always was.
 import { openGame, eq, assert, SETUPS } from '../harness.mjs';
 const toSummer = `(() => { state.day = 150; state.phase = 'season'; nextDay(); })()`;
 const playDay = `(() => { openDay(); let n = 0; while (state.phase === 'open' && n++ < 60000) simStep(1.5); return state.phase; })()`;
 export default async function ({ browser, url }) {
-  // --- switch off: nothing changes ---
-  let g = await openGame(browser, url);
+  // --- switch off (?summer=0, from 4.0): the quiet summer of before ---
+  let g = await openGame(browser, url, { query: '?summer=0' });
   await g.click('#startBtn'); await g.wait(300);
   await g.ev(SETUPS.juniperStarter); await g.ev(SETUPS.midwinter);
   await g.ev(toSummer);
