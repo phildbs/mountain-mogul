@@ -18,6 +18,7 @@ export default async function ({ browser, url }) {
       await tp('touchStart', y0); for (let i = 1; i <= 15; i++) { await tp('touchMove', y0 - i * 20); await g.wait(16); } await tp('touchEnd');
       await g.wait(300);
       assert(await g.ev(`$('title').scrollTop`) > 20, `${width}×${height}: a swipe scrolls the title screen`);
+      if (width > height) eq(await g.ev(`$('titleSlots').classList.contains('flow')`), true, `${width}×${height}: too short for it all, so the list isn't a scroller of its own`);
     }
     // once the game starts the title stops catching touches while it fades
     await g.click('#startBtn'); await g.wait(100);
