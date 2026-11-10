@@ -62,6 +62,11 @@ export default async function ({ browser, url }) {
   eq(crew, [true, 0.5, 0], 'the trail crew fixes the wear overnight; without it the trail stays rough and costs nothing');
   eq(await g.ev(`(() => { const sv = JSON.parse(JSON.stringify(saveData(true))); applySave(sv); const B = world.buildings.find(isBike); return [B.wear, !!B.crewOff, world.lifts[0].bikes]; })()`), [0.5, true, true], 'wear, crew and carriers are saved');
   eq(await g.ev(`(() => { openManage('prices'); return /Bike park day ticket price/.test($('sheet').textContent); })()`), true, 'its price sits with the scenic ride');
+  // the summer date in the summary (the stats page's Resorts list), and a visit plays a summer day, not winter
+  eq(await g.ev(`summaryDoc().when === 'Summer after season ' + state.season + ' · ' + dateLabel(state.day)`), true, 'the summary carries the summer date');
+  const vis = await g.ev(`(() => { const was = visiting, ph = state.phase; visiting = { id: 'x', name: 'Their Resort' }; state.phase = 'closed';
+    try { openDay(); return [state.summer, state.phase, !!state.sum, summerNow()]; } finally { if (state.phase === 'open') { while (state.phase === 'open') simStep(5); } $('report').hidden = true; state.phase = 'closed'; visiting = was; } })()`);
+  eq(vis, [true, 'open', true, true], 'watching a summer day on a resort you visit plays summer, not winter');
   const rec = await g.ev(`(() => { const rc = state.records || (state.records = newRecords()); rc.winter = { season: state.season, profit: 100000 }; rc.bestSeasonProfit = 100000;
     state.sum.stats.profit = 400000; const owed = Math.max(0, Math.round(dailyOverhead() * OFFSEASON_DAYS * OFFSEASON_RATE) - Math.round(state.sum.paid)), v0 = rc.totalVisitors; return { owed, v0 }; })()`);
   const end = await g.ev(`(() => { const season = state.season; summerEnd(); return { btn: document.querySelector('#manage [data-m=snow]').textContent, shown: !$('report').hidden, txt: $('rpBody').textContent, next: $('rpNext').textContent, season: state.season - season }; })()`);
