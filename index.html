@@ -9291,6 +9291,9 @@ function sheetAct(b) {
   else if (a === 'lotTurn' && ldraft) { ldraft.a += (+b.dataset.d) * Math.PI / 180; ldraft.turned = ldraft.a; ldraft.info = null; showRGhost(); renderSheet(); }
   else if (a === 'lotAlign' && ldraft) { const h = roadHit(ldraft); if (h) { const Q = h.P || h.R, p = Q[h.k], q = Q[h.k + 1]; ldraft.a = Math.atan2(q.z - p.z, q.x - p.x); ldraft.turned = ldraft.a; ldraft.info = null; showRGhost(); renderSheet(); } }
   else if (a === 'lotBuild') commitLot();
+  else if (a === 'garageBuild') commitGarageRows();
+  else if (a === 'lotKind') setLotKind(b.dataset.v);
+  else if (a === 'lotLv') { const d = +b.dataset.d; if (ldraft) { ldraft.lv = clamp(parkLv(ldraft) + d, 1, GARAGE.max); ldraft.info = null; } else if (cdraft) cdraft.lv = clamp(cdraft.lv + d, 2, GARAGE.max); showRGhost(); renderSheet(); }
   else if (a === 'lotRemoveAsk') { lotAsk = Date.now(); renderSheet(); } // asks first, like a parking section did (Snowy, Nov 5)
   else if (a === 'lotRemove' && ldraft && ldraft.P) { if (Date.now() - lotAsk < LOT_ASK_GAP) return; lotAsk = 0; removeLot(ldraft.P); } // too soon after asking: a double tap
   else if (a === 'lotEdit' && selected && selected.kind === 'lot') { const i = parks().indexOf(selected.obj); openRoads('parking'); if (lotBuildable()) startLotEdit(i); }
@@ -9814,7 +9817,7 @@ function computeChips() {
   }
   const cap = stalls.length, used = stalls.filter((st) => st.car).length, away = (today && today.turnedAway) || 0, c = cap && lotCenter();
   if (c && used / cap >= 0.9) out.push({ key: 'lot', sev: away ? 2 : 1, score: away ? 40 : 14, x: c.x, z: c.z, icon: 'P',
-    text: away ? `Lot full · ${n(away)} turned away` : `Lot ${Math.round(used / cap * 100)}% full`, title: 'Parking is nearly full. More spaces or off-site parking lets more guests in.', go: () => openManage('parking') });
+    text: away ? `Lot full · ${n(away)} turned away` : `Lot ${Math.round(used / cap * 100)}% full`, title: 'Parking is nearly full. More spaces, a parking garage or off-site parking lets more guests in.', go: () => openManage('parking') });
   for (const B of world.buildings) {
     if (isDecor(B) || !B.q || !bldOpenNow(B)) continue;
     let w = 0, rr = false;
@@ -11046,6 +11049,17 @@ const newLots = () => !MOUNTAIN.match;
 const PK = { sw: 0.5, bay: 2.8, lane: 0.9, nMin: 4, nMax: 160, rMax: 12 }; // a space's width, a bay (aisle and a row each side), an end lane
 const PARK_SPACE = Math.round(LOT_EXPAND_COST / SPACES_PER_SECTION); // to build, a space
 const parkRun = () => LOT_RUN_DAY / SPACES_PER_SECTION; // plowing, lights and attendants, a space a day
+// A parking garage is a lot with levels (P.lv, 2 to GARAGE.max; a lot without it is a surface lot, one level). Each level
+// above the ground has the lot's spaces again: the same aisles on a concrete deck, reached by ramps in the start end lane.
+// A space on a deck costs GARAGE.deck surface spaces to build, and a garage's spaces cost less to run (only the roof
+// is plowed), so a garage is for where the ground near the lifts is short, not the cheap way to more spaces.
+const GARAGE = { fh: 0.55, max: 5, deck: 4, run: 0.6 }; // a level's height; most levels; a deck space's price, in surface spaces; running, per space
+const parkLv = (P) => clamp(Math.round((P && P.lv) || 1), 1, GARAGE.max);
+const isGarage = (P) => parkLv(P) > 1;
+const parkBase = (P) => 2 * P.n * P.R; // the spaces on one level
+const parkValue = (P) => parkBase(P) * PARK_SPACE * (1 + (parkLv(P) - 1) * GARAGE.deck); // what its spaces cost to build
+const parkRunOf = (P) => parkSpaces(P) * parkRun() * (isGarage(P) ? GARAGE.run : 1); // a day while it's open
+const lotWord = (P) => (isGarage(P) ? 'garage' : 'lot');
 const RKIND = { road: { label: 'Road', hw: 1.0, cost: 2000, run: 4 }, drive: { label: 'Driveway', hw: 0.6, cost: 1200, run: 2.5 } };
 const PROAD_HW = 0.8;       // PROADD is the distance to a road of this half-width: wider roads read nearer, driveways farther
 const BRIDGE_U = 8000;      // a road bridge, per unit over the creek (and its banks)
@@ -11059,7 +11073,12 @@ let netRev = 0; // moves on with every change to roads or lots: every cache belo
 
 /* ---------- Lot geometry ---------- */
 const parkW = (P) => P.n * PK.sw + 2 * PK.lane, parkD = (P) => P.R * PK.bay;
-const parkSpaces = (P) => 2 * P.n * P.R;
+const parkSpaces = (P) => 2 * P.n * P.R * parkLv(P);
+// A garage's ground, flat: its decks and the cars on them are measured up from here.
+const garageBase = (P) => { let h = -Infinity; for (const [u, v] of [[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0.5]]) { const w = parkAt(P, u * parkW(P), v * parkD(P)); h = Math.max(h, heightAt(w.x, w.z)); } return h; };
+const deckY = (P, f, G = garageBase(P)) => G + f * GARAGE.fh + 0.08; // the top of level f's deck
+// The ramps run up the start end lane, turning at each level: level k is reached at rampV(P, k).
+const RAMP_END = 0.45, rampV = (P, k) => (k % 2 ? parkD(P) - RAMP_END : RAMP_END);
 const parkRect = (P) => ({ cx: P.x, cz: P.z, a: P.a, hw: parkW(P) / 2, hd: parkD(P) / 2 });
 function parkAt(P, u, v) { // the lot's own frame (u along the rows from its start end, v across) to the world
   const c = Math.cos(P.a), s = Math.sin(P.a), lu = u - parkW(P) / 2, lv = v - parkD(P) / 2;
@@ -11155,19 +11174,34 @@ function parkCarPath(st) {
   const P = parks()[st.lot], w = parkWays()[st.lot];
   if (!P) return [roadEnd(), { x: st.x, z: st.z }];
   const lane = gateLane(P, w ? w.g : (P.ents || [])[0] || { s: 0, t: PK.bay / 2 });
-  const leg = [...lotLeg(P, lane, { u: st.u, v: st.va }, st.va), { u: st.u, v: st.v }].map((q) => parkAt(P, q.u, q.v));
+  const leg = st.f ? garageLeg(P, lane, st) : [...lotLeg(P, lane, { u: st.u, v: st.va }, st.va), { u: st.u, v: st.v }].map((q) => parkAt(P, q.u, q.v));
   return w ? [...w.route, ...leg] : [ROAD_WORLD[0], ...leg]; // no way in: it takes no cars, but one already parked still gets home
+}
+// Up to a space on a garage's deck: on the ground to the foot of the ramps, up them level by level, then off the ramp
+// into the nearest aisle; along it to the far end lane when the space is on another aisle. Points up off the ground
+// carry their height (y).
+function garageLeg(P, lane, st) {
+  const r = PK.lane / 2, W = parkW(P), G = garageBase(P), y = st.y;
+  const out = lotLeg(P, lane, { u: r, v: rampV(P, 0) }).map((q) => parkAt(P, q.u, q.v));
+  for (let k = 1; k <= st.f; k++) out.push({ ...parkAt(P, r, rampV(P, k)), y: deckY(P, k, G) + 0.02 });
+  const va0 = aisleV(P, rampV(P, st.f)), at = (u, v) => ({ ...parkAt(P, u, v), y });
+  out.push(at(PK.lane + 0.15, va0));
+  if (Math.abs(va0 - st.va) > 0.05) out.push(at(W - r, va0), at(W - r, st.va));
+  out.push(at(st.u, st.va), at(st.u, st.v));
+  return out;
 }
 // The stalls of every lot, in order, and which lot each is in.
 function parkStalls() {
   const out = [];
   parks().forEach((P, i) => {
-    const c = Math.cos(P.a), s = Math.sin(P.a);
-    for (let r = 0; r < P.R; r++) {
+    const c = Math.cos(P.a), s = Math.sin(P.a), G = isGarage(P) ? garageBase(P) : 0;
+    for (let f = 0; f < parkLv(P); f++) for (let r = 0; r < P.R; r++) { // the ground level first, so a garage fills from the bottom up
       const va = PK.bay * (r + 0.5);
       for (const side of [-1, 1]) for (let k = 0; k < P.n; k++) {
         const u = PK.lane + PK.sw * (k + 0.5), v = va + side * 0.95, w = parkAt(P, u, v);
-        out.push({ x: w.x, z: w.z, u, v, va, lot: i, heading: side > 0 ? Math.atan2(-s, c) : Math.atan2(s, -c), car: null });
+        const st = { x: w.x, z: w.z, u, v, va, lot: i, heading: side > 0 ? Math.atan2(-s, c) : Math.atan2(s, -c), car: null };
+        if (f) { st.f = f; st.y = deckY(P, f, G) + 0.02; } // up on a deck
+        out.push(st);
       }
     }
   });
@@ -11394,6 +11428,44 @@ const FLARE_MAT = new THREE.MeshLambertMaterial({ color: 0x484d56, polygonOffset
 const STOP_MAT = new THREE.MeshBasicMaterial({ color: 0xf2f4f7, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 });
 const parkGroup = new THREE.Group(); scene.add(parkGroup);
 let curbMesh = null;
+// A flat patch of a garage's deck at height y, striped like the lot below it.
+function deckPatch(P, u0, u1, v0, v1, y, mat) {
+  const pos = [], uv = [];
+  for (const [u, v] of [[u0, v0], [u1, v0], [u0, v1], [u1, v1]]) { const w = parkAt(P, u, v); pos.push(w.x, y, w.z); uv.push((u - PK.lane) / PK.sw, 1 - v / PK.bay); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  const idx = [0, 2, 1, 1, 2, 3]; geo.setIndex(idx); geo.computeVertexNormals();
+  if (geo.attributes.normal.array[1] < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
+  const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.renderOrder = 1;
+  return m;
+}
+const GARAGE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+const GC = { slab: [0.72, 0.73, 0.75], col: [0.64, 0.65, 0.68], wall: [0.84, 0.85, 0.87], ramp: [0.34, 0.36, 0.4], hut: [0.88, 0.89, 0.9], band: [0.145, 0.396, 0.831], snow: [0.95, 0.96, 0.98] };
+// A garage's concrete: a deck for each level above the ground, columns between the rows, a low wall round each deck,
+// the ramps up the start end lane, and a stair and elevator hut on the roof. One mesh for the lot.
+function garageMesh(P) {
+  const lv = parkLv(P), W = parkW(P), D = parkD(P), G = garageBase(P), parts = [], top = deckY(P, lv - 1, G), ln = PK.lane;
+  const box = (u0, u1, v0, v1, y0, y1, col) => { const c = parkAt(P, (u0 + u1) / 2, (v0 + v1) / 2); parts.push([new THREE.BoxGeometry(u1 - u0, y1 - y0, v1 - v0).rotateY(-P.a).translate(c.x, (y0 + y1) / 2, c.z), col]); };
+  for (let f = 1; f < lv; f++) {
+    const y = deckY(P, f, G);
+    box(ln, W, 0, D, y - 0.08, y, GC.slab); // the deck
+    box(0, ln, 0, RAMP_END, y - 0.08, y, GC.slab); box(0, ln, D - RAMP_END, D, y - 0.08, y, GC.slab); // landings at the ramps' turns
+    for (const v of [0, D]) box(0, W, v - 0.03, v + 0.03, y, y + 0.16, GC.wall); // low walls along the sides and the far end
+    box(W - 0.03, W + 0.03, 0, D, y, y + 0.16, GC.wall);
+  }
+  for (let k = 1; k < lv; k++) { // ramp k climbs from level k - 1 to level k
+    const v0 = rampV(P, k - 1), v1 = rampV(P, k), y0 = k === 1 ? heightAt(parkAt(P, ln / 2, v0).x, parkAt(P, ln / 2, v0).z) + 0.09 : deckY(P, k - 1, G), y1 = deckY(P, k, G);
+    const c = parkAt(P, ln / 2, (v0 + v1) / 2), len = Math.hypot(v1 - v0, y1 - y0);
+    parts.push([new THREE.BoxGeometry(ln - 0.1, 0.05, len).rotateX(-Math.atan2(y1 - y0, v1 - v0)).rotateY(-P.a).translate(c.x, (y0 + y1) / 2 - 0.025, c.z), GC.ramp]);
+  }
+  const us = []; for (let u = ln; u <= W - ln + 0.01; u += 2) us.push(u); us.push(W - 0.05); // columns: between spaces, every four
+  for (let r = 0; r <= P.R; r++) { const v = clamp(r * PK.bay, 0.05, D - 0.05); for (const u of us) box(u - 0.045, u + 0.045, v - 0.045, v + 0.045, G - 0.1, top - 0.08, GC.col); }
+  const hv = rampV(P, lv - 1) < D / 2 ? D - RAMP_END : 0; // the stairs: on the roof's free landing, the one the ramps don't come up to
+  box(0.06, ln - 0.06, hv + 0.03, hv + RAMP_END - 0.03, top, top + 0.42, GC.hut); box(0.05, ln - 0.05, hv + 0.02, hv + RAMP_END - 0.02, top + 0.3, top + 0.36, GC.band);
+  box(0.03, ln - 0.03, hv, hv + RAMP_END, top + 0.42, top + 0.46, GC.snow);
+  const m = new THREE.Mesh(mergeColored(parts), GARAGE_MAT); m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
 // The lots, their curbs (a low snowbank, open at entrances and where lots join) and their entrances' aprons.
 function buildParks() {
   for (const m of [...parkGroup.children]) { parkGroup.remove(m); m.geometry.dispose(); }
@@ -11416,6 +11488,16 @@ function buildParks() {
       const d = gateDoor(P, g), h = roadHit(d), reach = h && h.R && h.d < ROAD_HW + 2 ? h.d - ROAD_HW + 0.3 : 0; // right beside the access road: paved across to it
       if (proads().some((Q) => { const e = Q.pts[Q.pts.length - 1]; return Math.hypot(e[0] - d.x, e[1] - d.z) < 0.3; })) continue; // the road coming in makes its own corners
       const [L, R] = flarePts(d, -d.oz, d.ox, d.ox, d.oz, 0.9, 0.8, reach), m = stripMesh(L, R, LINK_MAT, 0.095); parkGroup.add(m);
+    }
+    if (isGarage(P)) { // the decks' own stripes and lanes, greyed like the ground level when the lot is closed
+      parkGroup.add(garageMesh(P));
+      const G = garageBase(P);
+      for (let f = 1; f < parkLv(P); f++) {
+        const y = deckY(P, f, G) + 0.004;
+        for (const [u0, u1, v0, v1, lane] of [[PK.lane, W - PK.lane, 0, D, false], [W - PK.lane, W, 0, D, true], [0, PK.lane, 0, RAMP_END, true], [0, PK.lane, D - RAMP_END, D, true]]) {
+          const m = deckPatch(P, u0, u1, v0, v1, y, lane ? (open ? LINK_MAT : LANE_SHUT_MAT) : open ? PARK_MAT : PARK_SHUT_MAT); m.userData.lot = i; m.userData.lane = lane; parkGroup.add(m);
+        }
+      }
     }
   });
   if (segs.length) {
@@ -11516,9 +11598,9 @@ function parkCheck(P, self = -1) {
 }
 // The price of building a lot, or changing one: new spaces at the full price, a quarter back on spaces taken out.
 function parkCost(P, was, info) {
-  const add = Math.max(0, parkSpaces(P) - (was ? parkSpaces(was) : 0)) * PARK_SPACE, back = Math.round(Math.max(0, (was ? parkSpaces(was) : 0) - parkSpaces(P)) * PARK_SPACE * 0.25);
+  const v0 = was ? parkValue(was) : 0, add = Math.max(0, parkValue(P) - v0), back = Math.round(Math.max(0, v0 - parkValue(P)) * 0.25); // a garage's decks are priced in
   const r0 = was && parkRect(was), moved = !was || [[0, 0], [parkW(P), 0], [0, parkD(P)], [parkW(P), parkD(P)]].some(([u, v]) => rectDist(parkAt(P, u, v), r0) > 0.05); // onto new ground: levelled; made smaller: nothing to level
-  return { add, back, grading: moved ? info.grading : 0, trees: info.treeSet.size * TREE_COST, total: add - back + (moved ? info.grading : 0) + info.treeSet.size * TREE_COST };
+  return { add, back, spaces: parkSpaces(P) - (was ? parkSpaces(was) : 0), grading: moved ? info.grading : 0, trees: info.treeSet.size * TREE_COST, total: add - back + (moved ? info.grading : 0) + info.treeSet.size * TREE_COST };
 }
 
 /* ---------- Checking a road before it's built ---------- */
@@ -11594,14 +11676,18 @@ function cutOff(apply) {
 }
 
 /* ---------- The Roads tool: Roads, Parking and Transit ---------- */
-var fullDraftPanel = false, rtab = null, rdraft = null, ldraft = null, rGhost = [], rWarn = { key: '', v: [] }; // var: setTool can run before this line on load
+var fullDraftPanel = false, rtab = null, rdraft = null, ldraft = null, cdraft = null, lkind = null, rGhost = [], rWarn = { key: '', v: [] }; // var: setTool can run before this line on load
+// cdraft: a garage being painted over some rows of a lot ({ i: the lot, b0..b1: its rows, lv: levels}). lkind: what a drag draws, a lot or a garage.
+const lotKind = () => { if (!lkind) { try { lkind = localStorage.getItem('mm.lkind') || 'lot'; } catch (e) { lkind = 'lot'; } } return lkind; };
+function setLotKind(k) { lkind = k; try { localStorage.setItem('mm.lkind', k); } catch (e) { /* storage blocked */ } clearRDraft(); renderSheet(); }
 const roadsTab = () => { if (!rtab) { try { rtab = localStorage.getItem('mm.rtab') || 'parking'; } catch (e) { rtab = 'parking'; } } return rtab; };
 function setRoadsTab(k) { rtab = k; try { localStorage.setItem('mm.rtab', k); } catch (e) { /* storage blocked */ } clearRDraft(); renderSheet(); }
 const ROAD_GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
 const ROAD_GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xc8402f, transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+const GARAGE_GHOST = new THREE.MeshBasicMaterial({ color: 0x2c9a55, transparent: true, opacity: 0.22, depthWrite: false });
 const ROAD_GHOST_STEEP = new THREE.MeshBasicMaterial({ color: 0xe0281a, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false, side: THREE.DoubleSide }); // the too-steep stretches of a road being drawn
 function clearRGhost() { for (const m of rGhost) { scene.remove(m); m.geometry.dispose(); } rGhost = []; }
-function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; roadHandlesSig = null; lotAsk = 0; fullDraftPanel = false; }
+function clearRDraft() { clearRGhost(); rdraft = null; ldraft = null; cdraft = null; roadHandlesSig = null; lotAsk = 0; fullDraftPanel = false; }
 function openRoads(tab) {
   if (visiting) return;
   if (state.tool !== 'roads') setTool('roads');
@@ -11615,7 +11701,9 @@ function showRGhost() {
     const P = ldraft, info = P.info || (P.info = parkCheck(P, P.P ? parks().indexOf(P.P) : -1)), mat = info.problems.length ? ROAD_GHOST_BAD : ROAD_GHOST_OK;
     for (const m of [parkPatch(P, 0, parkW(P), 0, parkD(P), mat, 0.18)]) { m.renderOrder = 6; scene.add(m); rGhost.push(m); }
     for (const g of P.ents || []) { const dd = gateDoor(P, g), [L, R] = flarePts(dd, -dd.oz, dd.ox, dd.ox, dd.oz, 0.9, 0.8), m = stripMesh(L, R, ROAD_GHOST_OK, 0.2); m.renderOrder = 6; scene.add(m); rGhost.push(m); }
+    if (isGarage(P)) garageGhost(P, 0, parkD(P), parkLv(P), info.problems.length);
   }
+  if (cdraft) { const P = parks()[cdraft.i], v0 = cdraft.b0 * PK.bay, v1 = (cdraft.b1 + 1) * PK.bay, m = parkPatch(P, 0, parkW(P), v0, v1, ROAD_GHOST_OK, 0.18); m.renderOrder = 6; scene.add(m); rGhost.push(m); garageGhost(P, v0, v1, cdraft.lv); }
   if (rdraft && rdraft.pts.length >= 2) {
     const info = rdraft.info || (rdraft.info = roadCheck(rdraft)), k = rkind(rdraft.main ? MAIN_ROAD : { kind: rdraft.kind });
     const bad = info.problems.some((t) => !t.startsWith('Too steep in places')); // steepness alone: green, with the steep stretches red
@@ -11625,6 +11713,12 @@ function showRGhost() {
     const [x, z] = rdraft.pts[0], m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 20).rotateX(-Math.PI / 2).translate(x, roadY(x, z) + 0.15, z), ROAD_GHOST_OK);
     m.renderOrder = 6; scene.add(m); rGhost.push(m);
   }
+}
+// How tall a garage will stand: a see-through block over the rows v0..v1 of P.
+function garageGhost(P, v0, v1, lv, bad) {
+  const h = (lv - 1) * GARAGE.fh + 0.2, c = parkAt(P, parkW(P) / 2, (v0 + v1) / 2), y = heightAt(c.x, c.z);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(parkW(P), h, v1 - v0).rotateY(-P.a).translate(c.x, y + h / 2, c.z), bad ? ROAD_GHOST_BAD : GARAGE_GHOST);
+  m.renderOrder = 5; scene.add(m); rGhost.push(m);
 }
 // A lot drawn by dragging from a to b: lined up with the nearest road (or with a lot it starts against, snapped to its
 // edge), sized in whole spaces and bays.
@@ -11659,6 +11753,7 @@ function defaultGate(P) {
 }
 function startLotEdit(i) {
   const P = parks()[i]; if (!P) return;
+  cdraft = null; clearRGhost();
   ldraft = { ...P, ents: (P.ents || []).map((g) => ({ ...g })), P, info: null };
   showRGhost(); renderSheet();
 }
@@ -11673,6 +11768,7 @@ let lastKind = 'road';
 function roadsGestureStart(p) {
   if (!p || !roadsOk() || !lotBuildable()) return null;
   const tab = roadsTab();
+  if (tab === 'parking' && !ldraft && lotKind() === 'garage') { const i = parkIndexAt(p); if (i >= 0 && !isGarage(parks()[i])) return { type: 'rdraw', what: 'paint', i, a: { x: p.x, z: p.z }, moved: 0 }; } // across a lot's rows
   if (tab === 'parking' && !ldraft && parkIndexAt(p) < 0) return { type: 'rdraw', what: 'lot', a: { x: p.x, z: p.z }, moved: 0 };
   if (tab === 'roads') {
     if (rdraft && !rdraft.R && rdraft.pts.length) { const e = rdraft.pts[rdraft.pts.length - 1]; if (Math.hypot(p.x - e[0], p.z - e[1]) < Math.max(2.5, tapR(p, fingerPx(), 0))) return { type: 'rdraw', what: 'road', raw: rdraft.raw || rdraft.pts.map(([x, z]) => ({ x, z })), moved: 0, more: true }; }
@@ -11685,7 +11781,13 @@ function roadsGestureMove(g, p) {
   if (g.what === 'lot') {
     g.moved = Math.max(g.moved, distXZ(g.a, p));
     if (g.moved < 1.5) return;
-    const turned = ldraft && ldraft.turned; ldraft = { ...lotFromDrag(g.a, p), info: null, turned }; showRGhost(); return;
+    const turned = ldraft && ldraft.turned; cdraft = null; ldraft = { ...lotFromDrag(g.a, p), info: null, turned }; if (lotKind() === 'garage') ldraft.lv = 2; showRGhost(); return;
+  }
+  if (g.what === 'paint') {
+    g.moved = Math.max(g.moved, distXZ(g.a, p));
+    if (g.moved < 1.5) return;
+    const P = parks()[g.i], va = parkLocal(P, g.a).v, vb = parkLocal(P, p).v, row = (v) => clamp(Math.floor(v / PK.bay), 0, P.R - 1);
+    cdraft = { i: g.i, b0: row(Math.min(va, vb)), b1: row(Math.max(va, vb)), lv: cdraft ? cdraft.lv : 2 }; showRGhost(); return;
   }
   const last = g.raw[g.raw.length - 1];
   if (distXZ(last, p) < Math.min(1.2, tapR(p, 6, 0.4))) return;
@@ -11703,6 +11805,7 @@ function simplifyPts(A, tol = 0.7) {
 }
 function roadsGestureEnd(g, p) {
   if (g.what === 'lot') { if (g.moved < 1.5) { roadsTap(p || g.a); return; } if (ldraft) { ldraft.info = null; showRGhost(); } renderSheet(); return; }
+  if (g.what === 'paint') { if (g.moved < 1.5) { cdraft = null; clearRGhost(); roadsTap(p || g.a); return; } renderSheet(); return; }
   if (!g.moved) { if (!g.more) roadsTap(p || g.start); else if (p) roadsTap(p); return; }
   rdraft.pts = simplifyPts(rdraft.pts); endAtLot(rdraft);
   rdraft.raw = null; rdraft.info = null; roadHandlesSig = null;
@@ -11747,23 +11850,52 @@ function commitLot() {
   if (!state.parks) state.parks = [];
   let P = d.P;
   if (!P) {
-    const names = new Set(parks().map((Q) => Q.name)), id = parks().reduce((m, Q) => Math.max(m, Q.id), 0) + 1;
-    let n = parks().length + 1; while (names.has(`Lot ${n}`)) n++;
-    P = { id, name: parks().length ? `Lot ${n}` : 'Main lot' }; state.parks.push(P);
+    const id = parks().reduce((m, Q) => Math.max(m, Q.id), 0) + 1;
+    P = { id, name: parks().length ? nextLotName(isGarage(d) ? 'Garage' : 'Lot') : isGarage(d) ? 'Main garage' : 'Main lot' }; state.parks.push(P);
   }
   Object.assign(P, { x: Math.round(d.x * 100) / 100, z: Math.round(d.z * 100) / 100, a: Math.round(d.a * 1e4) / 1e4, n: d.n, R: d.R, ents: d.ents.map((g) => ({ s: g.s, t: Math.round(g.t * 100) / 100 })) });
+  if (isGarage(d)) P.lv = parkLv(d); else delete P.lv;
   clearTreeSet(info.treeSet);
   state.cash -= cost.total;
   netChanged();
   if (cost.grading || !d.P) { const r = parkRect(P); gradeAndRefresh(levelRot(r, rectHeight(P), 1.5, false)); }
   buildLot(); styleLot(); updateCash(true);
   const i = parks().indexOf(P);
-  toast(`${d.P ? 'Changed' : 'Built'} ${P.name} · ${parkSpaces(P)} spaces · ${cost.total >= 0 ? '−' : '+'}${money(Math.abs(cost.total))}${parkReached(i) ? '' : '. No road reaches it yet: draw one to its edge.'}`);
+  toast(`${d.P ? 'Changed' : 'Built'} ${P.name} · ${parkSpaces(P)} spaces${isGarage(P) ? ` on ${parkLv(P)} levels` : ''} · ${cost.total >= 0 ? '−' : '+'}${money(Math.abs(cost.total))}${parkReached(i) ? '' : '. No road reaches it yet: draw one to its edge.'}`);
+  clearRDraft(); renderSheet(); scheduleSave();
+}
+const nextLotName = (w) => { const names = new Set(parks().map((Q) => Q.name)); let n = (w === 'Garage' ? parks().filter(isGarage).length : parks().length) + 1; while (names.has(`${w} ${n}`)) n++; return `${w} ${n}`; };
+// A garage over some rows of a lot: the lot is cut across its aisles into up to three lots side by side (the rows
+// before, the garage, the rows after), in the same place, joined where their end lanes meet. Entrances stay where
+// they were, on whichever piece they're now on; a lot closed in Operations stays closed in each piece.
+function commitGarageRows() {
+  const d = cdraft; if (!d || !lotBuildable() || !roadsOk()) return;
+  const P = parks()[d.i], c = paintCost(); if (!P || isGarage(P) || c.total > state.cash) return;
+  pushUndo(`the garage on ${P.name}`);
+  const cuts = [[0, d.b0 - 1, 1], [d.b0, d.b1, d.lv], [d.b1 + 1, P.R - 1, 1]].filter(([a, b]) => b >= a), ents = P.ents || [];
+  let id = parks().reduce((m, Q) => Math.max(m, Q.id), 0), keep = false;
+  const pieces = cuts.map(([b0, b1, lv], k) => {
+    const v0 = b0 * PK.bay, v1 = (b1 + 1) * PK.bay, R = b1 - b0 + 1, ctr = parkAt(P, parkW(P) / 2, (v0 + v1) / 2), first = k === 0, last = k === cuts.length - 1;
+    const Q = lv === 1 && !keep ? P : { id: ++id };
+    if (Q === P) keep = true;
+    Object.assign(Q, { x: Math.round(ctr.x * 100) / 100, z: Math.round(ctr.z * 100) / 100, a: P.a, n: P.n, R,
+      ents: ents.filter((g) => (g.s < 2 ? g.t >= v0 && g.t < v1 : g.s === 2 ? first : last)).map((g) => ({ s: g.s, t: g.s < 2 ? Math.round((g.t - v0) * 100) / 100 : g.t })) });
+    if (lv > 1) Q.lv = lv; else delete Q.lv;
+    return Q;
+  });
+  for (const Q of pieces) if (Q !== P) Q.name = isGarage(Q) ? (cuts.length === 1 ? P.name : nextLotName('Garage')) : nextLotName('Lot');
+  if (!keep) pieces[0].id = P.id; // the whole lot became the garage: it keeps its name and its place in Operations
+  state.parks.splice(d.i, 1, ...pieces);
+  for (const k of Object.keys((state.ops && state.ops.plans) || {})) { const pl = state.ops.plans[k]; if (pl.lotsOff && pl.lotsOff.includes(P.id)) pl.lotsOff = [...new Set([...pl.lotsOff, ...pieces.map((Q) => Q.id)])]; }
+  state.cash -= c.total;
+  netChanged(); buildLot(); styleLot(); updateCash(true);
+  const G = pieces.find(isGarage);
+  toast(`Built ${G.name} · ${parkSpaces(G)} spaces on ${parkLv(G)} levels · −${money(c.total)}`);
   clearRDraft(); renderSheet(); scheduleSave();
 }
 function removeLot(P) {
   if (!P || !lotBuildable() || !roadsOk()) return;
-  const back = Math.round(parkSpaces(P) * PARK_SPACE * 0.25);
+  const back = Math.round(parkValue(P) * 0.25);
   pushUndo(`removing ${P.name}`);
   state.parks = parks().filter((Q) => Q !== P);
   for (const k of Object.keys((state.ops && state.ops.plans) || {})) { const pl = state.ops.plans[k]; if (pl.lotsOff) pl.lotsOff = pl.lotsOff.filter((id) => id !== P.id); }
@@ -11820,14 +11952,19 @@ function roadsToolSheet() {
   const night = !closed && tab !== 'transit' ? '<p class="help">Roads and lots are built overnight, while the resort is closed.</p>' : '';
   if (tab === 'transit') return head + transitHtml();
   if (!newLots()) return head + (tab === 'parking' ? lotGrowPanel() : '<p class="help">Roads come to King of the Mountain later. Your lots still grow along the road, under Parking.</p>');
-  if (isPhone() && (rdraft || ldraft) && !fullDraftPanel) return compactDraftHtml(); // drawing on a phone: a small panel, so the map stays free to tap
+  if (isPhone() && (rdraft || ldraft || cdraft) && !fullDraftPanel) return compactDraftHtml(); // drawing on a phone: a small panel, so the map stays free to tap
   if (tab === 'parking') {
     if (ldraft) return head + lotDraftHtml();
+    if (cdraft) return head + paintDraftHtml();
+    const gm = lotKind() === 'garage';
     const rows = parks().map((P, i) => `<li class="lrow" data-action="lotPick" data-i="${i}"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(P.name)}</b><span class="pill ${parkReached(i) ? 'on' : 'warn'}">${parkReached(i) ? `${parkSpaces(P)} spaces` : 'No way in'}</span></div>
-      <div class="l2"><span>${P.R} ${P.R === 1 ? 'aisle' : 'aisles'} of ${P.n * 2} spaces</span>${parkReached(i) ? '' : '<span>Draw a road to an entrance</span>'}</div></li>`).join('');
-    return `${head}${night}<p class="help"><b>${drag} on the map to draw a lot</b>, any size: it lines up with the nearest road, and the count of spaces and the price show as you go. Start against a lot to add on to it. ${tap} a lot to change it.</p>
+      <div class="l2"><span>${isGarage(P) ? `Garage · ${parkLv(P)} levels of ${parkBase(P)}` : `${P.R} ${P.R === 1 ? 'aisle' : 'aisles'} of ${P.n * 2} spaces`}</span>${parkReached(i) ? '' : '<span>Draw a road to an entrance</span>'}</div></li>`).join('');
+    return `${head}${night}<div class="seg" role="group" aria-label="What to build"><button data-action="lotKind" data-v="lot" aria-pressed="${!gm}">Surface lot</button><button data-action="lotKind" data-v="garage" aria-pressed="${gm}">Parking garage</button></div>
+      ${gm ? `<p class="help"><b>${drag} on the map to draw a garage</b>, or <b>${drag.toLowerCase()} across the rows of a lot</b> to build a garage over just those rows, and keep the rest as a lot. Each level adds the same spaces again, up to ${GARAGE.max} levels. ${tap} a lot or garage to change it.</p>
+        <p class="help">A space on a garage’s deck costs ${money(PARK_SPACE * GARAGE.deck)} to build, ${GARAGE.deck} times a surface space, but it’s cheaper to run: only the roof is plowed. On a snowy day, guests like finding their car under cover. Build one where the ground near the lifts is short.</p>`
+        : `<p class="help"><b>${drag} on the map to draw a lot</b>, any size: it lines up with the nearest road, and the count of spaces and the price show as you go. Start against a lot to add on to it. ${tap} a lot to change it.</p>`}
       ${rows ? `<ul class="llist">${rows}</ul>` : '<p class="help warn">You have no parking. Guests come only by bus, off-site shuttle or from your hotels.</p>'}
-      <p class="conn">All lots · ${stalls.length.toLocaleString('en-US')} spaces · ${money(PARK_SPACE)} a space to build</p>`;
+      <p class="conn">All lots · ${stalls.length.toLocaleString('en-US')} spaces · ${money(PARK_SPACE)} a space to build${gm ? `, ${money(PARK_SPACE * GARAGE.deck)} on a deck` : ''}</p>`;
   }
   if (rdraft) return head + roadDraftHtml();
   const rows = proads().map((R) => `<li class="lrow" data-action="roadPick" data-id="${R.id}"><div class="l1"><span class="swatch" style="background:#464b54"></span><b>${esc(R.name)}</b><span class="pill ${proadIn(R) ? 'on' : 'warn'}">${proadIn(R) ? rkind(R).label : 'Cut off'}</span></div>
@@ -11840,10 +11977,17 @@ function roadsToolSheet() {
 // On a phone while drawing: one line, the price and the buttons. The full panel covered the map being drawn on.
 function compactDraftHtml() {
   const tap = isCoarse ? 'Tap' : 'Click';
+  if (cdraft) {
+    const c = paintCost(), short = c.total > state.cash;
+    return `<div class="sheet-title"><h3>Garage · ${c.spaces} spaces</h3><button class="x" data-action="rCancel" aria-label="Cancel">✕</button></div>
+      <p class="help">${c.rows} of ${c.P.R} ${c.P.R === 1 ? 'row' : 'rows'} of ${esc(c.P.name)}, ${cdraft.lv} levels. Drag across the lot again to change it.</p>
+      <div class="row">${lvButtons(cdraft.lv, 2)}<button class="btn" data-action="garageBuild" ${!short && lotBuildable() ? '' : 'disabled'}>${short ? 'Need more cash' : `Build · ${money(c.total)}`}</button></div>`;
+  }
   if (ldraft) {
     const d = ldraft, info = d.info || (d.info = parkCheck(d, d.P ? parks().indexOf(d.P) : -1)), cost = parkCost(d, d.P, info), short = cost.total > state.cash;
-    return `<div class="sheet-title"><h3>${d.P ? esc(d.P.name) : 'New lot'} · ${parkSpaces(d)} spaces</h3><button class="x" data-action="rCancel" aria-label="Cancel">✕</button></div>
+    return `<div class="sheet-title"><h3>${d.P ? esc(d.P.name) : isGarage(d) ? 'New garage' : 'New lot'} · ${parkSpaces(d)} spaces${isGarage(d) ? ` · ${parkLv(d)} levels` : ''}</h3><button class="x" data-action="rCancel" aria-label="Cancel">✕</button></div>
       ${info.problems.length ? `<p class="help warn">${esc(info.problems[0])}</p>` : '<p class="help">Drag the handles to move, turn or resize it.</p>'}
+      <div class="row">${lvButtons(parkLv(d), 1)}</div>
       <div class="row"><button class="btn secondary" data-action="lotTurn" data-d="-15">↺</button><button class="btn secondary" data-action="lotTurn" data-d="15">↻</button>
       <button class="btn" data-action="lotBuild" ${!info.problems.length && !short && lotBuildable() ? '' : 'disabled'}>${short ? 'Need more cash' : `${d.P ? 'Apply' : 'Build'} · ${money(Math.max(0, cost.total))}`}</button></div>
       ${d.P ? '<button class="link" data-action="lotFull">More: entrances, remove</button>' : ''}`;
@@ -11858,18 +12002,37 @@ function compactDraftHtml() {
 function lotDraftHtml() {
   const d = ldraft, self = d.P ? parks().indexOf(d.P) : -1, info = d.info || (d.info = parkCheck(d, self)), cost = parkCost(d, d.P, info), short = cost.total > state.cash;
   const deg = ((Math.round(d.a * 180 / Math.PI) % 360) + 360) % 360, tap = isCoarse ? 'Tap' : 'Click';
-  return `<div class="field-label">${d.P ? esc(d.P.name) : 'New lot'}</div>
-    <p class="help"><b>${parkSpaces(d)} spaces</b> · ${d.R} ${d.R === 1 ? 'aisle' : 'aisles'} of ${d.n * 2} · turned ${deg}°</p>
+  const lv = parkLv(d);
+  return `<div class="field-label">${d.P ? esc(d.P.name) : lv > 1 ? 'New garage' : 'New lot'}</div>
+    <p class="help"><b>${parkSpaces(d)} spaces</b> · ${d.R} ${d.R === 1 ? 'aisle' : 'aisles'} of ${d.n * 2}${lv > 1 ? ` on each of ${lv} levels` : ''} · turned ${deg}°</p>
+    <div class="row lvrow">${lvButtons(lv, 1)}<span class="help">${lv > 1 ? `A parking garage, ${lv} levels high.` : 'A surface lot. Add a level to make it a garage.'}</span></div>
     <p class="help">Drag the handles to move it, turn it or change its size. ${tap} an edge to add or take away an entrance (the green aprons).${d.ents.length || d.P ? '' : ' A road you draw to its edge makes an entrance there.'}</p>
     ${problemsHtml(info.problems)}
     <div class="row"><button class="btn secondary" data-action="lotTurn" data-d="-15">↺ 15°</button><button class="btn secondary" data-action="lotTurn" data-d="15">↻ 15°</button><button class="btn secondary" data-action="lotAlign">Line up with the road</button></div>
-    <div class="costs">${cost.add ? `<span>${Math.round(cost.add / PARK_SPACE)} new spaces</span><span>${money(cost.add)}</span>` : ''}${cost.back ? `<span>${Math.round(cost.back / PARK_SPACE / 0.25)} spaces taken out</span><span>+${money(cost.back)}</span>` : ''}
+    <div class="costs">${cost.add ? `<span>${cost.spaces > 0 ? `${cost.spaces} new spaces` : 'The new decks'}</span><span>${money(cost.add)}</span>` : ''}${cost.back ? `<span>${cost.spaces < 0 ? `${-cost.spaces} spaces taken out` : 'Decks taken down'}</span><span>+${money(cost.back)}</span>` : ''}
       ${cost.grading ? `<span>Levelling the ground</span><span>${money(cost.grading)}</span>` : ''}${cost.trees ? `<span>Clearing ${info.treeSet.size} trees</span><span>${money(cost.trees)}</span>` : ''}</div>
-    <p class="help">Plowing, lights and attendants: ${money(Math.round(parkSpaces(d) * parkRun() * MOUNTAIN.costs))} a day while it’s open.</p>
+    <p class="help">${lv > 1 ? 'Lights, attendants and plowing the roof' : 'Plowing, lights and attendants'}: ${money(Math.round(parkRunOf(d) * MOUNTAIN.costs))} a day while it’s open.</p>
     <button class="btn wide" data-action="lotBuild" ${!info.problems.length && !short && lotBuildable() ? '' : 'disabled'}>${short ? `Need ${money(cost.total - state.cash)} more` : `${d.P ? 'Apply' : 'Build'} · ${money(Math.max(0, cost.total))}`}</button>
-    ${d.P ? (lotAsk && Date.now() - lotAsk < 60000 ? `<div class="confirm-box"><p>Remove ${esc(d.P.name)}? You get back ${money(Math.round(parkSpaces(d.P) * PARK_SPACE * 0.25))}, a quarter of what its spaces cost.</p><div class="row"><button class="btn secondary" data-action="shrinkLotNo">Keep it</button><button class="btn danger" data-action="lotRemove">Remove</button></div></div>`
-      : `<button class="link" data-action="lotRemoveAsk">Remove ${esc(d.P.name)} · +${money(Math.round(parkSpaces(d.P) * PARK_SPACE * 0.25))}</button>`) : ''}
+    ${d.P ? (lotAsk && Date.now() - lotAsk < 60000 ? `<div class="confirm-box"><p>Remove ${esc(d.P.name)}? You get back ${money(Math.round(parkValue(d.P) * 0.25))}, a quarter of what its spaces cost.</p><div class="row"><button class="btn secondary" data-action="shrinkLotNo">Keep it</button><button class="btn danger" data-action="lotRemove">Remove</button></div></div>`
+      : `<button class="link" data-action="lotRemoveAsk">Remove ${esc(d.P.name)} · +${money(Math.round(parkValue(d.P) * 0.25))}</button>`) : ''}
     <button class="link" data-action="rCancel">${d.P ? 'Leave it as it was' : 'Throw it away'}</button>`;
+}
+// The − and + for a lot's levels (one level: a surface lot).
+const lvButtons = (lv, min) => `<button class="btn secondary" data-action="lotLv" data-d="-1" ${lv > min ? '' : 'disabled'} aria-label="One level fewer">− Level</button><button class="btn secondary" data-action="lotLv" data-d="1" ${lv < GARAGE.max ? '' : 'disabled'} aria-label="One more level">+ Level</button>`;
+// A garage painted over some rows of a lot: what it adds and costs. The rows are levelled and paved already.
+function paintCost() {
+  const d = cdraft, P = parks()[d.i], rows = d.b1 - d.b0 + 1, one = 2 * P.n * rows, add = one * (d.lv - 1);
+  return { P, rows, spaces: one * d.lv, add, total: add * PARK_SPACE * GARAGE.deck, run: one * d.lv * parkRun() * GARAGE.run - one * parkRun() };
+}
+function paintDraftHtml() {
+  const d = cdraft, c = paintCost(), short = c.total > state.cash, all = c.rows === c.P.R;
+  return `<div class="field-label">A garage on ${esc(c.P.name)}</div>
+    <p class="help"><b>${c.rows} of its ${c.P.R} ${c.P.R === 1 ? 'row' : 'rows'}</b> become a garage${all ? '' : `; the rest stay a surface lot, joined to it`}. ${c.spaces} spaces on ${d.lv} levels, up from ${c.spaces / d.lv}. Drag across the lot again to choose other rows.</p>
+    <div class="row lvrow">${lvButtons(d.lv, 2)}<span class="help">${d.lv} levels</span></div>
+    <div class="costs"><span>${c.add} spaces on the decks</span><span>${money(c.total)}</span></div>
+    <p class="help">Running it: ${c.run >= 0 ? `${money(Math.round(c.run * MOUNTAIN.costs))} a day more` : `${money(Math.round(-c.run * MOUNTAIN.costs))} a day less`} while it’s open.</p>
+    <button class="btn wide" data-action="garageBuild" ${!short && lotBuildable() ? '' : 'disabled'}>${short ? `Need ${money(c.total - state.cash)} more` : `Build · ${money(c.total)}`}</button>
+    <button class="link" data-action="rCancel">Throw it away</button>`;
 }
 function roadDraftHtml() {
   const d = rdraft, info = d.pts.length >= 2 ? d.info || (d.info = roadCheck(d)) : null, short = info && info.cost > state.cash, tap = isCoarse ? 'Tap' : 'Click';
@@ -11997,7 +12160,7 @@ function lotSheet(P) {
   const i = parks().indexOf(P); if (i < 0) return '<p class="help">This lot is gone.</p>';
   const live = state.phase === 'open', used = stalls.filter((s) => s.lot === i && s.car).length;
   return `<div class="sheet-title"><span class="swatch" style="background:#2565d4"></span><h3>${esc(P.name)}</h3><button class="x" data-action="close" aria-label="Close">✕</button></div>
-    <p class="help">${parkSpaces(P)} spaces in ${P.R} ${P.R === 1 ? 'aisle' : 'aisles'}${live ? ` · <b>${used}</b> in use` : ''}. ${parkReached(i) ? (lotOpenNow(i) ? 'Open today.' : 'Closed today in Operations.') : '<b>No road reaches an entrance</b>, so no cars park here.'}</p>
+    <p class="help">${isGarage(P) ? `A parking garage: ${parkSpaces(P)} spaces on ${parkLv(P)} levels` : `${parkSpaces(P)} spaces in ${P.R} ${P.R === 1 ? 'aisle' : 'aisles'}`}${live ? ` · <b>${used}</b> in use` : ''}. ${parkReached(i) ? (lotOpenNow(i) ? 'Open today.' : 'Closed today in Operations.') : '<b>No road reaches an entrance</b>, so no cars park here.'}</p>
     ${roadsOk() ? `<button class="btn secondary wide" data-action="lotEdit">${lotBuildable() ? 'Change it' : 'Change it overnight'}</button>` : ''}
     <button class="link" data-action="manage" data-v="parking">Parking ›</button>`;
 }
@@ -12014,6 +12177,7 @@ function proadSheet(R) {
 // A lot is open today unless today's plan closes it (Operations).
 const lotOpenNow = (i) => { const P = parks()[i]; return !P || !runOps || !(runOps.lotsOff || []).includes(P.id); };
 const stallOk = (i) => (newLots() ? lotOpenNow(stalls[i].lot) && parkReached(stalls[i].lot) : i < lotsOpen() * SPACES_PER_SECTION);
+const openRun = (P) => parks().reduce((a, Q) => a + (P && (P.lotsOff || []).includes(Q.id) ? 0 : parkRunOf(Q)), 0); // your lots open on plan P, a day
 const openSpaces = (P) => (newLots() ? parks().reduce((a, Q) => a + (P && (P.lotsOff || []).includes(Q.id) ? 0 : parkSpaces(Q)), 0) : lotsIn(P) * SPACES_PER_SECTION);
 // Spaces at a base's lots (for the two-base goals): the map's own lot there, or any of yours nearest it.
 const baseSpaces = (k) => (newLots() ? stalls.filter((s) => baseOfLot(s.lot) === k).length : lotSize(k) * SPACES_PER_SECTION);
@@ -12025,7 +12189,8 @@ function parkPoles() {
     for (let k = P.R > 1 ? 1 : 0; k < Math.max(2, P.R); k++) {
       if (P.R > 1 && k >= P.R) break;
       const v = P.R > 1 ? k * PK.bay : -0.15;
-      for (let u = PK.lane + 1.5; u < W - PK.lane - 0.5; u += 4) { const w = parkAt(P, u, v); out.push({ x: w.x, z: w.z, y: heightAt(w.x, w.z), lot: i }); }
+      const y = isGarage(P) ? deckY(P, parkLv(P) - 1) : null; // a garage's lights stand on its roof
+      for (let u = PK.lane + 1.5; u < W - PK.lane - 0.5; u += 4) { const w = parkAt(P, u, v); out.push({ x: w.x, z: w.z, y: y ?? heightAt(w.x, w.z), lot: i }); }
     }
   });
   return out;
@@ -13084,7 +13249,9 @@ function makeGuest(car, x, z) {
   return g;
 }
 function carArrived(car) {
-  const s = stalls[car.stall];
+  const s = stalls[car.stall], P = newLots() ? parks()[s.lot] : null, wx = todayWx();
+  const cover = !!P && isGarage(P) && (s.f || 0) < parkLv(P) - 1 && !summerNow() && !car.evening && (wx.type === 'rain' || wx.snow >= 1); // under a garage's roof on a wet or snowy day (not up on the roof): a dry car to come back to
+  if (cover) today.covered = (today.covered || 0) + car.size * AGENT;
   car.st = 'parked';
   for (let k = 0; k < car.size; k++) {
     const g = makeGuest(car, s.x + 0.25 + (k - car.size / 2) * 0.12, s.z);
@@ -13095,6 +13262,7 @@ function carArrived(car) {
     if (car.evt) eventGuest(g, car.evt); else payTicket(g);
     today.guests += AGENT;
     if (!summerNow()) thought(g, g.pass ? 'Season pass day. Can’t wait to hit the slopes!' : 'Can’t wait to hit the slopes!');
+    if (cover) { g.sat += 3; if (!k && Math.random() < 0.5) thought(g, todayWx().type === 'rain' ? 'Parked in the garage, so we stayed dry getting our gear out.' : 'Parked in the garage, so no snow to brush off the car tonight.'); }
     if (!baseSkiable()) { g.needsRental = false; g.wantsLesson = false; }
     arrivalFlow(g);
   }
@@ -13582,7 +13750,7 @@ function planCosts(P, guestCount = 0) {
     if (!(P.kind === 'summer' && m === 'closed') && !(P.kind !== 'summer' && WINTER_SHUT.includes(B.type))) upkeep += bldUpkeep(B, m, P); // shut for the season: the summer bill covers it
   }
   const other = Math.round(staff * c * lv.cost * (short ? 0.94 : 1) * (P.kind === 'summer' ? SUMMER_STAFF : 1)); // a summer crew is much smaller
-  return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round((newLots() ? openSpaces(P) * parkRun() + roadRunCost() : lotsIn(P) * LOT_RUN_DAY) * c),
+  return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round((newLots() ? openRun(P) + roadRunCost() : lotsIn(P) * LOT_RUN_DAY) * c),
     shuttles: busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)) };
 }
 function planRunCost(P) {
@@ -14936,15 +15104,16 @@ function drawPeople() {
   let c = 0;
   for (const car of cars) {
     if (c >= MAX_CARS) break;
-    let x, z, yaw;
-    if (car.st === 'parked') { const s = stalls[car.stall]; x = s.x; z = s.z; yaw = s.heading; }
+    let x, z, yaw, y = null;
+    if (car.st === 'parked') { const s = stalls[car.stall]; x = s.x; z = s.z; yaw = s.heading; if (s.y != null) y = s.y; }
     else {
       let d = car.pd, i = 0;
       while (i < car.path.length - 2) { const sl = Math.hypot(car.path[i + 1].x - car.path[i].x, car.path[i + 1].z - car.path[i].z); if (d <= sl) break; d -= sl; i++; }
       const a = car.path[i], b = car.path[i + 1], sl = Math.hypot(b.x - a.x, b.z - a.z) || 1, t = Math.min(1, d / sl);
       x = lerp(a.x, b.x, t); z = lerp(a.z, b.z, t); yaw = Math.atan2(b.x - a.x, b.z - a.z);
+      if (a.y != null || b.y != null) y = lerp(a.y ?? roadY(a.x, a.z) + 0.1, b.y ?? roadY(b.x, b.z) + 0.1, t); // up a garage's ramps
     }
-    _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(x, roadY(x, z) + 0.1, z);
+    _e.set(0, yaw, 0); _q.setFromEuler(_e); _s.set(1, 1, 1); _v.set(x, y ?? roadY(x, z) + 0.1, z);
     _m.compose(_v, _q, _s);
     _m.toArray(carMeshes.body.instanceMatrix.array, c * 16);
     _m.toArray(carMeshes.cabin.instanceMatrix.array, c * 16);
@@ -14953,7 +15122,7 @@ function drawPeople() {
     if (car.st === 'parked') for (const e of car.extra || []) {
       if (c >= MAX_CARS) break;
       const s = stalls[e.i];
-      _e.set(0, s.heading, 0); _q.setFromEuler(_e); _v.set(s.x, heightAt(s.x, s.z) + 0.1, s.z);
+      _e.set(0, s.heading, 0); _q.setFromEuler(_e); _v.set(s.x, s.y ?? heightAt(s.x, s.z) + 0.1, s.z);
       _m.compose(_v, _q, _s);
       _m.toArray(carMeshes.body.instanceMatrix.array, c * 16);
       _m.toArray(carMeshes.cabin.instanceMatrix.array, c * 16);
@@ -24131,7 +24300,7 @@ function parkingPanel() {
   }).join('');
   const rows = parks().map((P, i) => { const used = stalls.filter((x) => x.lot === i && x.car).length, open = lotOpenNow(i), in_ = parkReached(i);
     return `<li class="lrow" data-action="goLot" data-i="${i}"><div class="l1"><span class="swatch" style="background:#2565d4"></span><b>${esc(P.name)}</b><span class="pill ${!in_ ? 'warn' : open ? 'on' : 'off'}">${!in_ ? 'No way in' : open ? 'Open' : 'Closed today'}</span></div>
-      <div class="l2"><span>${live && open ? `<b>${used}</b> of ` : ''}${parkSpaces(P)} spaces${live && open ? ' in use' : ''}</span><span>${money(Math.round(parkSpaces(P) * parkRun() * MOUNTAIN.costs))} a day open</span></div></li>`; }).join('');
+      <div class="l2"><span>${live && open ? `<b>${used}</b> of ` : ''}${parkSpaces(P)} spaces${live && open ? ' in use' : ''}</span><span>${isGarage(P) ? `Garage, ${parkLv(P)} levels · ` : ''}${money(Math.round(parkRunOf(P) * MOUNTAIN.costs))} a day open</span></div></li>`; }).join('');
   return `${rows ? `<ul class="llist">${rows}</ul>` : '<p class="help warn">You have no parking lots. Guests come only by bus, off-site shuttle or from your hotels.</p>'}
     <p class="conn">${stalls.length.toLocaleString('en-US')} spaces${state.lastReport && state.lastReport.turnedAway ? ` · ${state.lastReport.turnedAway} turned away last day` : ''}</p>
     ${visiting ? '' : `<div class="row"><button class="btn secondary" data-action="roadsOpen" data-v="parking">Build or change lots</button><button class="btn secondary" data-action="roadsOpen" data-v="roads">Roads</button></div>`}
@@ -29437,6 +29606,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.8', date: 'Nov 11, 2026', title: 'Parking garages', items: [
+    'Build parking garages: in Roads › Parking, pick Parking garage and drag on the map to draw one, or drag across the rows of a lot to turn just those rows into a garage. The rest stays a surface lot, joined to it.',
+    'Select any lot or garage and add levels, up to 5. Each level adds the same spaces again, and cars fill the ground level first, then drive up the ramps.',
+    'A space on a deck costs four times a surface space, but a garage is cheaper to run: only the roof gets plowed. Guests parked under cover on a snowy or rainy day are happier.',
+  ] },
   { v: '4.7', date: 'Nov 11, 2026', title: 'Learners-only carpets', items: [
     'Thanks for the idea! Select a magic carpet or T-bar and switch on Learners only to keep it for beginners. Stronger skiers stop using it as a shortcut from the parking lot to the base, so the line is left to the people learning.',
     'If other skiers used that lift to get somewhere, the panel reminds you to give them another way there.',
