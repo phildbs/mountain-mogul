@@ -22,8 +22,9 @@ const funcs=['liftTransferMode','liftTrailMode','trailNear','dryEnd','connAt','f
 // Expressions shared with the game (the prior build has no ride-time helper).
 const transfer=src.match(/^const liftTransferCost = .*;$/m)[0];
 const ride=src.match(/^const liftRideMinutes = .*;$/m)?.[0]||'';
+const learn=src.match(/^const canRide = .*;$/m)?.[0]||'const canRide=(L)=>canLoad(L);'; // learners-only lifts (4.7)
 const hubShared=['cellKey','isHub','hubAt','HUB_STEPS'].map(name=>src.match(new RegExp('^const '+name+' = .*;$','m'))[0]).join('\n');
-const api=runInNewContext(hubShared+'\n'+transfer+'\n'+ride+'\n'+funcs.map(fn).join('\n')+'\n({computeNetwork,vLift,vEnd'+(fn('liftTrailMode')?',liftTrailMode':'')+(ride?',liftRideMinutes':'')+'})',ctx);
+const api=runInNewContext(hubShared+'\n'+transfer+'\n'+ride+'\n'+learn+'\n'+funcs.map(fn).join('\n')+'\n({computeNetwork,vLift,vEnd'+(fn('liftTrailMode')?',liftTrailMode':'')+(ride?',liftRideMinutes':'')+'})',ctx);
 const lift=(id,type,a,b,len)=>({id,type,a,b,upLen:len,open:true,windHold:false,queue:[],incoming:0,stats:{cap:1200},departing:[],transfers:[]});
 const lower=lift(1,'double',{x:0,z:60},{x:0,z:0},60),upper=lift(2,'double',{x:10,z:0},{x:10,z:-30},30),express=lift(3,'hsq',{x:8,z:60},{x:15,z:-30},90);
 const trail=(id,samples,fit)=>({id,samples,fit,width:'medium',open:true,an:{rating:1},branches:[]});
