@@ -9810,10 +9810,10 @@ function computeChips() {
     text: away ? `Lot full · ${n(away)} turned away` : `Lot ${Math.round(used / cap * 100)}% full`, title: 'Parking is nearly full. More spaces or off-site parking lets more guests in.', go: () => openManage('parking') });
   for (const B of world.buildings) {
     if (isDecor(B) || !B.q || !bldOpenNow(B)) continue;
-    let w = 0;
-    for (const svc of offers(B)) if (POOL[svc] && B.q[POOL[svc]]) w = Math.max(w, estWait(B, svc));
-    if (w >= 12) out.push({ key: `B${B.id}`, sev: w >= 20 ? 2 : 1, score: w, x: B.door.x, z: B.door.z, icon: CHIP_CLOCK, text: `${B.name} · ${n(w)} min line`,
-      title: `${B.name}: about ${n(w)} minutes in line`, go: () => select({ kind: 'bld', obj: B }) });
+    let w = 0, rr = false;
+    for (const pool in B.q) { const v = lineWait(B, pool); if (v > w) { w = v; rr = pool === 'rr' && B.type !== 'restroom' && B.type !== 'hrest'; } }
+    if (w >= 12) out.push({ key: `B${B.id}`, sev: w >= 20 ? 2 : 1, score: w, x: B.door.x, z: B.door.z, icon: CHIP_CLOCK, text: `${B.name} · ${n(w)} min ${rr ? 'restroom line' : 'line'}`,
+      title: `${B.name}: about ${n(w)} minutes in line${rr ? ' for the restrooms' : ''}`, go: () => select({ kind: 'bld', obj: B }) });
   }
   return out.sort((a, b) => b.sev - a.sev || b.score - a.score).slice(0, CHIP_MAX);
 }
@@ -13621,7 +13621,7 @@ function simRun(dt) {
   if (!today.pmDone && state.time >= 720) { today.pmDone = true; middayWind(); }
   const crew = patrolCrew(); // gathered once a step, not for every lift and chair
   for (const L of world.lifts) stepLift(L, dt, crew);
-  for (const B of world.buildings) { bldStep(B); if (B.rq) rideStep(B); }
+  for (const B of world.buildings) { bldStep(B, dt); if (B.rq) rideStep(B); }
   patrolStep(dt);
   busStep(dt);
   crossStep(dt);
@@ -18335,6 +18335,19 @@ function estWait(B, svc) {
   if (pool === 'seat' && bspec(B).counter) thr = Math.min(thr, bspec(B).counter * staffLevel().svc / AGENT);
   return (B.q[pool].length + (B.used[pool] >= slots ? 3 : 0)) / Math.max(0.05, thr);
 }
+// The line as it stands, for the warning over a building: how long its last guest will wait, going by what the
+// guests in it came for (a lunch line isn't slowed by the long evening drinks the same building serves), and by
+// the counter alone while seats are free.
+function lineWait(B, pool) {
+  const q = B.q[pool];
+  if (!q.length) return 0;
+  if (B.type === 'truck' && pool === 'seat') return estWait(B, 'snack');
+  let stay = 0;
+  for (const g of q) stay += (SVC_TIME[g.svc][0] + SVC_TIME[g.svc][1]) / 2;
+  const slots = poolSlots(B, pool), counter = pool === 'seat' && bspec(B).counter ? bspec(B).counter * staffLevel().svc / AGENT : 0;
+  const seats = slots / (stay / q.length), thr = !counter ? seats : B.used[pool] < slots * 0.9 ? counter : Math.min(seats, counter);
+  return q.length / Math.max(0.05, thr);
+}
 function needs(g) {
   const n = [];
   if (g.bl >= 1) n.push('rr');
@@ -18703,7 +18716,7 @@ function seatTaken(g, B) {
   thought(g, svc === 'rest' ? 'Every seat here is taken. I’ll rest later.' : svc === 'fire' ? 'Every spot by the fire is taken tonight.' : 'The fire is full. I’ll warm up somewhere else.');
   return leaveBuilding(g, B);
 }
-function bldStep(B) {
+function bldStep(B, dt = 0) {
   if (!bldOpenNow(B)) {
     const pending = Object.values(B.q).flat();
     if (pending.length) {
@@ -18718,7 +18731,8 @@ function bldStep(B) {
     while (q.length && ((B.type === 'truck' && pool === 'seat') || B.used[pool] < slots)) {
       if (pool === 'seat' && bspec(B).counter && state.time < B.counterFree) break;
       const g = q.shift(); B.qv++;
-      if (pool === 'seat' && bspec(B).counter) B.counterFree = Math.max(B.counterFree, state.time) + AGENT / bspec(B).counter / staffLevel().svc;
+      // The counter has been serving since this step began, so a fast one serves several guests in a step and keeps its pace at any game speed.
+      if (pool === 'seat' && bspec(B).counter) B.counterFree = Math.max(B.counterFree, state.time - dt / 60) + AGENT / bspec(B).counter / staffLevel().svc;
       serve(g, B);
     }
     for (let i = q.length - 1; i >= 0; i--) {
@@ -29404,6 +29418,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.6.2', date: 'Nov 11, 2026', title: 'Truer line times at buildings', small: true, items: [
+    'The line warning over a building now goes by what the guests in line came for. A bar or lodge at lunch was timed as if everyone ordered a long evening drink, and a restaurant as if everyone stayed for après, so it could say 30 minutes when the real wait was nearer 10.',
+    'A big lodge\'s food counter now keeps its full pace when the game runs fast: a large lodge was serving about 20 guests a minute instead of 32, so lines built up while seats stood empty.',
+    'When the line is for a building\'s restrooms rather than its tables, the warning says so. Thanks to the player who sent this in!'] },
   { v: '4.6.1', date: 'Nov 10, 2026', title: 'Lifts span ponds', small: true, items: [
     'A chairlift or gondola over a snowmaking pond now spans it from towers on dry ground, keeping to the slope, instead of dipping down into a pond dug into a hillside. Lifts already over a pond are fixed when you load.'] },
   { v: '4.6', date: 'Nov 10, 2026', title: 'Smoother on more computers', items: [
