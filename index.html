@@ -8069,7 +8069,7 @@ function upgradeLift(L, type) {
   const from = LIFT_TYPES[L.type].name, to = LIFT_TYPES[type].name;
   if (L.name.endsWith(' ' + from)) L.name = L.name.slice(0, -from.length) + to; // a name that says what it is follows the upgrade
   state.cash -= up.cost;
-  L.type = type; L.cost = (L.cost || 0) + up.cost;
+  L.type = type; L.cost = (L.cost || 0) + up.cost; L.learn = undefined; // a chairlift is for everyone
   liftUpFor = null;
   rebuildLift(L);
   computeNetwork(); syncLabels(); updateCash(true);
@@ -9211,7 +9211,7 @@ function liftSheet(L) {
       <button class="x" data-action="close" aria-label="Close">✕</button>
     </div>
     <div class="status"><span class="pill ${L.planOff ? 'off' : !L.open ? 'off' : liftMode(L) === 'slow' ? 'slow' : 'on'}">${L.planOff ? 'Off today' : !L.open ? 'Stopped' : liftMode(L) === 'slow' ? 'Running slow' : 'Running'}</span>
-      <span class="muted">${type.long}</span>
+      <span class="muted">${type.long}${L.learn ? ' · learners only' : ''}</span>
       <button class="link" data-action="toggleOpen">${L.open ? 'Stop lift' : 'Start lift'}</button></div>
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${L.queue.length * AGENT}</b> in line · about ${Math.round(liftWait(L))} min wait · ${L.riders.reduce((a, r) => a + r.length, 0) * AGENT} riding<br>${((today.liftRiders[L.id] || 0) * AGENT).toLocaleString('en-US')} rides so far · power ${money(Math.round((today.liftCost || {})[L.id] || 0))}</p>` : ''}
     <dl class="kv">
@@ -9228,6 +9228,7 @@ function liftSheet(L) {
     ${notes.filter(Boolean).length ? `<ul class="problems soft">${notes.filter(Boolean).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     ${liftMidSection(L)}
     ${liftUpgradeSection(L)}
+    ${learnerSection(L)}
     ${bikeCarrierSection(L)}
     ${!overnightOk() || visiting ? '' : `<button class="btn secondary" data-action="moveLift">Move a station · from ${money(liftMoveFee(L))}</button>${state.cash < liftMoveFee(L) ? `<p class="help">Moving costs at least ${money(liftMoveFee(L))} and you have ${money(state.cash)}. Short of cash? Draw a short trail from the station to the trail instead.</p>` : ''}`}
     ${state.phase !== 'closed' && !matchPlay ? '' : removeBlock('lift', `Removing this lift returns ${money((L.cost || 0) * 0.25)} in salvage. Cleared trees stay cleared.`)}`;
@@ -9254,6 +9255,7 @@ function sheetAct(b) {
   else if (a === 'gradeTrail') { draft.grade = !draft.grade; draft.dirty = true; renderSheet(); }
   else if (a === 'bikeCrew' && obj && isBike(obj)) { obj.crewOff = !obj.crewOff || undefined; renderSheet(); scheduleSave(); }
   else if (a === 'bikeFit' && obj && obj.chairCount != null) bikeFit(obj);
+  else if (a === 'learnLift' && obj && obj.chairCount != null && LIFT_TYPES[obj.type].surface) { obj.learn = !obj.learn || undefined; renderSheet(); scheduleSave(); }
   else if (a === 'undo') draftUndo();
   else if (a === 'cancel') { resetDraft(); renderSheet(); }
   else if (a === 'liftMoveReset' && draft.movingLift) { const L = draft.movingLift; draft.pts = [{ x: L.a.x, z: L.a.z }, { x: L.b.x, z: L.b.z }]; draft.dirty = true; syncHandles(); }
@@ -10161,7 +10163,7 @@ function serializeWorld() {
   return {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off })) : undefined })),
-    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined })),
+    lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined, learn: L.learn || undefined })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump, free: P.free || undefined })) : undefined,
@@ -12188,14 +12190,17 @@ function canLoad(L) {
   if (nightEnd()) return nightNow() && liftLit(L);
   return !L.fromBase; // daytime-only upper lifts can still bring stranded guests out
 }
+// A lift kept for learners (`L.learn`, a switch on its panel) carries beginners only: everyone else plans as if it
+// weren't there. Strong skiers rode the carpets as a shortcut from the lot to the base area and crowded out the learners.
+const canRide = (L, g) => canLoad(L) && !(L.learn && g && g.ab > 0);
 // Minutes until the k-th guest in line boards.
 const lineAhead = (L, k) => k * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 const liftWait = (L) => lineAhead(L, L.queue.length + L.incoming);
 // Other open lifts loading a short glide or walk from this one's line: at the base, the same base area.
-function liftsBeside(L) {
+function liftsBeside(L, g) {
   const out = [];
   for (const M of world.lifts) {
-    if (M === L || isVillage(M) || !canLoad(M) || M.fromBase !== L.fromBase) continue;
+    if (M === L || isVillage(M) || !canRide(M, g) || M.fromBase !== L.fromBase) continue;
     let mode = null;
     if (!L.fromBase) mode = liftTransferMode({ type: L.type, b: L.a }, M);
     else if (distXZ(L.a, M.a) < TRANSFER_R && (baseCount() < 2 || baseOf(L.a) === baseOf(M.a))) mode = trueY(M.a.x, M.a.z) - trueY(L.a.x, L.a.z) > 0.6 ? 'walk' : 'glide';
@@ -12207,7 +12212,7 @@ function liftsBeside(L) {
 // Giving up a place in line takes a clear gain.
 function shorterLift(g, L, wait) {
   if (g.leaving || wait < 5) return null;
-  const near = liftsBeside(L).filter((o) => liftWait(o.M) < wait - 3);
+  const near = liftsBeside(L, g).filter((o) => liftWait(o.M) < wait - 3);
   if (!near.length) return null;
   const memo = new Map();
   let best = null, bv = vLift(L, g, 1, memo) + (liftWait(L) - wait) * g.qh + 2;
@@ -12295,7 +12300,7 @@ function vEnd(T, g, depth, memo) {
   if (to.kind === 'top') { // the best way on from the top of that lift
     let v = -40;
     if (depth < 4) for (const D of to.obj.departing) if (runnable(D)) v = Math.max(v, vTrail(D, 0, g, depth + 1, memo));
-    for (const M of to.obj.transfers || []) if (canLoad(M)) v = Math.max(v, vLift(M, g, depth + 1, memo) - liftTransferCost(to.obj, M));
+    for (const M of to.obj.transfers || []) if (canRide(M, g)) v = Math.max(v, vLift(M, g, depth + 1, memo) - liftTransferCost(to.obj, M));
     return v;
   }
   return to.obj.fromBase ? vBase(g, depth + 1, memo, T.samples[T.samples.length - 1]) : vLift(to.obj, g, depth + 1, memo);
@@ -12305,7 +12310,7 @@ function vLift(L, g, depth, memo) {
   if (memo.has(key)) return memo.get(key);
   memo.set(key, -99);
   let v;
-  if (!canLoad(L)) v = L.fromBase ? vBase(g, depth, memo, L.a) - 2 : -50;
+  if (!canRide(L, g)) v = canLoad(L) ? -50 : L.fromBase ? vBase(g, depth, memo, L.a) - 2 : -50;
   else if (g.leaving) v = L.fromBase ? vBase(g, depth, memo, L.a) - 7 : -6;
   else {
     // Riding is less tiring than waiting, but an extra slow lift still costs skiing time.
@@ -12326,7 +12331,7 @@ function exitsV(L, g, depth, memo) {
   let b = -30;
   if (L.hubTop) b = Math.max(b, vHub(L.hubTop, g, depth, memo, L.b));
   for (const D of L.departing) if (runnable(D) && !(L.hubTop && hubAt(D.samples[0]) === L.hubTop)) b = Math.max(b, vTrail(D, 0, g, depth, memo));
-  for (const M of L.transfers || []) if (canLoad(M) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth, memo) - liftTransferCost(L, M));
+  for (const M of L.transfers || []) if (canRide(M, g) && !(L.hubTop && M.hubBottom === L.hubTop)) b = Math.max(b, vLift(M, g, depth, memo) - liftTransferCost(L, M));
   return b;
 }
 // Minutes of riding a guest skips by getting off at the mid-station.
@@ -12338,11 +12343,11 @@ function hubChoices(A, g, depth, memo, here) {
   if (e) out.push({ k: 'base', p: e, v: vBase(g, depth + 1, memo, e) - (e.here ? 0.5 : cost(e)) });
   if (depth < 4) {
     for (const T of A.starts) if (runnable(T)) { const p = T.samples[0]; out.push({ k: 'ski', T, p, v: vTrail(T, 0, g, depth + 1, memo) - cost(p) }); }
-    for (const L of A.loads) if (canLoad(L)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) - cost(L.a) });
+    for (const L of A.loads) if (canRide(L, g)) out.push({ k: 'lift', L, p: L.a, v: vLift(L, g, depth + 1, memo) - cost(L.a) });
     // Lift tops are exits too: an existing nearby trail/transfer outside the patch still works.
     for (const L of A.tops) {
       for (const T of L.departing) if (hubAt(T.samples[0]) !== A && runnable(T)) out.push({ k: 'top', L, p: L.b, v: vTrail(T, 0, g, depth + 1, memo) - cost(L.b) });
-      for (const M of L.transfers || []) if (M.hubBottom !== A && canLoad(M)) out.push({ k: 'top', L, p: L.b, v: vLift(M, g, depth + 1, memo) - cost(L.b) - liftTransferCost(L, M) });
+      for (const M of L.transfers || []) if (M.hubBottom !== A && canRide(M, g)) out.push({ k: 'top', L, p: L.b, v: vLift(M, g, depth + 1, memo) - cost(L.b) - liftTransferCost(L, M) });
     }
   }
   return out;
@@ -12391,7 +12396,7 @@ function vBase(g, depth, memo, here = g) {
     return cost === Infinity ? -40 : 25 - cost;
   }
   let b = -20;
-  for (const { L, z } of crossSites().base) if (canLoad(L)) {
+  for (const { L, z } of crossSites().base) if (canRide(L, g)) {
     const cost = baseCount() > 1 && z !== zone ? crossCost(zone, z) : 0;
     if (cost !== Infinity) b = Math.max(b, vLift(L, g, depth, memo) - 0.5 - cost);
   }
@@ -12588,7 +12593,7 @@ function crossDone(g) {
   today.crossings = (today.crossings || 0) + AGENT;
   if (fin != null && fin !== baseOf(g)) return crossTo(g, fin, n); // on to the next base
   if (n.k === 'car') return goCar(g);
-  if (n.k === 'queue') { const L = liftById(n.lid); if (L && canLoad(L)) return goQueue(g, L, 'walk'); }
+  if (n.k === 'queue') { const L = liftById(n.lid); if (L && canRide(L, g)) return goQueue(g, L, 'walk'); }
   baseDecision(g);
 }
 // Each minute: the village gondolas load from both ends up to their capacity, riders arrive after the
@@ -12729,7 +12734,7 @@ function baseDecision(g, skipHub = false) {
   const memo = new Map();
   const zg = baseCount() > 1 ? baseOf(g) : 0;
   for (const L of world.lifts) {
-    if (!L.fromBase || !canLoad(L) || isVillage(L)) continue;
+    if (!L.fromBase || !canRide(L, g) || isVillage(L)) continue;
     let cross = zg === (baseCount() > 1 ? baseOf(L.a) : 0) ? 0 : crossCost(zg, baseOf(L.a)); // the other base: worth it only with a way across
     if (cross === Infinity) continue;
     if (cross && walkOver(g, L.a, baseOf(L.a))) cross = 0; // or just walk over, if that's quicker
@@ -12763,7 +12768,7 @@ function topDecision(g, L, skipVisit, skipHub = false) {
   let hop = null;
   for (const M of L.transfers || []) {
     if (skipHub && M.hubBottom === L.hubTop) continue;
-    if (!canLoad(M) || g.leaving) continue;
+    if (!canRide(M, g) || g.leaving) continue;
     const v = noisy(vLift(M, g, 1, memo) - liftTransferCost(L, M));
     if (v > bv) { bv = v; hop = M; }
   }
@@ -12840,8 +12845,8 @@ function endOfTrail(g) {
   updateLeaving(g);
   // Back at the base, compare all lifts instead of automatically rejoining this endpoint's lift.
   if (L.fromBase) return baseDecision(g);
-  if (!g.leaving && canLoad(L) && maybeVisit(g, L.a, 9, false, { k: 'liftq', lid: L.id })) return;
-  if (canLoad(L)) {
+  if (!g.leaving && canRide(L, g) && maybeVisit(g, L.a, 9, false, { k: 'liftq', lid: L.id })) return;
+  if (canRide(L, g)) {
     const o = shorterLift(g, L, liftWait(L));
     if (o) { thought(g, `The line for ${L.name} is long. ${o.M.name} is right next to it.`); return hopLine(g, o); }
     return goQueue(g, L, 'glide');
@@ -13265,7 +13270,7 @@ function arrive(g) {
   if (t.k === 'hubEnter') { const A = areaById(t.aid); if (A && walkHub(g, A, { x: t.x, z: t.z }, t.next)) return; return setMove(g, { x: t.x, z: t.z }, 'walk', t.next); }
   if (t.k === 'hubCar') return goCar(g);
   if (t.k === 'hubTop') { const L = liftById(t.lid); return L && topDecision(g, L, true, true) || hikeOut(g); }
-  if (t.k === 'hubQueue') { const L = liftById(t.lid); return L && canLoad(L) ? goQueue(g, L, 'walk') : hubDecision(g, areaById(t.aid)); }
+  if (t.k === 'hubQueue') { const L = liftById(t.lid); return L && canRide(L, g) ? goQueue(g, L, 'walk') : hubDecision(g, areaById(t.aid)); }
   if (t.k === 'queue') {
     const L = liftById(t.lid);
     if (!L) return baseDecision(g);
@@ -18256,7 +18261,7 @@ function mealRoute(g, start) {
       const A = n.A, walk = (p) => hubDistance(A, n.p, p) / walking;
       for (const B of A.buildings) consider(B, walk(B.door));
       for (const T of A.starts) add({ k: 'trail', T, s: 0 }, n.cost + walk(T.samples[0]), n.first || { k: 'ski', tid: T.id, aid: A.id });
-      for (const L of A.loads) if (canLoad(L)) add({ k: 'lift', L }, n.cost + walk(L.a), n.first || { k: 'queue', lid: L.id, aid: A.id });
+      for (const L of A.loads) if (canRide(L, g)) add({ k: 'lift', L }, n.cost + walk(L.a), n.first || { k: 'queue', lid: L.id, aid: A.id });
       const e = A.basePoint && hubExit(A, n.p);
       if (e) add({ k: 'base', p: e }, n.cost + (e.here ? 0 : walk(e)), e.here ? n.first : n.first || { k: 'hubBase', aid: A.id, x: e.x, z: e.z }); // already on the base: no walk out first
       for (const L of A.tops) add({ k: 'top', L, outside: true }, n.cost + walk(L.b), n.first || { k: 'hubTop', lid: L.id, aid: A.id });
@@ -18264,7 +18269,7 @@ function mealRoute(g, start) {
       const A = hubAt(n.p); if (A) add({ k: 'hub', A, p: n.p }, n.cost, n.first);
       for (const B of world.buildings) if ((B.isBase && sameFoodBase(n.p, B.door)) || distXZ(n.p, B.door) <= 14) consider(B, distXZ(n.p, B.door) / walking);
       // A food trip never crosses to a disconnected base.
-      for (const L of world.lifts) if (L.fromBase && sameFoodBase(n.p, L.a) && !isVillage(L) && canLoad(L)) add({ k: 'lift', L }, n.cost + distXZ(n.p, L.a) / walking, n.first || { k: 'queue', lid: L.id });
+      for (const L of world.lifts) if (L.fromBase && sameFoodBase(n.p, L.a) && !isVillage(L) && canRide(L, g)) add({ k: 'lift', L }, n.cost + distXZ(n.p, L.a) / walking, n.first || { k: 'queue', lid: L.id });
     } else {
       const L = n.L, p = n.k === 'top' ? L.b : L.a, radius = n.k === 'top' ? 10 : L.fromBase ? 14 : 9;
       const A = n.k === 'top' ? L.hubTop : L.hubBottom;
@@ -18273,8 +18278,8 @@ function mealRoute(g, start) {
       if (n.k === 'top') {
         if (A && !n.outside) continue;
         for (const T of L.departing) add({ k: 'trail', T, s: 0 }, n.cost + distXZ(p, T.samples[0]) / (liftTrailMode(L, T) === 'walk' ? walking : speed), n.first || { k: 'ski', tid: T.id, from: L.id });
-        for (const M of L.transfers || []) if (canLoad(M)) add({ k: 'lift', L: M }, n.cost + distXZ(p, M.a) / walking, n.first || { k: 'transfer', lid: M.id, from: L.id });
-      } else if (canLoad(L) && !isVillage(L)) {
+        for (const M of L.transfers || []) if (canRide(M, g)) add({ k: 'lift', L: M }, n.cost + distXZ(p, M.a) / walking, n.first || { k: 'transfer', lid: M.id, from: L.id });
+      } else if (canRide(L, g) && !isVillage(L)) {
         const liftSpeed = LIFT_TYPES[L.type].speed / 10 / PACE * (liftMode(L) === 'slow' ? SLOW.speed : 1) * 60;
         add({ k: 'top', L }, n.cost + liftWait(L) + L.upLen / Math.max(0.01, liftSpeed), n.first || { k: 'queue', lid: L.id });
       }
@@ -18917,7 +18922,7 @@ function resumeGuest(g) {
   }
   if (r.k === 'liftq') {
     const L = liftById(r.lid);
-    if (L && canLoad(L)) return goQueue(g, L, 'glide');
+    if (L && canRide(L, g)) return goQueue(g, L, 'glide');
     if (L && !L.fromBase) return hikeOut(g);
   }
   return baseDecision(g);
@@ -19574,7 +19579,7 @@ function toCondo(g, C) {
   g.homeTries = (g.homeTries || 0) + 1;
   if (T && runnable(T) && g.homeTries <= 3 && state.time < closeTime() - 5) {
     let best = null, bd = 40;
-    for (const L of world.lifts) { if (!C.homeLifts.has(L.id) || !canLoad(L)) continue; const d = distXZ(L.a, g); if (d < bd) { bd = d; best = L; } }
+    for (const L of world.lifts) { if (!C.homeLifts.has(L.id) || !canRide(L, g)) continue; const d = distXZ(L.a, g); if (d < bd) { bd = d; best = L; } }
     if (best) { if (g.homeTries === 1) thought(g, `Last run home: up ${best.name} and down ${T.name} to the door.`); return goQueue(g, best, g.onSkis ? 'glide' : 'walk'); }
   }
   today.walkHome = (today.walkHome || 0) + AGENT;
@@ -23243,6 +23248,15 @@ function bikeSheet(B) {
     <p class="help">Under the snow in winter. Green trails suit everyone; blue and black ones only riders good enough for them.</p>`;
 }
 // The lift's bike carriers: fitted once, overnight. A gondola takes bikes as it is.
+// Learners only: a switch on a magic carpet or T-bar, so beginners have it to themselves.
+function learnerSection(L) {
+  if (!LIFT_TYPES[L.type].surface || isVillage(L)) return '';
+  // Where else this lift takes people: everyone but beginners needs another way there.
+  const also = [L.hubTop && !L.hubTop.basePoint ? L.hubTop.name : '', ...(L.transfers || []).filter((M) => !M.fromBase).map((M) => M.name)].filter(Boolean);
+  return `<div class="toggle-row"><div><b>Learners only</b><span>${L.learn ? 'Only beginners ride it. Everyone else leaves it to them.' : 'Keep it for beginners, so other skiers don’t use it as a shortcut.'}</span></div>
+      <button class="switch" role="switch" aria-checked="${!!L.learn}" data-action="learnLift" aria-label="Learners only" ${visiting ? 'disabled' : ''}><i></i></button></div>
+    ${L.learn && also.length ? `<p class="help warn">Other skiers used this lift to get to ${esc(also.join(', '))}. Make sure they have another way there.</p>` : ''}`;
+}
 function bikeCarrierSection(L) {
   if (!SUMMER_ON || !L.fromBase || LIFT_TYPES[L.type].surface || isVillage(L)) return '';
   if (L.type === 'gondola') return '<p class="help">Summer: the gondola takes mountain bikes in its cabins.</p>';
@@ -28521,7 +28535,7 @@ const MATCH_ACTIONS = ['shrinkLotAsk', 'shrinkLotNo', 'close', 'board', 'boardMt
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
 const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
-  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'hubFence', 'bldTheme'];
+  'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'learnLift', 'hubFence', 'bldTheme'];
 const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes',
   'landBuy', 'landLease', 'landCancel', 'landEnd', 'liftUp', 'midBuild', 'midRemove', 'offsiteBuy', 'offsiteClose'];
 // Painting areas: the draft goes with the action, so the server paints the same ground.
@@ -29423,6 +29437,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.7', date: 'Nov 11, 2026', title: 'Learners-only carpets', items: [
+    'Thanks for the idea! Select a magic carpet or T-bar and switch on Learners only to keep it for beginners. Stronger skiers stop using it as a shortcut from the parking lot to the base, so the line is left to the people learning.',
+    'If other skiers used that lift to get somewhere, the panel reminds you to give them another way there.',
+  ] },
   { v: '4.6.3', date: 'Nov 11, 2026', title: 'Trails that end between two lifts', small: true, items: [
     'Fixed: a trail that ends where one lift\'s top meets another lift\'s bottom now lets skiers choose: carry on down the first lift\'s runs, or get in line for the second. Before, it only fed the line, so it could show as a dead end and stop you ending other trails on it.',
     'This also means the first run from a new upper lift can come straight back to its own bottom station when that sits beside the top of a lift below. Thanks to the player who sent this in!'] },
