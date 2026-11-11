@@ -9495,6 +9495,7 @@ function sheetAct(b) {
   else if (a === 'bldGroup') { const sh = listView.blds.shut; if (b.dataset.v === '*') sh.clear(); else if (sh.has(b.dataset.v)) sh.delete(b.dataset.v); else sh.add(b.dataset.v); storeList('mm.bldShut', sh); renderSheet(); }
   else if (a === 'profitType') { const k = b.dataset.v; if (profitHide.has(k)) profitHide.delete(k); else profitHide.add(k); storeList('mm.profitHide', profitHide); labelsDirty = true; refreshProfitMap(); renderSheet(); }
   else if (a === 'profitMap') { const o = Object.keys(PROFIT_MAP); setProfitMap(o[(o.indexOf(overlay.profit || 'off') + 1) % o.length]); renderSheet(); }
+  else if (a === 'liftSort') { const o = ['name', 'rides', 'wait', 'status']; listView.lifts.sort = o[(o.indexOf(listView.lifts.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'listSort') { const o = ['status', 'popular', 'name', 'rating', 'depth']; listView.trails.sort = o[(o.indexOf(listView.trails.sort) + 1) % o.length]; renderSheet(); }
   else if (a === 'qOpen') { const t = trailById(+b.dataset.id); if (t) setOpen('trail', t, !t.open); }
   else if (a === 'qGlade') { const A = areaById(+b.dataset.id); if (isGlade(A)) { pushUndo(A.closed ? 'opening a glade' : 'closing a glade'); A.closed = !A.closed; A.snowClosed = undefined; computeNetwork(); labelsDirty = true; scheduleSave(); renderSheet(); } }
@@ -20225,7 +20226,9 @@ function bldLive(B) {
     case 'restroom': case 'hrest': return `<b>${Math.min(s.stalls, B.used.rr * AGENT)}</b> of ${s.stalls} stalls in use · <b>${B.q.rr.length * AGENT}</b> waiting`;
     case 'rack': return `<b>${(rackCount().get(B.id) || 0) * AGENT}</b> of ${s.racks} pairs of skis on the rack`;
     case 'patrol': return `<b>${B.crew.filter((c) => c.st === 'go' || c.st === 'tow').length}</b> responding · <b>${B.crew.filter((c) => ['back', 'returnhome', 'returnwalk', 'returnqueue', 'returnride'].includes(c.st)).length}</b> returning · ${patrolDuty(B)} on duty`;
-    default: return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle${baseCount() > 1 ? ` · <b>${waitingAt(B, 'xbq') * AGENT}</b> for the base shuttle` : ''}`;
+    case 'bench': case 'picnic': case 'firepit': return `<b>${Math.min(s.seats, B.used.seat * AGENT)}</b> of ${s.seats} seats taken · <b>${B.today.visits}</b> rests today`;
+    default: if (!isStation(B)) return ''; // decor has nothing going on to show (a picnic table read as a bus station, Adum888, Nov 11)
+      return `<b>${waitingAt(B, 'busq') * AGENT}</b> waiting for the town bus · <b>${waitingAt(B, 'pq') * AGENT}</b> for the parking shuttle${baseCount() > 1 ? ` · <b>${waitingAt(B, 'xbq') * AGENT}</b> for the base shuttle` : ''}`;
   }
 }
 // Prices in sections, each with what guests consider normal.
@@ -20265,11 +20268,11 @@ function bldSheet(B) {
       <input class="name" id="nameInput" value="${esc(B.name)}" maxlength="28" aria-label="Building name">${NAME_DICE}
       <button class="x" data-action="close" aria-label="Close">✕</button></div>
     <p class="help">${t.tiers ? s.title || s.label + ' ' + t.name.toLowerCase() : t.name} · ${capOf(B.type, s)}</p>${B.type === 'school' ? `<p class="help">Beginners who take lessons come back better: ${lessonShift() >= 0.002 ? `your lessons have turned about <b>${(lessonShift() * 100).toFixed(1)}%</b> of your crowd from beginners into intermediates.` : 'over a season, a busy school turns a few beginners into intermediates who ski your blue runs.'}</p>` : ''}
-    ${open ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
+    ${open && bldLive(B) + rackLive(B) ? `<div class="field-label">Today</div><p class="conn">${bldLive(B)}${rackLive(B)}</p>` : ''}
     ${ownRack(B) ? `<p class="help">Its ski rack by the door holds ${rackCap(B)} pairs. When it’s full, skiers use a ski rack close by, or stick their skis in the snow.</p>` : ''}
     <dl class="kv">
       <div><dt>${visitsLabel}</dt><dd>${visits}</dd></div>
-      ${B.type === 'clinic' ? '' : B.type === 'patrol'
+      ${B.type === 'clinic' || (DOZE_TYPES.includes(B.type) && !B.today.revenue) ? '' : B.type === 'patrol'
         ? `<div><dt>Avg response</dt><dd>${B.today.calls && today && today.helped ? Math.round(B.today.resp / Math.max(1, B.today.calls)) + ' min' : '–'}</dd></div>`
         : `<div><dt>Revenue today</dt><dd>${money(B.today.revenue)}</dd></div>`}
       <div><dt>${B.type === 'patrol' ? 'Daily cost' : 'Upkeep'}</dt><dd>${money(B.type === 'patrol' ? patrolDailyCost(B) : s.upkeep)}/day${mode === 'closed' ? ' · closed in this plan' : mode === 'lunch' ? ' · lunch only' : ''}</dd></div>
@@ -24068,7 +24071,7 @@ if (lotCount() > 1) MANAGE_TITLE.lotgrow = 'Grow your parking'; // more than one
 const VISIT_MANAGE = ['trails', 'lifts', 'blds', 'snow', 'money', 'reputation', 'more'];
 const RESORT_TAB_PANEL = { prices: 'prices', ops: 'ops', bank: 'money', resort: 'prices' };
 let lastManage = 'trails', listBack = null;
-const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all' }, blds: { filter: 'all', sort: 'built', shut: new Set(storedList('mm.bldShut')) } };
+const listView = { trails: { filter: 'all', sort: 'status' }, lifts: { filter: 'all', sort: 'name' }, blds: { filter: 'all', sort: 'built', shut: new Set(storedList('mm.bldShut')) } };
 function openManage(key) {
   if (visiting && !VISIT_MANAGE.includes(key)) return;
   if (state.tool !== 'explore') setTool('explore');
@@ -24268,22 +24271,30 @@ function liftsList() {
   let riding = 0, line = 0;
   for (const L of Ls) { riding += L.riders.reduce((a, r) => a + r.length, 0) * AGENT; line += L.queue.length * AGENT; }
   const v = listView.lifts;
-  const list = v.filter === 'running' ? running : v.filter === 'stopped' ? Ls.filter((L) => !running.includes(L)) : Ls;
+  const list = (v.filter === 'running' ? running : v.filter === 'stopped' ? Ls.filter((L) => !running.includes(L)) : Ls).slice();
+  // Sorted by name, by rides (today, or the last day open), by the wait (the line now, or last day's average) or by status (a player's idea, Nov 11)
+  const waits = (state.lastReport && state.lastReport.liftWaits) || {}, rideN = (L) => (live ? today.liftRiders[L.id] || 0 : ((lastOps && lastOps.lifts.find((x) => x.id === L.id)) || {}).rides || 0);
+  const waitN = (L) => (live ? (L.queue.length ? liftWait(L) : 0) : waits[L.id] || 0), byName = (a, b) => a.name.localeCompare(b.name), rank = { on: 0, warn: 1, off: 2 };
+  if (v.sort === 'rides') list.sort((a, b) => rideN(b) - rideN(a) || byName(a, b));
+  else if (v.sort === 'wait') list.sort((a, b) => waitN(b) - waitN(a) || byName(a, b));
+  else if (v.sort === 'status') list.sort((a, b) => rank[liftStatus(a)[1]] - rank[liftStatus(b)[1]] || byName(a, b));
+  else list.sort(byName);
   const rows = list.map((L) => {
     const [word, cls] = liftStatus(L), type = LIFT_TYPES[L.type];
     const cap = Math.round(L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1));
     const now = live ? `<span><b>${L.riders.reduce((a, r) => a + r.length, 0) * AGENT}</b> riding · <b>${L.queue.length * AGENT}</b> in line${L.queue.length ? ` · ~${Math.round(liftWait(L))} min` : ''}</span>` : '';
     const past = !live && lastOps ? (lastOps.lifts.find((x) => x.id === L.id) || null) : null;
-    const rides = live ? (today.liftRiders[L.id] || 0) * AGENT : past ? past.rides : null;
+    const rides = live ? (today.liftRiders[L.id] || 0) * AGENT : past ? past.rides : null, avg = !live && waits[L.id] != null ? waits[L.id] : null;
     const cost = live ? Math.round((today.liftCost || {})[L.id] || 0) : past ? past.cost : null;
     return `<li class="lrow" data-action="goTo" data-k="lift" data-id="${L.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(L.color)}"></span><b>${esc(L.name)}</b><span class="pill ${cls}">${word}</span></div>
-      <div class="l2"><span>${type.name} · ${cap.toLocaleString('en-US')}/hr</span>${now}${rides != null ? `<span>${rides.toLocaleString('en-US')} rides${live ? ' today' : ' last day'}</span>` : ''}</div>
+      <div class="l2"><span>${type.name} · ${cap.toLocaleString('en-US')}/hr</span>${now}${rides != null ? `<span>${rides.toLocaleString('en-US')} rides${live ? ' today' : ' last day'}</span>` : ''}${avg != null ? `<span>~${Math.round(avg)} min wait</span>` : ''}</div>
       <div class="l3">${chip('qLift', L.id, L.open, L.open ? 'Running' : L.planOff ? 'Off today' : 'Stopped')}${cost != null ? `<span class="muted">Power ${money(cost)}${live ? ' so far' : ' last day'}</span>` : ''}</div>
     </li>`;
   }).join('');
   return `<p class="lsum"><b>${running.length}</b> of ${Ls.length} running${live ? ` · <b>${riding}</b> riding · <b>${line}</b> in line` : ''}</p>
-    ${listTabs('lifts', [['all', `All ${Ls.length}`], ['running', `Running ${running.length}`], ['stopped', `Stopped ${Ls.length - running.length}`]])}
+    <div class="lbar">${listTabs('lifts', [['all', `All ${Ls.length}`], ['running', `Running ${running.length}`], ['stopped', `Stopped ${Ls.length - running.length}`]])}
+      <button class="chip sort" data-action="liftSort">Sort: ${{ name: 'Name', rides: 'Most rides', wait: 'Longest wait', status: 'Status' }[v.sort]}</button></div>
     ${list.length ? `<ul class="llist">${rows}</ul>` : '<p class="help">Nothing here right now.</p>'}`;
 }
 // The plan a building is on: today's while open, otherwise the next day's.
@@ -29615,6 +29626,8 @@ const CHANGES = [
     'Build parking garages: in Roads › Parking, pick Parking garage and drag on the map to draw one, or drag across the rows of a lot to turn just those rows into a garage. The rest stays a surface lot, joined to it.',
     'Select any lot or garage and add levels, up to 5. Each level adds the same spaces again, and cars fill the ground level first, then drive up the ramps.',
     'A space on a deck costs four times a surface space, but a garage is cheaper to run: only the roof gets plowed. Guests parked under cover on a snowy or rainy day are happier.',
+    'Thanks for the idea! Sort the Lifts list by name, most rides, longest wait or status, like the Trails list.',
+    'Fixed: while the resort was open, a picnic table, bench or fire pit card talked about town buses. It now shows its seats taken and rests today (thanks Adum888!).',
   ] },
   { v: '4.7', date: 'Nov 11, 2026', title: 'Learners-only carpets', items: [
     'Thanks for the idea! Select a magic carpet or T-bar and switch on Learners only to keep it for beginners. Stronger skiers stop using it as a shortcut from the parking lot to the base, so the line is left to the people learning.',
