@@ -354,6 +354,13 @@ lot's rows makes `cdraft`, and `commitGarageRows` cuts the lot across its aisles
 Guests parking under a garage roof (not the top deck) on a snowy or rainy day get +3 and a thought (`today.covered`).
 Scenario 219. (Claude, Nov 11)
 
+Also on this branch, from feedback (Nov 11–12): decor cards (`bldLive`) no longer fall through to the station text; the
+Lifts list sorts (`listView.lifts.sort`); the map colours button (`tSlope`, key O) steps through `MAP_VIEWS` (steepness,
+snow depth from `NS` plus each trail's base, lit trails) via `setMapView`/`cycleMapView`, with `#lgSlope/#lgSnow/#lgLit`
+legends; summer zip lines may start at a mid-station (`zipLiftAt`, `midStop`); bike trails branch and merge
+(`bikeNear`, `bikeNet`, `bikeRateDown`, `bikeLeave`, rider field `hops`) and allow 80 points. Scenarios 220, 221.
+`87-referrals` hangs in Claude's cloud container on `main` too (network), so a local full run skips it.
+
 ## Work in progress
 
 One row per active branch, so nobody edits the same thing at once. Remove the row when it merges.

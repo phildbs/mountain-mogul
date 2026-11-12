@@ -14,7 +14,7 @@ export default async function ({ browser, url }) {
   const pick = await g.ev(`(() => { setTool('lift'); renderSheet(); const card = !!$('sheet').querySelector('[data-action=transitPick][data-v=zip]');
     $('sheet').querySelector('[data-action=transitPick][data-v=zip]').click(); const t = $('sheet').innerText;
     const L = world.lifts[0]; chainTap({ x: L.b.x + 4, z: L.b.z }); const one = $('sheet').innerText; setTool('explore');
-    return { card, tool: draft.btype === null || true, first: /top tower goes, beside the top of a chairlift/.test(t), second: /bottom tower goes, in a base area/.test(one) }; })()`);
+    return { card, tool: draft.btype === null || true, first: /top tower goes, beside the top or mid-station of a chairlift/.test(t), second: /bottom tower goes, in a base area/.test(one) }; })()`);
   eq(pick, { card: true, tool: true, first: true, second: true }, 'Lifts › Zip line: top tower first, then the bottom');
 
   // the rules

@@ -554,6 +554,9 @@ body.visiting .badge { cursor: default; }
 .legend h3 { margin: 0 0 2px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 700; }
 .legend div { display: flex; align-items: center; gap: 8px; }
 .legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.legend section { display: grid; gap: 5px; }
+.legend section[hidden] { display: none; }
+.legend .lgnote { margin: 2px 0 0; max-width: 190px; color: var(--ink-2); font-size: 11px; line-height: 1.35; }
 .legend .grade { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .sym { width: 14px; height: 14px; flex: none; }
 
@@ -1885,7 +1888,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <button class="cam-btn layer-btn" id="tTraffic" aria-pressed="false" title="Skier traffic (T)" aria-label="Skier traffic">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2.2"/><circle cx="12" cy="11" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M3 21c5-1 6-6 9-7s5-5 9-9" opacity=".55"/></svg>
       </button>
-      <button class="cam-btn layer-btn" id="tSlope" aria-pressed="false" title="Slope map (O)" aria-label="Slope map">
+      <button class="cam-btn layer-btn" id="tSlope" aria-pressed="false" title="Map colours: steepness, snow depth, night skiing (O)" aria-label="Map colours">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 20 L9 8 L13 14 L16 10 L22 20 Z"/><path d="M6.5 12.5 L11 15.5 M12 20 L15 13"/></svg>
       </button>
       <button class="cam-btn layer-btn" id="tLabels" aria-pressed="false" aria-haspopup="true" aria-expanded="false" title="Map labels (L)" aria-label="Map labels">
@@ -1918,12 +1921,23 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
     </div>
 
     <div class="panel legend" id="legend" hidden>
-      <h3>Slope grade</h3>
+      <section id="lgSnow" hidden><h3>Snow depth</h3>
+        <div><span class="sw" style="background:#1f4fb0"></span>Deep<span class="grade">60″+</span></div>
+        <div><span class="sw" style="background:#5b8fe0"></span>Good<span class="grade">30–60″</span></div>
+        <div><span class="sw" style="background:#a9c8f2"></span>Enough to ski<span class="grade">12–30″</span></div>
+        <div><span class="sw" style="background:#e0a23a"></span>Thin<span class="grade">4–12″</span></div>
+        <div><span class="sw" style="background:#8a6a4a"></span>Bare<span class="grade">under 4″</span></div>
+        <p class="lgnote">Trails show their own base: blue with enough to open, amber when thin, red without.</p></section>
+      <section id="lgLit" hidden><h3>Night skiing</h3>
+        <div><span class="sw" style="background:#ffc23d"></span>Lit trails</div>
+        <div><span class="sw" style="background:#6b7584"></span>Not lit</div>
+        <p class="lgnote">Light a trail from its panel.</p></section>
+      <section id="lgSlope"><h3>Slope grade</h3>
       <div><svg class="sym" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="#2c9a55"/></svg>Easier<span class="grade">0–25%</span></div>
       <div><svg class="sym" viewBox="0 0 14 14"><rect x="1.5" y="1.5" width="11" height="11" fill="#2565d4"/></svg>Intermediate<span class="grade">25–40%</span></div>
       <div><svg class="sym" viewBox="0 0 14 14"><rect x="2.8" y="2.8" width="8.4" height="8.4" transform="rotate(45 7 7)" fill="#1a1e26"/></svg>Advanced<span class="grade">40–60%</span></div>
       <div><svg class="sym" viewBox="0 0 14 14"><rect x="0.6" y="4" width="5.6" height="5.6" transform="rotate(45 3.4 6.8)" fill="#1a1e26"/><rect x="7.8" y="4" width="5.6" height="5.6" transform="rotate(45 10.6 6.8)" fill="#1a1e26"/></svg>Expert<span class="grade">60–100%</span></div>
-      <div><span class="sw" style="background:#b8402f"></span>Too steep to ski<span class="grade">100%+</span></div>
+      <div><span class="sw" style="background:#b8402f"></span>Too steep to ski<span class="grade">100%+</span></div></section>
     </div>
 
     <button class="panel undofab" id="undoFab" hidden title="Undo the last point (Ctrl+Z)">
@@ -3682,7 +3696,7 @@ function hazeMaterial(attr, opts) {
 }
 
 let terrainGeo, terrainMesh, treeMesh;
-const overlay = { slope: false };
+const overlay = { slope: false, snow: false, lit: false }; // the map's colours: steepness, snow depth or lit trails (one at a time)
 let profitMarks = null, profitStamp = ''; // the profit map's discs (see setProfitMap)
 
 function buildTerrain() {
@@ -3740,6 +3754,9 @@ const DIFF = [
 ];
 
 const _gc = [0, 0, 0];
+// The snow depth map's colours, for inches of snow: bare brown, thin amber, then pale to deep blue.
+const SNOW_COLS = [[4, [0.54, 0.42, 0.29]], [12, [0.88, 0.64, 0.23]], [30, [0.66, 0.78, 0.95]], [60, [0.36, 0.56, 0.88]], [Infinity, [0.12, 0.31, 0.69]]];
+const snowDepthCol = (inch) => SNOW_COLS.find(([v]) => inch < v)[1];
 function recolorTerrain(i0, j0, i1, j1) {
   const col = terrainGeo.attributes.color.array;
   const c = [0, 0, 0];
@@ -3764,6 +3781,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
     if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
     if (overlay.slope && (MAP_VIEW ? viewLand(i, j) : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
+    else if (overlay.snow && inGridLand(i, j)) mix(snowDepthCol(NS[idx]), 0.72);
     if (levelDraft && !levelDraft.before) { const d = h - levelDraft.ht0[idx]; if (Math.abs(d) > 0.03) mix(d < 0 ? COL.dug : COL.built, Math.min(0.6, 0.18 + Math.abs(d) * 0.3)); }
     const k = idx * 3;
     col[k] = c[0]; col[k + 1] = c[1]; col[k + 2] = c[2];
@@ -4937,12 +4955,24 @@ function dozeApply(o) {
   updateCash(true); scheduleSave();
   hover.dirty = true;
 }
-function setSlope(on) {
-  overlay.slope = on;
-  $('tSlope').setAttribute('aria-pressed', on);
-  $('legend').hidden = !on;
+function setSlope(on) { setMapView(on ? 'slope' : false); }
+// The map's colours (MisguidedSoul's idea, Nov 11): steepness, snow depth (the ground's natural snow, each trail its
+// own base) or the trails lit for night skiing. The button steps through them, like Traffic.
+const MAP_VIEWS = { slope: 'Steepness', snow: 'Snow depth', lit: 'Night skiing' };
+function setMapView(mode) {
+  const was = overlay.snow || overlay.lit;
+  overlay.slope = mode === 'slope'; overlay.snow = mode === 'snow'; overlay.lit = mode === 'lit';
+  const b = $('tSlope'), next = mapViewNext(mode);
+  b.setAttribute('aria-pressed', !!mode);
+  b.title = mode ? `${MAP_VIEWS[mode]} map: tap for ${next ? MAP_VIEWS[next].toLowerCase() : 'the normal map'} (O)` : 'Map colours: steepness, snow depth, night skiing (O)';
+  $('legend').hidden = !mode;
+  for (const [k, id] of [['slope', 'lgSlope'], ['snow', 'lgSnow'], ['lit', 'lgLit']]) $(id).hidden = mode !== k;
   recolorTerrain(0, 0, WN, WN);
+  if (was || overlay.snow || overlay.lit) for (const t of world.trails) styleTrail(t);
 }
+// Steepness, then snow depth and night skiing in winter, then off. The map viewer and the editor only have steepness.
+const mapViewNext = (m) => { const all = MAP_VIEW || EDITOR || !state.started || state.summer ? ['slope'] : ['slope', 'snow', 'lit']; const i = all.indexOf(m); return i < 0 ? all[0] : all[i + 1] || false; };
+const cycleMapView = () => setMapView(mapViewNext(overlay.slope ? 'slope' : overlay.snow ? 'snow' : overlay.lit ? 'lit' : null));
 
 const readout = $('readout');
 function showReadout(p, px, py, pinned) {
@@ -5830,6 +5860,11 @@ function styleTrail(t) {
   t.mesh.material.opacity = look.op;
   t.mesh.visible = look.op > 0.02;
   if (look.tint > 0) t.mesh.material.color.lerp(BARE_TINT, look.tint * 0.55);
+  if (overlay.snow || overlay.lit) { // the map's snow depth or night skiing colours: every trail shows, bare ones too
+    const need = needOf(t), base = t.base || 0;
+    t.mesh.material.color.set(overlay.lit ? (t.lit ? 0xffc23d : 0x6b7584) : base < need ? 0xd2452f : base < need * 1.35 ? 0xe0a23a : 0x4f86e0);
+    t.mesh.material.opacity = Math.max(0.85, look.op); t.mesh.visible = true;
+  }
   if (matchPending('trail', t)) { t.mesh.material.color.set(0x4f8ff0); t.mesh.material.opacity = 0.55; t.mesh.visible = true; } // a match build waiting for tonight looks like a blueprint
   t.mesh.material.emissive.set(sel ? 0x6a2a12 : 0x000000);
   if (t.fxGroup) t.fxGroup.visible = t.mesh.visible;
@@ -13228,7 +13263,7 @@ function makeGuest(car, x, z) {
     xUntil: undefined, xZone: undefined, xFinal: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined,
     // summer (hidden until 4.0): views, weddings and events, the zip line
     told: undefined, viewL: undefined, evt: undefined, evSeat: undefined, evB: undefined, evDone: undefined, noLift: undefined, heard: undefined,
-    triedZ: undefined, rqB: undefined, rs: undefined, bike: undefined, bikeLaps: undefined, bikeRuns: undefined, bikeHard: undefined, bkB: undefined, bs: undefined
+    triedZ: undefined, hops: undefined, rqB: undefined, rs: undefined, bike: undefined, bikeLaps: undefined, bikeRuns: undefined, bikeHard: undefined, bkB: undefined, bs: undefined
   };
   // Shoppers browse for souvenirs, each at their own time between 10:30 and 3 so they don't all queue at once; some forgot goggles or gloves (more on a cold day); strong skiers with their own skis may want a tune.
   g.shopper = Math.random() < 0.35; g.shopAt = 630 + Math.random() * 270; g.wantsGear = Math.random() < (todayWx().hi < 15 ? 0.22 : 0.07);
@@ -13359,6 +13394,10 @@ function midStop(L, i, staff) {
   for (const id of L.riders[i]) {
     const g = gById.get(id);
     if (!g) continue;
+    if (g.sight && summerNow() && !g.triedZ && !g.leaving) { // a zip line from the mid-station: some summer guests get off here for it
+      const Z = world.buildings.find((B) => B.type === 'zip' && rideOpen(B) && distXZ(B.door, U.a) <= SEV_NEAR + 2);
+      if (Z) { g.triedZ = true; g.x = U.a.x; g.z = U.a.z; g.chair = -1; if (rideStop(g, 'zip', 0.25, Z)) continue; g.chair = i; }
+    }
     if (g.sight) { keep.push(id); continue; } // sightseers ride to the top for the view
     const off = exitsV(D, g, 0, memo);
     if (off <= -30 || noisy(off) <= noisy(exitsV(L, g, 0, memo) - 0.25 * midSaved(L) * g.qh)) { keep.push(id); continue; }
@@ -15353,10 +15392,10 @@ const BTYPES = {
   },
   // The zip line (summer, hidden until 4.0) is a chain of two towers: cost and upkeep per tower, plus the cable by length (CHAIN).
   zip: { name: 'Zip line', where: 'any', cost: 120000, sign: 'ZIP LINE', accent: 0x2a8a88, w: 1.4, d: 1.4, upkeep: 250, noPad: true,
-    desc: 'A cable from a tower by the top of a chairlift or gondola down to a base. Summer guests at the top zip down instead of riding the lift. Shut in winter.' },
+    desc: 'A cable from a tower by the top (or mid-station) of a chairlift or gondola down to a base. Summer guests at the top zip down instead of riding the lift. Shut in winter.' },
   // A bike trail (summer, hidden until 4.0) is a chain of points too: cost per point plus the trail by length; its upkeep is its trail crew (bikeCrewCost).
   bike: { name: 'Bike trail', where: 'any', cost: 500, sign: 'BIKE PARK', accent: 0x8a6440, w: 0.9, d: 0.9, upkeep: 0, noPad: true,
-    desc: 'A narrow dirt trail for mountain bikes, from beside the top of a chairlift or gondola down to a base. Summer riders take their bikes up a lift with bike carriers and ride down. Under the snow in winter.' },
+    desc: 'A narrow dirt trail for mountain bikes, from beside the top of a chairlift or gondola down to a base. It can branch off another bike trail or run into one. Summer riders take their bikes up a lift with bike carriers and ride down. Under the snow in winter.' },
   // Homes to sell: `value` is what one home sells for before ski-in/ski-out and the owners' mood; `dues` a day each once sold.
   condo: {
     name: 'Condo', where: 'low', cost: 220000, sign: 'CONDOS', accent: 0x9a5b32,
@@ -15927,7 +15966,7 @@ const CHAIN_SPAN = 4, CHAIN_MAX = 16, CHAIN_PER_UNIT = 200, POLE_H = 1.5;
 const CHAIN_TYPES = ['strlight', 'mfence', 'zip', 'bike'], isChain = (type) => CHAIN_TYPES.includes(type);
 const CHAIN = { strlight: { max: CHAIN_MAX, perUnit: CHAIN_PER_UNIT, post: 'pole' }, mfence: { max: 30, perUnit: 40, post: 'post' },
   zip: { max: 2, perUnit: 2500, post: 'tower', span: 80 }, // the summer zip line
-  bike: { max: 40, perUnit: 150, post: 'point', span: 14 } }; // a summer bike trail, through its points
+  bike: { max: 80, perUnit: 150, post: 'point', span: 14 } }; // a summer bike trail, through its points (80: room for a green's switchbacks, Adum888, Nov 11)
 const chainPts = (b) => b.pts || [[-1.22, 0], [1.22, 0]];
 const chainCost = (pts, type = 'strlight') => pts.length * BTYPES[type].cost + Math.round(pts.slice(1).reduce((a, q, i) => a + Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]), 0) * CHAIN[type].perUnit / 50) * 50;
 // Points along each span (world x/z, height above the first pole's ground), for bulbs and their light.
@@ -19917,7 +19956,7 @@ function capOf(type, s) {
     case 'patrol': return `${s.crew} patrollers`;
     case 'restroom': return `${s.stalls} stalls`;
     case 'hotel': return `${s.rooms} rooms · up to ${s.rooms * ROOM_GUESTS} guests a night${s.seats ? ` · restaurant, ${s.seats} seats` : ''}`;
-    case 'zip': return 'Two towers and a cable, from beside the top of a lift down to a base';
+    case 'zip': return 'Two towers and a cable, from beside the top or mid-station of a lift down to a base';
     case 'bike': return 'A narrow dirt trail for mountain bikes · summer only';
     case 'pavilion': return `Up to ${s.guests} guests · ${s.roof ? 'under a roof' : 'an open lawn, at the mercy of the weather'}`;
     case 'condo': return `${s.units} ${s.units === 1 ? 'home' : 'homes'} to sell · each sleeps ${CONDO_GUESTS} · about ${money(s.value)} a home`;
@@ -20049,8 +20088,8 @@ function bldDraftSheet() {
   if (draft.moving) return moveDraftSheet();
   const t = BTYPES[draft.btype], s = t.tiers ? t.tiers[draft.btier || 0] : draft.btype === 'patrol' ? bspec({type: 'patrol', patrollers: 2}) : t, info = draft.info, tname = t.tiers ? tierName(t, s) : t.name;
   const chain = isChain(draft.btype) ? (draft.chain || []) : null, post = chain && CHAIN[draft.btype].post;
-  const help = chain && draft.btype === 'bike' ? (chain.length ? `${chain.length} ${chain.length === 1 ? 'point' : 'points'}. Keep ${isCoarse ? 'tapping' : 'clicking'} down the mountain, up to ${fmtFt(CHAIN.bike.span * FT_PER_UNIT)} at a time, and finish in a base area. Go across the slope to keep it gentle.` : `${isCoarse ? 'Tap' : 'Click'} beside the top of a chairlift or gondola from the base to start the trail.`)
-    : chain && draft.btype === 'zip' ? (chain.length ? `${isCoarse ? 'Tap' : 'Click'} where the bottom tower goes, in a base area, downhill from the top.` : `${isCoarse ? 'Tap' : 'Click'} where the top tower goes, beside the top of a chairlift or gondola from the base.`)
+  const help = chain && draft.btype === 'bike' ? (chain.length ? `${chain.length} ${chain.length === 1 ? 'point' : 'points'}. Keep ${isCoarse ? 'tapping' : 'clicking'} down the mountain, up to ${fmtFt(CHAIN.bike.span * FT_PER_UNIT)} at a time, and finish in a base area or on another bike trail. Go across the slope to keep it gentle.` : `${isCoarse ? 'Tap' : 'Click'} beside the top of a chairlift or gondola from the base, or on another bike trail to branch off it, to start the trail.`)
+    : chain && draft.btype === 'zip' ? (chain.length ? `${isCoarse ? 'Tap' : 'Click'} where the bottom tower goes, in a base area, downhill from the top.` : `${isCoarse ? 'Tap' : 'Click'} where the top tower goes, beside the top or mid-station of a chairlift or gondola from the base.`)
     : chain ? (chain.length ? `${chain.length} ${post}${chain.length === 1 ? '' : 's'}. Keep ${isCoarse ? 'tapping' : 'clicking'} to add the next one, up to ${fmtFt(CHAIN_SPAN * FT_PER_UNIT)} from the last, then confirm below.` : `${isCoarse ? 'Tap' : 'Click'} where the first ${post} goes, then each ${post} after it. ${draft.btype === 'mfence' ? 'The mesh is strung between them.' : 'The lights hang between them.'}`)
     : draft.btype === 'tree' && !planning() ? `${isCoarse ? 'Tap' : 'Click'} to ${draft.btype === 'tree' ? 'plant one' : 'place one'}; keep ${isCoarse ? 'tapping' : 'clicking'} to add more. Bulldoze (B) takes one away.`
     : !draft.bpos ? `Click where it should go.${BY_ROAD.includes(draft.btype) ? ' It snaps to the access road, facing it, so buses can pull in.' : t.where === 'base' ? ' It needs to be in the base area.' : t.where === 'low' ? ' In the base area, or slopeside with its front door right by a trail, in the lower third of the mountain.' : ''}` : 'Tap or click elsewhere to move the preview, adjust its angle, then confirm below.';
@@ -23045,13 +23084,13 @@ function sevPanel() {
 const RIDE = { zip: { gap: 0.8, speed: 0.8 / PACE, top: ZIP_TOP, bot: ZIP_BOT, sag: ZIP_SAG } };
 const isRide = (B) => B.type === 'zip';
 const ZIP_MIN = 0.05, ZIP_MAX = 0.5; // the cable's slope
-const zipLiftAt = (p) => world.lifts.find((L) => L.fromBase && !LIFT_TYPES[L.type].surface && !isVillage(L) && distXZ(L.b, p) <= SEV_NEAR) || null;
+const zipLiftAt = (p) => world.lifts.find((L) => L.fromBase && !LIFT_TYPES[L.type].surface && !isVillage(L) && (distXZ(L.b, p) <= SEV_NEAR || (L.midUp && distXZ(L.midUp.a, p) <= SEV_NEAR))) || null; // its top, or its mid-station (Adum888, Nov 11)
 // Where the zip line's rules are broken, from the towers tapped so far (world x/z).
 function rideProblems(type, C) {
   const out = [], m = (p) => trueY(p.x, p.z) * 10; // metres
   if (C.length < 2) return out;
   const [a, b] = C, L = distXZ(a, b), drop = (m(a) - m(b)) / (L * 10);
-  if (!zipLiftAt(a)) out.push('Put the top tower beside the top of a chairlift or gondola from the base, so riders can get up to it.');
+  if (!zipLiftAt(a)) out.push('Put the top tower beside the top or mid-station of a chairlift or gondola from the base, so riders can get up to it.');
   if (!isBase(b)) out.push('The bottom tower has to be in a base area, so riders can walk back.');
   if (drop < ZIP_MIN) out.push('The line needs to run downhill from the top tower to the bottom one.');
   else if (drop > ZIP_MAX) out.push('Too steep for a zip line. Move the bottom tower further away.');
@@ -23183,6 +23222,40 @@ const bikeFitCost = (L) => Math.round((15000 + 350 * (L.chairCount || 40)) / 500
 const bikeLiftAt = (p) => world.lifts.find((L) => L.fromBase && !LIFT_TYPES[L.type].surface && !isVillage(L) && distXZ(L.b, p) <= SEV_NEAR) || null;
 const bikeRating = (g) => (g <= BIKE_RATE[0] ? 0 : g <= BIKE_RATE[1] ? 1 : 2);
 const BIKE_WORDS = ['Green', 'Blue', 'Black'];
+/* Bike trails join up (Adum888, Nov 11): one can start on another (a branch: riders on that one may turn off where it
+   starts) or end on another (it merges: riders carry on down that one from where it joins). */
+const BIKE_JOIN = 1.2; // how near a point has to be to another trail to join it
+// The bike trail nearest to p, within BIKE_JOIN, and how far down it (s, in units): null when none is.
+function bikeNear(p, skip) {
+  let best = null, bd = BIKE_JOIN;
+  for (const B of world.buildings) {
+    if (!isBike(B) || B === skip || !B.pts || B.pts.length < 2) continue;
+    const S = bikeTrack(B).S;
+    for (let i = 0; i < S.length; i++) { const d = Math.hypot(S[i].x - p.x, S[i].z - p.z); if (d < bd) { bd = d; best = { B, s: i * 0.5 }; } }
+  }
+  return best;
+}
+// Each trail's joins: the trails that branch off it (and how far down), and the one it ends on. Worked out once
+// for a set of trails.
+let bikeNetMemo = { sig: null, J: null };
+function bikeNet() {
+  const Bs = world.buildings.filter((B) => isBike(B) && B.pts && B.pts.length > 1), sig = Bs.map((B) => `${B.id}:${bikeTrack(B).sig}`).join('|');
+  if (bikeNetMemo.sig === sig) return bikeNetMemo.J;
+  const J = new Map(Bs.map((B) => [B.id, { br: [], into: null }]));
+  for (const B of Bs) {
+    const S = bikeTrack(B).S, a = S[0], e = S[S.length - 1];
+    if (!bikeLiftAt(a)) { const f = bikeNear(a, B); if (f && f.s < bikeTrack(f.B).L - 1) J.get(f.B.id).br.push({ id: B.id, s: f.s }); }
+    if (!isBase(e)) { const t = bikeNear(e, B); if (t) J.get(B.id).into = { id: t.B.id, s: t.s }; }
+  }
+  return (bikeNetMemo = { sig, J }).J;
+}
+// How hard the ride down a trail is: its own steepest stretch, or a harder trail it runs into further down.
+function bikeRateDown(B, seen = new Set()) {
+  let r = bikeTrack(B).an.rating; seen.add(B.id);
+  const j = (bikeNet().get(B.id) || {}).into, D = j && !seen.has(j.id) && bldById(j.id);
+  if (D) r = Math.max(r, bikeRateDown(D, seen));
+  return r;
+}
 // The smoothed path through the points (world), every half unit, with how steep and how long it is.
 function bikeLine(chain) {
   const S = trailSamples(chain, BIKE_HW), n = S.length, an = { len: Math.max(0, (n - 1) * 0.5), vert: n ? (S[0].y - S[n - 1].y) * 10 : 0, max: 0, up: false, bad: new Set() };
@@ -23205,9 +23278,11 @@ function bikeTrack(B) {
 // What's wrong with a trail from the points tapped so far (world x/z).
 function bikeProblems(chain, line) {
   const out = [], { S, an } = line;
-  if (!bikeLiftAt(chain[0])) out.push('Start the trail beside the top of a chairlift or gondola from the base, so riders can get up to it.');
-  if (chain.length < 2) { out.push('Now tap down the mountain, one point at a time, to a base area.'); return out; }
-  if (!isBase(chain[chain.length - 1])) out.push('Finish the trail in a base area, so riders can get back to the lift.');
+  const from = bikeLiftAt(chain[0]) ? null : bikeNear(chain[0]), end = chain[chain.length - 1], into = chain.length > 1 && !isBase(end) ? bikeNear(end) : null;
+  if (!bikeLiftAt(chain[0]) && !from) out.push('Start the trail beside the top of a chairlift or gondola from the base, or on another bike trail, so riders can get to it.');
+  if (chain.length < 2) { out.push('Now tap down the mountain, one point at a time, to a base area or another bike trail.'); return out; }
+  if (!isBase(end) && !into) out.push('Finish the trail in a base area, or on another bike trail, so riders can get back to the lift.');
+  if (from && into && from.B === into.B && into.s <= from.s) out.push(`The trail would loop back up ${from.B.name}. Join it further down.`);
   if (S.some((s) => !inProperty(s.x, s.z))) out.push('Part of the trail is outside your property.');
   if (world.ponds.length && S.some((s) => pondAt(s.x, s.z))) out.push('The trail runs into a snowmaking pond.');
   if (S.some((s) => sampleGrid(ROADD, s.x + HALF, s.z + HALF) < ROAD_HW + 0.5)) out.push('The trail crosses the access road.');
@@ -23215,7 +23290,7 @@ function bikeProblems(chain, line) {
   if (hit) out.push(`The trail runs into ${hit.name}.`);
   if (an.up) out.push('Part of the trail climbs (in red). Bike trails here only go downhill.');
   if (an.max > BIKE_RATE[2]) out.push('Too steep for bikes in places (in red). Add a switchback: tap a point across the slope.');
-  if (an.len < 12) out.push('Too short. Keep going down the mountain.');
+  if (an.len < (from || into ? 4 : 12)) out.push('Too short. Keep going down the mountain.');
   return out;
 }
 function evalBike(chain) {
@@ -23328,9 +23403,9 @@ function bikeBase(g) {
 function bikeTop(g, L) {
   const all = bikeFrom(L);
   if (!all.length) { thought(g, 'The bike trails are closed. Taking the lift back down.'); g.bikeRuns = g.bikeLaps; return rideDown(g); }
-  let ts = all.filter((B) => bikeTrack(B).an.rating <= g.ab);
-  if (!ts.length) { ts = [all.sort((p, q) => bikeTrack(p).an.rating - bikeTrack(q).an.rating)[0]]; g.bikeLaps = g.bikeRuns + 1; g.bikeHard = true; } // too hard for them: one nervous lap
-  const want = (B) => -Math.abs(bikeTrack(B).an.rating - g.ab) * 1.2 - (B.wear || 0) - (g.seen[-B.id] || 0) * 0.5 + Math.random() * 0.8;
+  let ts = all.filter((B) => bikeRateDown(B) <= g.ab);
+  if (!ts.length) { ts = [all.sort((p, q) => bikeRateDown(p) - bikeRateDown(q))[0]]; g.bikeLaps = g.bikeRuns + 1; g.bikeHard = true; } // too hard for them: one nervous lap
+  const want = (B) => -Math.abs(bikeRateDown(B) - g.ab) * 1.2 - (B.wear || 0) - (g.seen[-B.id] || 0) * 0.5 + Math.random() * 0.8;
   const B = ts.sort((p, q) => want(q) - want(p))[0], p = bikeTrack(B).S[0];
   setMove(g, { x: p.x, z: p.z }, 'walk', { k: 'bstart', bid: B.id });
 }
@@ -23342,9 +23417,25 @@ function bikeStart(g, bid) {
 function bikeMove(g, dt) {
   const B = bldById(g.bkB);
   if (!B) return bikeDone(g, false);
-  const T = bikeTrack(B), wet = todayWx().type === 'sumrain' ? 0.8 : 1;
+  const T = bikeTrack(B), wet = todayWx().type === 'sumrain' ? 0.8 : 1, was = g.bs, J = bikeNet().get(B.id) || { br: [], into: null };
   g.bs += BIKE_SPEED[T.an.rating] * (0.85 + 0.12 * g.ab) * (1 - 0.3 * (B.wear || 0)) * wet * dt;
-  if (g.bs >= T.L) bikeDone(g, true);
+  for (const b of J.br) { // passing where a trail branches off: about half turn onto one they'd enjoy, more if it's new to them
+    if (!(b.s > was && b.s <= g.bs)) continue;
+    const C = bldById(b.id);
+    if (!C || bldMode(C) === 'closed' || (bikeRateDown(C) > g.ab && !g.bikeHard) || Math.random() > (g.seen[-C.id] ? 0.4 : 0.6)) continue;
+    bikeLeave(g, B); g.bkB = C.id; g.bs = 0; return;
+  }
+  if (g.bs < T.L) return;
+  const D = J.into && bldById(J.into.id);
+  if (D && bldMode(D) !== 'closed' && (g.hops = (g.hops || 0) + 1) < 12) { bikeLeave(g, B); g.bkB = D.id; g.bs = J.into.s; return; } // merges: on down the other one
+  g.hops = 0; bikeDone(g, true);
+}
+// Off one trail onto another partway down: its wear and its riders count, the lap goes on.
+function bikeLeave(g, B) {
+  const T = bikeTrack(B);
+  g.fat += T.L * 0.5 * (1 + T.an.rating * 0.3); g.seen[-B.id] = (g.seen[-B.id] || 0) + 1;
+  B.wear = Math.min(1, (B.wear || 0) + BIKE_WEAR * (1 + T.an.rating * 0.5)); B.today.visits += AGENT;
+  const by = today.bikeBy || (today.bikeBy = {}); by[B.id] = (by[B.id] || 0) + AGENT;
 }
 function bikePos(g) {
   const B = bldById(g.bkB);
@@ -23409,6 +23500,15 @@ function bikeNotes(r, note) {
   if (b.hard) note(4, `${b.hard} riders found your bike trails too hard for them. A gentle green trail suits beginners.`);
   if (b.noLift) note(4, b.noLift === 'off' ? 'Bike trails are open, but the lift with bike carriers that reaches them wasn’t running. Switch it on in the Summer plan.' : 'Bike trails are open, but no lift from the base that reaches them carries bikes. Fit bike carriers to it (select the lift).');
 }
+// Where a trail starts and ends, for its card: a lift or the trail it branches off, the trail it runs into, its branches.
+function bikeJoinsHtml(B, L) {
+  const J = bikeNet(), j = J.get(B.id) || { br: [], into: null }, nm = (id) => { const X = bldById(id); return X ? esc(X.name) : 'another trail'; };
+  const parent = !L && [...J.entries()].find(([, v]) => v.br.some((b) => b.id === B.id));
+  const out = [L ? `Riders get up on ${esc(L.name)}${carriesBikes(L) ? '' : ', once it has bike carriers'}.` : parent ? `It branches off ${nm(parent[0])}.` : 'No lift from the base reaches its start.'];
+  if (j.into) out.push(`It runs into ${nm(j.into.id)}.`);
+  if (j.br.length) out.push(`${j.br.map((b) => nm(b.id)).join(' and ')} ${j.br.length === 1 ? 'branches' : 'branch'} off it.`);
+  return out.join(' ');
+}
 function bikeSheet(B) {
   const T = bikeTrack(B), w = B.wear || 0, an = T.an, open = state.phase === 'open';
   const L = bikeLiftAt(toWorld(B, 0, 0));
@@ -23419,7 +23519,7 @@ function bikeSheet(B) {
       <div><dt>Condition</dt><dd>${w < 0.15 ? 'Smooth' : w < 0.4 ? 'Worn in' : w < 0.7 ? 'Rough' : 'Rutted'} · ${Math.round(100 - w * 100)}%</dd></div>
       <div><dt>Laps ${open ? 'today' : 'last day'}</dt><dd>${(open ? (today.bikeBy || {})[B.id] : B.yday && B.yday.visits) || 0}</dd></div>
     </dl>
-    <p class="conn">${L ? `Riders get up on ${esc(L.name)}${carriesBikes(L) ? '' : ', once it has bike carriers'}.` : 'No lift from the base reaches its start.'}</p>
+    <p class="conn">${bikeJoinsHtml(B, L)}</p>
     ${visiting ? '' : `<div class="toggle-row"><div><b>Trail crew</b><span>${B.crewOff ? 'Off: the trail wears with every lap and every wet day' : `Fixes most of the wear each night · ${money(bikeCrewCost({ ...B, crewOff: false }))}/day`}</span></div>
       <button class="switch" role="switch" aria-checked="${!B.crewOff}" aria-label="Trail crew" data-action="bikeCrew"><i></i></button></div>`}
     <p class="help">Under the snow in winter. Green trails suit everyone; blue and black ones only riders good enough for them.</p>`;
@@ -25079,7 +25179,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'enter' && draft.kind) buildDraft();
   else if (k === 'h') recenter();
   else if (k === 'f') toggleFullscreen();
-  else if (k === 'o') setSlope(!overlay.slope);
+  else if (k === 'o') cycleMapView();
   else if (k === 't') cycleTraffic();
   else if (k === 'l') toast(toggleAllLabels() ? 'Map labels on' : 'Map labels hidden. Press L or use the tag button to bring them back.');
   else if (k === 'k' && state.phase === 'open') skipToReport();
@@ -25143,7 +25243,7 @@ $('tTrail').onclick = () => leaveDraft(() => setTool('trail'));
 $('tLift').onclick = () => leaveDraft(() => setTool('lift'));
 $('tBld').onclick = () => leaveDraft(() => setTool('bld'));
 $('tRoads').onclick = () => leaveDraft(() => openRoads());
-$('tSlope').onclick = () => setSlope(!overlay.slope);
+$('tSlope').onclick = cycleMapView;
 $('tTraffic').onclick = cycleTraffic;
 $('tLabels').onclick = (e) => { e.stopPropagation(); openLabelPop($('labelPop').hidden); };
 $('labelPop').onclick = (e) => {
@@ -29628,6 +29728,9 @@ const CHANGES = [
     'A space on a deck costs four times a surface space, but a garage is cheaper to run: only the roof gets plowed. Guests parked under cover on a snowy or rainy day are happier.',
     'Thanks for the idea! Sort the Lifts list by name, most rides, longest wait or status, like the Trails list.',
     'Fixed: while the resort was open, a picnic table, bench or fire pit card talked about town buses. It now shows its seats taken and rests today (thanks Adum888!).',
+    'Thanks for the idea, MisguidedSoul! The map colours button (the mountain, or O) now steps through steepness, snow depth and night skiing: see where the snow is deep or thin, each trail’s own base, and which trails are lit.',
+    'Summer: a zip line can start beside a lift’s mid-station, and some riders get off there for it. Thanks Adum888!',
+    'Summer: bike trails can branch off each other and merge back in, and a trail can have up to 80 points, so gentle greens with lots of switchbacks fit. Thanks Adum888!',
   ] },
   { v: '4.7', date: 'Nov 11, 2026', title: 'Learners-only carpets', items: [
     'Thanks for the idea! Select a magic carpet or T-bar and switch on Learners only to keep it for beginners. Stronger skiers stop using it as a shortcut from the parking lot to the base, so the line is left to the people learning.',
