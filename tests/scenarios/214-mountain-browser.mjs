@@ -32,6 +32,8 @@ export default async function ({ browser, url }) {
   eq(await names(), ['Second Bowl', 'First Peak'], 'newest first');
   await b.page.waitForFunction(() => document.querySelectorAll('#mbList .mb-pic img').length === 2, null, { timeout: 8000 });
   const pics = await b.ev(`Object.fromEntries([...document.querySelectorAll('#mbList .mb-pic')].map((x) => [x.dataset.pic, x.querySelector('img').src]))`);
+  // a list taller than the window scrolls; the cards keep their height, text under the picture (Phil's phone, Nov 12)
+  assert(await b.ev(`(() => { const L = $('mbList'); L.style.maxHeight = '120px'; const ok = [...L.querySelectorAll('.mbc')].every((c) => c.getBoundingClientRect().height > c.querySelector('.mb-pic').getBoundingClientRect().height + 40); L.style.maxHeight = ''; return ok; })()`), 'cards aren’t squashed when the list scrolls');
   assert(pics[first] === shot && /^data:image\/jpeg/.test(pics[second]) && pics[second] !== shot, 'each card has a picture: the stored one, or one painted from its ground');
   await b.click('#crisis [data-mb-sort=resorts]'); await b.wait(300);
   eq(await names(), ['First Peak', 'Second Bowl'], 'most played first');
