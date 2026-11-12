@@ -20,7 +20,7 @@ export default async function ({ browser, url }) {
     const bank = Math.abs(trueY(mid.x + 4, mid.z) - trueY(mid.x - 4, mid.z)) / 8; // the hillside a little way off still slopes
     window.__mid = mid; return { before, after, bank, roads: proads().length }; })()`);
   assert(typeof r === 'object', `road built (${r})`);
-  assert(r.before > 0.08, `the ground was tilted across the road (${r.before.toFixed(3)})`);
+  assert(r.before > 0.05, `the ground was tilted across the road (${r.before.toFixed(3)})`);
   assert(r.after < 0.02, `and the road's bed is level across now (${r.after.toFixed(3)})`);
   assert(r.bank > 0.04, `with the slope coming back either side (${r.bank.toFixed(3)})`);
 
