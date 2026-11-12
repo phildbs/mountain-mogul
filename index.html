@@ -13760,9 +13760,13 @@ function updateSki(g, dt) {
     // Every alternative must already be a stop on this trail, without a steep climb or drop between doors.
     const nearby = T.stops.filter((s) => s === st || (distXZ(s.B.door, st.B.door) <= 20
       && Math.abs(trueY(s.B.door.x, s.B.door.z) - trueY(st.B.door.x, st.B.door.z)) <= APRES_CLIMB));
-    const v = bestVisit(g, st.B.door, 20, false, nearby.map((s) => s.B), n);
+    const flat = (B) => Math.abs(trueY(B.door.x, B.door.z) - trueY(st.B.door.x, st.B.door.z)) <= APRES_CLIMB;
+    const list = nearby.map((s) => s.B);
+    // A restroom a short walk from this door counts too, even if it sits just off the trail's edge.
+    const rrNear = n[0] === 'rr' ? world.buildings.filter((B) => !list.includes(B) && offers(B).includes('rr') && distXZ(B.door, st.B.door) <= 20 && flat(B)) : [];
+    const v = (rrNear.length && bestVisit(g, st.B.door, 20, false, [...list, ...rrNear], ['rr'])) || bestVisit(g, st.B.door, 20, false, list, n);
     if (v) {
-      const p = guestPos(g), stop = nearby.find((s) => s.B === v.B);
+      const p = guestPos(g), stop = nearby.find((s) => s.B === v.B) || st;
       g.x = p.x; g.z = p.z;
       return startVisit(g, v.B, v.svc, { k: 'ski', tid: T.id, s: Math.min(T.len, Math.max(g.s, stop.at * 0.5 + 1)) });
     }
@@ -18841,6 +18845,18 @@ function otherEatery(g, from, mustBeat = Infinity, list = null) {
   }
   return best;
 }
+// Another open restroom close by with a shorter line, counting the walk: for leaving a slow restroom line.
+function otherRestroom(g, from, mustBeat) {
+  let best = null, bt = mustBeat;
+  for (const B of world.buildings) {
+    if (B === from || !offers(B).includes('rr') || !bldOpenNow(B) || (g.avoidB === B.id && state.time < g.avoidUntil)) continue;
+    const d = distXZ(B.door, from.door);
+    if (d > 20 || Math.abs(trueY(B.door.x, B.door.z) - trueY(from.door.x, from.door.z)) > APRES_CLIMB) continue;
+    const t = estWait(B, 'rr') + d / 5 + rrPrice(B) * 2; // a fee puts some off
+    if (t < bt) { bt = t; best = B; }
+  }
+  return best;
+}
 function maybeVisit(g, here, radius, baseToo, resume) {
   const n = needs(g);
   if (!n.length) return false;
@@ -19176,12 +19192,26 @@ function bldStep(B, dt = 0) {
           continue;
         }
       }
+      // The same for a slow restroom line: a restroom with a shorter line close by wins.
+      if (pool === 'rr' && waited > 2 && waited <= g.pat * 1.6 + 4 && state.time >= (g.qLook || 0)) {
+        g.qLook = state.time + 3;
+        const alt = otherRestroom(g, B, (i + 1) / (slots / 4) - 3);
+        if (alt) {
+          q.splice(i, 1); B.qv++;
+          g.avoidB = B.id; g.avoidUntil = state.time + 45;
+          thought(g, `The restroom line at ${B.name} is barely moving. Trying ${alt.name} instead.`);
+          const resume = g.resume;
+          g.x = B.door.x; g.z = B.door.z; g.bid = null; g.svc = null;
+          startVisit(g, alt, 'rr', resume);
+          continue;
+        }
+      }
       if (waited <= g.pat * 1.6 + 4) continue;
       q.splice(i, 1); B.qv++;
       g.sat -= 6; today.complaints.lines++;
       thought(g, `The line at ${B.name} was too long.`);
       if (food) { g.avoidB = B.id; g.avoidUntil = state.time + 60; g.foodLine = B.id; g.foodReason = 'line'; } // still hungry: eat somewhere else
-      if (g.svc === 'rr') g.bl = 0.7;
+      if (g.svc === 'rr') { g.bl = 0.7; g.avoidB = B.id; g.avoidUntil = state.time + 45; } // try a different restroom next time
       if (g.svc === 'rent') { g.needsRental = false; g.sat -= 4; thought(g, 'I gave up on the rental line and rented in town.'); }
       shopDone(g, g.svc);
       if (g.svc === 'warm') g.warmed = true;
@@ -29979,6 +30009,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.10.4', date: 'Nov 12, 2026', title: 'Smarter restroom stops', small: true, items: [
+    'Guests stuck in a long restroom line, like the 2 stalls in a café, now walk to restrooms close by with a shorter line. Thanks to the player who sent this in!',
+    'A guest who gives up on a restroom line tries somewhere else next time, rather than joining the same line again.',
+    'Skiers stopping at a building beside a trail now notice restrooms a short walk away, even ones set back a little from the trail.',
+  ] },
   { v: '4.10.3', date: 'Nov 12, 2026', title: 'Lots with no road in', small: true, items: [
     'A lot or garage that no road reaches now says “No road in” on the map, since no cars can park there. Tap it to draw a road to one of its edges.',
   ] },
