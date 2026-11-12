@@ -10324,6 +10324,9 @@ const SUMMER_EARLY_FALL = { name: 'Early fall', pull: 0.75 }; // the quiet weeks
 const SUMMER_COND = 2.5; // a condensed summer plays 18 of the busy days: each stands in for this many
 const SUMMER_SHUT = ['rental', 'tuning', 'school', 'kids', 'patrol', 'clinic']; // nothing for them to do until the snow is back (hotels and condos stay open)
 const WINTER_SHUT = ['pavilion', 'zip', 'bike']; // summer only
+// Shut for the whole season right now (a summer pavilion in winter, rentals in summer): its last day stays its last open day.
+const offSeason = (B) => (state.summer && SUMMER_ON ? SUMMER_SHUT : WINTER_SHUT).includes(B.type);
+const seasonDay = (B) => (B.yday && (B.yday.visits || B.yday.revenue) ? B.yday : null); // older saves kept a shut day's upkeep instead
 const SUMMER_GUESTS = 480, SUMMER_STAFF = 0.4; // a good Saturday's sightseers at an ordinary resort; a summer crew is much smaller
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -14129,6 +14132,7 @@ function endDay() {
   // Grooming, snowmaking, interest and overhead were paid overnight; they're only reported here.
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
   for (const B of world.buildings) {
+    if ((ops.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type)) continue; // shut all season: keep its last open day (Adum888)
     const cost = upk(B) + patrolWages(B, ops) + B.today.cogs;
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, services: { ...B.today.services }, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost), rooms: B.today.rooms };
   }
@@ -20470,7 +20474,7 @@ function bldSheet(B) {
         ? `<div><dt>Avg response</dt><dd>${B.today.calls && today && today.helped ? Math.round(B.today.resp / Math.max(1, B.today.calls)) + ' min' : '–'}</dd></div>`
         : `<div><dt>Revenue today</dt><dd>${money(B.today.revenue)}</dd></div>`}
       <div><dt>${B.type === 'patrol' ? 'Daily cost' : 'Upkeep'}</dt><dd>${money(B.type === 'patrol' ? patrolDailyCost(B) : s.upkeep)}/day${mode === 'closed' ? ' · closed in this plan' : mode === 'lunch' ? ' · lunch only' : ''}</dd></div>
-      <div><dt>Last day</dt><dd>${y ? signedMoney(y.profit) : '–'}</dd></div>
+      <div><dt>${offSeason(B) ? `Last ${state.summer ? 'winter' : 'summer'} day` : 'Last day'}</dt><dd>${(offSeason(B) ? seasonDay(B) : y) ? signedMoney(y.profit) : '–'}</dd></div>
     </dl>
     ${bldServiceBreakdown(B, open ? B.today : y, open)}
     ${B.type === 'hotel' ? hotelNote(B, open, y) : ''}
@@ -24634,7 +24638,7 @@ function eventsPanel() {
 }
 // Buildings that earn nothing of their own (they cost upkeep, and help elsewhere): no profit shown, and left off the profit map.
 const NO_PROFIT = ['patrol', 'restroom', 'hrest', 'shuttle', 'transit', 'clinic'];
-const bldProfit = (B) => (NO_PROFIT.includes(B.type) || !B.yday ? null : B.yday.profit);
+const bldProfit = (B) => (NO_PROFIT.includes(B.type) || !B.yday || offSeason(B) ? null : B.yday.profit);
 const BLD_SORTS = { built: 'Built', profit: 'Profit', type: 'By type' };
 // With the profit map on: a chip per type that earns, to leave that type off the map (condos, say).
 function profitTypesHtml() {
@@ -24673,7 +24677,7 @@ function bldsList() {
     if (shut) return head;
     return `${head}<li class="lrow" data-action="goTo" data-k="bld" data-id="${B.id}">
       <div class="l1"><span class="swatch" style="background:${hexOf(t.accent)}"></span><b>${esc(B.name)}</b><span class="pill ${pill[1]}">${pill[0]}</span></div>
-      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${live ? `<span>${liveTxt}</span>${yp}` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
+      <div class="l2"><span>${t.tiers ? tierName(t, s) : t.name}</span>${offSeason(B) ? `<span>Shut until ${state.summer ? 'winter' : 'summer'}${seasonDay(B) && !NO_PROFIT.includes(B.type) ? ` · last ${state.summer ? 'winter' : 'summer'} day ${signedMoney(y.profit)}` : ''}</span>` : live ? `<span>${liveTxt}</span>${yp}` : y ? `<span>Last day: <b>${y.visits}</b> ${B.type === 'patrol' ? 'calls' : B.type === 'clinic' ? 'patients' : B.type === 'kids' ? 'campers' : B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'}${NO_PROFIT.includes(B.type) ? '' : ` · ${signedMoney(y.profit)}`}</span>` : ''}</div>
       <div class="l3"><span>${B.type === 'patrol' ? 'Hut and patrol pay' : 'Upkeep'} ${money(s.upkeep)}/day</span>${next ? `<span class="pill on">Upgrade available</span>` : ''}</div>
     </li>`;
   }).join('');
@@ -24986,7 +24990,7 @@ function opsReport(ops, claims, repHit) {
       return { id: L.id, name: L.name, mode: ops.lifts[L.id] || 'full', stopped: !L.open && !L.planOff, rides, cost: Math.round((today.liftCost || {})[L.id] || 0),
         use: rides / Math.max(1, L.stats.cap * (ops.lifts[L.id] === 'slow' ? SLOW.speed : 1) * hours) };
     }),
-    blds: world.buildings.map((B) => ({ id: B.id, name: B.name, type: B.type, mode: ops.bld[B.id] || 'open', visits: B.yday ? B.yday.visits : 0, profit: B.yday ? B.yday.profit : 0, full: bspec(B).upkeep })),
+    blds: world.buildings.filter((B) => !(ops.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type)).map((B) => ({ id: B.id, name: B.name, type: B.type, mode: ops.bld[B.id] || 'open', visits: B.yday ? B.yday.visits : 0, profit: B.yday ? B.yday.profit : 0, full: bspec(B).upkeep })),
     lots: newLots() ? { open: parks().filter((L, i) => lotOpenNow(i)).length, total: parks().length, spaces: openSpaces(opsState().plans[ops.kind] || {}), mine: true, peak: today.lotPeak || 0, away: today.lotAway || 0 } : { open: ops.lots, total: state.lotSections, peak: today.lotPeak || 0, away: today.lotAway || 0 },
     saved: planRunCost(blankPlan()) - planRunCost(ops), letdown: today.letdown || 0, claims, repHit: Math.round(repHit * 1000) / 1000,
   };
@@ -29877,6 +29881,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.9.1', date: 'Nov 12, 2026', title: 'Summer buildings in winter', small: true, items: [
+    'Summer-only buildings (event pavilions, zip lines and bike trails) no longer show a loss every winter day. They cost nothing while shut, so the Buildings list now says they’re shut until summer and shows their last summer day instead. Rental shops, ski schools and the like do the same in summer. Thanks Adum888!',
+  ] },
   { v: '4.9', date: 'Nov 12, 2026', title: 'Natural roads', items: [
     'Roads you build or reroute are cut into the hillside: level from side to side, with a gentle bank above and below, instead of lying tilted on the slope.',
     'Lots on a slope sit in the hillside too, with a bank that widens the more they cut or fill, instead of standing on a slab with a wall round it. Curbs are concrete grey.',

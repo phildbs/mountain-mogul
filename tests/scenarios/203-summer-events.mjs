@@ -89,6 +89,11 @@ export default async function ({ browser, url }) {
   assert(wet.mood === 'poor' && wet.refund > 0 && wet.came === wet.guests && wet.rode >= wet.guests && wet.left === 0, `a rained-out mountaintop wedding (${JSON.stringify(wet)})`);
   // back to winter: packed away again, and a summer save loads set up
   eq(await g.ev(`(() => { nextDay(); const sv = JSON.parse(JSON.stringify(saveData(false))); summerEnd(); const w = [bldById(${pid}).packedLook, bldById(${pid}).seatsW.length]; applySave(sv); return [...w, bldById(${pid}).packedLook, bldById(${pid}).seatsW.length]; })()`), [true, 0, false, 40], 'packed away for winter, put up again for summer');
+  // a winter day leaves its last summer day alone, and the Buildings list says it's shut (Adum888, Nov 12)
+  const wy = await g.ev(`(() => { summerEnd(); for (let k = 0; k < NV*NV; k++) NS[k] = 50; state.day = 40; state.phase = 'closed'; refreshSnowState(todayWx()); const B = bldById(${pid}), y = JSON.stringify(B.yday); state.cash = 1e8; openDay(); let n = 0; while (state.phase === 'open' && n++ < 80000) simStep(1.5);
+    nextDay(); openManage('blds'); const row = [...$('sheet').querySelectorAll('.lrow')].find((r) => r.dataset.id == ${pid}).innerText;
+    return [state.lastReport.day, state.summer, JSON.stringify(B.yday) === y, bldProfit(B), /Shut until summer/.test(row), /last summer day/.test(row) === !!seasonDay(B), state.lastReport.ops.blds.some((x) => x.id === ${pid})]; })()`);
+  eq(wy, [40, false, true, null, true, true, false], 'in winter the pavilion keeps its last summer day, off the profit sort and the ops report');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 
