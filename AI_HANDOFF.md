@@ -344,6 +344,11 @@ Before it, **3.15.3** (published Nov 9 by Claude on Phil's "Publish when green",
 
 ## Natural roads (published in 4.9, Nov 12)
 
+4.10.1 (Claude, Nov 12, Phil's screenshots of Hawk Heights): a lot opening straight onto the access road (`reach > 0` in
+`buildParks`) now gets a road-asphalt apron plus a curb-rounded mouth over the road's edge line (`flarePts` from the road
+edge, `PAD_R`, renderOrder 2.6). Before, it was a thin lane-grey strip that didn't read as an entrance. Lots and roads
+built before 4.9 keep their old ground (slab look); not regraded on load, on purpose.
+
 Claude, Nov 12. Phil's screenshots: roads tilted on slopes, grey smudges, lots on slabs with white walls, claw-shaped
 junction flares, V-turns (one on a custom mountain's hand-drawn access road).
 - `gradeRoadbed` (in `commitRoad`): a new or rerouted road levels its bed across, along an eased profile, with banks
