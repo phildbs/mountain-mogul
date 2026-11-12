@@ -9665,7 +9665,7 @@ function project(x, y, z) {
   return { x: (_lp.x + 1) / 2 * W, y: (1 - _lp.y) / 2 * H, ok: _lp.z < 1 };
 }
 function syncLabels() {
-  labelLayer.innerHTML = '';
+  labelLayer.innerHTML = ''; lotWarns = [];
   for (const t of realTrails()) {
     const el = document.createElement('button');
     el.className = 'flabel';
@@ -9698,7 +9698,7 @@ function syncLabels() {
   labelLayer.appendChild(lotLabel);
   labelsDirty = true;
 }
-let lotLabel = null;
+let lotLabel = null, lotWarns = []; // lotWarns: a label on each lot no road reaches
 // Which kinds of map label the player wants to see; remembered on this device. The selected
 // thing's label always shows.
 const LABEL_KINDS = ['trail', 'lift', 'bld', 'chip'];
@@ -10034,6 +10034,17 @@ function updateLabels() {
     if (c) placeLabel(lotLabel, c.x, heightAt(c.x, c.z) + 1.2, c.z, (show && labelsOn.bld) || (selected && selected.kind === 'manage' && selected.obj === 'blds'));
     else lotLabel.style.display = 'none';
   }
+  // A lot or garage no road reaches takes no cars, and on the map it looked finished (Phil, Nov 12): say so on it,
+  // and a tap opens Roads to draw one in.
+  const cut = newLots() && !visiting ? parks().map((P, i) => (parkReached(i) ? null : P)).filter(Boolean) : [];
+  while (lotWarns.length < cut.length) { const el = document.createElement('button'); el.className = 'flabel lot'; el.onclick = () => leaveDraft(() => { openRoads('roads'); toast(`Draw a road from the access road, or one of yours, to an edge of ${el._lot}. Cars park there once one reaches it.`); }); labelLayer.appendChild(el); lotWarns.push(el); }
+  lotWarns.forEach((el, k) => {
+    const P = cut[k];
+    if (!P) { el.hidden = true; return; }
+    el._lot = P.name; setLabel(el, `<i class="pk">P</i><span>${esc(P.name)}</span><em>No road in</em>`); el._prio = 3;
+    const c = parkAt(P, parkW(P) / 2, parkD(P) / 2);
+    placeLabel(el, c.x, heightAt(c.x, c.z) + 1.2 + (isGarage(P) ? parkLv(P) * 0.5 : 0), c.z, show || state.tool === 'roads');
+  });
   for (const B of world.buildings) placeLabel(B.labelEl, B.x, B.baseY + 1.6 + B.tier * 0.4, B.z, (show && labelsOn.bld) || (selected && selected.obj === B));
   for (const A of world.areas) {
     if (!A.labelEl) continue;
@@ -29968,6 +29979,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.10.3', date: 'Nov 12, 2026', title: 'Lots with no road in', small: true, items: [
+    'A lot or garage that no road reaches now says “No road in” on the map, since no cars can park there. Tap it to draw a road to one of its edges.',
+  ] },
   { v: '4.10.2', date: 'Nov 12, 2026', title: 'Custom mountain resorts open again', small: true, items: [
     'Resorts on some custom mountains opened as an empty mountain in November, for visitors and their owners, after 4.9 rounded off sharp bends in hand-drawn roads. They open as they were again, with their lifts, trails and cleared trees.',
   ] },

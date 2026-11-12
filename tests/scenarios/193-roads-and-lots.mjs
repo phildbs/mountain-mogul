@@ -27,6 +27,9 @@ export default async function ({ browser, url }) {
   eq([a.lots, a.n, a.R, a.spaces, a.lined, a.ents, a.reached, a.sheet, a.tool], [2, 18, 3, 108, true, 0, false, true, 'roads'], 'an 18 by 3 lot, lined up with the road; no road to it yet, so no entrance yet');
   assert(a.cost >= 108 * PARK_SPACE_C && a.cost < 108 * PARK_SPACE_C + 200000, `priced by the space, plus levelling and trees (${a.cost})`);
   eq(await g.ev(`lotScores(1)[1]`), -1, 'no cars for a lot no road reaches');
+  await g.ev(`(setTool('explore'), updateLabels())`);
+  eq(await g.ev(`lotWarns.filter((el) => el._lot).map((el) => el._lot + ': ' + el.querySelector('em').textContent)`), [await g.ev(`parks()[1].name + ': No road in'`)], 'and the map says so on it');
+  await g.ev(`openRoads('parking')`);
 
   // 3) A second lot drawn against its far side joins it: cars get to it through the first.
   const j = await g.ev(`(() => { const P = parks()[1], far = parkAt(P, parkW(P) / 2, parkD(P) + 0.5);
