@@ -2354,6 +2354,54 @@ function catmull(pts, perSeg) {
   out.push(pts[pts.length - 1]);
   return out;
 }
+// A road's line with no bend tighter than radius r: filled in to points close together, then each stretch that turns
+// too sharply is replaced by a circular arc of radius r, tangent to the line coming in and the line going out (the
+// stretch widens until one fits), so a V drawn by hand becomes a curve. The first and last `keep` points stay put: a
+// junction, a lot's entrance, the map's edge. A hairpin too tight for that gets the roundest arc that fits.
+const ROAD_TURN = 3; // the tightest a road bends, its radius in units
+function easeBends(pts, r, keep = 3, keepEnd = keep) {
+  const step = r / 5;
+  let Q = [pts[0].slice()];
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step));
+    for (let i = 1; i <= n; i++) Q.push([a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n]);
+  }
+  const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
+  const sharp = (k) => {
+    const a = Q[k - 1], b = Q[k], c = Q[k + 1], ux = b[0] - a[0], uz = b[1] - a[1], vx = c[0] - b[0], vz = c[1] - b[1], l = (Math.hypot(ux, uz) + Math.hypot(vx, vz)) / 2;
+    return l > 1e-9 && Math.abs(Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz)) / l > 1.02 / r;
+  };
+  for (let k = keep, guard = 0; k < Q.length - keepEnd && guard < 400; k++) {
+    if (!sharp(k)) continue;
+    let j = k; while (j + 1 < Q.length - keepEnd && sharp(j + 1)) j++;
+    guard++;
+    let fit = null;
+    for (let w = 1; w < 120; w++) {
+      const a = Math.max(keep, k - w), b = Math.min(Q.length - 1 - keepEnd, j + w);
+      const [dx, dz] = unit(Q[a][0] - Q[a - 1][0], Q[a][1] - Q[a - 1][1]), [ex, ez] = unit(Q[b + 1][0] - Q[b][0], Q[b + 1][1] - Q[b][1]);
+      const cr = dx * ez - dz * ex, th = Math.abs(Math.atan2(cr, dx * ex + dz * ez));
+      if (Math.abs(cr) > 1e-6 && th < Math.PI * 0.97) {
+        // where the line in (from a, along d) meets the line out (to b, along e)
+        const l1 = ((Q[b][0] - Q[a][0]) * ez - (Q[b][1] - Q[a][1]) * ex) / cr, Vx = Q[a][0] + dx * l1, Vz = Q[a][1] + dz * l1, l2 = (Q[b][0] - Vx) * ex + (Q[b][1] - Vz) * ez;
+        if (l1 > 0 && l2 > 0) { const T = Math.min(l1, l2), rr = T / Math.tan(th / 2); if (!fit || rr > fit.rr) fit = { a, b, dx, dz, ex, ez, Vx, Vz, T, rr, s: Math.sign(cr), th }; if (rr >= r) break; } // the roundest that fits
+      }
+      if (a === keep && b === Q.length - 1 - keepEnd) break;
+    }
+    if (!fit) { k = j; continue; } // a hairpin with no room either side: left as it is (a hairpin with some room gets the roundest bend that fits)
+    const { a, b, dx, dz, ex, ez, Vx, Vz, T, rr, s, th } = fit, out = [];
+    const P1 = [Vx - dx * T, Vz - dz * T], P2 = [Vx + ex * T, Vz + ez * T], cx = P1[0] - dz * s * rr, cz = P1[1] + dx * s * rr; // the arc's centre, on the inside of the turn
+    const line = (A, B) => { const n = Math.ceil(Math.hypot(B[0] - A[0], B[1] - A[1]) / step); for (let i = 1; i <= n; i++) out.push([A[0] + (B[0] - A[0]) * i / n, A[1] + (B[1] - A[1]) * i / n]); };
+    line(Q[a], P1);
+    const a0 = Math.atan2(P1[1] - cz, P1[0] - cx), na = Math.max(2, Math.ceil(rr * th / step));
+    for (let i = 1; i <= na; i++) { const f = a0 + s * th * i / na; out.push([cx + Math.cos(f) * rr, cz + Math.sin(f) * rr]); }
+    line(P2, Q[b]);
+    while (out.length && Math.hypot(out[out.length - 1][0] - Q[b][0], out[out.length - 1][1] - Q[b][1]) < step * 0.4) out.pop(); // not twice where the arc meets the line
+    Q = [...Q.slice(0, a + 1), ...out, ...Q.slice(b)];
+    k = Math.max(k, a + out.length); // always on: the rest of the line
+  }
+  return Q;
+}
+const easePath = (P, r, keep, keepEnd) => easeBends(P.map((p) => [p.x, p.z]), r, keep, keepEnd).map(([x, z]) => ({ x, z }));
 function distPoly(u, v, pts) {
   let best = 1e9, bu = 0, bv = 0;
   for (let k = 0; k < pts.length - 1; k++) {
@@ -3162,7 +3210,7 @@ function mapMountain(doc, id, E) {
     blurb: `A hand-shaped mountain, started from ${B.name}: its weather and crowds are ${B.name}’s.`,
     height: (u, v) => sampleGrid(E, PLAY0 + u * PN, PLAY1 - v * PN) };
   if (doc.road) { // the player's own road: the base is at its end, and what hung off the old road (a second road, more lots, the town) goes
-    M.road = catmull(doc.road, 6); M.lotWest = doc.road[doc.road.length - 1][0] > 0.6;
+    M.road = easeBends(catmull(doc.road, 6), ROAD_TURN / PN); M.lotWest = doc.road[doc.road.length - 1][0] > 0.6;
     for (const k of ['branch', 'lots', 'town', 'townParcel']) delete M[k];
   }
   if (doc.creeks) setCreeks(M, doc.creeks);
@@ -10569,7 +10617,7 @@ function roadBetween(a, b) {
 }
 // The access road: a draped ribbon of asphalt over the painted roadbed, with lane lines and plowed shoulders.
 const ROAD_HW = 1.15, ROAD_TILE = 6;
-const ROAD_TEX = (() => {
+const roadTex = (lines) => {
   const W = 128, H = 384, c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
@@ -10579,17 +10627,21 @@ const ROAD_TEX = (() => {
   for (const x of [0.2, 0.38, 0.62, 0.8]) { const gr = g.createLinearGradient((x - 0.06) * W, 0, (x + 0.06) * W, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.13)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect((x - 0.06) * W, 0, 0.12 * W, H); }
   // salt and packed snow along the edges
   for (const [x0, x1] of [[0, 0.07], [0.93, 1]]) { const gr = g.createLinearGradient(x0 * W, 0, x1 * W, 0); const a = x0 === 0; gr.addColorStop(a ? 0 : 1, 'rgba(236,240,246,0.95)'); gr.addColorStop(a ? 1 : 0, 'rgba(236,240,246,0)'); g.fillStyle = gr; g.fillRect(x0 * W, 0, (x1 - x0) * W, H); }
-  g.fillStyle = 'rgba(245,247,250,0.9)'; g.fillRect(0.085 * W, 0, 3, H); g.fillRect(0.915 * W - 3, 0, 3, H);
-  g.fillStyle = 'rgba(232,184,46,0.95)';
-  for (let y = 0; y < H; y += 96) { g.fillRect(W / 2 - 5, y + 8, 3, 52); g.fillRect(W / 2 + 2, y + 8, 3, 52); }
+  if (lines) {
+    g.fillStyle = 'rgba(245,247,250,0.9)'; g.fillRect(0.085 * W, 0, 3, H); g.fillRect(0.915 * W - 3, 0, 3, H);
+    g.fillStyle = 'rgba(232,184,46,0.95)';
+    for (let y = 0; y < H; y += 96) { g.fillRect(W / 2 - 5, y + 8, 3, 52); g.fillRect(W / 2 + 2, y + 8, 3, 52); }
+  }
   const t = new THREE.CanvasTexture(c);
   t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
-})();
+};
+const ROAD_TEX = roadTex(true);
 // Drawn after trails (which are see-through), so a trail that crosses the road never paints snow over it.
 const ROAD_MAT = hazeMaterial('haze', { map: ROAD_TEX, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-const DRIVEWAY_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const DRIVEWAY_MAT = new THREE.MeshLambertMaterial({ color: 0x4c515b, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // the main lot's old drive
+const PDRIVE_MAT = hazeMaterial('haze', { map: roadTex(false), transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); // your driveways: asphalt with snowy edges, no lines
 let roadMesh = null;
 let roadPathCache = null;
 function roadPath() {
@@ -11276,7 +11328,7 @@ const ROAD_WORLD0 = ROAD_WORLD.map((p) => ({ ...p }));
 const mainCtrl0 = () => simplifyPts(MOUNTAIN.road.map(([u, v]) => [PLAY0 + u * PN - HALF, PLAY1 - v * PN - HALF]), 0.3); // a handful of points to drag, not the map's fifty
 const mainCtrl = () => state.mainRoad || mainCtrl0();
 function setMainRoad() {
-  const ctrl = mainCtrl(), pts = state.mainRoad ? catmull(ctrl, 10).map(([x, z]) => ({ x, z })).filter((p) => Math.abs(p.x) < HALF - 4 && Math.abs(p.z) < HALF - 4) : ROAD_WORLD0.map((p) => ({ ...p }));
+  const ctrl = mainCtrl(), pts = state.mainRoad ? easeBends(catmull(ctrl, 10), ROAD_TURN, 2).map(([x, z]) => ({ x, z })).filter((p) => Math.abs(p.x) < HALF - 4 && Math.abs(p.z) < HALF - 4) : ROAD_WORLD0.map((p) => ({ ...p }));
   const same = pts.length === ROAD_WORLD.length && pts.every((p, i) => Math.abs(p.x - ROAD_WORLD[i].x) < 1e-6 && Math.abs(p.z - ROAD_WORLD[i].z) < 1e-6);
   if (same) return false;
   ROAD_WORLD.splice(0, ROAD_WORLD.length, ...pts);
@@ -11296,7 +11348,7 @@ function setMainRoad() {
 // A straight run at one end of a road, along (nx, nz) from it: the points tapped too near that end go, so the road
 // doesn't kink just before a junction or an entrance.
 function straight(pts, at, nx, nz, st) {
-  const [x, z] = pts[at], run = st + 2.5, near = (p) => Math.hypot(p[0] - x, p[1] - z) < run + 1.5;
+  const [x, z] = pts[at], run = st + ROAD_TURN + 1, near = (p) => Math.hypot(p[0] - x, p[1] - z) < run + 1.5;
   if (at === 0) { while (pts.length > 2 && near(pts[1])) pts.splice(1, 1); if (Math.hypot(pts[1][0] - x, pts[1][1] - z) > run + 1) pts.splice(1, 0, [x + nx * st, z + nz * st], [x + nx * run, z + nz * run]); else pts.splice(1, 0, [x + nx * st, z + nz * st]); }
   else { while (pts.length > 2 && near(pts[pts.length - 2])) pts.splice(pts.length - 2, 1); const q = pts[pts.length - 2]; if (Math.hypot(q[0] - x, q[1] - z) > run + 1) pts.splice(pts.length - 1, 0, [x + nx * run, z + nz * run], [x + nx * st, z + nz * st]); else pts.splice(pts.length - 1, 0, [x + nx * st, z + nz * st]); }
 }
@@ -11323,8 +11375,9 @@ function proadPath(R) {
     const a = raw[k - 1], b = raw[k], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.5));
     for (let i = 1; i <= n; i++) P.push({ x: lerp(a[0], b[0], i / n), z: lerp(a[1], b[1], i / n) });
   }
-  proadCache.set(R.id, { key, P });
-  return P;
+  const E = easePath(P, ROAD_TURN, 6, 4); // a corner tapped too sharp (just past a junction, most often) rounds off; the junction's pad and a lot's apron stay straight
+  proadCache.set(R.id, { key, P: E });
+  return E;
 }
 const proadLen = () => proads().reduce((a, R) => a + pathLen(proadPath(R)) * rkind(R).run / RKIND.road.run, 0); // in units of two-lane road, for plowing
 const roadRunCost = () => proads().reduce((a, R) => a + pathLen(proadPath(R)) * rkind(R).run, 0);
@@ -11421,7 +11474,7 @@ const LOT_TILE = (() => {
 const PARK_MAT = new THREE.MeshLambertMaterial({ map: LOT_TILE, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const PARK_SHUT_MAT = PARK_MAT.clone(); PARK_SHUT_MAT.color.setRGB(0.55, 0.57, 0.6);
 const LANE_SHUT_MAT = LINK_MAT.clone(); LANE_SHUT_MAT.color.setRGB(0.55, 0.57, 0.6);
-const CURB_MAT = new THREE.MeshLambertMaterial({ color: 0xe9eef4 });
+const CURB_MAT = new THREE.MeshLambertMaterial({ color: 0xa9b0b9 }); // concrete: white read as a wall round the lot, in summer most of all
 // A draped patch of the lot between u0..u1 and v0..v1, uv in spaces and bays.
 function parkPatch(P, u0, u1, v0, v1, mat, lift = 0.1) {
   const NX = Math.max(1, Math.ceil((u1 - u0) / 1)), NZ = Math.max(1, Math.ceil((v1 - v0) / 1)), pos = [], uv = [], idx = [];
@@ -11440,22 +11493,23 @@ function parkPatch(P, u0, u1, v0, v1, mat, lift = 0.1) {
 }
 // A flared mouth where a narrower road meets an edge (a road's side, or a lot's): curves out to the edge, so the join
 // looks paved, not stuck on. o: the point on the edge; (tx, tz) along the edge; (nx, nz) out from it, up the new road.
-function flarePts(o, tx, tz, nx, nz, hw, r = 0.9, reach = 0) {
+function flarePts(o, tx, tz, nx, nz, hw, r = 0.9, reach = 0, r2 = r) { // r on the -t side, r2 on the +t side
   const L = [], R = [], N = 6;
   for (let i = 0; i <= N; i++) {
-    const f = Math.PI / 2 * (1 - i / N), a = -hw - r + r * Math.cos(f), b = r - r * Math.sin(f); // along, out
-    L.push({ x: o.x + tx * a + nx * b, z: o.z + tz * a + nz * b }); R.push({ x: o.x - tx * a + nx * b, z: o.z - tz * a + nz * b });
+    const f = Math.PI / 2 * (1 - i / N), a = -hw - r + r * Math.cos(f), b = r - r * Math.sin(f), a2 = -hw - r2 + r2 * Math.cos(f), b2 = r2 - r2 * Math.sin(f); // along, out
+    L.push({ x: o.x + tx * a + nx * b, z: o.z + tz * a + nz * b }); R.push({ x: o.x - tx * a2 + nx * b2, z: o.z - tz * a2 + nz * b2 });
   }
-  const e = Math.max(r + 0.4, reach);
+  const e = Math.max(Math.max(r, r2) + 0.4, reach);
   L.push({ x: o.x - tx * hw + nx * e, z: o.z - tz * hw + nz * e }); R.push({ x: o.x + tx * hw + nx * e, z: o.z + tz * hw + nz * e });
   return [L, R];
 }
-function stripMesh(L, R, mat, lift) {
-  const pos = [], idx = [];
-  for (let i = 0; i < L.length; i++) for (const q of [L[i], R[i]]) pos.push(q.x, Math.max(roadY(q.x, q.z), meshHeightAt(q.x, q.z) - 0.02) + lift, q.z);
+function stripMesh(L, R, mat, lift, tex) { // tex: the road's texture, plain asphalt from it (no lines), with haze
+  const pos = [], idx = [], uv = [], hz = [];
+  for (let i = 0; i < L.length; i++) for (const q of [L[i], R[i]]) { pos.push(q.x, Math.max(roadY(q.x, q.z), meshHeightAt(q.x, q.z) - 0.02) + lift, q.z); uv.push(0.29, i * 0.04); hz.push(hazeAt(q.x + HALF, q.z + HALF)); }
   for (let i = 0; i < L.length - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  if (tex) { geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setAttribute('haze', new THREE.Float32BufferAttribute(hz, 1)); }
   if (geo.attributes.normal.array[1] < 0) { idx.reverse(); geo.setIndex(idx); geo.computeVertexNormals(); }
   const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.renderOrder = 2.5;
   return m;
@@ -11508,6 +11562,21 @@ function garageMesh(P) {
   return m;
 }
 // The lots, their curbs (a low snowbank, open at entrances and where lots join) and their entrances' aprons.
+// The road that ends at an entrance, if any; the entrance's apron is as wide as it.
+const entRoad = (d) => proads().find((Q) => { const e = Q.pts[Q.pts.length - 1]; return Math.hypot(e[0] - d.x, e[1] - d.z) < 0.3; });
+const entApronHW = (P, g) => { const Q = entRoad(gateDoor(P, g)); return Q ? Math.max(0.9, rkind(Q).hw) : 0.9; };
+// An apron's rounded corners, on the side toward the start of its edge and the side toward the end (flarePts' -t and
+// +t sides), each no bigger than the room left before the lot's corner, so an entrance by a corner doesn't overhang it.
+const APRON_OUT = 1.2; // how far an apron reaches out from the lot: a road coming in stops there
+const apronLo = (P, g) => { const d = gateDoor(P, g), [a, b] = g.s < 2 ? [parkAt(P, 0, 0), parkAt(P, 0, 1)] : [parkAt(P, 0, 0), parkAt(P, 1, 0)]; return (b.x - a.x) * -d.oz + (b.z - a.z) * d.ox < 0; }; // does -t point toward the edge's start?
+// Where the apron is centred along its edge: at the entrance, or moved in from the lot's corner (an entrance on a short
+// side is at its end lane, by the corner) until a road's width fits; the road coming in eases across to meet it.
+function apronT(P, g) { const hw = entApronHW(P, g), len = g.s < 2 ? parkD(P) : parkW(P); return len < 2 * hw + 0.1 ? len / 2 : clamp(g.t, hw + 0.05, len - hw - 0.05); }
+const apronDoor = (P, g) => gateDoor(P, { s: g.s, t: apronT(P, g) });
+function apronR(P, g) {
+  const hw = entApronHW(P, g), len = g.s < 2 ? parkD(P) : parkW(P), t = apronT(P, g), toStart = clamp(t - hw - 0.05, 0, 0.8), toEnd = clamp(len - t - hw - 0.05, 0, 0.8);
+  return apronLo(P, g) ? [toStart, toEnd] : [toEnd, toStart];
+}
 function buildParks() {
   for (const m of [...parkGroup.children]) { parkGroup.remove(m); m.geometry.dispose(); }
   if (curbMesh) { scene.remove(curbMesh); curbMesh.dispose(); curbMesh = null; }
@@ -11517,7 +11586,7 @@ function buildParks() {
     for (const m of [parkPatch(P, 0, PK.lane, 0, D, open ? LINK_MAT : LANE_SHUT_MAT), parkPatch(P, W - PK.lane, W, 0, D, open ? LINK_MAT : LANE_SHUT_MAT), parkPatch(P, PK.lane, W - PK.lane, 0, D, open ? PARK_MAT : PARK_SHUT_MAT)]) { m.userData.lot = i; m.userData.lane = m.material !== PARK_MAT && m.material !== PARK_SHUT_MAT; parkGroup.add(m); }
     for (const s of [0, 1, 2, 3]) {
       const len = s < 2 ? D : W, gaps = [];
-      for (const g of P.ents || []) if (g.s === s) { const hw = 2.3; gaps.push([g.t - hw, g.t + hw]); }
+      for (const g of P.ents || []) if (g.s === s) { const hw = entApronHW(P, g), [ra, rb] = apronR(P, g), lo = apronLo(P, g), t = apronT(P, g); gaps.push([t - hw - (lo ? ra : rb) - 0.05, t + hw + (lo ? rb : ra) + 0.05]); } // the curb stops where the apron's corners meet it
       for (const { g, j } of J[i]) if (g.s === s) { const Q = parks()[j], r = rectIn(P, Q); if (r) gaps.push(s < 2 ? [Math.max(0, r.v0), Math.min(D, r.v1)] : [Math.max(0, r.u0), Math.min(W, r.u1)]); }
       for (let t = 0.3; t < len - 0.3; t += 0.6) {
         if (gaps.some(([a, b]) => t > a && t < b)) continue;
@@ -11526,9 +11595,8 @@ function buildParks() {
       }
     }
     for (const g of P.ents || []) { // the apron where a road comes in
-      const d = gateDoor(P, g), h = roadHit(d), reach = h && h.R && h.d < ROAD_HW + 2 ? h.d - ROAD_HW + 0.3 : 0; // right beside the access road: paved across to it
-      if (proads().some((Q) => { const e = Q.pts[Q.pts.length - 1]; return Math.hypot(e[0] - d.x, e[1] - d.z) < 0.3; })) continue; // the road coming in makes its own corners
-      const [L, R] = flarePts(d, -d.oz, d.ox, d.ox, d.oz, 0.9, 0.8, reach), m = stripMesh(L, R, LINK_MAT, 0.095); parkGroup.add(m);
+      const d = apronDoor(P, g), h = roadHit(d), reach = h && h.R && h.d < ROAD_HW + 2 ? h.d - ROAD_HW + 0.3 : 0; // right beside the access road: paved across to it
+      const [ra, rb] = apronR(P, g), [L, R] = flarePts(d, -d.oz, d.ox, d.ox, d.oz, entApronHW(P, g), ra, entRoad(gateDoor(P, g)) ? Math.max(reach, APRON_OUT) : reach, rb), m = stripMesh(L, R, entRoad(gateDoor(P, g)) ? ROAD_MAT : LINK_MAT, 0.095, !!entRoad(gateDoor(P, g))); parkGroup.add(m); // a road coming in runs onto it
     }
     if (isGarage(P)) { // the decks' own stripes and lanes, greyed like the ground level when the lot is closed
       parkGroup.add(garageMesh(P));
@@ -11549,37 +11617,55 @@ function buildParks() {
   }
   renderer.shadowMap.needsUpdate = true;
 }
-// A road's width along its length: its own half-width, curving out at a junction (and at a lot's entrance) into rounded
-// corners, the way curbs turn, so the join is part of the road itself, not a patch beside it.
-const FILLET = 1.1;
-function filletHW(hw, s, len, a, b) {
-  const f = (d) => (d < FILLET ? FILLET - Math.sqrt(Math.max(0, FILLET * FILLET - (FILLET - d) ** 2)) : 0);
-  return hw + (a ? f(s) : 0) + (b ? f(len - s) : 0);
-}
-// Points closer together near the ends, so the corners come out round.
-function denseEnds(P, a, b) {
-  const out = [P[0]], len = pathLen(P); let s = 0;
-  for (let k = 1; k < P.length; k++) {
-    const p = P[k - 1], q = P[k], d = distXZ(p, q), fine = (a && s < FILLET + 0.5) || (b && len - s - d < FILLET + 0.5), n = fine ? Math.max(1, Math.ceil(d / 0.1)) : 1;
-    for (let i = 1; i <= n; i++) out.push({ x: lerp(p.x, q.x, i / n), z: lerp(p.z, q.z, i / n) });
-    s += d;
-  }
-  return out;
-}
-// Your roads: a ribbon each (two lanes with lines, or a plain driveway), widening into rounded corners where it leaves
-// the road it joins (laid over that road's edge line there) and where it comes into a lot.
+// Your roads: a ribbon each (two lanes with lines, or a driveway), with a paved pad where it leaves the road it joins,
+// and the lot's apron where it comes into a lot.
 let proadMeshes = [];
 function buildPRoads() {
   for (const m of proadMeshes) { scene.remove(m); m.geometry.dispose(); }
   proadMeshes = [];
   for (const R of proads()) {
     const P0 = proadPath(R), k = rkind(R), h = roadHit(P0[0], R.id), joined = h && h.d < 0.8 && P0.length > 3;
-    const e = P0[P0.length - 1], atLot = !!doorAt(e, 0.3), phw = joined ? (h.road ? rkind(h.road).hw : ROAD_HW) : 0;
-    // start just inside the other road's edge, over its edge line
-    const from = joined ? Math.max(0, P0.findIndex((q) => distXZ(q, P0[0]) > phw - 0.25)) : 0, P = denseEnds(P0.slice(from), joined, atLot);
-    const len = pathLen(P);
-    proadMeshes.push(roadRibbon(P, R.kind === 'drive' ? 0.06 : 0.055, R.kind === 'drive' ? DRIVEWAY_MAT : ROAD_MAT, (t) => filletHW(k.hw, t * len, len, joined, atLot)));
+    const e = P0[P0.length - 1], door = doorAt(e, 0.3), atLot = !!door, lift = R.kind === 'drive' ? 0.06 : 0.055, mat = R.kind === 'drive' ? PDRIVE_MAT : ROAD_MAT;
+    let i0 = 0, i1 = P0.length - 1;
+    if (joined) { // the junction: one paved pad with curb-rounded corners, from the other road's edge out to where this road begins
+      const phw = h.road ? rkind(h.road).hw : ROAD_HW, plift = h.road ? (h.road.kind === 'drive' ? 0.06 : 0.055) : 0.05;
+      const J = junctionPad(P0, h.P || h.R, h.k, phw, k.hw);
+      if (J) { const m = stripMesh(J.L, J.R, mat, plift + 0.003, true); scene.add(m); proadMeshes.push(m); i0 = J.from; }
+    }
+    let Pr = P0;
+    if (atLot) {
+      while (i1 > i0 + 2 && distXZ(P0[i1 - 1], e) < APRON_OUT - 0.1) i1--; // the lot's apron takes over at the end
+      const a = apronDoor(parks()[door.i], door.g), sx = a.x - door.d.x, sz = a.z - door.d.z; // eased across to an apron moved in from the corner
+      if (Math.hypot(sx, sz) > 0.01) { let s = 0; const back = P0.map((q, i) => i ? (s += distXZ(q, P0[i - 1])) : 0), L = s; Pr = P0.map((q, i) => { const w = 1 - sstep(APRON_OUT, APRON_OUT + 3, L - back[i]); return { x: q.x + sx * w, z: q.z + sz * w }; }); }
+    }
+    proadMeshes.push(roadRibbon(Pr.slice(i0, i1 + 1), lift, mat));
   }
+}
+// Where a road (P, its centre line from the other road's middle) leaves another (Q, near its segment kq, half-width
+// phw): the pad between them, as rows from where this road begins (its own width) to just inside the other road's
+// edge, each side a curve like a curb's that turns from this road's edge onto the other's. It's drawn over the
+// other road's edge line, so the line has a gap where the road comes in. from: where this road's own ribbon starts.
+const PAD_R = 1.1, PAD_IN = 0.3;
+function junctionPad(P, Q, kq, phw, hw) {
+  const near = (q) => { let best = null; for (let k = Math.max(0, kq - 40); k < Math.min(Q.length - 1, kq + 40); k++) { const a = Q[k], b = Q[k + 1], dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1, t = clamp(((q.x - a.x) * dx + (q.z - a.z) * dz) / (L * L), 0, 1), x = a.x + dx * t, z = a.z + dz * t, d = Math.hypot(q.x - x, q.z - z); if (!best || d < best.d) best = { d, x, z, ux: dx / L, uz: dz / L }; } return best; };
+  const iM = P.findIndex((q) => near(q).d >= phw), iC = P.findIndex((q) => near(q).d >= phw + PAD_R);
+  if (iM < 1 || iC < 0 || iC >= P.length - 2) return null;
+  const dir = (i) => { const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], L = distXZ(a, b) || 1; return { x: (b.x - a.x) / L, z: (b.z - a.z) / L }; };
+  const M = P[iM], t = dir(iM), C0 = P[iC], tc = dir(iC), nm = near(M);
+  let ox = M.x - nm.x, oz = M.z - nm.z; const ol = Math.hypot(ox, oz) || 1; ox /= ol; oz /= ol; // from the other road toward this one
+  const inset = (q) => { const n = near(q); let x = q.x - n.x, z = q.z - n.z; const l = Math.hypot(x, z); if (l < 1e-6 || x * ox + z * oz < 0) { x = ox; z = oz; } else { x /= l; z /= l; } return { x: n.x + x * (phw - PAD_IN), z: n.z + z * (phw - PAD_IN) }; };
+  const side = (s) => {
+    const nx = -t.z * s, nz = t.x * s, C = { x: C0.x - tc.z * s * hw, z: C0.z + tc.x * s * hw };
+    const su = Math.sign(nm.ux * nx + nm.uz * nz) || s, ux = nm.ux * su, uz = nm.uz * su; // along the other road, toward this side
+    // the corner: where this road's edge meets the other's (just inside it)
+    const A = { x: M.x + nx * hw, z: M.z + nz * hw }, B = { x: nm.x + ox * (phw - PAD_IN), z: nm.z + oz * (phw - PAD_IN) }, cr = t.x * uz - t.z * ux;
+    let K = Math.abs(cr) > 0.25 ? (() => { const l = ((B.x - A.x) * uz - (B.z - A.z) * ux) / cr; return { x: A.x + t.x * l, z: A.z + t.z * l }; })() : { x: B.x + ux * hw, z: B.z + uz * hw };
+    if (distXZ(K, M) > hw * 3) K = { x: B.x + ux * hw, z: B.z + uz * hw };
+    K = inset(K);
+    const E = inset({ x: K.x + ux * PAD_R, z: K.z + uz * PAD_R });
+    return Array.from({ length: 9 }, (_, i) => { const f = i / 8, g = 1 - f; return { x: g * g * C.x + 2 * g * f * K.x + f * f * E.x, z: g * g * C.z + 2 * g * f * K.z + f * f * E.z }; });
+  };
+  return { L: side(-1), R: side(1), from: Math.max(0, iC - 1) };
 }
 // After any change to your roads, lots or the access road: routes, the ground roads keep clear, the meshes.
 function netChanged() {
@@ -11591,14 +11677,26 @@ function netChanged() {
 }
 
 /* ---------- Checking a lot before it's built ---------- */
-// Levelling under a lot at any angle, like levelRect.
+// Levelling under a lot at any angle, like levelRect. The bank round it is wider the more it cuts or fills (margin is
+// the narrowest), so a lot on a slope sits in the hillside instead of on a slab with a wall round it; the bank keeps
+// off what's built beside it (buildings, lift stations and towers, other lots, roads a little way off).
+const LOT_BANK = 7;
 function levelRot(r, target, margin, dry) {
-  const b = rectBox(r, margin + 1);
+  const b = rectBox(r, LOT_BANK + 1);
   const i0 = Math.max(LAND.i0, Math.floor(b.x0 + HALF)), i1 = Math.min(LAND.i1, Math.ceil(b.x1 + HALF)), j0 = Math.max(LAND.j0, Math.floor(b.z0 + HALF)), j1 = Math.min(LAND.j1, Math.ceil(b.z1 + HALF));
-  let cost = 0;
+  const lots = lotRects().filter((q) => Math.abs(q.cx - r.cx) > 1e-6 || Math.abs(q.cz - r.cz) > 1e-6), blds = world.buildings.map((B) => boxOf(B, 0.3));
+  const towers = world.lifts.flatMap((L) => [L.a, L.b, ...(L.lay && L.lay.sup ? L.lay.sup.filter((u) => !u.term).map((u) => ({ x: L.a.x + L.lay.dx * u.s, z: L.a.z + L.lay.dz * u.s, r: 1 })) : [])]);
+  let cost = 0; const H0 = HT.slice(); // the ground as it was
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-    const d = Math.max(0, rectDist({ x: i - HALF, z: j - HALF }, r) - 0.3), idx = j * NV + i, w = (1 - sstep(0, margin, d)) * groundKeep(idx);
+    const p = { x: i - HALF, z: j - HALF }, d = Math.max(0, rectDist(p, r) - 0.3), idx = j * NV + i;
+    if (d > LOT_BANK) continue;
+    // how far the ground at the lot's edge (toward p) is cut or filled sets the bank's width, so it ends on the hillside
+    const c = Math.cos(r.a), sn = Math.sin(r.a), lx = (p.x - r.cx) * c + (p.z - r.cz) * sn, lz = -(p.x - r.cx) * sn + (p.z - r.cz) * c, ex = clamp(lx, -r.hw, r.hw), ez = clamp(lz, -r.hd, r.hd);
+    const bank = clamp(Math.abs(target - sampleGrid(H0, r.cx + ex * c - ez * sn + HALF, r.cz + ex * sn + ez * c + HALF)) * 6, margin, LOT_BANK);
+    let w = (1 - sstep(0, bank, d)) * groundKeep(idx);
     if (w <= 0) continue;
+    if (d > margin && (blds.some((q) => boxDist(p, q) < 0.01) || lots.some((q) => rectDist(p, q) < 0.3) || towers.some((q) => distXZ(p, q) < (q.r || 2.5))
+      || (d > 2 && sampleGrid(PROADD, i, j) < 1.3) || !inProperty(p.x, p.z) || (world.ponds.length && pondAt(p.x, p.z)))) continue;
     const nh = lerp(HT[idx], target, w);
     cost += Math.abs(nh - HT[idx]) * GRADE_COST;
     if (!dry) HT[idx] = nh;
@@ -11646,7 +11744,7 @@ function parkCost(P, was, info) {
 
 /* ---------- Checking a road before it's built ---------- */
 const mainPathOf = (ctrl) => {
-  const raw = catmull(ctrl, 10).map(([x, z]) => ({ x, z })).filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1), out = [];
+  const raw = easeBends(catmull(ctrl, 10), ROAD_TURN, 2).map(([x, z]) => ({ x, z })).filter((p) => Math.abs(p.x) < HALF - 1 && Math.abs(p.z) < HALF - 1), out = [];
   for (let k = 0; k < raw.length - 1; k++) { const a = raw[k], b = raw[k + 1], n = Math.max(1, Math.ceil(distXZ(a, b) / 0.5)); for (let i = 0; i < n; i++) out.push({ x: lerp(a.x, b.x, i / n), z: lerp(a.z, b.z, i / n) }); }
   if (raw.length) out.push(raw[raw.length - 1]);
   return out;
@@ -11960,7 +12058,7 @@ function gradeRoadbed(P, hw, self, only) {
   const i0 = Math.max(LAND.i0, Math.floor(x0 + HALF - reach)), i1 = Math.min(LAND.i1, Math.ceil(x1 + HALF + reach)), j0 = Math.max(LAND.j0, Math.floor(z0 + HALF - reach)), j1 = Math.min(LAND.j1, Math.ceil(z1 + HALF + reach));
   const lots = lotRects(), blds = world.buildings.map((B) => boxOf(B, 0.3)), others = newLots() ? proads().filter((Q) => Q !== self).map((Q) => [proadPath(Q), rkind(Q).hw + 0.3]) : [];
   const towers = world.lifts.flatMap((L) => [L.a, L.b, ...(L.lay && L.lay.sup ? L.lay.sup.filter((u) => !u.term).map((u) => ({ x: L.a.x + L.lay.dx * u.s, z: L.a.z + L.lay.dz * u.s, r: 1 })) : [])]);
-  let changed = false;
+  let changed = false; const H0 = HT.slice(); // the ground as it was
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const p = { x: i - HALF, z: j - HALF }, idx = j * NV + i;
     if (!inProperty(p.x, p.z)) continue;
@@ -11971,7 +12069,8 @@ function gradeRoadbed(P, hw, self, only) {
       if (e < d) { d = e; k = q; u = f; }
     }
     if (d > reach || (only && !only[u < 0.5 ? k : k + 1])) continue;
-    const target = lerp(t[k], t[k + 1], u), bank = clamp(Math.abs(target - HT[idx]) * 2.5, 1, 6); // a gentle bank, wider the more it cuts or fills
+    const cx = lerp(P[k].x, P[k + 1].x, u), cz = lerp(P[k].z, P[k + 1].z, u), f = d > 1e-6 ? flat / d : 0; // the bed's edge, toward p: how far the ground there is cut or filled sets the bank's width
+    const target = lerp(t[k], t[k + 1], u), bank = clamp(Math.abs(target - sampleGrid(H0, cx + (p.x - cx) * f + HALF, cz + (p.z - cz) * f + HALF)) * 5, 1, 6); // a gentle bank, wider the more it cuts or fills
     let w = d <= flat ? 1 : 1 - sstep(flat, flat + bank, d);
     if (w <= 0.001) continue;
     w *= creekKeep(idx) * (self === MAIN_ROAD ? 1 : roadKeep(idx)); // never the creek's bed, nor the access road's
@@ -29778,8 +29877,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '4.8.1', date: 'Nov 12, 2026', title: 'Roads built into the hillside', small: true, items: [
-    'A road you build or reroute is now cut into the slope: level from side to side, with a gentle bank above and below, instead of lying tilted on the hillside.',
+  { v: '4.9', date: 'Nov 12, 2026', title: 'Natural roads', items: [
+    'Roads you build or reroute are cut into the hillside: level from side to side, with a gentle bank above and below, instead of lying tilted on the slope.',
+    'Lots on a slope sit in the hillside too, with a bank that widens the more they cut or fill, instead of standing on a slab with a wall round it. Curbs are concrete grey.',
+    'A sharp corner drawn in a road rounds off into a curve, in your roads, a rerouted access road and the access road on a mountain you made.',
+    'Where a road leaves another, its corners curve out softly into the snow, and a road meets a lot’s entrance cleanly. Driveways have snowy edges like roads.',
     'Fixed: grey smudges on the snow along the edges of roads, most noticeable where the access road was rerouted.'] },
   { v: '4.8', date: 'Nov 12, 2026', title: 'Parking garages', items: [
     'Build parking garages: in Roads › Parking, pick Parking garage and drag to draw one, or drag across some rows of a lot to make just those rows a garage. Add up to 5 levels. Deck spaces cost more to build but less to run, and guests like a covered car on a snowy day.',
