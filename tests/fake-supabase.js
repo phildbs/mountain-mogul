@@ -62,7 +62,8 @@
         if (q.op === 'delete') { const gone = new Set(rows.filter((r) => r.owner === me)); d.shared = (d.shared || []).filter((r) => !gone.has(r)); put(d); return { data: null, error: null }; }
         if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table shared_mountains' } };
         const cols = q.cols === '*' ? null : q.cols.split(',').map((c) => c.trim());
-        const data = rows.map((r) => (cols ? Object.fromEntries(cols.map((c) => [c, r[c]])) : { ...r }));
+        if (d.noPhotos && cols && cols.includes('photo')) return { data: null, error: { code: '42703', message: 'column shared_mountains.photo does not exist' } };
+        const data = rows.map((r) => (cols ? Object.fromEntries(cols.map((c) => [c, r[c] ?? null])) : { ...r }));
         return { data: q.single ? data[0] || null : data, error: null };
       }
       // a shared mountain's likes and ratings: your own rows only; one each; never on your own mountain; no guests
@@ -411,6 +412,13 @@
         const k = args.psort;
         rows.sort((a, b) => (k === 'likes' ? b.likes - a.likes : k === 'resorts' ? b.resorts - a.resorts : k === 'rating' ? b._r - a._r : 0) || String(b.created_at).localeCompare(String(a.created_at)));
         return { data: rows.slice(0, 60).map(({ _r, ...r }) => r), error: null };
+      }
+      if (fn === 'set_shared_photo') { // as supabase/shared-mountain-photos.sql (d.noPhotos: before it's run)
+        const ex = (d.shared || []).find((r) => r.id === args.pid);
+        if (d.noShared || d.noPhotos) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
+        if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(args.pphoto || '') || args.pphoto.length >= 120000) return { data: null, error: { code: '22023', message: 'bad_photo' } };
+        if (!ex || ex.owner !== me) return { data: null, error: { code: '42501', message: 'not_yours' } };
+        ex.photo = args.pphoto; put(d); return { data: true, error: null };
       }
       if (fn === 'share_mountain' || fn === 'set_shared_copy') { // as supabase/shared-mountains.sql
         if (d.noShared) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };

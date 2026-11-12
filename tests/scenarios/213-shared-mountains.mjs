@@ -27,6 +27,7 @@ export default async function ({ browser, url }) {
   const id = await a.ev('mapIdOf(edDoc())');
   const row = await a.ev(`JSON.parse(localStorage.getItem('FAKE_DB')).shared.find((r) => r.id === '${id}')`);
   eq([row.creator, row.name, row.allow_copy, row.vertical > 1000, row.doc.h === await a.ev('encodeHeights(ED.E)')], ['Moss', 'My Juniper Ridge', false, true, true], 'shared under Moss, play only, with its ground');
+  assert(/^data:image\/jpeg;base64,/.test(row.photo || ''), 'and the editor took its picture');
   assert((await dlg(a)).includes('Shared.') && await a.ev(`document.querySelector('.ed-link input').value.endsWith('?mountain=${id.slice(3)}')`), 'the dialog shows it shared, with its link');
   // a guest opens the link: who made it, and Play (no Copy while it's off)
   const db = () => a.page.evaluate(() => localStorage.getItem('FAKE_DB'));

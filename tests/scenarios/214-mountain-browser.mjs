@@ -15,6 +15,10 @@ export default async function ({ browser, url }) {
   await a.ev(`(() => { const p = { x: 0, z: -40 }; ED.tool = 'raise'; edStrokeStart(p); for (let i = 0; i < 5; i++) edBrush(p, 0.05); edStrokeEnd(); })()`);
   const second = await share('Second Bowl');
   assert(/^c:m/.test(first) && /^c:m/.test(second) && first !== second, `two shared (${first}, ${second})`);
+  // the first gets its picture from the editor (as Share it sends one); the second has none, as mountains shared before pictures
+  await a.ev(`sendMountainPhoto('${first}')`);
+  const shot = await a.page.evaluate((id) => (JSON.parse(localStorage.getItem('FAKE_DB')).shared.find((m) => m.id === id) || {}).photo || '', first);
+  assert(/^data:image\/jpeg;base64,/.test(shot) && shot.length < 120000, `the editor's picture is stored with it (${shot.length} characters)`);
   // two resorts started on the first
   await a.page.evaluate((id) => { const d = JSON.parse(localStorage.getItem('FAKE_DB')); for (const n of [1, 2]) d.rows.push({ id: 'r' + n, owner: 'x' + n, public: true, summary: { name: 'R' + n, mt: id } }); localStorage.setItem('FAKE_DB', JSON.stringify(d)); }, first);
   const db = await a.page.evaluate(() => localStorage.getItem('FAKE_DB'));
@@ -24,14 +28,18 @@ export default async function ({ browser, url }) {
   await b.ev(`__fakeSwitch('user-B', 'b@example.com')`); await b.page.reload(); await b.reloaded();
   assert(await b.ev(`!document.getElementById('mapsCard').hidden`), 'the Custom mountains card is on the title screen');
   await b.click('#mapsCard'); await b.wait(400);
-  const names = () => b.ev(`[...document.querySelectorAll('#mbList .mb-row b')].map((x) => x.textContent)`);
+  const names = () => b.ev(`[...document.querySelectorAll('#mbList .mbc > b')].map((x) => x.textContent)`);
   eq(await names(), ['Second Bowl', 'First Peak'], 'newest first');
+  await b.page.waitForFunction(() => document.querySelectorAll('#mbList .mb-pic img').length === 2, null, { timeout: 8000 });
+  const pics = await b.ev(`Object.fromEntries([...document.querySelectorAll('#mbList .mb-pic')].map((x) => [x.dataset.pic, x.querySelector('img').src]))`);
+  assert(pics[first] === shot && /^data:image\/jpeg/.test(pics[second]) && pics[second] !== shot, 'each card has a picture: the stored one, or one painted from its ground');
   await b.click('#crisis [data-mb-sort=resorts]'); await b.wait(300);
   eq(await names(), ['First Peak', 'Second Bowl'], 'most played first');
   assert((await dlg(b)).includes('2 resorts'), 'with the resorts started on each');
   // open the second: like it and give it five stars, then back to the list
   await b.ev(`document.querySelector('#mbList [data-mb-open="${second}"]').click()`); await b.wait(400);
   assert((await dlg(b)).includes('Made by Moss') && await b.ev(`!!document.querySelector('#crisis [data-like]')`), 'a mountain’s card, with Like and stars');
+  eq(await b.ev(`(document.querySelector('#crBody .mb-hero img') || {}).src === ${JSON.stringify("PICS")}`.replace('"PICS"', JSON.stringify(pics[second]))), true, 'and its picture, big');
   await b.click('#crisis [data-like]'); await b.wait(200); await b.click('#crisis [data-star="5"]'); await b.wait(200);
   eq(await b.ev(`[document.querySelector('#crisis [data-like]').textContent, document.querySelectorAll('#crisis .mb-stars .on').length]`), ['❤ Liked', 5], 'liked, and rated five stars');
   await b.click('#crisis [data-like]'); await b.wait(200); await b.click('#crisis [data-like]'); await b.wait(200); // unlike and like again
