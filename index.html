@@ -3779,7 +3779,7 @@ function recolorTerrain(i0, j0, i1, j1) {
     if (PM[idx] > 0.1) mix(COL.mud, sstep(0.1, 0.45, PM[idx]) * (1 - 0.8 * cov)); // a pond's wet banks and bed
     const rd = ROADD[idx];
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
-    if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
+    if (rd < 1.15) mix(COL.road, 1 - sstep(0.75, 1.15, rd)); // only under the asphalt (ROAD_HW): past its edge, grey paint on the ground read as smears
     if (overlay.slope && (MAP_VIEW ? viewLand(i, j) : inGridLand(i, j))) mix(DIFF[difficulty(g)].col, 0.72);
     else if (overlay.snow && inGridLand(i, j)) mix(snowDepthCol(NS[idx]), 0.72);
     if (levelDraft && !levelDraft.before) { const d = h - levelDraft.ht0[idx]; if (Math.abs(d) > 0.03) mix(d < 0 ? COL.dug : COL.built, Math.min(0.6, 0.18 + Math.abs(d) * 0.3)); }
@@ -3890,7 +3890,7 @@ function recolorFar() {
     const cd = FARCD[k], rd = FARRD[k];
     if (cd < 1.4) mix(cov > 0.5 ? COL.ice : GROUND.water, 1 - sstep(0.6, 1.4, cd));
     if (rd < 2.6) mix(COL.bank, (1 - sstep(1.9, 2.6, rd)) * cov);
-    if (rd < 1.5) mix(COL.road, 1 - sstep(1.05, 1.5, rd));
+    if (rd < 1.15) mix(COL.road, 1 - sstep(0.75, 1.15, rd)); // only under the asphalt (ROAD_HW): past its edge, grey paint on the ground read as smears
     if (overlay.slope && MAP_VIEW && viewLand(gx, gz)) mix(DIFF[difficulty(g)].col, 0.72); // the viewer: rivals' slices reach out here
     col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
   }
@@ -11945,11 +11945,49 @@ function removeLot(P) {
   toast(`Removed ${P.name} · +${money(back)} back${parks().length ? '' : '. With no parking, guests come only by bus, off-site shuttle or from your hotels.'}`, !parks().length);
   clearRDraft(); renderSheet(); scheduleSave();
 }
+// A road is built into the ground, not laid over it: its bed is level straight across, following an eased line along
+// the road, and the ground either side banks back to the hillside (a cut above, a fill below), so a road across a
+// slope doesn't tilt or ripple. Done once, when a road is built or moved: roads built before keep their ground.
+// only: which points of P are new (a rerouted access road's old stretches keep theirs). Returns the box it changed.
+const BED_W = 0.45; // level ground past the asphalt's edge, the shoulder
+function gradeRoadbed(P, hw, self, only) {
+  if (P.length < 3) return null;
+  const n = P.length, t = P.map((p) => sampleGrid(HT, p.x + HALF, p.z + HALF));
+  for (let pass = 0; pass < 4; pass++) { const s = t.slice(); for (let k = 1; k < n - 1; k++) { let a = 0, c = 0; for (let j = Math.max(0, k - 5); j <= Math.min(n - 1, k + 5); j++) { a += s[j]; c++; } t[k] = a / c; } } // the ends stay put: they meet another road, or a lot
+  const flat = hw + BED_W, reach = flat + 6;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  const i0 = Math.max(LAND.i0, Math.floor(x0 + HALF - reach)), i1 = Math.min(LAND.i1, Math.ceil(x1 + HALF + reach)), j0 = Math.max(LAND.j0, Math.floor(z0 + HALF - reach)), j1 = Math.min(LAND.j1, Math.ceil(z1 + HALF + reach));
+  const lots = lotRects(), blds = world.buildings.map((B) => boxOf(B, 0.3)), others = newLots() ? proads().filter((Q) => Q !== self).map((Q) => [proadPath(Q), rkind(Q).hw + 0.3]) : [];
+  const towers = world.lifts.flatMap((L) => [L.a, L.b, ...(L.lay && L.lay.sup ? L.lay.sup.filter((u) => !u.term).map((u) => ({ x: L.a.x + L.lay.dx * u.s, z: L.a.z + L.lay.dz * u.s, r: 1 })) : [])]);
+  let changed = false;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const p = { x: i - HALF, z: j - HALF }, idx = j * NV + i;
+    if (!inProperty(p.x, p.z)) continue;
+    let d = Infinity, k = 0, u = 0;
+    for (let q = 0; q < n - 1; q++) {
+      const a = P[q], b = P[q + 1]; if (Math.abs(a.x - p.x) > reach + 1 || Math.abs(a.z - p.z) > reach + 1) continue;
+      const dx = b.x - a.x, dz = b.z - a.z, f = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1), e = Math.hypot(p.x - a.x - dx * f, p.z - a.z - dz * f);
+      if (e < d) { d = e; k = q; u = f; }
+    }
+    if (d > reach || (only && !only[u < 0.5 ? k : k + 1])) continue;
+    const target = lerp(t[k], t[k + 1], u), bank = clamp(Math.abs(target - HT[idx]) * 2.5, 1, 6); // a gentle bank, wider the more it cuts or fills
+    let w = d <= flat ? 1 : 1 - sstep(flat, flat + bank, d);
+    if (w <= 0.001) continue;
+    w *= creekKeep(idx) * (self === MAIN_ROAD ? 1 : roadKeep(idx)); // never the creek's bed, nor the access road's
+    if (w <= 0.001 || lots.some((r) => rectDist(p, r) < 0.3) || blds.some((b) => boxDist(p, b) < 0.01) || towers.some((q) => distXZ(p, q) < (q.r || 2.5))
+      || others.some(([Q, r]) => Q.some((q) => Math.abs(q.x - p.x) < r && Math.abs(q.z - p.z) < r && distXZ(p, q) < r)) || (world.ponds.length && pondAt(p.x, p.z))) continue;
+    const nh = lerp(HT[idx], target, w);
+    if (Math.abs(nh - HT[idx]) > 1e-4) { HT[idx] = nh; changed = true; }
+  }
+  return changed ? { i0, i1, j0, j1 } : null;
+}
 function commitRoad() {
   const d = rdraft; if (!d || d.pts.length < 2 || !lotBuildable() || !roadsOk()) return;
   const info = roadCheck(d);
   if (info.problems.length || info.cost > state.cash) return;
   pushUndo(d.main ? 'rerouting the access road' : d.R ? `changing ${d.R.name}` : 'the new road');
+  const was = d.main ? roadPath().slice() : d.R ? proadPath(d.R).slice() : null; // the stretches that don't move keep their ground
   // roads that start on this one keep their junction: each moves to the nearest point on the new route
   const kids = proads().filter((Q) => Q !== d.R && (d.main ? (roadHit(proadPath(Q)[0], Q.id) || {}).R : d.R && (roadHit(proadPath(Q)[0], Q.id) || {}).road === d.R));
   if (!state.proads) state.proads = [];
@@ -11966,6 +12004,10 @@ function commitRoad() {
   clearTreeSet(info.treeSet);
   state.cash -= info.cost;
   netChanged();
+  const R = d.main ? MAIN_ROAD : d.R || proads()[proads().length - 1], P = d.main ? roadPath() : proadPath(R);
+  const only = was && P.map((p) => was.every((q) => Math.abs(q.x - p.x) > 0.7 || Math.abs(q.z - p.z) > 0.7 || distXZ(p, q) > 0.7));
+  const bed = gradeRoadbed(P, rkind(R).hw, R, only);
+  if (bed) { applyTerrainChange(bed.i0, bed.j0, bed.i1, bed.j1); roadBridges = null; refreshOnTerrain(bed.i0, bed.j0, bed.i1, bed.j1); } // and what stands on it: trails, the ribbons, lots
   for (const Q of kids) { const h = roadHit({ x: Q.pts[0][0], z: Q.pts[0][1] }, Q.id); if (h && h.d < 8) Q.pts[0] = [Math.round(h.pt.x * 100) / 100, Math.round(h.pt.z * 100) / 100]; }
   if (kids.length) netChanged();
   updateCash(true);
@@ -29736,6 +29778,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.8.1', date: 'Nov 12, 2026', title: 'Roads built into the hillside', small: true, items: [
+    'A road you build or reroute is now cut into the slope: level from side to side, with a gentle bank above and below, instead of lying tilted on the hillside.',
+    'Fixed: grey smudges on the snow along the edges of roads, most noticeable where the access road was rerouted.'] },
   { v: '4.8', date: 'Nov 12, 2026', title: 'Parking garages', items: [
     'Build parking garages: in Roads › Parking, pick Parking garage and drag to draw one, or drag across some rows of a lot to make just those rows a garage. Add up to 5 levels. Deck spaces cost more to build but less to run, and guests like a covered car on a snowy day.',
     'Thanks for the ideas, MisguidedSoul and Adum888! The map colours button (or O) now shows snow depth and which trails are lit, as well as steepness. You can charge for restrooms (free to start). The Lifts list sorts.',
