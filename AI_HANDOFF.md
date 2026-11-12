@@ -344,6 +344,10 @@ Before it, **3.15.3** (published Nov 9 by Claude on Phil's "Publish when green",
 
 ## Natural roads (published in 4.9, Nov 12)
 
+4.10.3 (Claude, Nov 12, Phil's Eagle Run): a lot or garage with no way in (`!parkReached`) looked finished on the map.
+`lotWarns` (in `updateLabels`, reset in `syncLabels`) puts a "No road in" label on each; a tap opens Roads with a hint.
+Idea not built: join a new lot to the nearest road automatically.
+
 4.10.2 (Claude, Nov 12): 4.9's `easeBends` on a custom mountain's `M.road` moved the forest along a sharply bent drawn
 road, so pre-4.9 saves failed `sv.n === trees.n` and opened blank (visitors and owners; an owner's autosave could then
 overwrite). `oldRoadSave` (start of `applySave`) regrows the forest round `catmull(doc.road, 6)` once, and if that count
