@@ -52,7 +52,9 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 - The owner decides what ships. Ideas come from player feedback (stats page, roadmap votes) as much as
   from us.
 
-## Current status (updated 2026-11-11)
+## Current status (updated 2026-11-12)
+
+**Live: 4.8 Parking garages** (published Nov 12 by Claude on Phil's "Publish", GitHub run green on b57dc4e). Garages, the Lifts list sort, map colours for snow depth and lit trails, restroom fees (free by default), summer zip lines from a mid-station, bike trails that branch and merge (80 points), and the decor card fix. Details under **Parking garages** below. GitHub runs 649 and 650 sat queued for a day with no jobs and wouldn't cancel; a manual Run workflow started fine. (Claude, Nov 12)
 
 **Live: 4.7 Learners-only carpets** (published Nov 11 on Phil's "Publish". GitHub runs 644 failed only at the Playwright install step, twice, GitHub-side; the full suite passed locally, 224 of 224, on 085860a; from a player at Spruce Heights: strong skiers rode carpets below the base area as a shortcut from the lot and crowded out learners). `L.learn` (saved, default off) is a switch on a carpet or T-bar panel (`learnerSection`, action `learnLift`, also a match knob). `canRide(L, g)` = `canLoad(L)` and not (`L.learn` and `g.ab > 0`); it replaces `canLoad` wherever a guest plans or picks a lift (`vLift` scores a barred lift −50, `vEnd`, `exitsV`, `hubChoices`, `vBase`, `baseDecision`, `topDecision`, `endOfTrail`, `liftsBeside`/`shorterLift`, `mealRoute`, `crossDone`, `arrive` hubQueue, `resumeGuest`, `toCondo`). Patrol, events, scenic rides and the lift's own loading still use `canLoad`. Upgrading a T-bar to a chair clears it. The panel warns when the lift's top leads to a guest area off base ground or to upper lifts. Scenario 218; `tests/express-routing.mjs` takes `canRide` from the game. Watch for: players who switch it on for a carpet that was the only way up to a guest area. Note: `tests/hunger.mjs` (not in the suite) already fails on main with `isRide is not defined`. (Claude, Nov 11)
 
@@ -340,7 +342,7 @@ Before it, **3.15.3** (published Nov 9 by Claude on Phil's "Publish when green",
 - Roadmap ideas added by Phil: skier obstacle avoidance, paintable base areas (real walkable zones),
   lift mid-stations (one per lift shipped in 2.77; section wind holds and night lighting, riding down, more stops left open).
 
-## Parking garages (4.8, on `ccr-7b8de241-n0yv1p`, not yet published)
+## Parking garages (published in 4.8, Nov 12)
 
 A garage is a lot (`state.parks`) with `lv` levels (2 to `GARAGE.max` = 5); no `lv` is a surface lot, so old saves need
 nothing. `parkSpaces` = a level's spaces × levels; `parkValue` prices deck spaces at `GARAGE.deck` (4) surface spaces;
@@ -367,7 +369,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-7b8de241-n0yv1p` | Claude | **4.8 Parking garages** (Phil's idea, Nov 11). Waiting for Phil's "Publish". | Nov 11, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
