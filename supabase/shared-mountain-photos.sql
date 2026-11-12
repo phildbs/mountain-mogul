@@ -8,7 +8,8 @@ do $$ begin
     check (photo is null or (octet_length(photo) < 120000 and photo ~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$'));
 exception when duplicate_object then null; end $$;
 
--- Only the maker sets (or replaces) a mountain's picture.
+-- The maker sets (or replaces) a mountain's picture. The game's owner may fill in a missing one (for mountains shared
+-- before pictures), never replace one.
 create or replace function public.set_shared_photo(pid text, pphoto text)
 returns boolean
 language plpgsql
@@ -19,7 +20,8 @@ begin
   if pphoto is null or octet_length(pphoto) >= 120000 or pphoto !~ '^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$' then
     raise exception 'bad_photo' using errcode = '22023';
   end if;
-  update shared_mountains set photo = pphoto where id = pid and owner = auth.uid();
+  update shared_mountains set photo = pphoto where id = pid and (owner = auth.uid() or (photo is null
+    and lower(coalesce(auth.jwt() ->> 'email', '')) = 'phildbs@gmail.com' and not coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)));
   if not found then raise exception 'not_yours' using errcode = '42501'; end if;
   return true;
 end;

@@ -63,6 +63,8 @@ export default async function ({ browser, url }) {
   // Look around: the mountain in 3D, read only, with its maker, totals, Like and stars, Play and Copy to edit
   await b.page.fill('#mbSearch', ''); await b.wait(600);
   await b.ev(`document.querySelector('#mbList [data-mb-open="${first}"]').click()`); await b.wait(400);
+  await b.page.waitForSelector('#smResorts .bcard', { timeout: 8000 });
+  eq(await b.ev(`[...document.querySelectorAll('#smResorts .bcard')].map((x) => [x.querySelector('b').textContent, !!x.querySelector('[data-action=visit]')])`), [['R1', true], ['R2', true]], 'its card lists the resorts built on it, each to visit');
   await b.click('#smLook'); await b.reloaded(); await b.wait(300);
   eq(await b.ev(`[LOOK, MOUNTAIN.id, NO_SAVE, document.body.classList.contains('look'), document.getElementById('title').hidden, world.ponds.length, world.ponds[0] && world.ponds[0].free]`), ['${first}', '${first}', true, true, true, 1, true].map((x) => (x === '${first}' ? first : x)), 'Look around opens the mountain read only, with its pond dug');
   assert((await b.ev(`document.getElementById('lkBy').textContent`)).includes('Made by Moss') && await b.ev(`!document.getElementById('lkCopy').hidden && !!document.querySelector('#lkRate [data-like]')`), 'its maker, Copy to edit, and Like and stars');
@@ -74,8 +76,15 @@ export default async function ({ browser, url }) {
   await b.ev(`document.querySelector('#mbList [data-mb-open="${first}"]').click()`); await b.wait(400); await b.click('#smLook'); await b.reloaded();
   await b.click('#lkPlay'); await b.reloaded();
   eq(await b.ev(`[MOUNTAIN.id, state.started, !LOOK, world.ponds.length]`), [first, true, true, 1], 'Play from Look around starts a resort on it');
+  const photoOf = (id) => b.page.evaluate((x) => (JSON.parse(localStorage.getItem('FAKE_DB')).shared.find((m) => m.id === x) || {}).photo || '', id);
+  eq(await photoOf(second), '', 'Sam looking round doesn’t give a mountain a picture');
   // the owner's stats page: totals, the reported mountain first with its reason, and Remove
   await b.page.evaluate(() => localStorage.setItem('FAKE_SESSION', JSON.stringify({ user: { id: 'owner', is_anonymous: false, email: 'phildbs@gmail.com' } })));
+  // first, the game's owner looks round the one with no picture: it gets one, and the maker's own picture stays
+  await b.page.reload(); await b.reloaded();
+  await b.ev(`(async () => { const S = await fetchShared('${second}'); sharedLook(S.doc, false); })()`); await b.reloaded();
+  await b.page.waitForFunction((x) => !!(JSON.parse(localStorage.getItem('FAKE_DB')).shared.find((m) => m.id === x) || {}).photo, second, { timeout: 10000 });
+  eq(await photoOf(first), shot, 'the owner fills in a missing picture, never replaces one');
   await b.page.goto(url + 'stats.html?owner#custom'); await b.page.waitForSelector('#custom table', { timeout: 10000 });
   const st = await b.page.innerText('#custom');
   assert(/shared\s*2/i.test(st) && /Second Bowl[\s\S]*Moss[\s\S]*Rude name[\s\S]*First Peak/.test(st) && (await b.page.innerText('#cBadge')) === '1', `stats: totals, the reported one first with its reason, a badge (${st.slice(0, 400)})`);

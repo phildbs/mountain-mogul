@@ -26575,13 +26575,33 @@ async function openSharedMountain(id, row) {
     ${mbPicHtml(id).replace('mb-pic', 'mb-pic mb-hero')}
     <p class="help">Made by <b>${esc(r.creator)}</b> in the mountain editor · ${fmtFt(Math.round(r.vertical / 10) * 10)} of vertical · ${doc.set ? esc(mapSetWords(doc.set)) : `${esc(from.name)}’s weather`}.${(doc.ponds || []).length ? ` It comes with ${doc.ponds.length === 1 ? 'a snowmaking pond' : `${doc.ponds.length} snowmaking ponds`}.` : ''}</p>
     ${sharedNums(S.row)}${rb.html}
-    <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>${SANDBOX_TICK}`,
+    <p class="help">Look around it first, or play it to start a resort of your own on it.${r.allow_copy ? ' Or copy it into your editor to make your own version.' : ''}</p>${SANDBOX_TICK}
+    <div class="field-label">Resorts on this mountain</div><div id="smResorts"><p class="help">Loading…</p></div>`,
     `<button class="btn" id="smPlay">Play this mountain</button><button class="btn secondary" id="smLook">Look around</button>${r.allow_copy ? '<button class="btn secondary" id="smCopy">Copy to edit</button>' : ''}<button class="btn secondary" id="crNo">${fromList ? 'Back to the list' : 'Not now'}</button>`);
   $('crNo').onclick = () => { if (fromList) openMapBrowser(); else { $('crisis').hidden = true; $('crisis').classList.remove('mbrowse'); } };
-  rb.wire($('crBody')); mbPics([id], doc);
+  rb.wire($('crBody')); mbPics([id], doc); smResorts(id, S.row);
   $('smPlay').onclick = () => sharedPlay(doc, sandboxTicked($('crBody')));
   $('smLook').onclick = () => sharedLook(doc, fromList);
   if (r.allow_copy) $('smCopy').onclick = () => sharedCopy(doc);
+}
+// The public resorts built on a shared mountain, biggest best day first, each to visit.
+async function smResorts(id, row) {
+  const box = () => $('smResorts');
+  const { data, error } = await CLOUD.sb.from('mountains').select('id, owner, summary, public, updated_at').eq('public', true).eq('summary->>mt', id)
+    .order('updated_at', { ascending: false }).limit(60).then((x) => x, (e) => ({ error: e }));
+  if (!box()) return;
+  if (error) { box().innerHTML = '<p class="help">Couldn’t load its resorts. Try again in a moment.</p>'; return; }
+  const list = (data || []).map((r) => ({ ...r.summary, id: r.id, owner: r.owner, updatedAt: Date.parse(r.updated_at), ...((CLOUD.social && CLOUD.social.get(r.id)) || {}) }))
+    .filter((m) => m.name).sort((a, b) => (b.bestGuests || 0) - (a.bestGuests || 0));
+  for (const m of list) if (!CLOUD.mountains.some((x) => x.id === m.id)) CLOUD.mountains.push(m); // so Visit knows its mountain
+  const hidden = Math.max(0, ((row && row.resorts) || 0) - list.length);
+  box().innerHTML = (list.length ? `<ul class="bcards">${list.map((m) => browseCard(m, null, m.owner === CLOUD.uid || m.id === slots.active)).join('')}</ul>` : '<p class="help">No public resorts on it yet. Be the first!</p>')
+    + (hidden ? `<p class="help">${hidden === 1 ? 'One more is' : `${hidden} more are`} private.</p>` : '');
+  box().onclick = (e) => {
+    const b = e.target.closest('[data-action]'); if (!b) return;
+    $('crisis').hidden = true; $('crisis').classList.remove('mbrowse');
+    if (b.dataset.action === 'visit') visitResort(b.dataset.v); else if (b.dataset.action === 'creator') openCreator(b.dataset.v);
+  };
 }
 /* ---------- Look around (?look=): a shared mountain in 3D, read only, with Play, Copy to edit, Like and stars ---------- */
 function lookStart() {
@@ -26636,6 +26656,8 @@ async function lookLoad() {
   $('lkCopy').hidden = !S.r.allow_copy;
   const rb = await rateBox(S);
   $('lkRate').innerHTML = sharedNums(S.row) + rb.html; rb.wire($('lkRate'));
+  // shared before pictures: its maker (or the game's owner, filling the gaps) looking round it takes one
+  if (S.r.owner === CLOUD.uid || isOwner()) CLOUD.sb.from('shared_mountains').select('id, photo').eq('id', S.r.id).then(({ data: p }) => { if (p && p[0] && !p[0].photo) sendMountainPhoto(S.r.id); }, () => {});
 }
 // Opened from a share link: visit that resort, or explain why not.
 async function visitFromLink(id) {
@@ -29915,9 +29937,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '4.10', date: 'Nov 12, 2026', title: 'Pictures of custom mountains', items: [
+  { v: '4.10', date: 'Nov 12, 2026', title: 'Custom mountain pictures and resorts', items: [
     'Custom mountains shows each shared mountain as a card with a picture, and a mountain’s own card shows it big.',
-    'Sharing a mountain from the editor takes its picture. Mountains shared before now get a painted picture of their ground, like the title screen’s.',
+    'Sharing a mountain from the editor takes its picture. Mountains shared before now show a painted picture of their ground until they get one.',
+    'A shared mountain’s card lists the public resorts built on it, biggest first. Press Visit to look round any of them.',
   ] },
   { v: '4.9.1', date: 'Nov 12, 2026', title: 'Summer buildings in winter', small: true, items: [
     'Summer-only buildings (event pavilions, zip lines and bike trails) no longer show a loss every winter day. They cost nothing while shut, so the Buildings list now says they’re shut until summer and shows their last summer day instead. Rental shops, ski schools and the like do the same in summer. Thanks Adum888!',

@@ -160,7 +160,7 @@
         put(d); return { data: null, error: null };
       }
       let rows = d.rows.filter((r) => r.public || r.owner === me);
-      for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v);
+      for (const [c, v] of q.filters) rows = rows.filter((r) => { const j = /^(\w+)->>(\w+)$/.exec(c); return (j ? (r[j[1]] || {})[j[2]] : r[c]) === v; }); // and json fields, summary->>mt
       for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c]));
       if (q.op === 'delete') { const ids = new Set(rows.filter((r) => r.owner === me).map((r) => r.id)); d.rows = d.rows.filter((r) => !ids.has(r.id)); put(d); return { data: null, error: null }; }
       const cols = q.cols.split(',').map((c) => c.trim());
@@ -417,7 +417,8 @@
         const ex = (d.shared || []).find((r) => r.id === args.pid);
         if (d.noShared || d.noPhotos) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
         if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(args.pphoto || '') || args.pphoto.length >= 120000) return { data: null, error: { code: '22023', message: 'bad_photo' } };
-        if (!ex || ex.owner !== me) return { data: null, error: { code: '42501', message: 'not_yours' } };
+        const boss = ((sess() || {}).user || {}).email === 'phildbs@gmail.com' && ex && !ex.photo; // the game's owner fills a missing one
+        if (!ex || (ex.owner !== me && !boss)) return { data: null, error: { code: '42501', message: 'not_yours' } };
         ex.photo = args.pphoto; put(d); return { data: true, error: null };
       }
       if (fn === 'share_mountain' || fn === 'set_shared_copy') { // as supabase/shared-mountains.sql
