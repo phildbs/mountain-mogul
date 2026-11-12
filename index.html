@@ -4576,8 +4576,30 @@ function saveData(withSim) {
 }
 function clearSave() { if (NO_SAVE) return; try { if (saveKey()) localStorage.removeItem(saveKey()); } catch (e) { /* ignore */ } }
 
+// 4.9 rounded the tight bends of a hand-drawn access road (easeBends), which moved the forest along it by a tree or two,
+// so a resort saved before then no longer matched its mountain (sv.n) and opened as a blank one, for visitors and its
+// owner alike (Phil, Nov 12). Grow the forest once more round the road as it was, and carry the save's felled trees
+// across to the same trees now: each tree grows at the same spot whichever road it was grown round.
+function oldRoadSave(sv) {
+  const D = MOUNTAIN.doc;
+  if (!sv || sv.n === trees.n || !MOUNTAIN.hand || !D || !D.road || (sv.mt || 'juniper') !== MOUNTAIN.id || typeof sv.trees !== 'string') return sv;
+  const keep = [HT, ROADD, CREEKD, GR, HAZEV].map((a) => a.slice()), was = { ...trees }, cells = cellTrees.slice();
+  let old = null;
+  try { generate({ ...MOUNTAIN, road: catmull(D.road, 6) }); old = { n: trees.n, x: trees.x, cell: trees.cell }; }
+  catch (e) { old = null; }
+  finally { [HT, ROADD, CREEKD, GR, HAZEV].forEach((a, i) => a.set(keep[i])); for (const k of Object.keys(trees)) delete trees[k]; Object.assign(trees, was); cellTrees.set(cells); }
+  if (!old || old.n !== sv.n) return sv;
+  let s; try { s = atob(sv.trees); } catch (e) { return sv; }
+  const felled = new Set();
+  for (let k = 0; k < old.n; k++) if ((s.charCodeAt(k >> 3) || 0) & (1 << (k & 7))) felled.add(old.cell[k] + ':' + old.x[k]);
+  const bytes = new Uint8Array(Math.ceil(trees.n / 8));
+  for (let k = 0; k < trees.n; k++) if (felled.has(trees.cell[k] + ':' + trees.x[k])) bytes[k >> 3] |= 1 << (k & 7);
+  let b = ''; for (let i = 0; i < bytes.length; i += 4096) b += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
+  return { ...sv, n: trees.n, trees: btoa(b) };
+}
 function applySave(sv) {
-  { const s = !visiting && !practice && !matchPlay && sv && activeSlot(); if (s) s.baseAt = sv.savedAt || s.savedAt || 0; } // how old the resort now on screen is (see onlineIsAhead); online copies have savedAt 0 and their time on the slot
+  sv = oldRoadSave(sv);
+  { const s =!visiting && !practice && !matchPlay && sv && activeSlot(); if (s) s.baseAt = sv.savedAt || s.savedAt || 0; } // how old the resort now on screen is (see onlineIsAhead); online copies have savedAt 0 and their time on the slot
   levelDraft = null; clearUndo(); heatStamp = null; profitStamp = null;
   trees.alive.fill(1);
   cellTrees.set(trees.cellCount);
@@ -29946,6 +29968,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.10.2', date: 'Nov 12, 2026', title: 'Custom mountain resorts open again', small: true, items: [
+    'Resorts on some custom mountains opened as an empty mountain in November, for visitors and their owners, after 4.9 rounded off sharp bends in hand-drawn roads. They open as they were again, with their lifts, trails and cleared trees.',
+  ] },
   { v: '4.10.1', date: 'Nov 12, 2026', title: 'Lot entrances you can see', small: true, items: [
     'A lot that opens straight onto the access road now has a paved entrance with rounded corners, in road asphalt, so you can see where cars turn in.',
   ] },
