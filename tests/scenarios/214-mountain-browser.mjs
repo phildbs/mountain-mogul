@@ -65,7 +65,8 @@ export default async function ({ browser, url }) {
   // Look around: the mountain in 3D, read only, with its maker, totals, Like and stars, Play and Copy to edit
   await b.page.fill('#mbSearch', ''); await b.wait(600);
   await b.ev(`document.querySelector('#mbList [data-mb-open="${first}"]').click()`); await b.wait(400);
-  await b.page.waitForSelector('#smResorts .bcard', { timeout: 8000 });
+  await b.click('#crisis .sm-resorts summary'); await b.page.waitForSelector('#smResorts .bcard', { state: 'visible', timeout: 8000 });
+  assert(await b.ev(`document.getElementById('smPlay').compareDocumentPosition(document.getElementById('smResorts')) & Node.DOCUMENT_POSITION_FOLLOWING`), 'the buttons come before its resorts, which fold away');
   eq(await b.ev(`[...document.querySelectorAll('#smResorts .bcard')].map((x) => [x.querySelector('b').textContent, !!x.querySelector('[data-action=visit]')])`), [['R1', true], ['R2', true]], 'its card lists the resorts built on it, each to visit');
   await b.click('#smLook'); await b.reloaded(); await b.wait(300);
   eq(await b.ev(`[LOOK, MOUNTAIN.id, NO_SAVE, document.body.classList.contains('look'), document.getElementById('title').hidden, world.ponds.length, world.ponds[0] && world.ponds[0].free]`), ['${first}', '${first}', true, true, true, 1, true].map((x) => (x === '${first}' ? first : x)), 'Look around opens the mountain read only, with its pond dug');
