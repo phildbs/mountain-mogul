@@ -344,6 +344,12 @@ Before it, **3.15.3** (published Nov 9 by Claude on Phil's "Publish when green",
 
 ## Natural roads (published in 4.9, Nov 12)
 
+4.10.2 (Claude, Nov 12): 4.9's `easeBends` on a custom mountain's `M.road` moved the forest along a sharply bent drawn
+road, so pre-4.9 saves failed `sv.n === trees.n` and opened blank (visitors and owners; an owner's autosave could then
+overwrite). `oldRoadSave` (start of `applySave`) regrows the forest round `catmull(doc.road, 6)` once, and if that count
+matches, maps felled trees across by (cell, x). Lesson: anything feeding `groundAt`/`growForest` changes `trees.n` and
+breaks old saves; scenario 224 covers it. DB check Nov 12: no custom-mountain resort looked wiped online.
+
 4.10.1 (Claude, Nov 12, Phil's screenshots of Hawk Heights): a lot opening straight onto the access road (`reach > 0` in
 `buildParks`) now gets a road-asphalt apron plus a curb-rounded mouth over the road's edge line (`flarePts` from the road
 edge, `PAD_R`, renderOrder 2.6). Before, it was a thin lane-grey strip that didn't read as an entrance. Lots and roads
