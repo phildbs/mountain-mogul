@@ -4405,7 +4405,7 @@ function scheduleSave() {
 }
 let lastSaveLen = 0;
 function saveNow() {
-  if (NO_SAVE || matchPlay || leaving) return;
+  if (NO_SAVE || matchPlay || leaving || staleFor) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   let stored = false;
@@ -4562,7 +4562,7 @@ function useSlotIn(id, sv, then) {
 // The whole resort as plain data. Cloud copies leave out the day in progress.
 function saveData(withSim) {
   return {
-      v: 3, mt: MOUNTAIN.id, map: MOUNTAIN.hand ? MOUNTAIN.doc : undefined, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
+      v: 3, gv: VERSION, mt: MOUNTAIN.id, map: MOUNTAIN.hand ? MOUNTAIN.doc : undefined, photo: !practice && !visiting && validResortPhoto(activeSlot()?.photo) ? activeSlot().photo : undefined, savedAt: Date.now(), n: trees.n, cash: state.cash, cleared: state.cleared, trees: encodeCleared(), world: serializeWorld(),
       clock: { day: state.day, phase: state.phase, time: state.time, speed: state.speed, ticket: state.ticket, lotSections: state.lotSections, lotLayout: state.lotLayout, parks: state.parks, proads: state.proads, mainRoad: state.mainRoad, reputation: state.reputation, repLog: state.repLog, lastReport: state.lastReport, dayUse: state.dayUse, prices: state.prices,
         season: state.season, referralPromptSeason: state.referralPromptSeason, referralCredit: state.referralCredit, wx: state.wx, treeSnow: state.treeSnow, seasonStats: state.seasonStats, nightCost: state.nightCost, summer: state.summer, sum: state.sum, sumLen: state.sumLen, baseSm: state.baseSm,
         records: state.records, resortName: state.resortName, creator: state.creator, isPublic: state.isPublic, tut: state.tut, debt: state.debt, intAcc: state.intAcc, ohAcc: state.ohAcc, leaseAcc: state.leaseAcc, grads: state.grads || undefined, smAcc: state.smAcc, smNights: state.smNights, rebated: state.rebated, nightRebated: state.nightRebated,
@@ -4597,8 +4597,28 @@ function oldRoadSave(sv) {
   let b = ''; for (let i = 0; i < bytes.length; i += 4096) b += String.fromCharCode.apply(null, bytes.subarray(i, i + 4096));
   return { ...sv, n: trees.n, trees: btoa(b) };
 }
+// Any other change to how a mountain's forest grows leaves its saves a few trees off. A resort used to open blank then,
+// and its autosave wiped it (a guest on Juniper Ridge's road, Nov 13: a tab still on an old version, open beside a new
+// one). Open it with everything it has: the felled trees carried across in order, which is off by a tree at most past
+// the change while only a few trees differ; past that, the forest grows back over it rather than leaving odd gaps.
+function nearTreeSave(sv) {
+  if (!sv || sv.n === trees.n || !(sv.n > 0) || (sv.mt || 'juniper') !== MOUNTAIN.id || typeof sv.trees !== 'string') return sv;
+  const close = Math.abs(sv.n - trees.n) <= Math.max(30, trees.n * 0.005);
+  noteError(`A resort’s trees didn’t match its mountain (${close ? 'kept' : 'regrown'})`, '', { mt: MOUNTAIN.id, n: trees.n, saved: sv.n, gv: sv.gv || null });
+  return { ...sv, n: trees.n, trees: close ? sv.trees : '' };
+}
+// A save made by a newer version than this page (another tab, or an app left open for days): this page might read it
+// wrongly, so it saves nothing over it until it's reloaded into the new version.
+let staleFor = '';
+function checkStale(sv) {
+  if (visiting || practice || matchPlay || !sv || typeof sv.gv !== 'string' || !newerVer(sv.gv, VERSION)) return;
+  staleFor = sv.gv; updateOffered = sv.gv;
+  $('updateBar').querySelector('span').textContent = `This resort was saved by version ${sv.gv}, newer than this page. Reload to keep playing: progress here isn’t saved.`;
+  $('updateBar').hidden = false;
+}
 function applySave(sv) {
-  sv = oldRoadSave(sv);
+  checkStale(sv);
+  sv = nearTreeSave(oldRoadSave(sv));
   { const s =!visiting && !practice && !matchPlay && sv && activeSlot(); if (s) s.baseAt = sv.savedAt || s.savedAt || 0; } // how old the resort now on screen is (see onlineIsAhead); online copies have savedAt 0 and their time on the slot
   levelDraft = null; clearUndo(); heatStamp = null; profitStamp = null;
   trees.alive.fill(1);
@@ -25964,7 +25984,7 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual, forReferral = false) {
-  if (NO_SAVE || matchPlay || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite) return;
+  if (NO_SAVE || matchPlay || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite || staleFor) return;
   if (refClaimBusy && !forReferral) { scheduleCloud(); return; }
   const slot = activeSlot(), uploadUid = CLOUD.uid;
   // Never save over another account's mountain that is sitting on this device.
@@ -30025,6 +30045,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.10.7', date: 'Nov 13, 2026', title: 'Resorts never open empty', small: true, items: [
+    'A resort on a hand-shaped mountain could open as an empty new resort after an update, and then save over itself, if the game was still open in another tab on an older version. Now it always opens with everything you built, and a tab on an older version tells you to reload instead of saving over newer progress. Sorry to the player who lost their resorts, and thanks for telling us.'] },
   { v: '4.10.6', date: 'Nov 13, 2026', title: 'Second bases on higher ground', small: true, items: [
     'On hand-shaped mountains, a second base built up on higher ground now works like any other: its lifts start from the base and cars park in its lot. Before, only ground near the lowest point of the map counted as a base, so cars mostly passed it by. Thanks to the player who sent this in!'] },
   { v: '4.10.5', date: 'Nov 13, 2026', title: 'Lot lights go with the lot', small: true, items: [

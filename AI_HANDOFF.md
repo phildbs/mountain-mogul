@@ -347,6 +347,22 @@ Before it, **3.15.3** (published Nov 9 by Claude on Phil's "Publish when green",
 
 ## Natural roads (published in 4.9, Nov 12)
 
+4.10.7 (Claude, Nov 13, a guest's feedback "where did my mountain go"): both of a guest's hand-shaped resorts (same
+drawn road, a right-angle bend at u 0.956, off the land) are blank online, Season 1, Dec 10, 0 lifts, saved under the
+name "Juniper Ridge". Their mountain grows 26,641 trees from 4.9 on and 26,640 before (`easeBends`); the blank copy online
+has `n` 26,640, so a **pre-4.9 page** wrote it. The likely story: a tab or app left open from before 4.9 (the update bar
+can be ignored) beside a new one. Each page fails the other's tree count. The old page has no `oldRoadSave`, so it opens
+blank and its autosave goes over the resort, here and online. No history table, so their progress can't be brought back.
+Tested on their real document (id `c:m17v131h0ktvjp5` checks out): saves made on 4.8.1 or 4.9 open fine on 4.10.2 and
+4.10.3, and the forest code is unchanged from Nov 9 except `mapMountain`'s `easeBends`. Fix, client only:
+`nearTreeSave` (in `applySave`, after `oldRoadSave`) opens a save whose `n` is off. Within max(30, 0.5%) the felled bits
+carry across by index (trees are grown cell by cell in order, so past the change it's off by a tree at most). Further off,
+the forest stands. Either way it sends a "didn’t match its mountain" error to the stats page. Saves now carry `gv`
+(VERSION). `checkStale` turns on `staleFor` when an own save's `gv` is newer than this page: `saveNow` and `cloudSave`
+stop, and the update bar says to reload. Scenario 227. Other hand-shaped resorts that look wiped the same way: 1 more
+(3 of 99 updated in 5 days). Idea not built: a database trigger refusing an upload with no `gv` over a save that has one.
+That would also stop pages from before this release.
+
 4.10.3 (Claude, Nov 12, Phil's Eagle Run): a lot or garage with no way in (`!parkReached`) looked finished on the map.
 `lotWarns` (in `updateLabels`, reset in `syncLabels`) puts a "No road in" label on each; a tap opens Roads with a hint.
 Idea not built: join a new lot to the nearest road automatically.
@@ -404,6 +420,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
+| `claude/new-session-7rpfw9` | Claude | **4.10.7 Resorts never open empty**: a save a few trees off no longer opens blank; a page older than its save won't save over it. Waiting for Phil's Publish. | Nov 13, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
 | `ccr-3b16a015-2s6ndk` | Claude | **3.8.4 to 3.11 published Nov 6 (leveled ground stays put; leveling draft; snowmaking ponds; bigger rentals, schools and camps).** `restoreTerrain`'s old-save repairs (creek bed, roadbed) ran on every load and every undo, pulling leveled ground beside the road back about 1 unit over 3 reloads. New saves carry `tv: 1` and skip them. Next on this thread: land-edit preview (Apply/Cancel), then painted snowmaking ponds and pumphouses. | Nov 6, 2026 |
 | `ccr-373e923a-qdafh9` | Claude | **2.83 to 2.83.5 King of the Mountain beta published Nov 2.** The Hetzner match server follows the branch named in `match/server-branch.txt` (`main` from Nov 2, 23:5x UTC): it writes a systemd override (`/etc/systemd/system/mm-match.service.d/branch.conf`) and restarts when that file names another branch. So only published code runs live matches. First Beta Cup lobby is live in the DB, starting Nov 2 23:00 UTC (6 pm EST). Multiplayer groundwork: test match runner (`match/`), server setup, Crown Peak 3-player match map (`?matchMap=1`, wedge-shaped land via `MOUNTAIN.area`, never saves). Not for release yet. | Nov 2, 2026 |
