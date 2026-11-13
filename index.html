@@ -5217,9 +5217,10 @@ function isBase(p) {
   if (!inProperty(p.x, p.z)) return false;
   // Low ground only counts where you can walk to it from a parking lot without going over the mountain. Behind
   // Ridgeback's ridge the land is as low as the lots, but guests who finished there walked home over the summit.
-  const R = baseReach(); if (!R) return trueY(p.x, p.z) < MOUNTAIN.baseH + 3.5;
+  const R = baseReach(), y = trueY(p.x, p.z); if (!R) return y < MOUNTAIN.baseH + 3.5;
+  // R holds how high the base ground reaching each corner goes, plus 1000 so ground below 0 still counts (0 where none does)
   const i = Math.floor(clamp(p.x + HALF, 0, WN - 1)), j = Math.floor(clamp(p.z + HALF, 0, WN - 1)), k = j * NV + i;
-  return !!(R[k] | R[k + 1] | R[k + NV] | R[k + NV + 1]);
+  return y + 1000 < Math.max(R[k], R[k + 1], R[k + NV], R[k + NV + 1]);
 }
 // The low ground joined to a lot, worked out again when the land or the terrain changes.
 let baseReachMemo = null;
@@ -5238,8 +5239,8 @@ function baseReach() {
   try { sites = newLots() ? baseList().flatMap((b) => b.pts) : Array.from({ length: baseCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
   // Base ground is as low as the lot's own (siteFloor): the highest-sitting lots spread first, so the lower ones stop
   // where it's already base.
-  sites = sites.map((s) => ({ x: s.x, z: s.z, top: siteFloor(s) + 3.5 })).sort((a, b) => b.top - a.top);
-  const R = new Uint8Array(NV * NV), stack = [];
+  sites = sites.map((s) => ({ x: s.x, z: s.z, top: siteFloor(s) + 3.5, mark: siteFloor(s) + 1003.5 })).sort((a, b) => b.top - a.top);
+  const R = new Float32Array(NV * NV), stack = [];
   let any = false;
   for (const s of sites) {
     const low = (k) => HT[k] < s.top && inGridLand(k % NV, Math.floor(k / NV));
@@ -5249,13 +5250,13 @@ function baseReach() {
     for (let j = Math.max(0, sj - 40); j <= Math.min(WN, sj + 40); j++) for (let i = Math.max(0, si - 40); i <= Math.min(WN, si + 40); i++) {
       const k = j * NV + i; if (!low(k)) continue;
       const d = (i - si) ** 2 + (j - sj) ** 2;
-      if (d <= 14 * 14) { R[k] = 1; stack.push(k); } else if (d < nd) { nd = d; near = k; }
+      if (d <= 14 * 14) { R[k] = R[k] || s.mark; stack.push(k); } else if (d < nd) { nd = d; near = k; }
     }
-    if (near >= 0 && stack.length === n0) { R[near] = 1; stack.push(near); }
+    if (near >= 0 && stack.length === n0) { R[near] = R[near] || s.mark; stack.push(near); }
     any = any || stack.length > 0;
     while (stack.length) {
       const k = stack.pop(), i = k % NV;
-      for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = 1; stack.push(m); }
+      for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = s.mark; stack.push(m); }
     }
   }
   if (!any) return null; // no lot on low ground: every low spot is base, as before
