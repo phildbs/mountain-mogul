@@ -93,8 +93,12 @@ export default async function ({ browser, url }) {
     const old = JSON.parse(JSON.stringify(sv)); delete old.clock.parks; delete old.clock.proads; delete old.clock.mainRoad; old.clock.lotSections = 3; old.clock.lotLayout = [[0, 0], [0, 1], [1, 0]];
     old.clock.ops = { plans: { weekday: { lots: 2 } } }; applySave(old);
     const conv = { lots: parks().length, spaces: stalls.length, reached: parks().map((Q, i) => parkReached(i)), joins: parkJoins().map((J) => J.length), off: (state.ops.plans.weekday.lotsOff || []).length };
-    applySave(sv); for (const P of [...parks()]) removeLot(P);
-    return { back, conv, none: [parks().length, stalls.length] }; })()`);
+    applySave(sv); updateEveningGlow(); const poles = [lotPoleList.length, lotPoleMesh.count];
+    removeLot(parks()[1]); updateEveningGlow(); const fewer = [lotPoleList.length, lotPoleMesh.count, lotPoles().length]; // a lot that isn't the first (a player's lamps stayed, Nov 12)
+    for (const P of [...parks()]) removeLot(P); updateEveningGlow();
+    return { back, conv, none: [parks().length, stalls.length], poles, fewer, gone: [lotPoleList.length, lotPoleMesh.count] }; })()`);
+  assert(s.fewer[0] < s.poles[0] && s.fewer[0] === s.fewer[2] && s.fewer[1] === s.fewer[0], `removing a lot takes its light poles with it (${s.poles} then ${s.fewer})`);
+  eq(s.gone, [0, 0], 'no lots, no light poles');
   eq(s.back, { lots: 3, roads: 1, main: true, reached: [true, true, true], spaces: 228 }, 'saved and loaded');
   eq([s.conv.lots, s.conv.spaces, s.conv.reached, s.conv.joins, s.conv.off], [2, 288, [true, true], [1, 1], 1], 'an old two-row main lot: two joined lots, 288 spaces, the closed section closes its row');
   eq(s.none, [0, 0], 'every lot can go');
