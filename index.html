@@ -5214,24 +5214,35 @@ scene.add(trailGroup, liftGroup, draftGroup);
 const distXZ = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const trueY = (x, z) => heightAt(x, z) / VEX;
 function isBase(p) {
-  if (!inProperty(p.x, p.z) || trueY(p.x, p.z) >= MOUNTAIN.baseH + 3.5) return false;
+  if (!inProperty(p.x, p.z)) return false;
   // Low ground only counts where you can walk to it from a parking lot without going over the mountain. Behind
   // Ridgeback's ridge the land is as low as the lots, but guests who finished there walked home over the summit.
-  const R = baseReach(); if (!R) return true;
+  const R = baseReach(); if (!R) return trueY(p.x, p.z) < MOUNTAIN.baseH + 3.5;
   const i = Math.floor(clamp(p.x + HALF, 0, WN - 1)), j = Math.floor(clamp(p.z + HALF, 0, WN - 1)), k = j * NV + i;
   return !!(R[k] | R[k + 1] | R[k + NV] | R[k + NV + 1]);
 }
 // The low ground joined to a lot, worked out again when the land or the terrain changes.
 let baseReachMemo = null;
 const BASE_HILL = 10; // more of a climb than this between a lot and a spot (in height units) puts the spot over the hill
+// The level a lot's base ground is measured from: the lowest ground on the land, or the lot's own ground when it sits
+// well above that. A hand-shaped mountain's second base up on a shelf had no base ground at all, so its lifts weren't
+// "from the base" and cars wouldn't park there (Nov 13). The built-in mountains' lots all sit within 2 of the lowest ground.
+const siteFloor = (p) => Math.max(MOUNTAIN.baseH, trueY(p.x, p.z) - 2);
+// A base's floor: its highest lot's. Walks between bases may climb as high as the higher one's base ground.
+const baseFloor = (k) => { try { const b = baseList()[k]; return b ? b.floor : MOUNTAIN.baseH; } catch (e) { return MOUNTAIN.baseH; } };
+const baseTop2 = (za, zb) => Math.max(baseFloor(za), baseFloor(zb)) + 3.5;
 function baseReach() {
   const M = baseReachMemo;
   if (M && M.rev === terrainRev && M.land === landRects && M.net === netRev && M.ref === state.parks) return M.R;
   let sites;
   try { sites = newLots() ? baseList().flatMap((b) => b.pts) : Array.from({ length: baseCount() }, (_, n) => lotSite(n)); } catch (e) { return null; } // the road isn't laid out yet
-  const low = (k) => HT[k] < MOUNTAIN.baseH + 3.5 && inGridLand(k % NV, Math.floor(k / NV));
+  // Base ground is as low as the lot's own (siteFloor): the highest-sitting lots spread first, so the lower ones stop
+  // where it's already base.
+  sites = sites.map((s) => ({ x: s.x, z: s.z, top: siteFloor(s) + 3.5 })).sort((a, b) => b.top - a.top);
   const R = new Uint8Array(NV * NV), stack = [];
+  let any = false;
   for (const s of sites) {
+    const low = (k) => HT[k] < s.top && inGridLand(k % NV, Math.floor(k / NV));
     // Start from the low ground round each lot (or the nearest, if the lot itself sits a little high).
     const si = Math.round(s.x + HALF), sj = Math.round(s.z + HALF), n0 = stack.length;
     let near = -1, nd = Infinity;
@@ -5241,12 +5252,13 @@ function baseReach() {
       if (d <= 14 * 14) { R[k] = 1; stack.push(k); } else if (d < nd) { nd = d; near = k; }
     }
     if (near >= 0 && stack.length === n0) { R[near] = 1; stack.push(near); }
+    any = any || stack.length > 0;
+    while (stack.length) {
+      const k = stack.pop(), i = k % NV;
+      for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = 1; stack.push(m); }
+    }
   }
-  if (!stack.length) return null; // no lot on low ground: every low spot is base, as before
-  while (stack.length) {
-    const k = stack.pop(), i = k % NV;
-    for (const m of [i > 0 ? k - 1 : -1, i < WN ? k + 1 : -1, k - NV, k + NV]) if (m >= 0 && m < NV * NV && !R[m] && low(m)) { R[m] = 1; stack.push(m); }
-  }
+  if (!any) return null; // no lot on low ground: every low spot is base, as before
   // Guests walk straight across the base, so low ground only counts where the way from a lot doesn't climb a hill
   // on the way. With the land behind the mountain bought, the low ground joins up all the way round, and guests
   // walked from the front lots over the top to lifts and buses on the backside (Snowy Summit, Ridgeback).
@@ -10978,10 +10990,11 @@ function baseList() {
   const flat = []; B.forEach((b, k) => { for (const q of b.pts) flat.push({ x: q.x, z: q.z, k }); });
   // A base of yours on the same low ground as another is a walk away: a lot built far along the valley used to be
   // part of the base, and its guests walked over. The map's own bases still need a gondola or shuttle between them.
-  const top = MOUNTAIN.baseH + 3.5, walk = B.map(() => B.map(() => null));
+  B.forEach((b) => { b.floor = Math.max(MOUNTAIN.baseH, ...b.pts.map(siteFloor)); });
+  const walk = B.map(() => B.map(() => null));
   for (let i = 0; i < B.length; i++) for (let j = i + 1; j < B.length; j++) {
     if (B[i].map && B[j].map) continue;
-    let w = null;
+    let w = null; const top = Math.max(B[i].floor, B[j].floor) + 3.5;
     for (const p of B[i].pts) for (const q of B[j].pts) {
       const d = Math.hypot(q.x - p.x, q.z - p.z); if (w && d >= w.d) continue;
       let low = true; for (let s = 1, n = Math.ceil(d / 1.5); s < n && low; s++) low = trueY(p.x + (q.x - p.x) * s / n, p.z + (q.z - p.z) * s / n) < top;
@@ -12943,8 +12956,9 @@ function linkCost(za, zb) {
 // Can a guest at the base walk straight from p to q: the same base, or low ground all the way? Shops, schools and the
 // scenic gondola at another base over a hill were walked to straight over it.
 function onFoot(p, q) {
-  if (baseCount() < 2 || baseOf(p) === baseOf(q)) return true;
-  const top = MOUNTAIN.baseH + 3.5, d = Math.hypot(q.x - p.x, q.z - p.z);
+  if (baseCount() < 2) return true;
+  const zp = baseOf(p), zq = baseOf(q); if (zp === zq) return true;
+  const top = baseTop2(zp, zq), d = Math.hypot(q.x - p.x, q.z - p.z);
   for (let i = 1, n = Math.ceil(d / 1.5); i < n; i++) if (trueY(p.x + (q.x - p.x) * i / n, p.z + (q.z - p.z) * i / n) >= top) return false;
   return true;
 }
@@ -12954,7 +12968,7 @@ function walkOver(g, p, zone) {
   for (const L of villageLifts(zg, zone)) { const e = baseOf(L.a) === zg ? 'a' : 'b', f = e === 'a' ? 'b' : 'a'; via = Math.min(via, distXZ(L[e], g) + distXZ(L[f], p)); }
   if (baseShuttle(zg, zone)) for (const A of zoneStations(zg)) for (const B of zoneStations(zone)) via = Math.min(via, distXZ(A.door, g) + distXZ(B.door, p));
   if (!(d < via)) return false;
-  const top = MOUNTAIN.baseH + 3.5; // as low as base ground (the ends of a big lot can be off it)
+  const top = baseTop2(zg, zone); // as low as base ground (the ends of a big lot can be off it)
   for (let i = 1, n = Math.ceil(d / 1.5); i < n; i++) if (trueY(g.x + (p.x - g.x) * i / n, g.z + (p.z - g.z) * i / n) >= top) return false;
   return true;
 }
@@ -30010,6 +30024,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.10.6', date: 'Nov 13, 2026', title: 'Second bases on higher ground', small: true, items: [
+    'On hand-shaped mountains, a second base built up on higher ground now works like any other: its lifts start from the base and cars park in its lot. Before, only ground near the lowest point of the map counted as a base, so cars mostly passed it by. Thanks to the player who sent this in!'] },
   { v: '4.10.5', date: 'Nov 13, 2026', title: 'Lot lights go with the lot', small: true, items: [
     'Removing a parking lot now takes its light poles with it. Before, the poles of any lot but the first could stay standing on the empty ground. Thanks to the player who sent this in!'] },
   { v: '4.10.4', date: 'Nov 12, 2026', title: 'Smarter restroom stops', small: true, items: [
