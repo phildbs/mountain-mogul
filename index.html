@@ -13553,7 +13553,7 @@ function makeGuest(car, x, z) {
     seen: {}, seenLift: {}, runs: 0, vert: 0, th: [], st: 'walk', x, z, tx: x, tz: z, yaw: 0, then: null,
     leaving: false, onSkis: false, T: null, L: null, s: 0, nb: 0, ns: 0, chair: -1, seat: 0, qStart: 0,
     spend: 0.7 + Math.random() * 0.6, fancy: Math.random() < 0.25, apres: Math.random() < 0.3, apresDone: false,
-    lunchAt: clamp(735 + gaussian() * 35, 670, 830), ate: false, skipped: false, bl: Math.random() * 0.4, blRate: 150 + Math.random() * 110,
+    lunchAt: clamp(735 + gaussian() * 35, 670, 830), arrT: state.time, ate: false, skipped: false, bl: Math.random() * 0.4, blRate: 150 + Math.random() * 110,
     warmed: false, needsRental: Math.random() < [0.75, 0.3, 0.1, 0.04][ab], wantsLesson: ab === 0 && Math.random() < 0.45, lessoned: false,
     bus: false, bid: null, svc: null, resume: null, deck: -1,
     // Fields set later in the day, declared up front (undefined reads exactly as a missing field and is not saved)
@@ -18806,14 +18806,19 @@ function rejectedMeal(g, svc) {
   const r = retries[svc] || (retries[svc] = { price: svcPrice(svc) });
   return svcPrice(svc) >= r.price;
 }
+// Guests turn hungry 75 minutes after lunchtime, or after arriving if they came later than that (a busy town bus): they
+// were counted hungry, with "nowhere to eat", the moment they got off the bus. Arriving from 1:30 they ate on the way:
+// they still look for food, but going without isn't a missed lunch.
+const hungryAt = (g) => (g.arrT >= LUNCH_CLOSE - 30 ? Infinity : Math.max(g.lunchAt, g.arrT || 0) + 75);
 // Settle at actual departure, once, so a delayed lunch is never reported as leaving unfed.
 function recordMealOutcome(g) {
   if (g.mealRecorded || g.night || g.local || ((g.sight || g.sawView) && !summerNow()) || (g.homeAt ?? state.time) < g.lunchAt) return;
+  const eating = g.st === 'inside' && MEAL_SVCS.includes(g.svc), fed = (g.ate && !g.skipped) || eating;
+  if (!fed && hungryAt(g) === Infinity) return;
   g.mealRecorded = true;
   const m = today.meals || (today.meals = { onTime: 0, delayed: 0, missed: 0 });
-  const eating = g.st === 'inside' && MEAL_SVCS.includes(g.svc);
-  if ((g.ate && !g.skipped) || eating) {
-    m[g.hungry || (g.mealAt ?? g.lunchAt) > g.lunchAt + 75 ? 'delayed' : 'onTime'] += AGENT;
+  if (fed) {
+    m[g.hungry || (g.mealAt ?? g.lunchAt) > hungryAt(g) ? 'delayed' : 'onTime'] += AGENT;
   } else {
     m.missed += AGENT; today.complaints.food++; noteHunger(g);
   }
@@ -19622,7 +19627,7 @@ function updateNeeds(g, dt) {
   }
   // Not hungry yet: eating, in line or on the way to eat, or in a lesson (they eat after).
   const atLunch = g.st === 'lesson' || (LUNCH_STS.has(g.st) && LUNCH_SVCS.has(g.svc));
-  if ((!g.ate || g.skipped) && !atLunch && state.time > g.lunchAt + 75) {
+  if ((!g.ate || g.skipped) && !atLunch && state.time > hungryAt(g)) {
     g.sat -= dt / 60 * 0.06;
     if (!g.hungry) { g.hungry = true; rememberHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
   }
@@ -21748,8 +21753,8 @@ function hungerAdvice(r, add) {
     return add(false, `${h.lineN} hungry guests gave up on long lunch lines${B ? `, mostly at ${B.name}` : ''}. ${big ? 'A bigger lodge nearby (Build › Buildings) adds seats and serves faster' : 'Another place to eat nearby spreads the crowd'}${B && B.isBase ? '' : ', and one by a busy lift helps too'}.`,
       big ? 'Build a lodge' : 'Build a café', big ? () => pickBuilding('lodge', B.tier + 1) : () => pickBuilding('cafe'));
   }
-  const w = h.nowhere[0], L = w && w.id !== 'base' && world.lifts.find((x) => String(x.id) === w.id);
-  return add(false, `${h.nowhereN} hungry ${state.summer ? 'guests' : 'skiers'} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${L ? `, mostly around ${L.name}` : ''}. Guests look for food at lift stations and beside trails: put a café or food truck ${L ? `by the top of ${L.name}` : 'by a busy lift'}, where they pass.`, 'Build a café', () => pickBuilding('cafe'));
+  const w = h.nowhere[0], L = w && w.id !== 'base' && world.lifts.find((x) => String(x.id) === w.id), base = w && w.id === 'base';
+  return add(false, `${h.nowhereN} hungry ${state.summer ? 'guests' : 'skiers'} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${L ? `, mostly around ${L.name}` : base ? ', mostly at the base' : ''}. Guests look for food at lift stations and beside trails: put a café or food truck ${L ? `by the top of ${L.name}` : base ? 'beside the base lifts' : 'by a busy lift'}, where they pass.`, 'Build a café', () => pickBuilding('cafe'));
 }
 function adviceSheet(mode) {
   adviceShown = advice();
@@ -24199,7 +24204,7 @@ function hungryNote(r) {
   const parts = [];
   if (h.price) parts.push([h.price, `${h.price} found lunch too expensive and skipped it`]);
   if (h.lineN) parts.push([h.lineN, `${h.lineN} gave up on long lines${h.line[0] ? ` (mostly at ${esc(h.line[0].name)})` : ''}`]);
-  if (h.nowhereN) parts.push([h.nowhereN, `${h.nowhereN} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${h.nowhere[0] && h.nowhere[0].name ? ` (mostly around ${esc(h.nowhere[0].name)})` : ''}`]);
+  if (h.nowhereN) parts.push([h.nowhereN, `${h.nowhereN} found nowhere to eat near where they ${state.summer ? 'were' : 'were skiing'}${h.nowhere[0] && h.nowhere[0].name ? ` (mostly around ${esc(h.nowhere[0].name)})` : h.nowhere[0] && h.nowhere[0].id === 'base' ? ' (mostly at the base)' : ''}`]);
   if (h.late) parts.push([h.late, `${h.late} wanted lunch as the kitchens were closing`]);
   return `${n} guests went hungry: ${parts.sort((a, b) => b[0] - a[0]).map((x) => x[1]).join('; ')}.`;
 }
@@ -30196,6 +30201,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.11.1', date: 'Nov 14, 2026', title: 'Late arrivals aren’t hungry on arrival', small: true, items: [
+    'Guests who arrive after their usual lunchtime, like riders on a busy afternoon town bus, were counted as hungry the moment they arrived, and the day report blamed “nowhere to eat” however many cafés you had. Now they get time to find food after they arrive, and guests arriving from 1:30 PM have eaten on the way. They still buy food, so takings are the same. On the resort that showed this, missed lunches went from about 130 a day to about 10.',
+    'When hungry guests are mostly at the base, What next? now says so, instead of asking for a café by a busy lift. Thanks to the player who sent this in!'] },
   { v: '4.11', date: 'Nov 14, 2026', title: 'A lighter, smoother view', items: [
     'Zoomed in, the game now draws only the trees you can see. On a big resort that’s less than half the drawing it did before, with the same picture and the same shadows.',
     'Buildings are drawn in batches, and trail surfaces skip detail you can’t see on straight, even stretches. A big resort’s view takes 40% fewer drawing steps.',
