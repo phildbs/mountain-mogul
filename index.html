@@ -4033,6 +4033,10 @@ function treeInstances(haze, cap) {
   m.userData.lod = { near, far };
   m.setColorAt(0, new THREE.Color(1, 1, 1));
   m.castShadow = true; m.frustumCulled = false;
+  // close up the player's view draws only the copy of the trees on screen (treeCull); the sun's shadow pass and other
+  // cameras (photos) still draw the whole forest
+  m.onBeforeRender = (r, s, c) => { const v = m.userData.view; if (v && v.visible && c === camera) { m.userData.n = m.count; m.count = 0; } };
+  m.onAfterRender = () => { if (m.userData.n != null) { m.count = m.userData.n; m.userData.n = null; } };
   treeMeshes.push(m);
   return m;
 }
@@ -4041,7 +4045,54 @@ function treeLod() {
   for (const m of treeMeshes) {
     const g = far ? m.userData.lod.far : m.userData.lod.near;
     if (m.geometry !== g) { m.geometry = g; if (renderer) renderer.shadowMap.needsUpdate = true; }
+    treeCull(m, far);
   }
+}
+// Close up, only a few hundred of a forest's trees are on screen, but all of them were drawn in full detail (a big
+// resort: 564k tree triangles, 563k off screen). Each tree mesh then copies just the trees in view, with room round
+// the edges so small pans don't recopy, into a second mesh that the view draws. The full mesh is still drawn for the
+// sun's shadows (it skips only the view's own pass), so every tree casts its shadow.
+const TREE_PAD = 0.2, _cx = new THREE.Vector3(), _cy = new THREE.Vector3();
+function treeCull(m, far) {
+  let v = m.userData.view;
+  if (far || !m.parent || m.count < 300) {
+    if (v) v.visible = false;
+    return;
+  }
+  if (!v) {
+    const near = m.userData.lod.near, cap = m.instanceMatrix.count, geo = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal', 'color']) geo.setAttribute(k, near.attributes[k]);
+    geo.setAttribute('ihaze', new THREE.InstancedBufferAttribute(new Float32Array(cap), 1));
+    v = m.userData.view = new THREE.InstancedMesh(geo, m.material, cap);
+    v.setColorAt(0, _tc.setRGB(1, 1, 1));
+    v.frustumCulled = false; v.castShadow = false; v.receiveShadow = m.receiveShadow;
+    v.userData.key = [];
+  }
+  if (v.parent !== m.parent) m.parent.add(v);
+  v.material = m.material;
+  v.visible = m.visible;
+  // Copy again when the forest changed, the view turned, or it moved or grew past the room left round it.
+  const src = m.userData.lod.near.attributes.ihaze, key = v.userData.key, z = camera.zoom || 1;
+  _cx.setFromMatrixColumn(camera.matrixWorld, 0); _cy.setFromMatrixColumn(camera.matrixWorld, 1);
+  const p = camera.position, cx = p.dot(_cx) + (camera.left + camera.right) / 2 / z, cy = p.dot(_cy) + (camera.top + camera.bottom) / 2 / z;
+  const hw = (camera.right - camera.left) / 2 / z + 1.5, hh = (camera.top - camera.bottom) / 2 / z + 4; // a tree whose foot is past the bottom edge still shows its top
+  const ver = m.instanceMatrix.version + ',' + m.instanceColor.version + ',' + src.version + ',' + m.count;
+  if (key[0] === ver && _cx.dot(key[1]) > 0.9999 && _cy.dot(key[2]) > 0.9999 &&
+    Math.abs(cx - key[3]) + hw <= key[5] && Math.abs(cy - key[4]) + hh <= key[6] && hw > key[5] * 0.6) return;
+  const pad = cam.viewH * TREE_PAD, W = hw + pad, H = hh + pad;
+  v.userData.key = [ver, _cx.clone(), _cy.clone(), cx, cy, W, H];
+  const a = m.instanceMatrix.array, c = m.instanceColor.array, h = src.array;
+  const va = v.instanceMatrix.array, vc = v.instanceColor.array, vh = v.geometry.attributes.ihaze.array;
+  const rx = _cx.x, ry = _cx.y, rz = _cx.z, ux = _cy.x, uy = _cy.y, uz = _cy.z;
+  let n = 0;
+  for (let i = 0, N = m.count; i < N; i++) {
+    const o = i * 16, x = a[o + 12], y = a[o + 13], zz = a[o + 14];
+    if (Math.abs(x * rx + y * ry + zz * rz - cx) > W || Math.abs(x * ux + y * uy + zz * uz - cy) > H) continue;
+    va.set(a.subarray(o, o + 16), n * 16); vc[n * 3] = c[i * 3]; vc[n * 3 + 1] = c[i * 3 + 1]; vc[n * 3 + 2] = c[i * 3 + 2]; vh[n] = h[i];
+    n++;
+  }
+  v.count = n;
+  v.instanceMatrix.needsUpdate = true; v.instanceColor.needsUpdate = true; v.geometry.attributes.ihaze.needsUpdate = true;
 }
 // Only living trees are drawn: they're packed at the front of the instance buffer and each tree knows
 // its slot, so a cleared tree costs nothing to draw (a big resort clears thousands).
@@ -5565,15 +5616,21 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask, cover) {
       col[o * 4] = c[0]; col[o * 4 + 1] = c[1]; col[o * 4 + 2] = c[2]; col[o * 4 + 3] = cover ? cover(x, z) : 1;
     }
   }
+  // Rows every half unit follow every bend and bump, but on a straight, even stretch most of them add nothing: keep a
+  // row only where leaving it out would move the ribbon or its colours (big resorts drew 250k trail triangles).
+  const rows = ribbonRows(pos, col, uv, n, m), R = rows.length;
+  const P = new Float32Array(R * m * 3), U = new Float32Array(R * m * 2), C = new Float32Array(R * m * 4);
+  for (let r = 0; r < R; r++) { const i = rows[r]; P.set(pos.subarray(i * m * 3, (i + 1) * m * 3), r * m * 3); U.set(uv.subarray(i * m * 2, (i + 1) * m * 2), r * m * 2); C.set(col.subarray(i * m * 4, (i + 1) * m * 4), r * m * 4); }
   const idx = [];
-  for (let i = 0; i < n - 1; i++) for (let k = 0; k < m - 1; k++) {
+  for (let i = 0; i < R - 1; i++) for (let k = 0; k < m - 1; k++) {
     const a = i * m + k, b = a + 1, c = a + m, d = c + 1;
     idx.push(a, c, b, b, c, d);
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
+  geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+  geo.setAttribute('color', new THREE.BufferAttribute(C, 4));
+  geo.userData.rows = rows; // which sample each row is (paintHeat)
   geo.setIndex(idx);
   geo.computeVertexNormals();
   if (geo.attributes.normal.array[1] < 0) {
@@ -5583,6 +5640,31 @@ function ribbonGeometry(samples, hw, edgeCol, bad, mask, cover) {
     geo.computeVertexNormals();
   }
   return geo;
+}
+// The sample rows a ribbon keeps: a row is left out when the rows either side, blended by distance, land within 5 cm of
+// every one of its points (the ribbon floats 14 cm over the snow) and match its colours, so the picture doesn't change. At most 4 units between rows, so the
+// traffic heat map (painted per row) still shows its changes along the trail.
+function ribbonRows(pos, col, uv, n, m) {
+  const out = [0], v = (i) => uv[i * m * 2 + 1];
+  const fits = (a, c) => {
+    const va = v(a), span = v(c) - va || 1;
+    for (let j = a + 1; j < c; j++) {
+      const t = (v(j) - va) / span;
+      for (let k = 0; k < m; k++) {
+        const oa = (a * m + k) * 3, oc = (c * m + k) * 3, oj = (j * m + k) * 3;
+        for (let q = 0; q < 3; q++) if (Math.abs(pos[oa + q] + (pos[oc + q] - pos[oa + q]) * t - pos[oj + q]) > 0.05) return false;
+        const ca = (a * m + k) * 4, cc = (c * m + k) * 4, cj = (j * m + k) * 4;
+        for (let q = 0; q < 4; q++) if (Math.abs(col[ca + q] + (col[cc + q] - col[ca + q]) * t - col[cj + q]) > 0.03) return false;
+      }
+    }
+    return true;
+  };
+  for (let a = 0; a < n - 1;) {
+    let c = a + 1;
+    while (c + 1 < n && c + 1 - a <= 8 && fits(a, c + 1)) c++;
+    out.push(c); a = c;
+  }
+  return Int32Array.from(out);
 }
 function trailMaterial() {
   return new THREE.MeshLambertMaterial({
@@ -6032,12 +6114,14 @@ function paintHeat(t, on) {
   }
   if (t.heatGeo !== geo) { t.baseCol = col.array.slice(); t.heatGeo = geo; }
   const v = heatVals.get(t.id), n = t.samples.length, m = ACROSS.length, a = col.array, c = paintHeat.c || (paintHeat.c = new THREE.Color());
-  if (a.length < n * m * 4) return;
-  for (let i = 0; i < n; i++) {
+  const rows = geo.userData.rows, R = rows ? rows.length : n; // the ribbon keeps only some sample rows (ribbonRows)
+  if (a.length < R * m * 4) return;
+  for (let r = 0; r < R; r++) {
+    const i = rows ? rows[r] : r;
     let x = 0;
     if (v) { const f = i / Math.max(1, n - 1) * HEAT_BINS - 0.5, b0 = clamp(Math.floor(f), 0, HEAT_BINS - 1), b1 = Math.min(HEAT_BINS - 1, b0 + 1); x = lerp(v[b0], v[b1], clamp(f - b0, 0, 1)); }
     trafficCol(x, c);
-    for (let k = 0; k < m; k++) { const o = (i * m + k) * 4; a[o] = c.r; a[o + 1] = c.g; a[o + 2] = c.b; }
+    for (let k = 0; k < m; k++) { const o = (r * m + k) * 4; a[o] = c.r; a[o + 1] = c.g; a[o + 2] = c.b; }
   }
   col.needsUpdate = true;
 }
@@ -8675,6 +8759,7 @@ function distToSeg(p, a, b) {
 // The building under the pointer: its 3D model first (unless the hill is in front of it), then any lamp,
 // pole, seat or sign drawn within a finger's width of the spot on screen.
 const _pickRay = new THREE.Raycaster();
+_pickRay.layers.enable(2); // buildings' own meshes, which are drawn in batches (bldBatchTick)
 function pickBldAt(sx, sy) {
   _pickRay.ray.copy(screenRay(sx, sy));
   const ground = pickTerrain(sx, sy), gd = ground ? _pickRay.ray.origin.distanceTo(ground) + 0.3 : Infinity;
@@ -14993,8 +15078,8 @@ function nightLit(mat, low) {
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev.call(mat, sh, r);
     sh.uniforms.mmLightMap = MM_LIGHT.map; sh.uniforms.mmNight = MM_LIGHT.night; sh.uniforms.mmBox = MM_LIGHT.box;
-    sh.vertexShader = 'varying vec3 vMmW;\nvarying float vMmH;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
-  vMmH = transformed.y;
+    sh.vertexShader = 'varying vec3 vMmW;\nvarying float vMmH;\nattribute float mmb;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+  vMmH = transformed.y - mmb; // height above the floor: batched buildings (bldBatchTick) are in world space and carry their floor's height
   { vec4 mw = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
     mw = instanceMatrix * mw;
@@ -15004,6 +15089,7 @@ function nightLit(mat, low) {
       `outgoingLight += (diffuseColor.rgb * 0.7 + 0.12) * texture2D(mmLightMap, (vMmW.xz - mmBox.xy) / mmBox.zw).rgb * mmNight * 1.5 * step(abs((vMmW.x - mmBox.x) / mmBox.z - 0.5), 0.5) * step(abs((vMmW.z - mmBox.y) / mmBox.w - 0.5), 0.5)${low ? ' * (1.0 - smoothstep(0.25, 0.95, vMmH))' : ''}; // dark wood catches some warm light too
 gl_FragColor = vec4( outgoingLight, diffuseColor.a );`);
   };
+  mat.defaultAttributeValues = Object.assign({}, mat.defaultAttributeValues, { mmb: [0] }); // 0 for everything not batched
   mat.customProgramCacheKey = () => base + (low ? '|mmlitb' : '|mmlit');
   mat.needsUpdate = true;
 }
@@ -18266,6 +18352,71 @@ function setBTheme(k) { if (!THEMES[k]) return; bThemeNow = k; try { localStorag
 world.buildings = [];
 const bldGroup = new THREE.Group();
 scene.add(bldGroup);
+// Buildings are drawn in batches: every part with the same material in the same patch of the map is joined into one
+// mesh (a big resort's 30 buildings were 381 draws). Each building keeps its own meshes for clicks, lights and
+// blueprints; those move to layer 2, which only the pointer's ray looks at, so they aren't drawn twice. Rebuilt when
+// any building, part or material changes (bldBatchTick checks a hash each frame).
+const BLD_TILE = 128; // big patches: buildings are few triangles, so fewer draws matter more than skipping off-screen ones
+const BLD_BATCH = new THREE.Group();
+scene.add(BLD_BATCH);
+let bldBatchSig = 0;
+const bldBatchable = (o) => o.isMesh && !o.isInstancedMesh && o.renderOrder === 0 && !o.material.transparent && !o.geometry.index &&
+  Object.keys(o.geometry.attributes).length === 3 && o.geometry.attributes.normal && o.geometry.attributes.uv && o.geometry.attributes.position;
+function bldBatchTick(force) {
+  let h = bldGroup.children.length + 1;
+  for (const g of bldGroup.children) {
+    h = (Math.imul(h, 31) + g.id * 7 + (g.visible ? 1 : 2) + Math.round(g.position.x * 64) + Math.round(g.position.z * 32) + Math.round(g.rotation.y * 4096)) | 0;
+    g.traverse((o) => { if (o.isMesh) h = (Math.imul(h, 31) + o.material.id * 13 + o.geometry.id * 3 + o.renderOrder * 5 + (o.castShadow ? 1 : 2) + (o.visible ? 4 : 8)) | 0; });
+  }
+  if (h === bldBatchSig && !force) return;
+  bldBatchSig = h;
+  for (const m of BLD_BATCH.children) m.geometry.dispose();
+  BLD_BATCH.clear();
+  bldGroup.updateMatrixWorld(true);
+  const bins = new Map();
+  for (const g of bldGroup.children) {
+    const tile = Math.floor(g.position.x / BLD_TILE) * 1000 + Math.floor(g.position.z / BLD_TILE);
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      let shown = true; for (let p = o; p; p = p.parent) if (!p.visible) { shown = false; break; }
+      const ok = shown && bldBatchable(o);
+      o.layers.set(ok ? 2 : 0);
+      if (!ok) return;
+      o.userData.floorY = g.position.y; // the night light fades with height above the floor (nightLit)
+      const key = `${o.material.id}|${+o.castShadow}${+o.receiveShadow}|${tile}`;
+      if (!bins.has(key)) bins.set(key, []);
+      bins.get(key).push(o);
+    });
+  }
+  const nm = new THREE.Matrix3(), v = new THREE.Vector3();
+  for (const list of bins.values()) {
+    let total = 0; for (const o of list) total += o.geometry.attributes.position.count;
+    const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uv = new Float32Array(total * 2), flr = new Float32Array(total);
+    let at = 0;
+    for (const o of list) {
+      const A = o.geometry.attributes, n = A.position.count;
+      nm.getNormalMatrix(o.matrixWorld);
+      flr.fill(o.userData.floorY, at, at + n);
+      for (let i = 0; i < n; i++) {
+        v.fromBufferAttribute(A.position, i).applyMatrix4(o.matrixWorld); v.toArray(pos, (at + i) * 3);
+        v.fromBufferAttribute(A.normal, i).applyMatrix3(nm).normalize(); v.toArray(nor, (at + i) * 3);
+      }
+      uv.set(A.uv.array.subarray(0, n * 2), at * 2);
+      at += n;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('mmb', new THREE.BufferAttribute(flr, 1));
+    geo.computeBoundingSphere();
+    const m = new THREE.Mesh(geo, list[0].material);
+    m.castShadow = list[0].castShadow; m.receiveShadow = list[0].receiveShadow;
+    m.matrixAutoUpdate = false;
+    BLD_BATCH.add(m);
+  }
+  if (renderer) renderer.shadowMap.needsUpdate = true;
+}
 const bldById = (id) => world.buildings.find((b) => b.id === id);
 function bDims(type, tier, rot) {
   const s = BTYPES[type].tiers ? BTYPES[type].tiers[tier] : BTYPES[type];
@@ -30045,6 +30196,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.11', date: 'Nov 14, 2026', title: 'A lighter, smoother view', items: [
+    'Zoomed in, the game now draws only the trees you can see. On a big resort that’s less than half the drawing it did before, with the same picture and the same shadows.',
+    'Buildings are drawn in batches, and trail surfaces skip detail you can’t see on straight, even stretches. A big resort’s view takes 40% fewer drawing steps.',
+    'While the game is paused and you aren’t touching it, the view is redrawn a few times a second instead of 60, so laptops and phones stay cooler and their batteries last longer. Screens faster than 60 Hz draw at 60 to 72 frames a second.'] },
   { v: '4.10.7', date: 'Nov 13, 2026', title: 'Resorts never open empty', small: true, items: [
     'A resort on a hand-shaped mountain could open as an empty new resort after an update, and then save over itself, if the game was still open in another tab on an older version. Now it always opens with everything you built, and a tab on an older version tells you to reload instead of saving over newer progress. Sorry to the player who lost their resorts, and thanks for telling us.'] },
   { v: '4.10.6', date: 'Nov 13, 2026', title: 'Second bases on higher ground', small: true, items: [
@@ -31363,8 +31518,10 @@ function mountainThumb(mt) {
 }
 // Render a separate camera without touching the player's canvas, camera or render target.
 function captureSceneCanvas(shot, width, height) {
+  bldBatchTick();
   const previous = renderer.getRenderTarget(), target = new THREE.WebGLRenderTarget(width, height);
-  const transient = [brushMesh, draftGroup, band].filter(Boolean).map(obj => [obj, obj.visible]);
+  // the close-up copies of the trees only hold what the player's view shows: this camera draws the whole forest
+  const transient = [brushMesh, draftGroup, band, ...treeMeshes.map((m) => m.userData.view)].filter(Boolean).map(obj => [obj, obj.visible]);
   try {
     for (const [obj] of transient) obj.visible = false;
     renderer.setRenderTarget(target); renderer.render(scene, shot);
@@ -31974,11 +32131,25 @@ function perfWatch(interval, work) {
     toast('The game is running slowly on this device. Low graphics can make it smoother.', false, { label: 'Use Low graphics', fn: () => $('mGfx').onclick() });
   }
 }
-let perfLast = 0;
+let perfLast = 0, drawnT = 0, inputT = 0;
+for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown']) addEventListener(ev, () => { inputT = performance.now(); }, { capture: true, passive: true });
+// How long to leave between pictures. A tycoon view doesn't need more than about 60 a second, so a 120 or 144 Hz screen
+// draws every other frame. Paused with nothing moving and no one touching it, the picture is the same each time: draw it
+// a few times a second (snow and snowmaking still fall smoothly enough at 30), which saves laptop and phone batteries.
+function frameGap(now) {
+  const busy = !state.started || (state.phase === 'open' && state.speed > 0) || camTween || glide || follow || gesture || cam.viewGoal != null ||
+    Math.abs(cam.azGoal - cam.az) > 1e-4 || now - inputT < 1500 || matchView || practice || EDITOR || MAP_VIEW || draft.dirty;
+  if (busy) return 9.5;
+  return weatherFall > 0.01 || plumesActive() || fw.rockets.length ? 30 : 90;
+}
 function frame(now) {
   const fs = performance.now();
   // While days are fast-forwarded, skip drawing so the simulation gets the whole processor.
   if (simulating || skipRun) { lastT = now; perfLast = 0; requestAnimationFrame(frame); return; }
+  const gap = frameGap(now);
+  if (now - drawnT < gap) { requestAnimationFrame(frame); return; }
+  drawnT = now;
+  if (gap > 10) perfLast = 0;
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now; clock += dt;
 
@@ -32069,9 +32240,9 @@ function frame(now) {
   if (EDITOR) edTick(dt);
   updateLotMarks(); updateRoadMarks();
   updateHandles();
-  treeLod();
+  treeLod(); bldBatchTick();
   if (perfLast) perfWatch(now - perfLast, performance.now() - fs);
-  perfLast = now;
+  perfLast = gap > 10 ? 0 : now; // a slowed picture isn't a slow computer
   if (!NO_RENDER && !glLost) renderer.render(scene, camera); // nothing to draw on while the graphics are reset
   requestAnimationFrame(frame);
 }
