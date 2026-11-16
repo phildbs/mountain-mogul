@@ -988,6 +988,7 @@ body.matchplay .menu .msolo, body.matchplay #mGoalsMenu, body.matchplay #commBtn
 .rmcard .rm-txt { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.3; }
 .rmcard b { font-family: var(--display); font-weight: 800; font-size: 16px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); margin-right: 6px; }
 .rmcard i { font-style: normal; font-size: 20px; color: var(--blue); font-weight: 600; }
+.guidecard .gc-new { flex: none; background: var(--accent); color: #fff; font: 700 11px var(--ui); border-radius: 999px; padding: 2px 8px; box-shadow: 0 2px 6px rgba(223, 86, 44, 0.35); white-space: nowrap; }
 .rmcard .rm-new { flex: none; background: var(--accent); color: #fff; font: 700 11px var(--ui); border-radius: 999px; padding: 2px 8px; box-shadow: 0 2px 6px rgba(223, 86, 44, 0.35); }
 /* A brand-new player's mountain card already offers the tutorial; don't offer it twice. */
 #title:has(.tutbig) .tutcard { display: none; }
@@ -1766,6 +1767,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
           </div>
           <button id="mFeedback">Feedback &amp; feature ideas</button>
           <button id="mRoadmap">Roadmap: what’s coming</button>
+          <button id="mBlog">Dev blog</button>
           <a class="menu-link" id="mPrivacy" href="privacy.html" target="_blank" rel="noopener">Privacy policy <span class="mval">New tab</span></a>
           <button id="mSim" hidden>Simulate (dev)</button>
           <div class="msep"></div>
@@ -2050,6 +2052,12 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
       <span class="gc-txt"><small>Made by players</small><b>Custom mountains</b><em class="gc-short">Play or make your own</em><span>Ski mountains other players shaped in the mountain editor, or make your own.</span></span>
       <i aria-hidden="true">›</i>
     </button>
+    <a class="panel guidecard blogcard" id="blogCard" href="blog.html">
+      <span class="gc-ico" aria-hidden="true">📝</span>
+      <span class="gc-txt"><small>From the developer</small><b>Dev blog</b><em class="gc-short">News and notes from Phil</em><span>News and notes from Phil, who makes the game. React and comment.</span></span>
+      <span class="rm-new gc-new" id="blogNew" hidden>New post</span>
+      <i aria-hidden="true">›</i>
+    </a>
     <a class="panel guidecard" id="guideCard" href="guide.html">
       <span class="gc-ico" aria-hidden="true">⛷</span>
       <span class="gc-txt"><small>Player’s guide</small><b data-short="Tips &amp; tricks">Tips, tricks &amp; hidden features</b><em class="gc-short">The player’s guide</em><span>Shortcuts, snow, evenings, events and the stuff nobody tells you.</span></span>
@@ -30201,6 +30209,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.12', date: 'Nov 16, 2026', title: 'A dev blog', items: [
+    'Read the new Dev blog from the title screen, or Dev blog in the menu: news and notes from the developer. A New post tag shows when there’s something you haven’t read.',
+    'Anyone can react to a post with emoji. Players signed in with a player name can leave comments.',
+    'The first post is up: a hello, and a thank-you to everyone playing.'] },
   { v: '4.11.1', date: 'Nov 14, 2026', title: 'Late arrivals aren’t hungry on arrival', small: true, items: [
     'Guests who arrive after their usual lunchtime, like riders on a busy afternoon town bus, were counted as hungry the moment they arrived, and the day report blamed “nowhere to eat” however many cafés you had. Now they get time to find food after they arrive, and guests arriving from 1:30 PM have eaten on the way. They still buy food, so takings are the same. On the resort that showed this, missed lunches went from about 130 a day to about 10.',
     'When hungry guests are mostly at the base, What next? now says so, instead of asking for a café by a busy lift. Thanks to the player who sent this in!'] },
@@ -31212,6 +31224,7 @@ async function sendFeedback() {
 }
 $('mFeedback').onclick = () => openFeedback();
 $('mRoadmap').onclick = () => { roadmapOpened(); window.open('roadmap.html', '_blank', 'noopener'); };
+$('mBlog').onclick = () => { blogOpened(); window.open('blog.html', '_blank', 'noopener'); };
 $('fbLink').onclick = () => openFeedback('idea');
 if (location.hash === '#idea') { history.replaceState(null, '', location.pathname + location.search); openFeedback('idea'); } // from the roadmap page
 $('fbKind').onclick = (e) => { const b = e.target.closest('button'); if (b) setFbKind(b.dataset.k); };
@@ -31452,7 +31465,7 @@ let titleTime = 0, BADGE_SUB = '';
 const ownedAcres = () => Math.round((AREA ? Math.abs(AREA.reduce((a, [x, z], k) => { const [x2, z2] = AREA[(k + 1) % AREA.length]; return a + x * z2 - x2 * z; }, 0)) / 2 : PN * PN) * ACRES_PER_CELL)
   + landRects.reduce((a, p) => a + parcelInfo(p).acres, 0);
 function syncBadgeSub() { BADGE_SUB = `${state.sandbox ? 'Sandbox' : MOUNTAIN.level} · ${fmtAcres(ownedAcres())}`; $('resortSub').textContent = BADGE_SUB; }
-function refreshTitle() { renderSlots(); checkRoadmap(); }
+function refreshTitle() { renderSlots(); checkRoadmap(); checkBlog(); }
 // The Roadmap card shows how many ideas are new or have changed status since you last opened the
 // roadmap. The roadmap page keeps what you last saw (each idea's status) in mm.roadmapSeen.
 const roadmapCards = (html) => Object.fromEntries([...html.matchAll(/data-idea="([^"]+)"><div class="t"><h3>[^<]*<\/h3><span class="st (\w+)"/g)].map((m) => [m[1], m[2]]));
@@ -31475,6 +31488,23 @@ async function checkRoadmap() {
 }
 const roadmapOpened = () => { $('roadmapNew').hidden = true; $('mRoadmap').classList.remove('isnew'); roadmapAt = 0; };
 $('roadmapCard').addEventListener('click', roadmapOpened);
+// The Dev blog card says "New post" until you've opened the newest one: blog.html lists posts newest first and
+// keeps the newest one you've seen in mm.blogSeen.
+let blogAt = 0;
+async function checkBlog() {
+  if (Date.now() - blogAt < 60000) return; // once a minute is plenty
+  blogAt = Date.now();
+  try {
+    const m = /data-post="([a-z0-9-]+)"/.exec(await (await fetch('blog.html', { cache: 'no-cache' })).text());
+    if (!m) return;
+    let seen = null;
+    try { seen = localStorage.getItem('mm.blogSeen'); } catch (e) { /* storage blocked */ }
+    $('blogNew').hidden = seen === m[1];
+    $('mBlog').classList.toggle('isnew', seen !== m[1]);
+  } catch (e) { /* offline: no badge */ }
+}
+const blogOpened = () => { $('blogNew').hidden = true; $('mBlog').classList.remove('isnew'); blogAt = 0; };
+$('blogCard').addEventListener('click', blogOpened);
 /* ---------- Your mountains: a shelf of cards, one per save ---------- */
 let slotAsk = null; // the mountain waiting for a delete confirmation
 let slotMore = null; // the mountain whose ⋯ menu is open

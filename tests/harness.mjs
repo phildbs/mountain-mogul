@@ -29,7 +29,7 @@ export async function startServer({ source } = {}) {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/blank') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>blank</title>'); return; } // same site, no game: for setting up storage before the game loads
     if (path === '/' || path === '/index.html') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    if (path === '/roadmap.html' || path === '/stats.html') { // these pages' database calls (votes, the owner's stats) go to the stand-in too
+    if (path === '/roadmap.html' || path === '/stats.html' || path === '/blog.html') { // these pages' database calls (votes, the owner's stats) go to the stand-in too
       res.writeHead(200, { 'content-type': 'text/html' });
       res.end(readFileSync(join(ROOT, path.slice(1)), 'utf8').replace('<script src="vendor/supabase.js"></script>', '<script src="vendor/supabase.js"></script>\n<script src="tests/fake-supabase.js"></script>')); return;
     }

@@ -88,6 +88,23 @@
         d.reactions = (d.reactions || []).filter((r) => !(r.version === q.obj.version && r.user_id === me));
         d.reactions.push({ ...q.obj, user_id: me }); put(d); return { data: null, error: null };
       }
+      // dev blog (supabase/blog.sql): comments readable by anyone (hidden ones aside), written only through blog_comment;
+      // reactions are your own rows, once per emoji per post. d.noBlog: before that file is run.
+      if (table === 'blog_comments' || table === 'blog_reactions') {
+        if (d.noBlog) return { data: null, error: { code: '42P01', message: 'relation "public.' + table + '" does not exist' } };
+        const pick = (rows) => { for (const [c, v] of q.filters) rows = rows.filter((r) => r[c] === v); for (const [c, v] of q.ins) rows = rows.filter((r) => v.includes(r[c])); return rows; };
+        if (table === 'blog_comments') {
+          if (q.op !== 'select') return { data: null, error: { code: '42501', message: 'permission denied for table blog_comments' } };
+          return { data: pick((d.blogComments || []).filter((c) => !c.hidden)).map((c) => ({ ...c })), error: null };
+        }
+        const list = d.blogReactions || (d.blogReactions = []);
+        if (!me) return { data: null, error: { code: '42501', message: 'permission denied for table blog_reactions' } };
+        if (q.op === 'select') return { data: pick(list.filter((r) => r.user_id === me)).map(({ post, emoji }) => ({ post, emoji })), error: null };
+        if (q.op === 'delete') { const gone = new Set(pick(list.filter((r) => r.user_id === me))); d.blogReactions = list.filter((r) => !gone.has(r)); put(d); return { data: null, error: null }; }
+        if (q.op !== 'insert' || q.obj.user_id !== me || !['heart', 'thumbs', 'party', 'laugh', 'wow', 'ski'].includes(q.obj.emoji)) return { data: null, error: { code: '42501', message: 'row-level security' } };
+        if (list.some((r) => r.post === q.obj.post && r.emoji === q.obj.emoji && r.user_id === me)) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        list.push({ post: q.obj.post, emoji: q.obj.emoji, user_id: me }); put(d); return { data: null, error: null };
+      }
       // roadmap votes: your own rows only; one per idea, replaced or taken back
       if (table === 'roadmap_votes') {
         if (!me) return { data: null, error: { code: '42501', message: 'permission denied for table roadmap_votes' } };
@@ -252,6 +269,32 @@
         const o = d.boardOpens || (d.boardOpens = []), day = new Date().toISOString().slice(0, 10);
         if (!o.some((r) => r.player === me && r.day === day && r.what === args.what)) o.push({ player: me, day, what: args.what });
         put(d); return { data: true, error: null };
+      }
+      if (/^blog_/.test(fn) && d.noBlog) return { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn } };
+      if (fn === 'blog_tally') {
+        const out = {}, at = (p) => out[p] || (out[p] = { reactions: {}, comments: 0 });
+        for (const r of d.blogReactions || []) { const t = at(r.post).reactions; t[r.emoji] = (t[r.emoji] || 0) + 1; }
+        for (const c of d.blogComments || []) if (!c.hidden) at(c.post).comments++;
+        return { data: out, error: null };
+      }
+      if (fn === 'blog_comment') { // as supabase/blog.sql (one word stands in for match_clean's list)
+        const list = d.blogComments || (d.blogComments = []), boss = ((sess() || {}).user || {}).email === 'phildbs@gmail.com';
+        if (!me || (d.users[me] || {}).anon) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
+        const n = ((d.profiles || {})[me] || {}).name;
+        if (!n) return { data: null, error: { code: '22023', message: 'name_needed' } };
+        if (!/^[a-z0-9-]{1,60}$/.test(args.ppost || '')) return { data: null, error: { code: '22023', message: 'no_such_post' } };
+        const b = String(args.pbody || '').replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 1000);
+        if (!b) return { data: null, error: { code: '22023', message: 'empty' } };
+        if (!boss && list.some((c) => c.user_id === me && Date.now() - Date.parse(c.created_at) < 20000)) return { data: null, error: { code: 'P0001', message: 'slow_down' } };
+        if (!boss && /\bshit\b/i.test(b)) return { data: null, error: { code: '22023', message: 'not_friendly' } };
+        const row = { id: list.reduce((a, c) => Math.max(a, c.id), 0) + 1, post: args.ppost, user_id: me, name: n, body: b, dev: boss, hidden: false, created_at: new Date().toISOString() };
+        list.push(row); put(d); return { data: row.id, error: null };
+      }
+      if (fn === 'blog_delete') {
+        const c = (d.blogComments || []).find((x) => x.id === args.pid && !x.hidden), boss = ((sess() || {}).user || {}).email === 'phildbs@gmail.com';
+        if (!me) return { data: null, error: { code: '42501', message: 'sign_in_needed' } };
+        if (!c || (c.user_id !== me && !boss)) return { data: false, error: null };
+        c.hidden = true; put(d); return { data: true, error: null };
       }
       if (fn === 'roadmap_tally') {
         const out = {}; for (const r of d.votes || []) { const t = out[r.idea] || (out[r.idea] = { up: 0, down: 0 }); if (r.vote === 1) t.up++; else t.down++; }
