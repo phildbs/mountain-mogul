@@ -6818,7 +6818,7 @@ function areaBlocks(skip, plant) {
   for (const t of realTrails()) {
     for (const sm of t.samples) { const hw = sampleHW(t, sm) + 0.3, c = Math.ceil(hw); for (let dz = -c; dz <= c; dz++) for (let dx = -c; dx <= c; dx++) if (dx * dx + dz * dz <= hw * hw) mark(sm.x + dx, sm.z + dz, 'on a trail'); }
   }
-  const box = (b, why) => { for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) mark(x, z, why); };
+  const box = (b, why) => { for (let z = Math.floor(b.z0); z <= Math.ceil(b.z1); z++) for (let x = Math.floor(b.x0); x <= Math.ceil(b.x1); x++) if (!b.r || boxDist({ x, z }, b) <= 0.5) mark(x, z, why); };
   for (const B of world.buildings) box(boxOf(B, 0.5), 'too close to a building');
   for (const r of lotRects()) rectCells(r, 0.5, (x, z) => mark(x, z, 'on the parking lot'));
   for (const a of world.areas) if (a !== skip && !(plant && isGlade(a))) for (const k of a.cells) if (!m.has(k)) m.set(k, 'already part of another area');
@@ -7259,12 +7259,12 @@ function cacheHubs() {
     for (const B of A.buildings) {
       if (isDecor(B)) continue;
       const bb = boxOf(B, 1.2);
-      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) if (inProperty(x, z)) A.walk.add(cellKey(x, z));
+      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) if (inProperty(x, z) && (!bb.r || !boxDist({ x, z }, bb))) A.walk.add(cellKey(x, z));
     }
     for (const B of world.buildings) {
       if (isDecor(B)) continue;
       const bb = boxOf(B, 0.15);
-      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) A.walk.delete(cellKey(x, z));
+      for (let z = Math.ceil(bb.z0); z <= Math.floor(bb.z1); z++) for (let x = Math.ceil(bb.x0); x <= Math.floor(bb.x1); x++) if (!bb.r || !boxDist({ x, z }, bb)) A.walk.delete(cellKey(x, z));
     }
     for (const B of world.buildings) {
       if (isDecor(B)) continue;
@@ -11464,7 +11464,7 @@ function parkStalls() {
 }
 
 /* ---------- Rectangles: the lots as shapes at any angle, for everything that keeps off them ---------- */
-const boxRect = (b) => ({ cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2, a: 0, hw: (b.x1 - b.x0) / 2, hd: (b.z1 - b.z0) / 2 });
+const boxRect = (b) => b.r || ({ cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2, a: 0, hw: (b.x1 - b.x0) / 2, hd: (b.z1 - b.z0) / 2 });
 const lotRects = () => (newLots() ? parks().map(parkRect) : lotBoxes().map(boxRect));
 function rectDist(p, r) {
   const c = Math.cos(r.a), s = Math.sin(r.a), dx = p.x - r.cx, dz = p.z - r.cz, lu = dx * c + dz * s, lv = -dx * s + dz * c;
@@ -18432,13 +18432,32 @@ function bDims(type, tier, rot) {
   const a = (rot || 0) * Math.PI / 2, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
   return { w: s.w * c + s.d * sn, d: s.w * sn + s.d * c };
 }
+// A footprint is the map-aligned box around a building. One turned to an in-between angle also carries its true turned
+// rectangle `r` (as rectDist uses), and the distance and overlap checks use that, so the box's empty corners stay free
+// and angled buildings can stand close together. Quarter turns keep plain boxes, exactly as before.
 function bAABB(type, tier, x, z, rot, pad = 0) {
+  if (!Number.isInteger(rot || 0)) { const s = BTYPES[type].tiers ? BTYPES[type].tiers[tier] : BTYPES[type], r = { cx: x, cz: z, a: -rot * Math.PI / 2, hw: s.w / 2 + pad, hd: s.d / 2 + pad }; return { ...rectBox(r), r }; }
   const d = bDims(type, tier, rot);
   return { x0: x - d.w / 2 - pad, x1: x + d.w / 2 + pad, z0: z - d.d / 2 - pad, z1: z + d.d / 2 + pad };
 }
 const boxOf = (b, pad = 0) => bAABB(b.type, b.tier, b.x, b.z, b.rot, pad);
-const boxDist = (p, b) => Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.z0 - p.z, 0, p.z - b.z1));
-const boxOverlap = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
+const boxDist = (p, b) => b.r ? rectDist(p, b.r) : Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.z0 - p.z, 0, p.z - b.z1));
+const boxOverlap = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0 && (!a.r && !b.r || rectsOverlap(boxRect(a), boxRect(b)));
+const growBox = (b, pad) => { if (!b.r) return { x0: b.x0 - pad, x1: b.x1 + pad, z0: b.z0 - pad, z1: b.z1 + pad }; const r = { ...b.r, hw: b.r.hw + pad, hd: b.r.hd + pad }; return { ...rectBox(r), r }; };
+// Every half unit across a footprint (the turned rectangle when there is one), for ground height, creeks and roads.
+function boxEach(bb, fn) {
+  const r = bb.r;
+  if (!r) { for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) fn(x, z); return; }
+  const c = Math.cos(r.a), s = Math.sin(r.a), nu = Math.max(1, Math.ceil(r.hw * 4)), nv = Math.max(1, Math.ceil(r.hd * 4));
+  for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) fn(...boxAt(bb, i / nu, j / nv));
+}
+// A point across a footprint, from 0 to 1 each way: [x, z].
+function boxAt(bb, fu, fv) {
+  const r = bb.r;
+  if (!r) return [lerp(bb.x0, bb.x1, fu), lerp(bb.z0, bb.z1, fv)];
+  const u = (fu * 2 - 1) * r.hw, v = (fv * 2 - 1) * r.hd, c = Math.cos(r.a), s = Math.sin(r.a);
+  return [r.cx + u * c - v * s, r.cz + u * s + v * c];
+}
 function toWorld(b, lx, lz) {
   const a = b.rot * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
   return { x: b.x + lx * c + lz * s, z: b.z - lx * s + lz * c };
@@ -18456,7 +18475,7 @@ function segNearBox(a, b, bb, pad) {
 }
 function footprintStats(bb) {
   let hmin = Infinity, hmax = -Infinity, gmax = 0, creek = false, road = false, roadMin = Infinity, pond = false, proad = 99;
-  for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) {
+  boxEach(bb, (x, z) => {
     const gx = x + HALF, gz = z + HALF, h = sampleGrid(HT, gx, gz);
     hmin = Math.min(hmin, h); hmax = Math.max(hmax, h);
     gmax = Math.max(gmax, sampleGrid(GR, gx, gz));
@@ -18466,12 +18485,12 @@ function footprintStats(bb) {
     if (rd < 1.8) road = true;
     roadMin = Math.min(roadMin, rd);
     proad = Math.min(proad, sampleGrid(PROADD, gx, gz));
-  }
+  });
   return { hmin, hmax, gmax, creek, road, roadMin, pond, proad };
 }
 function validateBuilding(type, tier, x, z, rot, selfId) {
   const bb = bAABB(type, tier, x, z, rot), problems = [], t = BTYPES[type];
-  if ([[bb.x0, bb.z0], [bb.x1, bb.z0], [bb.x0, bb.z1], [bb.x1, bb.z1]].some(([cx, cz]) => !inProperty(cx, cz))) problems.push('It has to be on your property.');
+  if ([[0, 0], [1, 0], [0, 1], [1, 1]].some(([u, v]) => !inProperty(...boxAt(bb, u, v)))) problems.push('It has to be on your property.');
   if (t.where === 'base' && !isBase({ x, z }) && !(hubAt({ x, z }) || {}).basePoint) problems.push(`The ${t.name.toLowerCase()} belongs in the base area, where guests arrive, or in a guest area that touches it.`);
   if (t.where === 'low') { const s = BTYPES[type].tiers[tier], why = condoSpotProblem(toWorld({ x, z, rot }, 0, s.d / 2 + 0.35)); if (why) problems.push(why); }
   const fs = footprintStats(bb);
@@ -18741,7 +18760,7 @@ function showGhost(type, tier, x, z, rot, ok, padY, style, pts) {
   ghost.rotation.y = rot * Math.PI / 2;
   const NX = 10, NZ = 10, pos = [], idx = [];
   for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++) {
-    const px = lerp(bb.x0, bb.x1, i / NX), pz = lerp(bb.z0, bb.z1, j / NZ);
+    const [px, pz] = boxAt(bb, i / NX, j / NZ);
     pos.push(px, heightAt(px, pz) + 0.18, pz);
     if (i < NX && j < NZ) { const a = j * (NX + 1) + i; idx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 1, a + NX + 2); }
   }
@@ -22461,9 +22480,10 @@ function levelRect(bb, target, margin, dry) {
   const i0 = Math.max(LAND.i0, Math.floor(bb.x0 + HALF - margin)), i1 = Math.min(LAND.i1, Math.ceil(bb.x1 + HALF + margin));
   const j0 = Math.max(LAND.j0, Math.floor(bb.z0 + HALF - margin)), j1 = Math.min(LAND.j1, Math.ceil(bb.z1 + HALF + margin));
   let cost = 0;
+  const turned = bb.r && growBox(bb, 0.3); // an angled building levels its own turned patch, not the box around it
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
     const x = i - HALF, z = j - HALF;
-    const d = Math.hypot(Math.max(bb.x0 - 0.3 - x, 0, x - bb.x1 - 0.3), Math.max(bb.z0 - 0.3 - z, 0, z - bb.z1 - 0.3));
+    const d = turned ? boxDist({ x, z }, turned) : Math.hypot(Math.max(bb.x0 - 0.3 - x, 0, x - bb.x1 - 0.3), Math.max(bb.z0 - 0.3 - z, 0, z - bb.z1 - 0.3));
     const idx = j * NV + i, w = (1 - sstep(0, margin, d)) * groundKeep(idx);
     if (w <= 0) continue;
     const nh = lerp(HT[idx], target, w);
@@ -22474,7 +22494,7 @@ function levelRect(bb, target, margin, dry) {
 }
 function padHeight(bb) {
   let s = 0, n = 0;
-  for (let z = bb.z0; z <= bb.z1 + 0.01; z += 0.5) for (let x = bb.x0; x <= bb.x1 + 0.01; x += 0.5) { s += sampleGrid(HT, x + HALF, z + HALF); n++; }
+  boxEach(bb, (x, z) => { s += sampleGrid(HT, x + HALF, z + HALF); n++; });
   return s / n;
 }
 // Updates the terrain mesh, slopes, trees and colours after heights change.
@@ -30209,6 +30229,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.13', date: 'Nov 16, 2026', title: 'Angled buildings fit closer together', items: [
+    'A building turned to an angle used to take up the whole square around it, with empty corners nothing else could use. Now only the building itself and a small gap around it count, so angled buildings, benches and tables can stand close together for a less gridded, more natural look. Thanks astemix!',
+    'The patch shown on the ground while you place an angled building turns with it, and leveling only flattens the ground under it.'] },
   { v: '4.12', date: 'Nov 16, 2026', title: 'A dev blog', items: [
     'Read the new Dev blog from the title screen, or Dev blog in the menu: news and notes from the developer. A New post tag shows when there’s something you haven’t read.',
     'Anyone can react to a post with emoji. Players signed in with a player name can leave comments.',
