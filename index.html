@@ -5997,7 +5997,7 @@ function parkPageHtml(r) {
   const idle = p.feats.filter((f) => !f.rides);
   if (idle.length && p.rides) tips.push(`Not ridden today: ${idle.slice(0, 3).map((f) => `the ${FEATS[f.type].name.toLowerCase()} on ${esc(f.trail)}`).join(', ')}.`);
   if (p.falls) tips.push(`${p.falls} ${p.falls === 1 ? 'rider fell' : 'riders fell'} on features. A patrol hut near the park gets help there faster.`);
-  for (const c of p.cruise.slice(0, 1)) if (c.n > 30 && c.n > c.fans) tips.push(`${c.n} cruisers skied through the park on ${esc(c.name)} and would rather not have. A wider trail, or the park on a trail of its own, keeps everyone happy.`);
+  for (const c of p.cruise.slice(0, 1)) if (c.n > 30 && c.n > c.fans) tips.push(`${c.n} cruisers skied through the park on ${esc(c.name)} and would rather not have. A wider trail, or the park on a trail of its own, keeps everyone happy. Tap a feature on the map to move or remove it.`);
   return `<dl class="rp-hero">
       <div><dt>Rides</dt><dd>${p.rides.toLocaleString('en-US')}</dd></div>
       <div><dt>Park fans</dt><dd>${p.fans}<small>${p.rode} rode features</small></dd></div>
@@ -6018,7 +6018,7 @@ function parkAdvice(r, add) {
   const missed = p.missed.reduce((a, b) => a + b, 0);
   if (p.fans >= 10 && missed / p.fans > 0.4) add(false, `${missed} of ${p.fans} park fans found nothing to ride. ${p.missed[1] > missed / 2 ? 'Most were intermediates: add small features like rollers, a flat box or a small jump.' : 'Check the park’s trail is open and easy to reach.'}`, 'Terrain park', () => openParkTool());
   const cr = p.cruise[0], t = cr && trailById(cr.id);
-  if (cr && t && cr.n > 40 && cr.n > cr.fans * 1.5) add(false, `Lots of cruisers skied through the park on ${esc(cr.name)} and didn’t enjoy it. A wider trail gives them room, or move the park to a trail of its own.`, 'See the trail', () => { setTool('explore'); select({ kind: 'trail', obj: t }); });
+  if (cr && t && cr.n > 40 && cr.n > cr.fans * 1.5) add(false, `Lots of cruisers skied through the park on ${esc(cr.name)} and didn’t enjoy it. A wider trail gives them room, or move or remove some features: tap one on the map.`, 'See the park', () => { setTool('explore'); select({ kind: 'trail', obj: t }); });
 }
 // A rider finishing a feature: a little thrill, now and then a fall.
 function featHit(g, T, sp) {
@@ -8617,7 +8617,8 @@ function buildPlan(p) {
 // the rest of the line (the cash is saved for it); one that can't be built for another reason is
 // skipped, and tried again once others are up (a trail waiting on its lift, say). Paused ones wait.
 function executePlans() {
-  if (matchPlay || !world.plans.some((p) => !p.paused)) return; // in a match the server builds them, overnight
+  const gone = matchPlay ? [] : featsTonight(), goneMsg = gone.length ? `Removed overnight: ${gone.join(', ')}` : '';
+  if (matchPlay || !world.plans.some((p) => !p.paused)) { if (goneMsg) { updateCash(true); toast(goneMsg); } return; } // in a match the server builds them, overnight
   const built = [];
   let saving = null;
   for (let progress = true; progress;) {
@@ -8634,7 +8635,7 @@ function executePlans() {
   world.plans = world.plans.filter((p) => !p.done);
   for (const p of world.plans) p.waiting = !!saving && !p.paused && p !== saving && world.plans.indexOf(p) > world.plans.indexOf(saving);
   computeNetwork(); syncLabels(); updateCash(true); refreshPlanBtn();
-  if (built.length) toast(`Built overnight: ${built.map((p) => p.madeName).join(', ')}`);
+  if (built.length || goneMsg) toast([built.length ? `Built overnight: ${built.map((p) => p.madeName).join(', ')}` : '', goneMsg].filter(Boolean).join('. '));
   const stuck = world.plans.filter((p) => !p.paused && !p.waiting && p.reason);
   const msg = saving ? `Saving up for the ${saving.kind === 'shape' ? planTitle(saving).replace('Planned ', '') : planTitle(saving).replace('Planned ', '').toLowerCase()}: it needs ${money(saving.cost)}.` : stuck.length ? `${stuck.length === 1 ? 'A blueprint' : `${stuck.length} blueprints`} couldn’t be built: ${stuck[0].reason}` : '';
   if (msg) setTimeout(() => toast(msg, true), built.length ? 2900 : 0);
@@ -9039,6 +9040,23 @@ function openParkTool(t) {
   if (visiting) return;
   setTool('tpark');
 }
+// Straight to one feature's card (tapped on the map): move it, or remove it.
+function openParkFeat(hit) {
+  if (visiting) return;
+  setTool('tpark');
+  parkDraft.sel = { t: hit.t, f: hit.sp.f };
+  renderSheet();
+}
+// Removing a feature while the resort is open marks it (f.rm): it stays for today and goes tonight, with the same salvage.
+function featsTonight() {
+  const gone = [];
+  for (const t of world.trails) {
+    if (!t.feats || !t.feats.some((f) => f.rm)) continue;
+    for (const f of t.feats) if (f.rm) { state.cash += Math.round(FEATS[f.type].cost * 0.25); gone.push(`${FEATS[f.type].name.toLowerCase()} on ${t.name}`); }
+    t.feats = t.feats.filter((f) => !f.rm); buildFeats(t);
+  }
+  return gone;
+}
 // The spot on a trail nearest p: how far down (at) and how far across (off) a feature of this type would sit.
 function parkSiteAt(p, type) {
   if (!p) return null;
@@ -9149,10 +9167,17 @@ function buildFeatPlan(p) {
   p.madeName = `${FEATS[p.type].name.toLowerCase()} on ${t.name}`;
   return true;
 }
-function parkRemove() {
+function parkRemove(keep) {
   const s = parkDraft.sel;
-  if (!s || state.phase !== 'closed' || visiting || !world.trails.includes(s.t)) return;
+  if (!s || visiting || !world.trails.includes(s.t)) return;
   const F = FEATS[s.f.type], back = Math.round(F.cost * 0.25);
+  if (state.phase !== 'closed') { // open: it goes tonight (not in a match, where the tool pauses the live day)
+    if (matchPlay) return;
+    if (keep) delete s.f.rm; else s.f.rm = 1;
+    scheduleSave(); renderSheet();
+    toast(keep ? `Keeping the ${F.name.toLowerCase()} on ${s.t.name}` : `The ${F.name.toLowerCase()} on ${s.t.name} is removed tonight · ${money(back)} back`);
+    return;
+  }
   pushUndo(`removing ${F.name.toLowerCase()}`);
   matchParked({ op: 'remove', sel: matchRef('trail', s.t), fid: s.f.id, type: s.f.type, fat: s.f.at });
   s.t.feats = s.t.feats.filter((f) => f !== s.f);
@@ -9166,16 +9191,17 @@ function parkToolSheet() {
   if (d.sel) {
     const sF = FEATS[d.sel.f.type];
     return `${head(sF.name)}<p class="help">On ${esc(d.sel.t.name)} · ${FEAT_SIZE[sF.size]} · shaping ${money(sF.upkeep)}/night.</p>
-      ${open ? '<p class="help">Features are moved or removed overnight, while the resort is closed.</p>' : `<div class="row"><button class="btn secondary" data-action="parkMove">Move · ${money(featMoveFee(d.sel.f.type))}</button></div>
+      ${open ? (d.sel.f.rm ? `<p class="help">Removed tonight, once the day is over · ${money(Math.round(sF.cost * 0.25))} back.</p><button class="btn secondary wide" data-action="parkRemove" data-v="keep">Keep it after all</button>`
+        : `<p class="help">It stays for the rest of today. Features are moved overnight.</p><button class="btn secondary wide" data-action="parkRemove">Remove it tonight · ${money(Math.round(sF.cost * 0.25))} back</button>`) : `<div class="row"><button class="btn secondary" data-action="parkMove">Move · ${money(featMoveFee(d.sel.f.type))}</button></div>
       <button class="btn secondary wide" data-action="parkRemove">Remove this ${sF.name.toLowerCase()} · ${money(Math.round(sF.cost * 0.25))} back</button>`}
-      <button class="link" data-action="parkSel">Keep it</button>`;
+      <button class="link" data-action="parkSel">${open && d.sel.f.rm ? 'Done' : 'Keep it'}</button>`;
   }
   if (!F) {
     const rows = Object.entries(FEATS).map(([k, f]) => `<button data-action="parkPick" data-v="${k}"><i class="bi" style="--c:#2f6fd0">${featIcon(k)}</i><span><b>${f.name}</b><em>${f.blurb}</em><small>${FEAT_SIZE[f.size]}</small></span><span class="bp">${money(f.cost)}<small>${money(f.upkeep)}/night</small></span></button>`).join('');
     return `${head('Terrain park')}${TRAIL_MODES('tpark')}
       <p class="help">Park fans come for jumps, rails and a halfpipe, and ride the ones they’re good enough for. Other skiers go around them, so a wide trail works best.</p>
       <div class="bpick rows">${rows}</div>
-      <p class="help">Tap a feature you’ve built to move or remove it.</p>`;
+      <p class="help">Tap a feature you’ve built to move or remove it. You can tap one on the map any time, too.</p>`;
   }
   const info = parkSiteInfo(), plan = planning() && !d.moving, short = info && info.cost > state.cash && !plan, tap = isCoarse ? 'Tap' : 'Click';
   return `${head(d.moving ? `Move ${F.name.toLowerCase()}` : F.name)}
@@ -9196,7 +9222,8 @@ function trailParkSection(t) {
   const hits = state.phase === 'open' && today ? ((today.parkBy || {})[t.id] || 0) : null;
   return `<div class="field-label">Terrain park</div>
     <p class="conn">${Object.entries(counts).map(([k, n]) => n > 1 ? `${n} × ${k.toLowerCase()}` : k).join(' · ')}<br>Shaping ${money(parkUpkeep(t))}/night${hits != null ? ` · <b>${hits}</b> rides on features today` : ''}</p>
-    ${can ? `<button class="link" data-action="parkHere">${state.phase === 'closed' ? 'Add, move or remove features' : 'Plan more features'}</button>` : ''}`;
+    ${(t.feats || []).some((f) => f.rm) ? `<p class="conn">${(t.feats || []).filter((f) => f.rm).length} removed tonight.</p>` : ''}
+    ${can ? `<button class="link" data-action="parkHere">${state.phase === 'closed' ? 'Add, move or remove features' : 'Plan or remove features'}</button>` : ''}`;
 }
 
 // The Trail tool builds trails or paints learning areas (the brush the Landscape tool used to hold).
@@ -9732,7 +9759,7 @@ function sheetAct(b) {
   else if (a === 'toggleOpen' && obj) setOpen(selected.kind, obj, !obj.open);
   else if (a === 'parkPick') { parkDraft = { type: FEATS[b.dataset.v] ? b.dataset.v : null, site: null, sel: null, moving: null }; clearParkGhost(); renderSheet(); }
   else if (a === 'parkBuild') parkBuild();
-  else if (a === 'parkRemove') parkRemove();
+  else if (a === 'parkRemove') parkRemove(b.dataset.v === 'keep');
   else if (a === 'parkSel') { parkDraft = { type: null, site: null, sel: null, moving: null }; clearParkGhost(); renderSheet(); }
   else if (a === 'parkMove') parkMove();
   else if (a === 'parkHere' && selected?.kind === 'trail') openParkTool();
@@ -10434,7 +10461,7 @@ function updateHandles() {
 function serializeWorld() {
   return {
     nextId: world.nextId,
-    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off })) : undefined })),
+    trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off, rm: f.rm || undefined })) : undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined, learn: L.learn || undefined })),
     buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
@@ -14501,7 +14528,7 @@ function nextDay() {
   refreshSnowState(todayWx());
   if (seasonOver()) return endSeason();
   if (selected && selected.kind === 'plan') select(null);
-  const hadPlans = world.plans.length > 0;
+  const hadPlans = world.plans.length > 0 || world.trails.some((t) => (t.feats || []).some((f) => f.rm)); // their own news overnight
   executePlans();
   eventNudge();
   draft.dirty = !!draft.kind;
@@ -25605,6 +25632,8 @@ function onTap(x, y, ptype) {
     if (ptype !== 'mouse' && last && now - last.t < 320 && Math.hypot(x - last.x, y - last.y) < 30) { lastTap = null; zoomCenter(1 / 1.8, x, y); return; }
     const g = state.phase === 'open' ? pickGuest(x, y) : null;
     const B = g ? null : pickBldAt(x, y);
+    const pf = !g && !B && !visiting && !matchPlay ? parkFeatAt(p) : null; // a park feature: its card, to move or remove it
+    if (pf) { openParkFeat(pf); return; }
     select(g ? { kind: 'guest', obj: g } : B ? { kind: 'bld', obj: B } : pickFeature(p));
   }
   if (ptype !== 'mouse') { hover.touch = true; hover.dirty = true; }
@@ -30251,6 +30280,10 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.14', date: 'Nov 16, 2026', title: 'Easier to remove park features', items: [
+    'Tap a terrain park feature on the map to open its card, with Move and Remove. Before, you had to find it through Trail › Terrain park.',
+    'While your resort is open, Remove it tonight takes a feature away overnight, with 25% back. It stays for the rest of the day, and you can keep it after all until then.',
+    'When cruisers complain about a park, the tip now says you can move or remove features. Thanks MisguidedSoul!'] },
   { v: '4.13.1', date: 'Nov 16, 2026', title: 'Safe with two tabs open', small: true, items: [
     'With your resort open in two tabs or windows, the one you left behind could put its older resort back over your newer progress when you closed it. Now it never saves over a newer save. Coming back to it opens your newest resort, and if it can’t save it tells you to reload.'] },
   { v: '4.13', date: 'Nov 16, 2026', title: 'Angled buildings fit closer together', items: [
