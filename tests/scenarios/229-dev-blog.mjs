@@ -21,6 +21,7 @@ export default async function ({ browser, url }) {
   eq(await ev(`[...document.querySelectorAll('.post')].map((a) => [a.dataset.post, a.querySelector('h2').textContent])`), [['hello-players', 'Hello players!']], 'the first post');
   assert(/One month ago, I started Mountain Mogul/.test(await ev(`document.querySelector('.post .body').textContent`)), 'Phil’s words');
   eq(await reacts(), ['heart 0', 'thumbs 0', 'party 0', 'laugh 0', 'wow 0', 'ski 0'], 'six emoji, none yet');
+  eq(await ev(`document.querySelector('.support a.coffee').href`), 'https://buymeacoffee.com/mossquake', 'a coffee link');
   assert(/sign in from the game’s title screen/.test(await form()), `a guest is told how to comment: ${await form()}`);
 
   // reactions: a guest session, once per emoji, tap again to take it back, kept after a reload
