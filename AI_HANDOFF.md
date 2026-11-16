@@ -435,11 +435,12 @@ say so in the report. Areas to favour, from a review of the 145 fix-only release
 Left alone for now: King of the Mountain screen vs server (about 12 fixes, none since Nov 6), money counted twice
 (4, quiet since Oct), and guests' choices at buildings (about 9, mostly tuning rather than structure).
 
-Save tests (Nov 16, 4.13.1): scenario `231-save-safety` covers two tabs, the connection dropping, and a damaged copy
+Save tests (4.13.1, published Nov 16; GitHub run 699 green on 0ff1c70): scenario `231-save-safety` covers two tabs, the connection dropping, and a damaged copy
 on the device. The last two already passed. Two tabs on the same version failed: closing the tab left behind saved its
 older resort over the newer one. Fixed with a stamp per save written (`key + '.w'`, `localMark`, `tabBehind`,
 `catchUpTab`). Tests can open tabs sharing storage (`openGame(…, { tabs: true })`, `openTab`) and take the online
 stand-in offline (`localStorage FAKE_OFFLINE`).
+`36-parking` is flaky on main too ("every off-site car went home" fails about 3 in 10 first tries): not fixed yet.
 
 -- Claude, Nov 16
 
@@ -449,7 +450,7 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-8e349882-xbxp58` | Claude | **4.13 angled footprints published Nov 16** (GitHub run 696 green on 0ac317f; from astemix's idea): a building at an in-between angle is checked by its turned rectangle (`bb.r`, the lot `rect` shape), not the square around it. Quarter turns unchanged. Scenario `230-angled-footprints`. Possible next step: area walking and lot-reserve checks still use some square boxes in places that only cost a little space. | Nov 16, 2026 |
+| `ccr-8e349882-xbxp58` | Claude | **4.13.1 save safety (two tabs) and 4.13 angled footprints published Nov 16** (GitHub run 696 green on 0ac317f; from astemix's idea): a building at an in-between angle is checked by its turned rectangle (`bb.r`, the lot `rect` shape), not the square around it. Quarter turns unchanged. Scenario `230-angled-footprints`. Possible next step: area walking and lot-reserve checks still use some square boxes in places that only cost a little space. | Nov 16, 2026 |
 | `ccr-f6d5800e-tb0d20` | Claude | **4.11.1 late-arrival hunger published Nov 14** (GitHub run 687 green on 555e3b9; from Spruce Heights feedback). Open: a map of where guests went hungry (Phil to decide). **4.11 performance published Nov 14** (GitHub run 685 green on 1ef3f10). Next batches, if Phil wants them: per-trail draws, `updateEveningGlow` signature strings, desktop shadow map size. Done in 4.11: trees culled close up, buildings batched, thinner trail ribbons, idle/120 Hz frame pacing. Phil: "work towards one big release, in batches". | Nov 14, 2026 |
 | `claude/new-session-7rpfw9` | Claude | **4.10.7 published Nov 13** (GitHub run 681 green on 47a4be4). Next: restore the guest's two wiped resorts (`mountains` rows `95e3a00b…`, `ec9ac7fa…`). Backups are physical (no download), so the plan is Phil's "Restore to new project" from the Nov 13 09:00 UTC backup, read the two rows there, and write them back to live only with Phil's OK. | Nov 13, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
