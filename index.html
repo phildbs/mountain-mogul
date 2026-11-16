@@ -1363,6 +1363,9 @@ a.vtag { text-decoration: none; }
 .tb-ev { border-color: rgba(122, 76, 196, 0.4); background: rgba(122, 76, 196, 0.12); color: #6a3fb8; }
 .rp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .rp-view { flex: none; margin-top: 4px; }
+.rp-steps { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -2px 0 2px; font-size: 13px; color: var(--ink-2); }
+.rp-steps .link { font-size: 13.5px; padding: 4px 0; }
+.rp-steps .link:disabled { opacity: 0.35; cursor: default; text-decoration: none; }
 .rp-head .eyebrow { white-space: nowrap; }
 .rp-view button { padding: 5px 10px; font-size: 12.5px; }
 .rp-short { display: grid; gap: 10px; justify-items: start; }
@@ -23001,6 +23004,7 @@ $('rpBody').addEventListener('click', (e) => {
   nextDay(); openAreaTool();
 });
 $('rpNext').onclick = () => {
+  if (rpPast && state.phase === 'report') { showReport(); return; } // an earlier day, stepped back to from today's report: back to today's
   if (rpPast) { rpPast = false; $('report').hidden = true; return; } // an old report, opened from Money
   if (state.phase !== 'report' && state.phase !== 'season') return;
   if (state.phase === 'report') {
@@ -24269,7 +24273,7 @@ function adviceFor(r) {
   return tips.length ? tips[0][1] : '';
 }
 // The day report. `past` shows an earlier day from the Money panel, just to read.
-let rpPast = false;
+let rpPast = false, rpShown = null; // rpShown: the report on screen, for stepping to the day before or after
 // What the day report says about hungry guests: the count, then the reasons, biggest first.
 function hungryNote(r) {
   const c = r.complaints, h = r.hungry, n = c.food;
@@ -24337,7 +24341,7 @@ function whyToday(r) {
 function showReport(r = state.lastReport, past = false) {
   if (matchView && matchView.replay && !past) { stopReplay(true); return; } // a watched match day ends with the server's numbers
   if (simulating || !r) return;
-  rpPast = past;
+  rpPast = past; rpShown = r;
   const ex = { upkeep: 0, parking: 0, shuttles: 0, claims: 0, cogs: 0, snowmaking: 0, interest: 0, overhead: 0, lease: 0, investor: 0, apres: 0, night: 0, ...r.exp }, rv = { food: 0, dining: 0, rentals: 0, retail: 0, lessons: 0, parking: 0, passes: 0, refunds: 0, apres: 0, night: 0, lodging: 0, condo: 0, ...r.rev };
   const exp = ex.lifts + ex.grooming + ex.staff + ex.upkeep + ex.parking + ex.shuttles + ex.claims + ex.cogs + ex.snowmaking + ex.interest + ex.overhead + ex.lease + ex.investor + ex.apres + ex.night;
   const revTotal = rv.tickets + rv.food + rv.dining + rv.rentals + rv.retail + rv.lessons + rv.parking + rv.passes + rv.apres + rv.night + rv.lodging + rv.condo + (rv.events || 0) + (rv.rides || 0) + (rv.bikes || 0) + (rv.restrooms || 0) - rv.refunds;
@@ -24424,6 +24428,7 @@ function showReport(r = state.lastReport, past = false) {
   $('rpBody').innerHTML = `
     <div class="rp-head"><div><div class="eyebrow">${r.summer ? `Summer day report · ${esc(r.summer)}` : `Day report · Season ${r.season || state.season}`}</div><h2 id="rpTitle">${esc(r.when || dateLabel(r.day))}</h2></div>
       <div class="seg rp-view" role="group" aria-label="Report size"><button data-rpview="short">Summary</button><button data-rpview="full">Full</button></div></div>
+    ${rpStepsHtml(r)}
     ${tabs.length > 1 ? `<div class="tabs rp-tabs" role="tablist">${tabs.map(([k, l], i) => `<button role="tab" data-rptab="${k}" aria-pressed="${!i}">${l}</button>`).join('')}</div>` : ''}
     <div class="rp-page" data-page="day">
     <dl class="rp-hero">
@@ -24469,11 +24474,24 @@ function showReport(r = state.lastReport, past = false) {
   $('report').hidden = false;
   if ($('rpPlan')) $('rpPlan').onclick = planTomorrow;
   $('rpNext').focus({ preventScroll: true });
-  if (past) { cancelAuto(); $('rpNext').textContent = 'Close'; $('rpAutoRow').hidden = true; return; }
+  if (past) { cancelAuto(); $('rpNext').textContent = state.phase === 'report' && !matchView ? 'Back to the latest day' : 'Close'; $('rpAutoRow').hidden = true; return; }
   $('rpNext').textContent = 'Start the next day';
   armAuto();
 }
 
+// Earlier and later days' reports (the last ${HISTORY_DAYS} open days are kept), from inside the report: arrows, or ← → keys.
+function rpStepsHtml(r) {
+  const h = state.history || [], i = h.indexOf(r);
+  if (i < 0 || h.length < 2 || matchView) return '';
+  return `<div class="rp-steps"><button class="link" data-rpstep="-1" ${i > 0 ? '' : 'disabled'} title="The day before (←)">‹ Day before</button>
+    <span>${h.length - i === 1 ? 'Latest day' : `${h.length - i} days back`}</span><button class="link" data-rpstep="1" ${i < h.length - 1 ? '' : 'disabled'} title="The day after (→)">Day after ›</button></div>`;
+}
+function rpStep(d) {
+  const h = state.history || [], i = h.indexOf(rpShown), r = h[i + d];
+  if (i < 0 || !r || matchView) return;
+  showReport(r, !(i + d === h.length - 1 && state.phase === 'report')); // back to the newest during the report: its own Start the next day
+}
+$('report').addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); rpStep(e.key === 'ArrowLeft' ? -1 : 1); } });
 // The day report comes in two sizes: a summary (the headline numbers and the few things that matter
 // most) and the full report. New players start on the summary, everyone else on the full report;
 // switching is remembered on this device.
@@ -24506,6 +24524,8 @@ $('rpBody').addEventListener('click', (e) => {
     if (t) t.click();
     return;
   }
+  const st = e.target.closest('[data-rpstep]');
+  if (st) { rpStep(+st.dataset.rpstep); return; }
   const v = e.target.closest('[data-rpview]');
   if (v) { try { localStorage.setItem('mm.rpView', v.dataset.rpview); } catch (err) { /* ignore */ } applyRpView(); return; }
   const b = e.target.closest('[data-rptab]');
@@ -25113,15 +25133,15 @@ function moneyPanel() {
       <div><dt>Cash</dt><dd>${cashText()}</dd></div>
       <div><dt>Bank loan</dt><dd>${money(state.debt || 0)}</dd></div>
       <div><dt>Reputation</dt><dd>${repWordOf(state.reputation)}</dd></div>
-      <div><dt>${live ? 'Today so far' : 'Last day'}</dt><dd>${live ? `${money(liveRev)} in` : r ? signedMoney(r.profit) : '–'}</dd></div>
+      <div><dt>${live ? 'Today so far' : 'Last day'}</dt><dd>${live ? `${money(liveRev)} in` : r && hist.length ? `<button class="link" data-action="pastReport" data-i="${hist.length - 1}" title="Open its report">${signedMoney(r.profit)} · report ›</button>` : r ? signedMoney(r.profit) : '–'}</dd></div>
     </dl>
     ${st && st.days ? `<div class="field-label">Season ${state.season} so far</div>
     <div class="costs"><span>Days open</span><span>${st.days}</span><span>Visitors</span><span>${st.visitors.toLocaleString('en-US')}</span><span>Revenue</span><span>${money(st.revenue)}</span><span>Expenses</span><span>${money(st.expenses)}</span><span>Profit</span><span>${signedMoney(st.profit)}</span></div>` : ''}
-    ${seasonChartsHtml()}
     ${hist.length ? `<div class="field-label">Last ${hist.length === 1 ? 'day' : `${hist.length} open days`}</div>
     <table class="hist"><thead><tr><th>Day</th><th>Guests</th><th>Happy</th><th>Profit</th></tr></thead><tbody>
       ${hist.map((h, i) => `<tr data-action="pastReport" data-i="${hist.length - 1 - i}"><td>${esc(dateLabel(h.day).replace(/^(\w+), /, '$1 '))}</td><td>${h.guests}</td><td>${h.guests ? h.sat + '%' : '–'}</td><td class="${h.profit < 0 ? 'neg' : ''}">${signedMoney(h.profit)}</td></tr>`).join('')}
     </tbody></table><p class="help">Tap a day to open its report.</p>` : r ? `<div class="costs"><span>Last day’s guests</span><span>${r.guests}</span><span>Revenue</span><span>${money(rv)}</span><span>Profit</span><span>${signedMoney(r.profit)}</span></div>` : ''}
+    ${seasonChartsHtml()}
     ${loanSection()}`;
 }
 /* ---------- Operations: the plan editor, and what each day's report says about it ---------- */
@@ -30280,6 +30300,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.14.1', date: 'Nov 16, 2026', title: 'Earlier day reports', small: true, items: [
+    'Earlier day reports are easier to find: in Money, tap Last day to open the latest one. The list of your last open days now sits above the charts.',
+    'A day report has ‹ Day before and Day after › to step through the last 14 open days. On a computer, the ← and → keys do the same. Thanks to the player who asked!'] },
   { v: '4.14', date: 'Nov 16, 2026', title: 'Easier to remove park features', items: [
     'Tap a terrain park feature on the map to open its card, with Move and Remove. Before, you had to find it through Trail › Terrain park.',
     'While your resort is open, Remove it tonight takes a feature away overnight, with 25% back. It stays for the rest of the day, and you can keep it after all until then.',
