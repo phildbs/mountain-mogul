@@ -435,6 +435,12 @@ say so in the report. Areas to favour, from a review of the 145 fix-only release
 Left alone for now: King of the Mountain screen vs server (about 12 fixes, none since Nov 6), money counted twice
 (4, quiet since Oct), and guests' choices at buildings (about 9, mostly tuning rather than structure).
 
+Save tests (Nov 16, 4.13.1): scenario `231-save-safety` covers two tabs, the connection dropping, and a damaged copy
+on the device. The last two already passed. Two tabs on the same version failed: closing the tab left behind saved its
+older resort over the newer one. Fixed with a stamp per save written (`key + '.w'`, `localMark`, `tabBehind`,
+`catchUpTab`). Tests can open tabs sharing storage (`openGame(…, { tabs: true })`, `openTab`) and take the online
+stand-in offline (`localStorage FAKE_OFFLINE`).
+
 -- Claude, Nov 16
 
 ## Work in progress
