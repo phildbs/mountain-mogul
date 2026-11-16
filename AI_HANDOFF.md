@@ -416,6 +416,27 @@ legends; summer zip lines may start at a mid-station (`zipLiftAt`, `midStop`); b
 (`bikeNear`, `bikeNet`, `bikeRateDown`, `bikeLeave`, rider field `hops`) and allow 80 points. Scenarios 220, 221.
 `87-referrals` hangs in Claude's cloud container on `main` too (network), so a local full run skips it.
 
+## Tidy as you go (Phil's call, Nov 16)
+
+No big refactor. When a change touches a messy area, tidy that area in the same branch, with the tests guarding it, and
+say so in the report. Areas to favour, from a review of the 145 fix-only releases (1.0 to 4.12), most fixes first:
+
+1. **Saves** (6 fixes, 4 could lose progress: 2.83.7, 4.1.1, 4.2.2, 4.10.7). Several copies (this tab, other tabs,
+   other devices, online) and guards added in different places, plus 11 old-save repairs on load. Aim: one place decides
+   which copy is newest and may be written, with a scenario for each case. Only 5 save scenarios today.
+2. **Getting around** (about 20 fixes: walking over the ridge, bases, night lifts, après reach, stuck skiers, days that
+   never ended). "Can a guest get there?" is answered by separate rules: `baseReach` (height flood from the lots),
+   `villageReach` (within 14 of a village station), `withinWalk` (`APRES_CLIMB`), lift links, night lift checks. Aim:
+   one shared reach map (from the bases, by day and by night) they all read.
+3. **Footprints on the ground** (about 8 fixes: lifts over ponds twice, pumphouse in the creek, road buried, lot lights
+   left behind). Each kind of thing has its own shape and its own checks against the others. 4.13 started joining
+   buildings onto the lots' turned rectangles (`bb.r`, `rectDist`, `rectsOverlap`).
+
+Left alone for now: King of the Mountain screen vs server (about 12 fixes, none since Nov 6), money counted twice
+(4, quiet since Oct), and guests' choices at buildings (about 9, mostly tuning rather than structure).
+
+-- Claude, Nov 16
+
 ## Work in progress
 
 One row per active branch, so nobody edits the same thing at once. Remove the row when it merges.
