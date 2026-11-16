@@ -54,7 +54,7 @@ through a simulated winter, day by day. Free to play, no install, works on phone
 
 ## Current status (updated 2026-11-16)
 
-**In preview: 4.12 Dev blog** (branch `ccr-ce55944a-6frri6`, not published). See the note under AI collaboration notes. `supabase/blog.sql` is **LIVE** (Phil ran it Nov 16; checked: 2 tables, 4 policies, 3 functions, empty tally). (Claude, Nov 16)
+**Live: 4.12 Dev blog** (published Nov 16 on Phil's "Publish", GitHub run 694 green on 987de5a). See the note under AI collaboration notes. To add a post, put a new `<article class="post" data-post="…">` at the top of blog.html; Phil's name goes only on his sign-off. `supabase/blog.sql` is **LIVE** (Phil ran it Nov 16; checked: 2 tables, 4 policies, 3 functions, empty tally). (Claude, Nov 16)
 
 **Live: 4.8 Parking garages** (published Nov 12 by Claude on Phil's "Publish", GitHub run green on b57dc4e). Garages, the Lifts list sort, map colours for snow depth and lit trails, restroom fees (free by default), summer zip lines from a mid-station, bike trails that branch and merge (80 points), and the decor card fix. Details under **Parking garages** below. GitHub runs 649 and 650 sat queued for a day with no jobs and wouldn't cancel; a manual Run workflow started fine. (Claude, Nov 12)
 
@@ -422,7 +422,6 @@ One row per active branch, so nobody edits the same thing at once. Remove the ro
 
 | Branch | Who | What | Started |
 |---|---|---|---|
-| `ccr-ce55944a-6frri6` | Claude | **4.12 Dev blog** (Phil, Nov 16): `blog.html`, a title card and menu item, comments and emoji reactions. `supabase/blog.sql` LIVE (Phil ran it Nov 16). Waiting on Phil's Publish. | Nov 16, 2026 |
 | `ccr-f6d5800e-tb0d20` | Claude | **4.11.1 late-arrival hunger published Nov 14** (GitHub run 687 green on 555e3b9; from Spruce Heights feedback). Open: a map of where guests went hungry (Phil to decide). **4.11 performance published Nov 14** (GitHub run 685 green on 1ef3f10). Next batches, if Phil wants them: per-trail draws, `updateEveningGlow` signature strings, desktop shadow map size. Done in 4.11: trees culled close up, buildings batched, thinner trail ribbons, idle/120 Hz frame pacing. Phil: "work towards one big release, in batches". | Nov 14, 2026 |
 | `claude/new-session-7rpfw9` | Claude | **4.10.7 published Nov 13** (GitHub run 681 green on 47a4be4). Next: restore the guest's two wiped resorts (`mountains` rows `95e3a00b…`, `ec9ac7fa…`). Backups are physical (no download), so the plan is Phil's "Restore to new project" from the Nov 13 09:00 UTC backup, read the two rows there, and write them back to live only with Phil's OK. | Nov 13, 2026 |
 | `ccr-e39f50db-ipao7i` | Claude | **Summer after 4.0**: step 5 of the launch list (Phil picks). 4.0 published Nov 10. | Nov 10, 2026 |
@@ -929,7 +928,7 @@ Lasting points from earlier notes. Add to this list rather than leaving them bur
 
 ## AI collaboration notes
 
-### 2026-11-16 · Claude · 4.12 Dev blog (branch `ccr-ce55944a-6frri6`, in preview)
+### 2026-11-16 · Claude · 4.12 Dev blog (branch `ccr-ce55944a-6frri6`, published Nov 16 on Phil's "Publish"; GitHub run 694 green on 987de5a)
 Phil: a dev blog with a button from the title screen; players with names comment, anyone reacts with emoji; first post "Hello players!" (his words, as written). Subtitled "The only part of this game written by a human." Phil: his name appears **only** where he signs a post (the page says "the developer" elsewhere).
 - `blog.html`: a standalone page like the roadmap (same look, same Supabase client, so the game's sign-in carries over). Posts are written into the page, newest first, as `<article class="post" data-post="id">`. **Never change a `data-post` id once published**: comments, reactions and the game's tag are keyed by it. To add a post, put a new article above the others.
 - Reactions: six emoji (`heart thumbs party laugh wow ski`), any number per player, once each, tap again to take back. Guests too (anonymous sign-in on first tap, like roadmap votes).
