@@ -440,7 +440,7 @@ on the device. The last two already passed. Two tabs on the same version failed:
 older resort over the newer one. Fixed with a stamp per save written (`key + '.w'`, `localMark`, `tabBehind`,
 `catchUpTab`). Tests can open tabs sharing storage (`openGame(…, { tabs: true })`, `openTab`) and take the online
 stand-in offline (`localStorage FAKE_OFFLINE`).
-`36-parking` is flaky on main too ("every off-site car went home" fails about 3 in 10 first tries): not fixed yet.
+`36-parking` flake fixed in 4.14.1 (was about 3 in 10 first tries, now 0 in 10): off-site guests leaving without the shuttle weren't counted back to their car (`offBack`), and `endDay` now clears `offCars` with the other guests and cars.
 
 -- Claude, Nov 16
 

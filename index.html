@@ -13047,7 +13047,7 @@ function goCar(g) {
     // straight-line distance, guests walked over the mountain to a station on its other side.
     const zg = baseCount() > 1 ? baseOf(g) : 0, S = stations();
     st = nearestStation(g, S.filter((B) => (baseCount() > 1 ? baseOf(B.door) : 0) === zg)) || nearestStation(g, S);
-    if (!st && car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; return; } // no station open: they find their own way
+    if (!st && car && car.offsite) { g.gone = true; gById.delete(g.id); recordMealOutcome(g); today.satSum += g.sat; today.satN++; offBack(g); return; } // no station open: they find their own way
     if (st) g.stn = st.id;
   }
   const s = st ? st.door : car ? stalls[car.stall] : roadEnd();
@@ -13867,7 +13867,7 @@ function arrive(g) {
     recordMealOutcome(g); today.satSum += g.sat; today.satN++;
     const car = cars.find((c) => c.id === g.car);
     if (car) { car.back++; if (car.back >= car.members.length) carLeave(car); }
-    else { g.gone = true; gById.delete(g.id); }
+    else { g.gone = true; gById.delete(g.id); offBack(g); }
   } else if (t.k === 'bld') {
     const B = bldById(t.bid);
     if (!B) return resumeGuest(g);
@@ -14425,7 +14425,7 @@ function endDay() {
     priceBy: today.priceBy ? JSON.parse(JSON.stringify(today.priceBy)) : null,
     diaries: today.diaries ? today.diaries.map(({ last, qAt, ...d }) => d) : null,
   };
-  guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0; rackMin = -1;
+  guests = []; cars = []; gById.clear(); schedule = []; buses = []; busPending = 0; rackMin = -1; offQueue = []; offCars = []; // everyone has gone home, off-site parkers too
   endOps();
   for (const L of world.lifts) initLiftSim(L);
   for (const B of world.buildings) { const y = B.yday; initBldSim(B); B.yday = y; }
@@ -20426,9 +20426,14 @@ function parkBoard(st) {
     today.parkWait += wait * AGENT; today.parkWaitN += AGENT;
     g.gone = true; gById.delete(g.id);
     recordMealOutcome(g); today.satSum += g.sat; today.satN++;
-    const car = offCars.find((c) => c.id === g.car);
-    if (car && ++car.back >= car.members.length) { offCars = offCars.filter((c) => c !== car); today.offUsed--; }
+    offBack(g);
   }
+}
+// An off-site parker leaving, by any way out: counted back to their car, which leaves the field once its whole party is
+// back. Leaving without being counted (no station open, or walking to the car) kept the car there all night.
+function offBack(g) {
+  const car = offCars.find((c) => c.id === g.car);
+  if (car && ++car.back >= car.members.length) { offCars = offCars.filter((c) => c !== car); today.offUsed--; }
 }
 /* =====================================================================
    BUILDINGS: build tool, panels and drawing
@@ -30302,7 +30307,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 const CHANGES = [
   { v: '4.14.1', date: 'Nov 16, 2026', title: 'Earlier day reports', small: true, items: [
     'Earlier day reports are easier to find: in Money, tap Last day to open the latest one. The list of your last open days now sits above the charts.',
-    'A day report has ‹ Day before and Day after › to step through the last 14 open days. On a computer, the ← and → keys do the same. Thanks to the player who asked!'] },
+    'A day report has ‹ Day before and Day after › to step through the last 14 open days. On a computer, the ← and → keys do the same. Thanks to the player who asked!',
+    'Fixed: a guest parked off-site who went home without the shuttle (no station open, say) wasn’t counted back to their car, so the off-site field could look fuller than it was for the rest of the day.'] },
   { v: '4.14', date: 'Nov 16, 2026', title: 'Easier to remove park features', items: [
     'Tap a terrain park feature on the map to open its card, with Move and Remove. Before, you had to find it through Trail › Terrain park.',
     'While your resort is open, Remove it tonight takes a feature away overnight, with 25% back. It stays for the rest of the day, and you can keep it after all until then.',
