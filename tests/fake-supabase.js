@@ -13,6 +13,8 @@
     const q = { filters: [], ins: [], op: 'select', cols: '*' };
     const run = () => {
       const d = db(), me = uid();
+      // FAKE_OFFLINE: the connection is down, so every call fails as a real one would
+      if (localStorage.getItem('FAKE_OFFLINE')) return { data: null, error: { message: 'Failed to fetch' } };
       // feedback: anyone signed in (guests too) can send; nobody can read it back
       if (table === 'feedback') {
         if (q.op !== 'insert') return { data: null, error: { code: '42501', message: 'permission denied for table feedback' } };

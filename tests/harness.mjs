@@ -49,11 +49,13 @@ export async function launch() {
 
 // A fresh game page. Options: query ('?dev'), mountain ('raven'), mobile, keepStorage, and render
 // (draw the 3D view, as players see it; slow on a machine without a graphics card, so off by default).
-export async function openGame(browser, url, { query = '', mountain: asked, width = 1280, height = 900, keepStorage = false, render = false, hasTouch = false } = {}) {
+export async function openGame(browser, url, { query = '', mountain: asked, width = 1280, height = 900, keepStorage = false, render = false, hasTouch = false, tabs = false } = {}) {
   // Tests build on Juniper Ridge unless they say otherwise ('fresh' is a first visit, left to pick its own).
   const mountain = asked === 'fresh' ? undefined : asked ?? (keepStorage ? undefined : 'juniper');
   if (render) query += (query ? '&' : '?') + 'render';
-  const page = await browser.newPage({ viewport: { width, height }, hasTouch });
+  // tabs: a browser of its own, so openTab can add more tabs that share its storage (closing the first tab closes it)
+  const page = tabs ? await (await browser.newContext({ viewport: { width, height }, hasTouch })).newPage() : await browser.newPage({ viewport: { width, height }, hasTouch });
+  if (tabs) page.on('close', () => page.context().close().catch(() => {}));
   page.setDefaultNavigationTimeout(120000); // this machine can be slow to start the 3D view
   await page.route('https://accounts.google.com/**', (r) => r.abort());
   const errors = [];
@@ -77,6 +79,18 @@ export async function openGame(browser, url, { query = '', mountain: asked, widt
     reloaded: async () => { await page.waitForFunction(() => !window.__mmSeen, null, { timeout: 15000 }).catch(() => {}); await page.waitForLoadState('load'); await waitReady(page); },
   };
   return g;
+}
+// A second tab in the same browser as g: it shares the device's storage (saves, and the online stand-in) with g.
+export async function openTab(g, url, query = '') {
+  const page = await g.page.context().newPage(); // g must come from openGame(…, { tabs: true })
+  await page.route('https://accounts.google.com/**', (r) => r.abort());
+  page.setDefaultNavigationTimeout(120000);
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(url + query);
+  await waitReady(page);
+  return { page, errors, ev: (code) => page.evaluate((c) => window.__dbg(c), code), click: (sel) => page.evaluate((s) => { const el = document.querySelector(s); if (!el) throw new Error('no element ' + s); el.click(); }, sel),
+    wait: (ms) => page.waitForTimeout(ms), reloaded: async () => { await page.waitForFunction(() => !window.__mmSeen, null, { timeout: 15000 }).catch(() => {}); await page.waitForLoadState('load'); await waitReady(page); } };
 }
 async function waitReady(page) {
   await page.waitForFunction(() => window.__dbg && !document.getElementById('loading'), null, { timeout: 60000 });

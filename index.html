@@ -4466,12 +4466,14 @@ let lastSaveLen = 0;
 function saveNow() {
   if (NO_SAVE || matchPlay || leaving || staleFor) return;
   if (visiting || simulating || !saveKey() || !onThisMountain()) return; // someone else's resort is on screen; never overwrite your own save
+  if (tabBehind()) { showBehind(); return; } // another tab saved this resort since: never put the older one back
   if (state.started && state.phase !== 'open') refreshResortPhoto();
   let stored = false;
   try {
     const text = JSON.stringify(saveData(true));
     lastSaveLen = text.length;
     stored = storeSet(saveKey(), text); // storage unavailable or full: the game still plays, and the online copy keeps it
+    if (stored) noteOpened();
   } catch (e) { /* ignore */ }
   const s = !practice && activeSlot();
   // localAt: when this device's copy was last written. Only a write that went in counts: a full browser used to leave
@@ -4489,8 +4491,28 @@ function writeSlots() { if (NO_SAVE) return true; try { return storeSet(SLOTS_KE
 // room by dropping this device's copies of other mountains that are saved online at least as recently
 // (they download again when played), then try once more. Returns whether the write went in.
 let storeKeep = []; // the mountains being switched between: never dropped to make room (the one left may have changes not online yet)
+// Two tabs on one resort: every save written here gets a fresh stamp (its key + '.w'), and a page notes the stamp of the
+// save it opened or last wrote (localMark). A different stamp means another tab has saved since, so this page's resort
+// is the older one: it never saves over the newer one (closing a forgotten tab put its older resort back), and loads
+// the newer one when you come back to it. Saves from before 4.13.1 have no stamp ('').
+let localMark = null; // { key, mark }
+const markOf = (key) => { try { return localStorage.getItem(key + '.w') || ''; } catch (e) { return ''; } };
+const noteOpened = () => { const k = saveKey(); localMark = k ? { key: k, mark: markOf(k) } : null; };
+function openLocal() { noteOpened(); return loadSave(); }
+function tabBehind() { const k = saveKey(); return !!(k && localMark && localMark.key === k && markOf(k) !== localMark.mark); }
+function showBehind() {
+  $('updateBar').querySelector('span').textContent = 'This resort was saved in another tab since you opened it here. Reload to carry on from the newest save: progress in this tab isn’t saved.';
+  $('updateGo').textContent = 'Reload'; $('updateBar').hidden = false;
+}
+// Back to this tab (or window): if another one saved the resort since, carry on from that save.
+function catchUpTab() {
+  if (visiting || matchPlay || leaving || !tabBehind()) return false;
+  if (state.started) { leaving = true; reloadInto('start'); } else { applySave(openLocal()); refreshTitle(); }
+  return true;
+}
 function storeSet(key, text) {
-  try { localStorage.setItem(key, text); return true; } catch (e) { /* full, or storage blocked */ }
+  const stamp = () => { if (key === SLOTS_KEY) return; try { localStorage.setItem(key + '.w', Date.now().toString(36) + Math.random().toString(36).slice(2, 8)); } catch (e) { /* ignore */ } };
+  try { localStorage.setItem(key, text); stamp(); return true; } catch (e) { /* full, or storage blocked */ }
   if (!CLOUD.ready || !CLOUD.own) return false;
   const drop = slots.list.filter((s) => s.id !== slots.active && !storeKeep.includes(s.id) && slotKey(s.id) !== key && (!s.owner || s.owner === CLOUD.uid) && (() => {
     const m = CLOUD.own.find((x) => x.id === s.id);
@@ -4502,7 +4524,7 @@ function storeSet(key, text) {
   try {
     if (key !== SLOTS_KEY) localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
     localStorage.setItem(key, key === SLOTS_KEY ? JSON.stringify(slots) : text);
-    return true;
+    stamp(); return true;
   } catch (e) { return false; }
 }
 const STORAGE_FULL_MSG = 'This browser’s storage for Mountain Mogul is full, so that mountain couldn’t open. Your mountains are safe online. Delete a mountain you no longer play, or clear this site’s data in your browser settings and sign in again.';
@@ -4615,7 +4637,7 @@ function useSlotIn(id, sv, then) {
     }
     reloadInto(then || 'title'); return false;
   }
-  applySave(sv || loadSave());
+  noteOpened(); applySave(sv || loadSave());
   return true;
 }
 // The whole resort as plain data. Cloud copies leave out the day in progress.
@@ -26168,7 +26190,7 @@ function scheduleCloud() {
 }
 // Upload your resort. Skipped mid-day: the cloud copy is always a resort between days.
 async function cloudSave(manual, forReferral = false) {
-  if (NO_SAVE || matchPlay || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite || staleFor) return;
+  if (NO_SAVE || matchPlay || !CLOUD.ready || !CLOUD.uid || visiting || practice || !CLOUD.canWrite || staleFor || tabBehind()) return;
   if (refClaimBusy && !forReferral) { scheduleCloud(); return; }
   const slot = activeSlot(), uploadUid = CLOUD.uid;
   // Never save over another account's mountain that is sitting on this device.
@@ -27048,7 +27070,7 @@ function returnHome() {
   $('visitBar').hidden = true; $('mpFab').hidden = true; mpMenu(false);
   select(null);
   if (!onThisMountain()) { reloadInto('title'); return; }
-  applySave(loadSave());
+  applySave(openLocal());
   showTitle();
 }
 // Bring one of your online mountains onto this device and make it the one you're playing.
@@ -30182,7 +30204,7 @@ function startTutorial() {
   $('community').hidden = true;
   if (MOUNTAIN.id !== 'juniper') { if (state.started) saveNow(); reloadInto('tutorial', 'juniper'); return; }
   practice = true;
-  let sv = loadSave();
+  let sv = openLocal();
   if (sv && sv.n === trees.n) applySave(sv);
   else sv = newTutorial();
   $('resortSub').textContent = 'Tutorial · practice resort';
@@ -30197,7 +30219,7 @@ function leaveTutorial() {
   $('tutCard').hidden = true;
   $('resortSub').textContent = BADGE_SUB;
   if (!onThisMountain()) { reloadInto('title'); return; }
-  applySave(loadSave());
+  applySave(openLocal());
 }
 function renderTut() {
   const n = state.tut || 0, all = n >= TUT_STEPS.length;
@@ -32325,7 +32347,7 @@ function start(hot) {
   buildPuffs();
   buildBrush();
   readSlots();
-  applySave(loadSave());
+  applySave(openLocal());
   if (activeSlot() && onThisMountain() && !loadSave()) { state.resortName = activeSlot().name; $('resortName').textContent = state.resortName; } // a new mountain, made before reloading onto it
   if (activeSlot() && !activeSlot().when) saveNow(); // fills in the list entry (also for saves from before multiple mountains)
 
@@ -32378,10 +32400,11 @@ function start(hot) {
     cam: { x: cam.target.x, z: cam.target.z, az: cam.azGoal, viewH: cam.viewH, el: EL },
   }));
   window.addEventListener('pagehide', saveNow);
-  window.addEventListener('focus', () => { if (state.started) checkNewerElsewhere(); });
+  window.addEventListener('focus', () => { if (!catchUpTab() && state.started) checkNewerElsewhere(); });
   // Switching away (closing the tab, another app on a tablet) is often the last chance to upload.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && state.started && !visiting) { saveNow(); cloudSaveNow(); }
+    else if (!document.hidden && catchUpTab()) return; // another tab saved this resort since
     else if (!document.hidden && !state.started && CLOUD.ready) refreshMine(); // back on the title: anything newer from another device?
     else if (!document.hidden && state.started) checkNewerElsewhere(); // back in the game: played further somewhere else?
   });
