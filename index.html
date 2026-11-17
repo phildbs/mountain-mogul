@@ -1581,6 +1581,7 @@ body.visiting #tbAuto, body.visiting .rp-auto { display: none; }
 .stepper.small { gap: 8px; font-size: 13px; color: var(--ink-2); }
 .stepper.small button { width: 28px; height: 28px; font-size: 15px; }
 .stepper.small output { font-size: 20px; min-width: 48px; color: var(--ink); }
+.smt .stepper { margin: 6px 0; } .smt .stepper > span:nth-child(2) { flex: 1; }
 @media (max-width: 640px) { .tb-wx .lbl { display: none; } .tb-wait { padding: 8px 9px; font-size: 12px; } }
 .plannote { margin: 0; font-size: 12.5px; line-height: 1.4; color: #2a5bb0; background: rgba(79, 143, 240, 0.12); border-radius: 9px; padding: 8px 10px; }
 .prices summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); padding: 4px 0; }
@@ -9484,6 +9485,7 @@ function liftUpgradeSection(L) {
 }
 function liftSheet(L) {
   const s = L.stats, type = LIFT_TYPES[L.type];
+  const slow = liftPlanMode(L) === 'slow';
   const notes = [];
   if (!L.reachable) notes.push(L.fromBase ? '' : 'Guests can’t reach this lift yet. Build a trail from another lift that ends at its bottom station.');
   if (!L.departing.length && !L.transfers.length) notes.push('No trails leave the top station yet.');
@@ -9502,8 +9504,8 @@ function liftSheet(L) {
       <button class="link" data-action="toggleOpen">${L.open ? 'Stop lift' : 'Start lift'}</button></div>
     ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${L.queue.length * AGENT}</b> in line · about ${Math.round(liftWait(L))} min wait · ${L.riders.reduce((a, r) => a + r.length, 0) * AGENT} riding<br>${((today.liftRiders[L.id] || 0) * AGENT).toLocaleString('en-US')} rides so far · power ${money(Math.round((today.liftCost || {})[L.id] || 0))}</p>` : ''}
     <dl class="kv">
-      <div><dt>Capacity</dt><dd>${s.cap.toLocaleString('en-US')}/hr</dd></div>
-      <div><dt>Ride time</dt><dd>${fmtTime(s.ride)}</dd></div>
+      <div><dt>Capacity</dt><dd>${slow ? `${liftCapShown(L).toLocaleString('en-US')}/hr<br><small class="muted">Slow · ${s.cap.toLocaleString('en-US')} at full speed</small>` : `${s.cap.toLocaleString('en-US')}/hr`}</dd></div>
+      <div><dt>Ride time</dt><dd>${fmtTime(slow ? s.ride / SLOW.speed : s.ride)}</dd></div>
       <div><dt>Length</dt><dd>${fmtFt(s.lenFt)}</dd></div>
       <div><dt>Vertical</dt><dd>${fmtFt(s.vertFt)}</dd></div>
       <div><dt>Towers</dt><dd>${s.towers}</dd></div>
@@ -9791,6 +9793,7 @@ function sheetAct(b) {
   else if (a === 'qGroom') { const t = trailById(+b.dataset.id); if (t) { t.groomed = !t.groomed; updateTrailSnow(t, todayWx()); renderSheet(); scheduleSave(); } }
   else if (a === 'qSm') { const t = trailById(+b.dataset.id); if (t && t.sm) { t.sm.mode = SM_NEXT[t.sm.mode] || 'auto'; renderSheet(); scheduleSave(); } }
   else if (a === 'bulkGroom') { for (const t of realTrails()) { t.groomed = b.dataset.v === '1'; updateTrailSnow(t, todayWx()); } renderSheet(); scheduleSave(); toast(b.dataset.v === '1' ? 'Every trail will be groomed tonight.' : 'Grooming stopped on every trail.'); }
+  else if (a === 'bulkSmTarget') { const ts = smGroup(+b.dataset.r); if (ts.length) { const v = clamp(smTargetOf(ts) + +b.dataset.d, 12, 96); for (const t of ts) t.sm.target = v; renderSheet(); scheduleSave(); } }
   else if (a === 'bulkSm') { let n = 0; for (const t of realTrails()) if (t.sm && t.sm.on) { t.sm.mode = b.dataset.v; n++; } renderSheet(); scheduleSave(); toast(`Snow guns on ${n} ${n === 1 ? 'trail' : 'trails'}: ${SM_WORD[b.dataset.v]}`); }
   else if (a === 'matchSlot') matchSwitch(+b.dataset.slot);
   else if (a === 'matchWho') openCreator(b.dataset.uid); // a rival's profile, from the standings
@@ -13241,7 +13244,7 @@ function updateLeaving(g) {
   if (g.leaving) return;
   if (state.time >= g.leaveAt || g.fat >= g.stam || g.sat < 22 || state.time >= sessionEnd(g)) {
     // Nobody buys a ticket and goes home on schedule without a run: a slow start (rentals, a lesson, lunch) earns more time.
-    if (!g.runs && !g.sight && g.fat < g.stam && g.sat >= 22 && state.time < sessionEnd(g)) { g.leaveAt = state.time + 60; return; }
+    if (!hadRun(g) && !g.sight && g.fat < g.stam && g.sat >= 22 && state.time < sessionEnd(g)) { g.leaveAt = state.time + 60; return; }
     if (g.fat >= g.stam && state.time < g.leaveAt && state.time < sessionEnd(g) && napOk(g)) return goNap(g, 'My legs are done. Back to the room for a rest, then out again.');
     g.leaving = true;
     if (g.sat < 22 && (g.waitOver || 0) > 15) leftEarly(g); // worn down mostly by lift lines
@@ -13254,9 +13257,11 @@ function updateLeaving(g) {
 function baseSkiable() {
   return world.lifts.some((L) => L.fromBase && canLoad(L) && L.departing.some(runnable));
 }
-// Guests who never got a single ride get their ticket money back.
+// Skied today: a lift ride, a run (some trails start right at the base) or a lesson with its learning-area laps.
+const hadRun = (g) => g.runs > 0 || g.vert > 0 || g.learnLaps > 0;
+// Guests who never got a single run get their ticket money back.
 function refundGuest(g, why) {
-  if (g.refunded || g.runs > 0 || g.pass || g.sawView) return;
+  if (g.refunded || hadRun(g) || g.pass || g.sawView) return;
   g.refunded = true;
   const amt = (g.paid ?? state.ticket) * AGENT;
   state.cash -= amt; today.refunds = (today.refunds || 0) + amt; today.refunded = (today.refunded || 0) + AGENT;
@@ -13296,7 +13301,7 @@ function baseDecision(g, skipHub = false) {
   const A = hubAt(g); if (A && !skipHub) return hubDecision(g, A);
   updateLeaving(g);
   if (g.leaving) {
-    if (!g.runs) refundGuest(g, today.closed ? 'I never made it onto a lift. Getting a refund.' : null);
+    if (!hadRun(g)) refundGuest(g, today.closed ? 'I never made it onto a lift. Getting a refund.' : null);
     if (lunchOnWayOut(g)) return;
     if (maybeApres(g)) return; return goCar(g);
   }
@@ -14088,6 +14093,9 @@ const lotsIn = (P) => clamp(P.lots == null ? state.lotSections : P.lots, 1, stat
 // The plan the resort is running right now (during an open day), or null.
 let runOps = null;
 const liftMode = (L) => (runOps && runOps.lifts[(L.parent || L).id]) || 'full';
+// The speed shown on a lift's card and the Lifts list: today's while open, otherwise the next day's plan (from Adum888's feedback).
+const liftPlanMode = (L) => (state.phase === 'open' && runOps ? liftMode(L) : liftModeIn(opsState().plans[planFor(state.day)], L.parent || L));
+const liftCapShown = (L) => Math.round(L.stats.cap * (liftPlanMode(L) === 'slow' ? SLOW.speed : 1));
 const bldMode = (B) => (runOps && runOps.bld[B.id]) || 'open';
 const lotsOpen = () => (runOps ? runOps.lots : state.lotSections);
 const staffLevel = () => STAFF_LEVELS[(runOps && runOps.staff) || 'normal'];
@@ -21016,7 +21024,7 @@ function applyDayMelt(w) {
 
 /* ---------- Trail snow: natural cover plus machine snow ---------- */
 const runnable = (t) => { if (t.link) t = t.parent; return t.open && t.snowOk !== false && (t.lit || !nightLightsOn()); }; // a link borrows all three from its trail; asking the trail itself is much quicker
-const needOf = (t) => OPEN_NEED[trailSign(t)];
+const needOf = (t) => OPEN_NEED[t.an.rating]; // the ground itself, not the sign: signing a black run blue doesn't make it hold snow better (Adum888)
 function trailNatural(t) {
   let s = 0, n = 0;
   for (let i = 0; i < t.samples.length; i += 4) { s += sampleGrid(NS, t.samples[i].x + HALF, t.samples[i].z + HALF); n++; }
@@ -24879,7 +24887,22 @@ function trailsList() {
     ${list.length ? `<ul class="llist">${rows}</ul>` : '<p class="help">Nothing here right now.</p>'}
     ${visiting ? '' : `<div class="lbulk">${list.length && shownOpen < list.length ? `<button class="btn secondary" data-action="bulkOpen" data-v="open">Open ${list.length === all.length ? 'all' : 'these'} ${list.length - shownOpen} ${word(list.length - shownOpen)}</button>` : ''}${shownOpen ? `<button class="btn secondary" data-action="bulkOpen" data-v="close">Close ${list.length === all.length ? 'all' : 'these'} ${shownOpen} ${word(shownOpen)}</button>` : ''}</div>
       <div class="lbulk"><button class="btn secondary" data-action="bulkGroom" data-v="1">Groom all</button><button class="btn secondary" data-action="bulkGroom" data-v="0">Groom none</button>
-      ${ts.some((t) => t.sm && t.sm.on) ? '<button class="btn secondary" data-action="bulkSm" data-v="auto">All snow guns on Auto</button><button class="btn secondary" data-action="bulkSm" data-v="off">All snow guns off</button>' : ''}</div>`}`;
+      ${ts.some((t) => t.sm && t.sm.on) ? '<button class="btn secondary" data-action="bulkSm" data-v="auto">All snow guns on Auto</button><button class="btn secondary" data-action="bulkSm" data-v="off">All snow guns off</button>' : ''}</div>
+      ${smTargetsHtml()}`}`;
+}
+// Auto snowmaking targets for every trail of one difficulty at once (Adum888's idea). Shows the target most of them share.
+const smGroup = (r) => realTrails().filter((t) => t.sm && t.sm.on && trailSign(t) === r);
+function smTargetOf(ts) {
+  const n = new Map(); for (const t of ts) n.set(t.sm.target, (n.get(t.sm.target) || 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+}
+function smTargetsHtml() {
+  const rows = RATINGS.map((R, r) => {
+    const ts = smGroup(r); if (!ts.length) return '';
+    const v = smTargetOf(ts), mixed = ts.some((t) => t.sm.target !== v);
+    return `<div class="stepper small"><span class="rsym">${ratingSymbol(r, 13)}</span><span>${ts.length} ${ts.length === 1 ? 'trail' : 'trails'}${mixed ? ' · mixed' : ''}</span><button data-action="bulkSmTarget" data-r="${r}" data-d="-6" aria-label="Lower the target on ${R.name} trails">−</button><output>${inch(v)}</output><button data-action="bulkSmTarget" data-r="${r}" data-d="6" aria-label="Raise the target on ${R.name} trails">+</button></div>`;
+  }).join('');
+  return rows ? `<div class="smt"><div class="field-label">Auto snowmaking target, by difficulty</div>${rows}<p class="help">Snow guns on Auto run on cold nights until the base reaches this.</p></div>` : '';
 }
 function liftStatus(L) {
   if (L.planOff) return ['Off today', 'off'];
@@ -24907,7 +24930,7 @@ function liftsList() {
   else list.sort(byName);
   const rows = list.map((L) => {
     const [word, cls] = liftStatus(L), type = LIFT_TYPES[L.type];
-    const cap = Math.round(L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1));
+    const cap = liftCapShown(L);
     const now = live ? `<span><b>${L.riders.reduce((a, r) => a + r.length, 0) * AGENT}</b> riding · <b>${L.queue.length * AGENT}</b> in line${L.queue.length ? ` · ~${Math.round(liftWait(L))} min` : ''}</span>` : '';
     const past = !live && lastOps ? (lastOps.lifts.find((x) => x.id === L.id) || null) : null;
     const rides = live ? (today.liftRiders[L.id] || 0) * AGENT : past ? past.rides : null, avg = !live && waits[L.id] != null ? waits[L.id] : null;
@@ -29402,7 +29425,7 @@ const MATCH_ACTIONS = ['shrinkLotAsk', 'shrinkLotNo', 'close', 'board', 'boardMt
 // Running the resort, removing things, money: settings send their new values ('ops'), so they come out the same
 // however the server's copy differs; one-off actions send the action ('other', 'remove'), which the server does
 // again overnight with the same game code (sheetAct). Actions that need the resort closed pause the live day.
-const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
+const MATCH_KNOBS = ['toggleOpen', 'groom', 'smMode', 'smTarget', 'baseSmMode', 'bulkOpen', 'bulkGroom', 'bulkSm', 'bulkSmTarget', 'qOpen', 'qGlade', 'qLift', 'qGroom', 'qSm',
   'gladeOpen', 'gladeSigns', 'sign', 'patrolStaff', 'condoSell', 'firepitBase', 'bulbHue', 'liftColor', 'learnLift', 'hubFence', 'bldTheme'];
 const MATCH_ACTS = ['smInstall', 'lightsInstall', 'lightsRemove', 'baseSmInstall', 'borrow', 'repay', 'buyout', 'bookEvent', 'shrinkLot', 'levelB', 'removeYes',
   'landBuy', 'landLease', 'landCancel', 'landEnd', 'liftUp', 'midBuild', 'midRemove', 'offsiteBuy', 'offsiteClose'];
@@ -30305,6 +30328,12 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.15', date: 'Nov 17, 2026', title: 'Snow gun targets by difficulty', items: [
+    'Set the Auto snowmaking target for every trail of one difficulty at once: in Trails, under the snow gun buttons, each difficulty has its own target.',
+    'A trail now needs as much snow as its terrain calls for, whatever its sign says. Signing a black run as blue no longer lets it open on less snow.',
+    'Guests who skied at all no longer get their ticket refunded. That covers guests who ski trails starting right at the base all day without a lift, and late arrivals who spent the afternoon in a lesson.',
+    'Fixed: a lift running slow showed its full-speed capacity. The Lifts list and the lift’s card now show the slower capacity and ride time, including before the day starts.',
+    'Thanks Adum888 for all four!'] },
   { v: '4.14.1', date: 'Nov 16, 2026', title: 'Earlier day reports', small: true, items: [
     'Earlier day reports are easier to find: in Money, tap Last day to open the latest one. The list of your last open days now sits above the charts.',
     'A day report has ‹ Day before and Day after › to step through the last 14 open days. On a computer, the ← and → keys do the same. Thanks to the player who asked!',
