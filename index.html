@@ -4754,6 +4754,7 @@ function applySave(sv) {
   if (!ok) state.wx.mild = false; // and after that, real weather
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
   else if (!state.seasonStats.ob) fixBestDay(state.seasonStats);
+  if (state.records && !state.records.ob && !visiting) fixBestDayRecord(state.records);
   if (state.summer && !state.sum && state.phase === 'closed') startSummer(); // a summer saved before summer days existed starts at its first day
   state.prices = { ...PRICE_DEFAULTS, ...(ok && sv.clock && sv.clock.prices ? sv.clock.prices : {}) };
   if (state.speed > 4) state.speed = 4;
@@ -22055,18 +22056,29 @@ function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profi
 // A day's profit without season pass sales: those come in on opening day but pay for the whole season, so they
 // made every opening day the season's best day (Adum888). The day report still shows them.
 const dayOwnProfit = (r) => r.profit - ((r.rev && r.rev.passes) || 0);
+// This season's open days with their own profit, pass sales taken out of the day they came in.
+function seasonOwnDays() {
+  const rows = seasonDaily().filter((x) => x.p != null), sale = state.passSale && state.passSale.season === state.season ? state.passSale.sold * state.passSale.price : 0;
+  const h = (state.history || []).find((x) => (x.season || state.season) === state.season && x.rev && x.rev.passes), saleDay = h ? h.day : rows.length ? rows[0].d : null;
+  return rows.map((x) => ({ d: x.d, g: x.g, own: x.p - (sale && x.d === saleDay ? (h ? h.rev.passes : sale) : 0) }));
+}
 // Seasons saved before 4.15.1 picked their best and toughest days with the pass sales in: pick them again.
 function fixBestDay(st) {
   st.ob = 1;
-  const rows = seasonDaily().filter((x) => x.p != null), sale = state.passSale && state.passSale.season === state.season ? state.passSale.sold * state.passSale.price : 0;
-  if (!rows.length || !sale) return;
-  const h = (state.history || []).find((x) => (x.season || state.season) === state.season && x.rev && x.rev.passes), saleDay = h ? h.day : rows[0].d;
+  const days = seasonOwnDays();
+  if (!days.length || !state.passSale) return;
   st.best = st.worst = null;
-  for (const x of rows) {
-    const own = x.p - (x.d === saleDay ? (h ? h.rev.passes : sale) : 0);
-    if (!st.best || own > st.best.profit) st.best = { day: x.d, profit: own };
-    if (!st.worst || own < st.worst.profit) st.worst = { day: x.d, profit: own };
+  for (const x of days) {
+    if (!st.best || x.own > st.best.profit) st.best = { day: x.d, profit: x.own };
+    if (!st.worst || x.own < st.worst.profit) st.worst = { day: x.d, profit: x.own };
   }
+}
+// The all-time Best day record too: nearly every one was an opening day's pass sales (91% of public resorts, Nov 17).
+// Older seasons' days aren't kept, so it's rebuilt from this season's days and the reports still kept (Phil's call).
+function fixBestDayRecord(rc) {
+  rc.ob = 1;
+  const owns = [...seasonOwnDays().filter((x) => x.g > 0).map((x) => x.own), ...(state.history || []).filter((r) => r.guests && !r.summer).map(dayOwnProfit)];
+  if (owns.length) rc.bestDayProfit = Math.max(...owns);
 }
 
 /* ---------- Goals: five per mountain, earning stars ---------- */
@@ -26164,7 +26176,7 @@ const CLOUD = { sb: null, uid: null, email: '', guest: true, ready: false, canWr
   status: 'connecting', lastUp: 0, upTimer: 0, uploading: false, sentJson: '', error: '', offered: false, mine: null, boardAt: 0, authMsg: '' };
 let visiting = null; // { id, name, fromTitle } while someone else's resort is on screen
 
-function newRecords() { return { bestGuests: 0, bestDayProfit: null, bestSeasonProfit: null, totalVisitors: 0, seasons: 0 }; }
+function newRecords() { return { bestGuests: 0, bestDayProfit: null, bestSeasonProfit: null, totalVisitors: 0, seasons: 0, ob: 1 }; }
 function recordDay(r) {
   if (!r) return;
   const rc = state.records || (state.records = newRecords());
@@ -30347,7 +30359,7 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
   { v: '4.15.1', date: 'Nov 17, 2026', title: 'A fairer best day', small: true, items: [
-    'Fixed: season pass sales come in on opening day, so opening day was always the season’s best day. Best day, toughest day and your Best day record now leave pass sales out. Pass money still shows in that day’s report and the season’s totals. Your current season’s best day is picked again. Thanks Adum888!'] },
+    'Fixed: season pass sales come in on opening day, so opening day was always the season’s best day. Best day, toughest day and your Best day record now leave pass sales out. Pass money still shows in that day’s report and the season’s totals. Your current season’s best day and your Best day record are worked out again from the days the game still has, so the Best day leaderboard compares real days again. Thanks Adum888!'] },
   { v: '4.15', date: 'Nov 17, 2026', title: 'Snow gun targets by difficulty', items: [
     'Set the Auto snowmaking target for every trail of one difficulty at once: in Trails, under the snow gun buttons, each difficulty has its own target.',
     'A trail now needs as much snow as its terrain calls for, whatever its sign says. Signing a black run as blue no longer lets it open on less snow.',

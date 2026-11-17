@@ -18,6 +18,11 @@ export default async function ({ browser, url }) {
   await g.ev(`(() => { const st = state.seasonStats; st.best.profit += 1e6; delete st.ob; saveNow(); })()`);
   await g.page.reload(); await g.reloaded();
   eq(await g.ev(`[state.seasonStats.best.profit, state.seasonStats.ob]`), [r.profit - r.passes, 1], 'repaired on load');
+  // The all-time Best day record too, rebuilt from the days still kept.
+  await g.ev(`(() => { state.records.bestDayProfit += 1e6; delete state.records.ob; saveNow(); })()`);
+  await g.page.reload(); await g.reloaded();
+  eq(await g.ev(`[state.records.bestDayProfit, state.records.ob]`), [r.profit - r.passes, 1], 'best day record rebuilt on load');
+  eq(await g.ev(`summaryDoc().bestDayProfit`), r.profit - r.passes, 'and the leaderboard gets it');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
