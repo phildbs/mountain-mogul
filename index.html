@@ -4753,6 +4753,7 @@ function applySave(sv) {
   if (!state.wx) state.wx = initWeather(state.day, !ok); // a new resort's first week is kind: no rain or wind holds
   if (!ok) state.wx.mild = false; // and after that, real weather
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
+  else if (!state.seasonStats.ob) fixBestDay(state.seasonStats);
   if (state.summer && !state.sum && state.phase === 'closed') startSummer(); // a summer saved before summer days existed starts at its first day
   state.prices = { ...PRICE_DEFAULTS, ...(ok && sv.clock && sv.clock.prices ? sv.clock.prices : {}) };
   if (state.speed > 4) state.speed = 4;
@@ -14453,8 +14454,9 @@ function endDay() {
   st.visitors += rr.guests; st.revenue += rev; st.expenses += exp; st.profit += rev - exp; st.days++;
   if (state.day > SEASON_LAST && !sm) st.bonus++;
   if (rr.guests) { st.satSum += rr.sat; st.satN++; }
-  if (!st.best || rr.profit > st.best.profit) st.best = { day: state.day, profit: rr.profit };
-  if (!st.worst || rr.profit < st.worst.profit) st.worst = { day: state.day, profit: rr.profit };
+  const own = dayOwnProfit(rr);
+  if (!st.best || own > st.best.profit) st.best = { day: state.day, profit: own };
+  if (!st.worst || own < st.worst.profit) st.worst = { day: state.day, profit: own };
   if (sm) summerTally(st, rr);
   const sd = seasonDaily(), row = { d: state.day, g: rr.guests, p: rr.profit, s: rr.guests ? rr.sat : null, c: Math.round(state.cash), t: ticketOn(state.day) };
   if (sm) { /* the season's day-by-day chart is the winter's */ } else if (sd.length && sd[sd.length - 1].d === state.day) sd[sd.length - 1] = row; else sd.push(row); // once per day
@@ -22049,7 +22051,23 @@ function springAsk() {
   $('saEnd').onclick = () => { close(); matchEndSeason(); renderSheet(); };
   $('saNo').onclick = close;
 }
-function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0 }; }
+function newSeasonStats() { return { visitors: 0, revenue: 0, expenses: 0, profit: 0, snowfall: 0, days: 0, bonus: 0, satSum: 0, satN: 0, best: null, worst: null, interest: 0, ob: 1 }; }
+// A day's profit without season pass sales: those come in on opening day but pay for the whole season, so they
+// made every opening day the season's best day (Adum888). The day report still shows them.
+const dayOwnProfit = (r) => r.profit - ((r.rev && r.rev.passes) || 0);
+// Seasons saved before 4.15.1 picked their best and toughest days with the pass sales in: pick them again.
+function fixBestDay(st) {
+  st.ob = 1;
+  const rows = seasonDaily().filter((x) => x.p != null), sale = state.passSale && state.passSale.season === state.season ? state.passSale.sold * state.passSale.price : 0;
+  if (!rows.length || !sale) return;
+  const h = (state.history || []).find((x) => (x.season || state.season) === state.season && x.rev && x.rev.passes), saleDay = h ? h.day : rows[0].d;
+  st.best = st.worst = null;
+  for (const x of rows) {
+    const own = x.p - (x.d === saleDay ? (h ? h.rev.passes : sale) : 0);
+    if (!st.best || own > st.best.profit) st.best = { day: x.d, profit: own };
+    if (!st.worst || own < st.worst.profit) st.worst = { day: x.d, profit: own };
+  }
+}
 
 /* ---------- Goals: five per mountain, earning stars ---------- */
 const openSigns = () => realTrails().filter((t) => runnable(t) && t.reachable && t.returns).map(trailSign);
@@ -26151,7 +26169,7 @@ function recordDay(r) {
   if (!r) return;
   const rc = state.records || (state.records = newRecords());
   rc.bestGuests = Math.max(rc.bestGuests, r.guests);
-  if (r.guests) rc.bestDayProfit = rc.bestDayProfit == null ? r.profit : Math.max(rc.bestDayProfit, r.profit);
+  if (r.guests) rc.bestDayProfit = rc.bestDayProfit == null ? dayOwnProfit(r) : Math.max(rc.bestDayProfit, dayOwnProfit(r));
   rc.totalVisitors += r.guests;
   refreshCommBtn();
 }
@@ -30328,6 +30346,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.15.1', date: 'Nov 17, 2026', title: 'A fairer best day', small: true, items: [
+    'Fixed: season pass sales come in on opening day, so opening day was always the season’s best day. Best day, toughest day and your Best day record now leave pass sales out. Pass money still shows in that day’s report and the season’s totals. Your current season’s best day is picked again. Thanks Adum888!'] },
   { v: '4.15', date: 'Nov 17, 2026', title: 'Snow gun targets by difficulty', items: [
     'Set the Auto snowmaking target for every trail of one difficulty at once: in Trails, under the snow gun buttons, each difficulty has its own target.',
     'A trail now needs as much snow as its terrain calls for, whatever its sign says. Signing a black run as blue no longer lets it open on less snow.',
