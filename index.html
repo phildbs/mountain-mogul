@@ -14171,7 +14171,7 @@ function planCosts(P, guestCount = 0) {
   }
   for (const B of world.buildings) {
     const m = bldModeIn(P, B);
-    if (!isDecor(B) && B.type !== 'patrol') staff += STAFF_PER_BUILDING * (m === 'closed' ? 0 : m === 'lunch' ? 0.5 : 1);
+    staff += bldStaff(B, m);
     patrol += patrolWages(B, P);
     if (!(P.kind === 'summer' && m === 'closed') && !(P.kind !== 'summer' && WINTER_SHUT.includes(B.type))) upkeep += bldUpkeep(B, m, P); // shut for the season: the summer bill covers it
   }
@@ -14179,6 +14179,15 @@ function planCosts(P, guestCount = 0) {
   return { other, patrol, staff: other + patrol, lifts: Math.round(lifts), upkeep: Math.round(upkeep), parking: Math.round((newLots() ? openRun(P) + roadRunCost() : lotsIn(P) * LOT_RUN_DAY) * c),
     shuttles: busCost(P.shuttles || 'normal', P.townBus || 'on', (B) => bldModeIn(P, B)) };
 }
+// A building's crew, before the mountain's costs and the staff level. Condo homes that are sold are their owners' to run:
+// only homes still rented by the night need housekeeping (Adum888: a sold chalet cost $630 a day against $260 in dues).
+function bldStaff(B, m) {
+  if (isDecor(B) || B.type === 'patrol' || m === 'closed') return 0;
+  const share = B.type === 'condo' ? condoUnsold(B) / bspec(B).units : 1;
+  return STAFF_PER_BUILDING * share * (m === 'lunch' ? 0.5 : 1);
+}
+// What one unit of crew costs today, as planCosts works it out.
+const staffRate = (P) => MOUNTAIN.costs * (STAFF_LEVELS[P.staff] || STAFF_LEVELS.normal).cost * (P.hours === 'short' ? 0.94 : 1) * (P.kind === 'summer' ? SUMMER_STAFF : 1);
 function planRunCost(P) {
   const c = planCosts(P);
   return c.staff + c.lifts + c.upkeep + c.parking + c.shuttles;
@@ -14193,7 +14202,7 @@ function busCost(shuttles, townBus, modeOf) {
 function bldUpkeep(B, mode, P = patrolPlan()) {
   if (B.type === 'patrol') return PATROL_HUT_DAY;
   const u = bspec(B, P).upkeep;
-  const run = mode === 'closed' ? 0 : mode === 'lunch' ? LUNCH_RUN : 1;
+  const run = mode === 'closed' && B.type !== 'condo' ? 0 : mode === 'lunch' ? LUNCH_RUN : 1; // closing condos stops the rentals; the homes still need looking after
   return u * (BLD_FIXED + (1 - BLD_FIXED) * run);
 }
 // Closed parking sections look roped off.
@@ -14370,7 +14379,7 @@ function endDay() {
   state.cash -= today.exp.staff + today.exp.upkeep + today.exp.cogs + today.exp.parking + today.exp.shuttles + today.exp.claims + today.exp.apres + (today.exp.night || 0);
   for (const B of world.buildings) {
     if ((ops.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type)) continue; // shut all season: keep its last open day (Adum888)
-    const cost = upk(B) + patrolWages(B, ops) + B.today.cogs;
+    const cost = upk(B) + patrolWages(B, ops) + B.today.cogs + bldStaff(B, ops.bld[B.id] || 'open') * staffRate(ops); // its own crew too (Adum888)
     B.yday = { visits: B.type === 'patrol' ? B.today.calls : B.today.visits, services: { ...B.today.services }, revenue: Math.round(B.today.revenue), profit: Math.round(B.today.revenue - cost), rooms: B.today.rooms };
   }
   const r0 = today.rev, rev = r0.tickets + r0.food + r0.dining + r0.rentals + (r0.retail || 0) + r0.lessons + r0.parking + (r0.passes || 0) + (r0.apres || 0) + (r0.night || 0) + (r0.lodging || 0) + (r0.condo || 0) + (r0.events || 0) + (r0.rides || 0) + (r0.restrooms || 0) - (today.refunds || 0);
@@ -19656,10 +19665,10 @@ function resumeGuest(g) {
   return baseDecision(g);
 }
 // The open building of one of these types that's quickest to reach on foot from p, counting its line.
-function nearestOpen(types, p, svc) {
+function nearestOpen(types, p, svc, ok) {
   let best = null, bt = Infinity;
   for (const B of world.buildings) {
-    if (!types.includes(B.type) || !bldOpenNow(B) || !onFoot(p, B.door)) continue;
+    if (!types.includes(B.type) || !bldOpenNow(B) || !onFoot(p, B.door) || (ok && !ok(B))) continue;
     const t = distXZ(B.door, p) / (WALK * 60) + (svc ? estWait(B, svc) : 0);
     if (t < bt) { bt = t; best = B; }
   }
@@ -19697,9 +19706,12 @@ function arrivalFlow(g) {
 }
 // Parents drop the kids at camp on the way in, if there is one with room, and then ski longer.
 function campDropOff(g) {
-  const camp = nearestOpen(['kids'], g);
-  if (!camp) { if (!hasBld('kids')) today.complaints.noCamp++; return; }
-  if (camp.today.visits + AGENT > bspec(camp).campers) { g.sat -= 3; today.complaints.campFull++; thought(g, `${camp.name} was full, so the kids are tagging along.`); return; }
+  const camp = nearestOpen(['kids'], g, null, (B) => B.today.visits + AGENT <= bspec(B).campers); // a full camp: try the next one (Adum888)
+  if (!camp) {
+    const full = nearestOpen(['kids'], g);
+    if (full) { g.sat -= 3; today.complaints.campFull++; thought(g, `${full.name} was full, so the kids are tagging along.`); } else if (!hasBld('kids')) today.complaints.noCamp++;
+    return;
+  }
   if (Math.random() > willing(g, 'camp')) { g.sat -= 3; today.complaints.price++; pricedOutBy('camp'); thought(g, `${camp.name} costs too much. The kids are tagging along.`); return; }
   const amt = svcPrice('camp') * AGENT, c = amt * 0.25;
   state.cash += amt; camp.today.revenue += amt; today.rev.lessons += amt;
@@ -20815,6 +20827,7 @@ function bldServiceBreakdown(B, data, open) {
 function bldSheet(B) {
   const t = BTYPES[B.type], s = bspec(B), open = state.phase === 'open';
   const mode = B.type === 'patrol' ? bldModeIn(patrolPlan() || blankPlan(), B) : bldMode(B);
+  const crewP = state.phase === 'open' && runOps ? runOps : opsState().plans[planFor(state.day)], crew = Math.round(bldStaff(B, bldPlanMode(B)) * staffRate(crewP)); // its share of the payroll, counted in its profit
   const visitsLabel = B.type === 'patrol' ? 'Calls today' : B.type === 'school' ? 'Students today' : B.type === 'shuttle' || B.type === 'transit' ? 'Bus riders today' : B.type === 'clinic' ? 'Patients today' : B.type === 'kids' ? 'Campers today' : B.type === 'hotel' ? 'Hotel guests today' : B.type === 'condo' ? 'Owners and renters today' : B.type === 'rack' ? 'Pairs left today' : 'Served today';
   const visits = B.type === 'patrol' ? B.today.calls : isStation(B) ? (today ? today.busGuests + today.parkRiders : 0) : B.today.visits;
   const y = B.yday;
@@ -20834,6 +20847,7 @@ function bldSheet(B) {
         ? `<div><dt>Avg response</dt><dd>${B.today.calls && today && today.helped ? Math.round(B.today.resp / Math.max(1, B.today.calls)) + ' min' : '–'}</dd></div>`
         : `<div><dt>Revenue today</dt><dd>${money(B.today.revenue)}</dd></div>`}
       <div><dt>${B.type === 'patrol' ? 'Daily cost' : 'Upkeep'}</dt><dd>${money(B.type === 'patrol' ? patrolDailyCost(B) : s.upkeep)}/day${mode === 'closed' ? ' · closed in this plan' : mode === 'lunch' ? ' · lunch only' : ''}</dd></div>
+      ${crew ? `<div><dt>Staff</dt><dd>${money(crew)}/day</dd></div>` : ''}
       <div><dt>${offSeason(B) ? `Last ${state.summer ? 'winter' : 'summer'} day` : 'Last day'}</dt><dd>${(offSeason(B) ? seasonDay(B) : y) ? signedMoney(y.profit) : '–'}</dd></div>
     </dl>
     ${bldServiceBreakdown(B, open ? B.today : y, open)}
@@ -30358,6 +30372,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.15.2', date: 'Nov 17, 2026', title: 'Fairer condo and building costs', small: true, items: [
+    'Sold condo homes no longer need resort staff: their owners look after them. Only homes still rented by the night have a crew, so a sold chalet now earns more in dues than it costs. Closing a condo in a plan stops its rentals; owners still come and pay dues.',
+    'A building’s last-day profit now takes off its own staff, not just upkeep and goods sold, so the Buildings list, the profit map and each building’s card show what it really earns. Its card shows its staff cost too.',
+    'Fixed: when a kids’ camp was full, families never tried another camp nearby. Now they do.',
+    'Thanks Adum888!'] },
   { v: '4.15.1', date: 'Nov 17, 2026', title: 'A fairer best day', small: true, items: [
     'Fixed: season pass sales come in on opening day, so opening day was always the season’s best day. Best day, toughest day and your Best day record now leave pass sales out. Pass money still shows in that day’s report and the season’s totals. Your current season’s best day and your Best day record are worked out again from the days the game still has, so the Best day leaderboard compares real days again. Thanks Adum888!'] },
   { v: '4.15', date: 'Nov 17, 2026', title: 'Snow gun targets by difficulty', items: [
