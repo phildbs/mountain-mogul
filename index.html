@@ -8477,6 +8477,7 @@ function commitBuilding(info, type, x, z, rot, style) {
   b.name = nextBuildingName(type, x, z);
   if (hue) b.hue = hue;
   if (info.pts) b.pts = info.pts;
+  stopRoad(b);
   if (BTYPES[type].noPad) { addBuilding(b); matchBuilt('bld', b, info.cost); return b; }
   const res = levelRect(info.bb, info.padY, 2.5, false);
   applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
@@ -10471,7 +10472,7 @@ function serializeWorld() {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off, rm: f.rm || undefined })) : undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined, learn: L.learn || undefined })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
+    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, road: B.road || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump, free: P.free || undefined })) : undefined,
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
@@ -11098,18 +11099,32 @@ function roadRibbon(P, lift, mat = ROAD_MAT, hwAt = () => ROAD_HW) {
 const mapRoadDist = (x, z) => sampleGrid(ROADD, x + HALF, z + HALF);
 const roadDist = (x, z) => Math.min(sampleGrid(ROADD, x + HALF, z + HALF), sampleGrid(PROADD, x + HALF, z + HALF));
 // The nearest point on the road's centre line, and the unit normal pointing from the road toward p.
-function nearestRoad(p) {
+// Roads a bus stop can go beside: the access road, and your roads (not driveways) that cars can reach (Adum888).
+const busRoads = () => (newLots() ? proads().filter((R) => !R.main && (R.kind || 'road') === 'road' && proadIn(R)) : []);
+// The nearest road to p a bus can use. A station `B` keeps to its own road (B.road: one of yours; none: the access road).
+function nearestRoad(p, B) {
   let best = null, bd = Infinity;
-  for (const P of [roadPath(), branchPath()]) for (let k = 0; k < P.length - 1; k++) {
+  const look = (P, R) => { for (let k = 0; k < P.length - 1; k++) {
     const a = P[k], b = P[k + 1], dx = b.x - a.x, dz = b.z - a.z, t = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
     const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
-    if (d < bd) { bd = d; best = { q: { x: qx, z: qz }, dx, dz, d }; }
-  }
+    if (d < bd) { bd = d; best = { q: { x: qx, z: qz }, dx, dz, d, R }; }
+  } };
+  const own = B && B.id != null, mine = own ? (B.road ? proads().filter((R) => R.id === B.road) : []) : busRoads();
+  for (const R of mine) look(proadPath(R), R);
+  if (!best) for (const P of [roadPath(), branchPath()]) look(P, null); // the access road (or its road has gone)
+  else if (!own) for (const P of [roadPath(), branchPath()]) look(P, null);
   const L = Math.hypot(best.dx, best.dz) || 1;
   let nx = -best.dz / L, nz = best.dx / L;
   if ((p.x - best.q.x) * nx + (p.z - best.q.z) * nz < 0) { nx = -nx; nz = -nz; }
-  return { q: best.q, nx, nz, d: best.d };
+  return { q: best.q, nx, nz, d: best.d, R: best.R, hw: best.R ? rkind(best.R).hw : ROAD_HW };
 }
+// Which road a bus stop serves, from where its bus bay faces: set when it's built or moved.
+function stopRoad(b) {
+  if (!BY_ROAD.includes(b.type)) return;
+  const a = b.rot * Math.PI / 2, r = nearestRoad({ x: b.x + Math.sin(a) * BAY_FRONT[b.type], z: b.z + Math.cos(a) * BAY_FRONT[b.type] });
+  if (r.R) b.road = r.R.id; else delete b.road;
+}
+const stopsOn = (R) => world.buildings.filter((B) => BY_ROAD.includes(B.type) && B.road === R.id);
 // Each section's place in the lot: [row, column]. The first row runs along the road; once land below it
 // is yours, a second row grows underneath, one section under each. Saves from before have one row.
 // A third number says which lot the section belongs to: 0 is the main lot at the end of the road, and a
@@ -11902,6 +11917,7 @@ function netChanged() {
   netRev++; roadBridges = null;
   if (newLots()) { setMainRoad(); buildRoad(); }
   stampPRoads(); buildPRoads(); buildRoadBridges();
+  for (const B of world.buildings) if (B.road) redoDriveway(B);
   lotScoreCache = null;
   reserveKey = ''; plantSig = '';
 }
@@ -12030,7 +12046,11 @@ function roadCheck(d) {
   }
   if (steepAt.length) add(`Too steep in places (in red), up to about ${Math.round(steep * 100)}%. A road can climb ${Math.round(ROAD_GRADE * 100)}% at most: wind it across the slope.`);
   if (len < 3) add('Too short. Drag further, or tap to add points.');
-  if (d.main) for (const B of world.buildings.filter((B) => BY_ROAD.includes(B.type))) if (P.every((q) => distXZ(q, B) > ROAD_HW + 5) && branchPath().every((q) => distXZ(q, B) > ROAD_HW + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
+  if (!d.main && d.R) for (const B of stopsOn(d.R)) {
+    if (d.kind === 'drive') add(`Buses can’t use a driveway, and ${B.name} stands beside this road.`);
+    else if (P.every((q) => distXZ(q, B) > hw + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
+  }
+  if (d.main) for (const B of world.buildings.filter((B) => BY_ROAD.includes(B.type) && !B.road)) if (P.every((q) => distXZ(q, B) > ROAD_HW + 5) && branchPath().every((q) => distXZ(q, B) > ROAD_HW + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
   const build = Math.round(fresh * k.cost + bridge * BRIDGE_U);
   return { P, len, fresh, bridge, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, door: door ? parks()[door.i] : null, steep, steepAt };
 }
@@ -12038,10 +12058,12 @@ function roadCheck(d) {
 function cutOff(apply) {
   const was = parks().map((P, i) => parkReached(i)), roadsIn = proads().map((R) => !!proadIn(R));
   const keep = { proads: state.proads, mainRoad: state.mainRoad, parks: state.parks };
+  const stops = world.buildings.filter((B) => B.road && proads().some((R) => R.id === B.road && proadIn(R)));
   apply(); netRev++; if (newLots()) setMainRoad();
   const now = parks().map((P, i) => parkReached(i)), roadsNow = proads().map((R) => !!proadIn(R)), names = proads().map((R) => R.name);
+  const stranded = stops.filter((B) => !proads().some((R) => R.id === B.road && proadIn(R))).map((B) => `${B.name} will have no road for its buses`);
   Object.assign(state, keep); netRev++; if (newLots()) setMainRoad();
-  return [...parks().filter((P, i) => was[i] && !now[i]).map((P) => `${P.name} will have no way in`), ...names.filter((n, i) => roadsIn[i] && roadsNow[i] === false).map((n) => `${n} will be cut off`)];
+  return [...parks().filter((P, i) => was[i] && !now[i]).map((P) => `${P.name} will have no way in`), ...names.filter((n, i) => roadsIn[i] && roadsNow[i] === false).map((n) => `${n} will be cut off`), ...stranded];
 }
 
 /* ---------- The Roads tool: Roads, Parking and Transit ---------- */
@@ -12347,6 +12369,8 @@ function commitRoad() {
 }
 function removeRoadNow(R) {
   if (!R || R.main || !lotBuildable() || !roadsOk()) return;
+  const stuck = cutOff(() => { state.proads = proads().filter((Q) => Q !== R); }).filter((m) => m.endsWith('for its buses'));
+  if (stuck.length) { toast(`${stuck[0]}. Move it beside another road first.`, true); return; }
   pushUndo(`removing ${R.name}`);
   const back = Math.round((R.cost || 0) * 0.25);
   state.proads = proads().filter((Q) => Q !== R);
@@ -12468,8 +12492,8 @@ function roadDraftHtml() {
 }
 // Transit: the stations buses stop at, and off-site parking. (From the Parking panel; the same rows.)
 function transitHtml() {
-  const cards = ['shuttle', 'transit'].map((k) => { const t = BTYPES[k]; return `<button data-action="transitPick" data-v="${k}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, 0)}</i><span><b>${t.name}</b><em>${BBLURB[k] || ''}</em><small>By the access road</small></span><span class="bp">${money(sizeCost(k, 0))}</span></button>`; }).join('');
-  return `<p class="help">Stations go beside the access road, facing it, so buses can pull in. Town buses bring guests without a car; parking shuttles bring them from off-site parking.</p>
+  const cards = ['shuttle', 'transit'].map((k) => { const t = BTYPES[k]; return `<button data-action="transitPick" data-v="${k}"><i class="bi" style="--c:${hexOf(t.accent)}">${bIcon(k, 0)}</i><span><b>${t.name}</b><em>${BBLURB[k] || ''}</em><small>Beside a road</small></span><span class="bp">${money(sizeCost(k, 0))}</span></button>`; }).join('');
+  return `<p class="help">Stations go beside the access road or one of your roads (not a driveway), facing it, so buses can pull in. Town buses bring guests without a car; parking shuttles bring them from off-site parking.</p>
     <div class="bpick rows">${cards}</div>${transitRows()}`;
 }
 // The handles: the points of a road being changed (and a small dot between each pair, to add a bend), or the move,
@@ -13221,7 +13245,13 @@ function loopNext(b) {
 }
 const loopDest = (g, from) => zoneStations(g.xZone).sort((p, q) => distXZ(p.door, from.door) - distXZ(q.door, from.door))[0];
 function loopPath(a, b) {
-  const road = roadBetween(a.approach, b.approach);
+  let road;
+  if (!a.road && !b.road) road = roadBetween(a.approach, b.approach);
+  else { // back along the shared way in to where they part, then on to the other stop
+    const Da = stopDrive(a), Db = stopDrive(b); let c = 0;
+    while (c < Da.length && c < Db.length && Da[c] === Db[c]) c++;
+    const m = Math.max(0, c - 1); road = [...Da.slice(m).reverse(), ...Db.slice(m + 1)];
+  }
   return [a.stop, ...(a.bayIn ? [a.bayIn] : []), a.approach, ...road, b.approach, ...(b.bayIn ? [b.bayIn] : []), b.stop];
 }
 // At a stop: riders get off, and whoever is waiting here for the other base gets on.
@@ -15751,7 +15781,7 @@ const BTYPES = {
   restroom: { name: 'Restrooms', where: 'any', cost: 25000, sign: 'RESTROOMS', accent: 0x1b8fa6, stalls: 8, w: 1.8, d: 1.5, upkeep: 160,
     desc: 'A small block of restrooms for busy areas.' },
   shuttle: { name: 'Shuttle station', where: 'base', cost: 90000, sign: 'SHUTTLE', accent: 0x7a4bc4, w: 3.4, d: 1.9, upkeep: 500,
-    desc: 'Where buses stop: town buses bring guests with no car at all, and parking shuttles carry guests from off-site parking. Build more than one at a big resort: guests head home from the nearest. Builds beside the access road.' },
+    desc: 'Where buses stop: town buses bring guests with no car at all, and parking shuttles carry guests from off-site parking. Build more than one at a big resort: guests head home from the nearest. Builds beside the access road or one of your roads.' },
   clinic: { name: 'First-aid clinic', where: 'base', cost: 110000, sign: 'FIRST AID', accent: 0xd23c3c, beds: 6, w: 2.8, d: 2.2, upkeep: 850,
     desc: 'Ski patrol brings injured guests here. Many are patched up and head back out; the rest go home grateful.' },
   kids: { name: 'Kids’ camp', where: 'base', cost: 140000, sign: 'KIDS CAMP', accent: 0xf2a516, campers: 60, w: 3.6, d: 3.4, upkeep: 1300,
@@ -15764,7 +15794,7 @@ const BTYPES = {
   hrest: { name: 'Heated restrooms', where: 'any', cost: 55000, sign: 'HEATED RESTROOMS', accent: 0xc0552d, stalls: 14, w: 2.4, d: 1.7, upkeep: 340,
     desc: 'A bigger, warm restroom building. Guests come out a little warmer and happier, most of all on cold days.' },
   transit: { name: 'Transit center', where: 'base', cost: 240000, sign: 'TRANSIT', accent: 0x7a4bc4, w: 5.2, d: 2.6, upkeep: 1100,
-    desc: 'A big shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests. Builds beside the access road.' },
+    desc: 'A big shuttle station: a heated terminal with two bus bays. Bigger town buses every 12 minutes bring about half your guests. Builds beside the access road or one of your roads.' },
   hotel: {
     name: 'Hotel', where: 'base', cost: 300000, sign: 'HOTEL', accent: 0x1f6f6b,
     desc: 'Rooms at the base for guests who stay the night. They need no parking space, are out for the first chair and stay for après. Rooms fill most on weekends and holidays, and faster with a base lift or a trail beside the door. Medium and large hotels have a restaurant, open to every guest for lunch and après.',
@@ -15862,7 +15892,7 @@ const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a war
   tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 40 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing',
   tmap: 'Your trails, on a board', strlight: 'A chain of bulbs on poles', mfence: 'Orange mesh between posts', xtree: 'A lit tree with a star', flood: 'Bright light for wide trails' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
-const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road
+const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road, or one of your roads (B.road)
 const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
 // Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
 function snapToRoad(type, p) {
@@ -15871,7 +15901,8 @@ function snapToRoad(type, p) {
   for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2, dot = Math.sin(a) * r.nx + Math.cos(a) * r.nz; if (dot < bd) { bd = dot; rot = k; } }
   for (let off = t.d / 2 + 1.2; off < t.d / 2 + 6; off += 0.25) {
     const x = Math.round((r.q.x + r.nx * off) * 4) / 4, z = Math.round((r.q.z + r.nz * off) * 4) / 4;
-    if (!footprintStats(bAABB(type, 0, x, z, rot)).road) return { x, z, rot };
+    const fs = footprintStats(bAABB(type, 0, x, z, rot));
+    if (!fs.road && !(fs.proad < PROAD_HW + 0.4)) return { x, z, rot };
   }
   return { x: Math.round(p.x * 2) / 2, z: Math.round(p.z * 2) / 2, rot };
 }
@@ -15879,7 +15910,7 @@ function snapToRoad(type, p) {
 function drivewayQuad(b) {
   const t = BTYPES[b.type], hw = t.w / 2 - 0.05, fz = BAY_FRONT[b.type];
   const cs = [toWorld(b, -hw, fz), toWorld(b, hw, fz)];
-  const es = cs.map((c) => { const r = nearestRoad(c); return r.d > 7 ? null : { x: r.q.x + r.nx * (ROAD_HW - 0.2), z: r.q.z + r.nz * (ROAD_HW - 0.2) }; });
+  const es = cs.map((c) => { const r = nearestRoad(c, b); return r.d > 7 ? null : { x: r.q.x + r.nx * (r.hw - 0.2), z: r.q.z + r.nz * (r.hw - 0.2) }; });
   return es[0] && es[1] ? { cs, es } : null;
 }
 function drivewayPoints(Q, NX = 8, NZ = 5) {
@@ -15932,6 +15963,7 @@ const BAY_TEX = (() => {
 })();
 function busBayGeo(b, Q) {
   const t = BTYPES[b.type], hw = t.w / 2, c0 = Q.cs[0], c1 = Q.cs[1], mid = { x: (c0.x + c1.x) / 2, z: (c0.z + c1.z) / 2 };
+  if (nearestRoad(mid, b).R) return null; // beside one of your roads: a paved apron
   let P = null, k = 0, bd = Infinity;
   for (const R of [roadPath(), branchPath()]) R.forEach((q, i) => { const d = distXZ(q, mid); if (d < bd) { bd = d; P = R; k = i; } });
   if (!P || P.length < 3) return null;
@@ -15985,13 +16017,19 @@ function addDriveway(b) {
   b.group.updateMatrixWorld(true);
   geo.applyMatrix4(b.group.matrixWorld.clone().invert());
   const m = new THREE.Mesh(geo, bay ? BAY_MAT : DRIVE_MAT);
-  m.receiveShadow = true; m.renderOrder = bay ? 2.6 : 1; // over the road's edge line
+  m.receiveShadow = true; m.renderOrder = bay ? 2.6 : 1; m.userData.drive = true; // over the road's edge line
   b.group.add(m);
   // Buses turn in off the road at one end of the bay and pull up along the curb.
   const hw = BTYPES[b.type].w / 2, cz = BAY_FRONT[b.type] + 0.45;
   b.approach = { x: lerp(Q.es[0].x, Q.es[1].x, 0.15), z: lerp(Q.es[0].z, Q.es[1].z, 0.15) };
   b.bayIn = toWorld(b, -hw * 0.55, cz);
   b.stop = toWorld(b, 0.2, cz);
+}
+// A stop beside one of your roads, once the roads are in (on load they come after the buildings), or after they change.
+function redoDriveway(b) {
+  if (!b.group) return;
+  for (const o of [...b.group.children]) if (o.userData.drive) { b.group.remove(o); o.geometry.dispose(); }
+  addDriveway(b);
 }
 // Places that serve food: they share lunch rules, seat counts and lunch-only hours.
 const EATS = ['lodge', 'truck', 'cafe', 'restaurant', 'fine', 'bar'];
@@ -18573,7 +18611,7 @@ function validateBuilding(type, tier, x, z, rot, selfId) {
   else if (fs.proad < PROAD_HW + 0.4) problems.push('That would block one of your roads.');
   else if (BY_ROAD.includes(type)) {
     const a = rot * Math.PI / 2, f = { x: x + Math.sin(a) * BAY_FRONT[type], z: z + Math.cos(a) * BAY_FRONT[type] }, r = nearestRoad(f);
-    if (r.d > ROAD_HW + 3.5 || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road, facing it, so buses can pull in.`);
+    if (r.d > r.hw + 3.5 || Math.sin(a) * r.nx + Math.cos(a) * r.nz > -0.5) problems.push(`The ${t.name.toLowerCase()} has to go right beside the access road${newLots() ? ' or one of your roads' : ''}, facing it, so buses can pull in.`);
   }
   if (lotOverlapsBox(bb)) problems.push('That overlaps the parking lot.');
   const other = world.buildings.find((o) => o.id !== selfId && boxOverlap(boxOf(o, 0.4), bb));
@@ -20000,9 +20038,19 @@ function nearestStation(p, S = stations()) {
 // Arrivals spread across the stations in turn.
 function nextStation() { const S = stations(); return S.length ? S[stnTurn++ % S.length] : null; }
 // Buses follow the road to the point nearest the stop, then pull in.
+// How buses get to a stop: in from the edge of the map along the access road, or on along your roads to one beside them.
+function stopDrive(st) {
+  const R = st.road && proads().find((Q) => Q.id === st.road);
+  if (R) {
+    const P = proadPath(R); let k = 0, bd = Infinity;
+    P.forEach((q, i) => { const d = distXZ(q, st.approach); if (d < bd) { bd = d; k = i; } });
+    const D = driveTo({ road: R, P, k, pt: P[k] }); if (D) return D;
+  }
+  const [Rt, k] = routeNear(st.approach);
+  return Rt.slice(0, k + 1);
+}
 function busPath(st) {
-  const [R, k] = routeNear(st.approach);
-  return [...R.slice(0, k + 1), st.approach, ...(st.bayIn ? [st.bayIn] : []), st.stop];
+  return [...stopDrive(st), st.approach, ...(st.bayIn ? [st.bayIn] : []), st.stop];
 }
 const BUS_GEO = mergeColored([
   [new THREE.BoxGeometry(0.46, 0.34, 1.5).translate(0, 0.24, 0), [0.95, 0.96, 0.98]],
@@ -20699,7 +20747,7 @@ function doBldMove(B, info, x, z, rot) {
   bldGroup.remove(B.group);
   B.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   world.buildings = world.buildings.filter((o) => o !== B);
-  Object.assign(B, { x, z, rot, padY: info.padY });
+  Object.assign(B, { x, z, rot, padY: info.padY }); stopRoad(B);
   const res = !BTYPES[B.type].noPad && levelRect(info.bb, info.padY, 2.5, false);
   if (res) applyTerrainChange(res.i0, res.j0, res.i1, res.j1);
   const y = B.yday;
@@ -30379,7 +30427,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '4.15.3', date: 'Nov 18, 2026', title: 'Fairer lunch and restroom counts', small: true, items: [
+  { v: '4.16', date: 'Nov 18, 2026', title: 'Bus stops on your own roads', items: [
+    'Shuttle stations and transit centers can now go beside your own roads, not just the access road. Town buses and parking shuttles drive your roads to reach them. A road with a station beside it can’t be removed, moved away from it or made a driveway until the station moves.',
     'Fixed: a guest who set out for lunch in good time, by lift and trail to a hotel restaurant across the mountain say, was counted as eating late if the trip was long. Getting there within the hour now counts as on time.',
     'Fixed: guests sitting in a bar, lodge or restaurant didn’t use its restrooms and ended up desperate for one. Now they do.',
     'Fixed: when a day ended with the night lights on, the day report counted only the lit trails as open.',
