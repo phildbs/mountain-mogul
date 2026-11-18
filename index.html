@@ -13631,7 +13631,7 @@ function makeGuest(car, x, z) {
     noLearnSaid: undefined, rrComplained: undefined, hungry: undefined, hungerAt: undefined, homeAt: undefined, hungerIssue: undefined,
     foodLine: undefined, foodPrice: undefined, foodReason: undefined, pricedOut: undefined, priceRetry: undefined,
     avoidB: undefined, avoidUntil: undefined, hurtAt: undefined, rescuer: undefined, rescueLogged: undefined,
-    severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined,
+    severe: undefined, glade: undefined, refunded: undefined, sawView: undefined, watched: undefined, mealSet: undefined,
     rounds: undefined, local: undefined, night: undefined, apresGuest: undefined, stayedNight: undefined,
     stn: undefined, lx: undefined, lz: undefined, xAt: undefined, xEnd: undefined, xLid: undefined, xNext: undefined,
     xUntil: undefined, xZone: undefined, xFinal: undefined, hotel: undefined, owner: undefined, homeTries: undefined, nap: undefined, napped: undefined, px: undefined, py: undefined, pz: undefined, gone: undefined, rack: undefined, snowSkis: undefined, hubLoop: undefined,
@@ -14431,7 +14431,7 @@ function endDay() {
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, park: today.exp.park || 0, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     payroll: { other: costs.other, patrol: costs.patrol },
     ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
-    wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter(runnable).length, trailsTotal: realTrails().length, base: avgBase(),
+    wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter((t) => t.open && t.snowOk !== false).length, // the day's trails, not just the lit ones still open at night (Adum888) trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, noWayDown: today.noWayDown || null, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0, naps: today.naps || 0 } : null,
     condo: ownerMood || today.condoEmpty || today.condoSold ? { sold: today.condoSold || 0, sales: today.condoSales || 0, owners: today.ownerGuests || 0, renters: today.renters || 0, rented: today.condoRented || 0, empty: today.condoEmpty || 0, dues: today.condoDues || 0, skiHome: today.skiHome || 0, mood: ownerMood } : null,
@@ -18917,7 +18917,8 @@ function recordMealOutcome(g) {
   g.mealRecorded = true;
   const m = today.meals || (today.meals = { onTime: 0, delayed: 0, missed: 0 });
   if (fed) {
-    m[g.hungry || (g.mealAt ?? g.lunchAt) > hungryAt(g) ? 'delayed' : 'onTime'] += AGENT;
+    const t = g.mealAt ?? g.lunchAt, set = g.mealSet ?? t; // set out in time and got there within the hour: on time
+    m[g.hungry || (t > hungryAt(g) && !(set <= hungryAt(g) && t - set <= MEAL_TRIP)) ? 'delayed' : 'onTime'] += AGENT;
   } else {
     m.missed += AGENT; today.complaints.food++; noteHunger(g);
   }
@@ -18999,6 +19000,7 @@ function seekMeal(g, start, resume) {
     else if (step.k === 'hubTop') { p = liftById(step.lid).b; then = { k: 'hubTop', lid: step.lid }; }
     if (p) return walkHub(g, A, p, then);
   }
+  if (g.mealSet == null) g.mealSet = state.time; // set out for lunch: a long trip there isn't a late lunch
   if (step.k === 'eat') { startVisit(g, plan.B, plan.svc, resume); return true; }
   if (step.k === 'ski') {
     const T = trailById(step.tid), from = liftById(step.from);
@@ -19311,6 +19313,7 @@ function maybeApres(g) {
 function startVisit(g, B, svc, resume) {
   if (g.night && g.leaving && !g.apresGuest && state.time >= closeTime() && nightOnly(B) && svc === apresSvc(B)) { g.apresGuest = true; g.apresDone = true; today.apres.guests += AGENT; thought(g, `Après at ${B.name} on the way down.`); }
   g.svc = svc; g.bid = B.id; g.resume = resume;
+  if (LUNCH_SVCS.has(svc) && !g.ate && g.mealSet == null) g.mealSet = state.time;
   // A skier heads for a free rack first (the one by the door, or another close by), then walks in.
   const R = needsRack(g, B) ? pickRack(B) : null;
   const to = R ? R.rackP : B.door, then = R ? { k: 'bld', bid: B.id, rid: R.id } : { k: 'bld', bid: B.id };
@@ -19721,14 +19724,18 @@ function campDropOff(g) {
   thought(g, `Dropped the kids at ${camp.name}. Time for some real skiing!`);
 }
 const LUNCH_STS = new Set(['inside', 'bq', 'walk', 'glide']), LUNCH_SVCS = new Set(['food', 'dine', 'finedine', 'snack']);
+// On the way to lunch, by lift and trail too (a hotel restaurant across the mountain, say): not hungry yet, for up to an hour (Adum888).
+const MEAL_TRIP = 60;
+const onMealTrip = (g) => g.mealSet != null && !g.ate && state.time - g.mealSet < MEAL_TRIP;
 function updateNeeds(g, dt) {
   g.bl += dt / 60 / g.blRate;
+  if (g.bl > 1 && g.st === 'inside' && g.bid != null && (offers(bldById(g.bid) || {}).includes('rr'))) g.bl = 0; // sitting in a bar or lodge: they use its restroom (Adum888)
   if (g.bl > 1.7) {
     g.sat -= dt / 60 * 0.06;
     if (!g.rrComplained) { g.rrComplained = true; today.complaints.rr++; thought(g, 'I really need a restroom.'); }
   }
   // Not hungry yet: eating, in line or on the way to eat, or in a lesson (they eat after).
-  const atLunch = g.st === 'lesson' || (LUNCH_STS.has(g.st) && LUNCH_SVCS.has(g.svc));
+  const atLunch = g.st === 'lesson' || (LUNCH_STS.has(g.st) && LUNCH_SVCS.has(g.svc)) || onMealTrip(g);
   if ((!g.ate || g.skipped) && !atLunch && state.time > hungryAt(g)) {
     g.sat -= dt / 60 * 0.06;
     if (!g.hungry) { g.hungry = true; rememberHunger(g); thought(g, g.foodPrice != null ? 'I’m starving, but lunch here costs too much.' : g.foodLine != null ? 'I’m starving, and the lunch lines are too long.' : 'I’m starving and haven’t found anywhere to eat.'); }
@@ -30372,6 +30379,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.15.3', date: 'Nov 18, 2026', title: 'Fairer lunch and restroom counts', small: true, items: [
+    'Fixed: a guest who set out for lunch in good time, by lift and trail to a hotel restaurant across the mountain say, was counted as eating late if the trip was long. Getting there within the hour now counts as on time.',
+    'Fixed: guests sitting in a bar, lodge or restaurant didn’t use its restrooms and ended up desperate for one. Now they do.',
+    'Fixed: when a day ended with the night lights on, the day report counted only the lit trails as open.',
+    'Thanks Adum888!'] },
   { v: '4.15.2', date: 'Nov 17, 2026', title: 'Fairer condo and building costs', small: true, items: [
     'Sold condo homes no longer need resort staff: their owners look after them. Only homes still rented by the night have a crew, so a sold chalet now earns more in dues than it costs. Closing a condo in a plan stops its rentals; owners still come and pay dues.',
     'A building’s last-day profit now takes off its own staff, not just upkeep and goods sold, so the Buildings list, the profit map and each building’s card show what it really earns. Its card shows its staff cost too.',
