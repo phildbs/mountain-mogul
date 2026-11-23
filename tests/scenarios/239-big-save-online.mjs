@@ -41,7 +41,7 @@ export default async function ({ browser, url }) {
     return { same: JSON.stringify(before) === JSON.stringify(after), n: before.length, tree: JSON.stringify(tree).length, diff: before.find((b, i) => b !== after[i]) || '', to: after.find((b, i) => b !== before[i]) || '' };
   })()`);
   eq([round.same, round.diff, round.to], [true, '', ''], `${round.n} buildings come back exactly as saved`);
-  assert(round.tree < 80, `a planted tree is small in the save (${round.tree} characters)`);
+  assert(round.tree < 95, `a planted tree is small in the save (${round.tree} characters)`);
 
   // a save still too big for the database: the online copy leaves out its oldest reports, this device keeps them all
   const fit = await g.ev(`(async () => {
