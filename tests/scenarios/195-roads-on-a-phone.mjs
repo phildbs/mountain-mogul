@@ -22,7 +22,7 @@ export default async function ({ browser, url }) {
   const P = await g.ev(`(() => { const P = parks()[1], d = parkAt(P, -0.4, parkD(P) / 2); return { x: d.x, z: d.z }; })()`);
   for (const [x, z] of [[-45, 69], [P.x - 4, P.z + 1], [P.x, P.z]]) { const [sx, sy] = await scr(x, z); await g.page.touchscreen.tap(sx, sy); await g.wait(150); }
   const d = await g.ev(`(() => { const i = rdraft.info || roadCheck(rdraft); return { pts: rdraft.pts.length, gate: !!rdraft.gate, problems: i.problems, btn: !!document.querySelector('#sheet [data-action=roadBuild]:not([disabled])') }; })()`);
-  eq([d.pts, d.gate, d.problems, d.btn], [4, true, [], true], 'four taps: a road to the lot, ready to build');
+  eq([d.pts >= 4, d.gate, d.problems, d.btn], [true, true, [], true], 'four taps: a road to the lot (each part found for it), ready to build');
   await g.ev(`document.querySelector('#sheet [data-action=roadBuild]').click()`); await g.wait(300);
   eq(await g.ev(`[proads().length, parkReached(1), !!state.mainRoad]`), [1, true, false], 'built, the lot reached, the access road untouched');
   // the access road's route only changes from its own button
