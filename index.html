@@ -10483,12 +10483,28 @@ function updateHandles() {
 }
 
 /* ---------- Saving the built world ---------- */
+// A building's place and day, saved compactly: a big resort has a couple of thousand planted trees, and each was about 190
+// characters, enough to push the save toward the online limit (Mixing bowl, Nov 23). Values left out are the usual ones,
+// and bldFrom puts them back exactly: tier and turn 0, the type's own name, no pad height, and a day with nothing but
+// upkeep (saved as that day's profit). Decor positions are kept to a thousandth, far below anything you can see.
+const r3 = (v) => Math.round(v * 1000) / 1000;
+function bldCore(B) {
+  const T = BTYPES[B.type] || {}, y = B.yday;
+  const bare = y && JSON.stringify(y) === JSON.stringify({ visits: 0, services: {}, revenue: 0, profit: y.profit });
+  return { id: B.id, type: B.type, tier: B.tier || undefined, x: T.decor ? r3(B.x) : B.x, z: T.decor ? r3(B.z) : B.z, rot: B.rot || undefined, name: B.name === T.name ? undefined : B.name,
+    spent: B.spent, yday: bare ? y.profit : y, padY: B.padY == null ? undefined : B.padY };
+}
+function bldFrom(b) {
+  const T = BTYPES[b.type] || {};
+  return { ...b, tier: b.tier || 0, rot: b.rot || 0, name: b.name == null ? T.name : b.name, padY: b.padY == null ? null : b.padY,
+    yday: typeof b.yday === 'number' ? { visits: 0, services: {}, revenue: 0, profit: b.yday } : b.yday };
+}
 function serializeWorld() {
   return {
     nextId: world.nextId,
     trails: realTrails().map((t) => ({ id: t.id, name: t.name, pts: t.pts, width: t.width, open: t.open, sign: t.sign, groomed: t.groomed, machine: t.machine, sm: t.sm, lit: t.lit, litCost: t.litCost, icy: t.icy, sinceSnow: t.sinceSnow, ws: t.ws || undefined, snowClosed: t.snowClosed || undefined, feats: t.feats && t.feats.length ? t.feats.map((f) => ({ id: f.id, type: f.type, at: f.at, off: f.off, rm: f.rm || undefined })) : undefined })),
     lifts: world.lifts.map((L) => ({ id: L.id, name: L.name, type: L.type, a: L.a, b: L.b, color: L.color, open: L.open || !!L.planOff, cost: L.cost, mid: L.mid || undefined, bikes: L.bikes || undefined, learn: L.learn || undefined })),
-    buildings: world.buildings.map((B) => ({ id: B.id, type: B.type, tier: B.tier, x: B.x, z: B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY, bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, road: B.road || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
+    buildings: world.buildings.map((B) => ({ ...bldCore(B), bare: B.bare || undefined, hue: B.hue || undefined, pts: B.pts || undefined, patrollers: B.type === 'patrol' ? patrolSize(B) : undefined, style: B.style || undefined, sold: B.sold || undefined, sales: B.sales || undefined, road: B.road || undefined, keep: B.keep || undefined, wear: B.wear ? Math.round(B.wear * 1000) / 1000 : undefined, crewOff: B.crewOff || undefined })),
     areas: world.areas.map((a) => ({ id: a.id, name: a.name, kind: a.kind, cells: a.cells, cost: a.cost, sm: a.sm, fenced: a.fenced || undefined, noFence: a.noFence && a.noFence.length ? a.noFence : undefined, thin: a.thin, trees0: a.trees0, signs: a.signs, closed: a.closed || undefined, snowClosed: a.snowClosed || undefined })),
     ponds: world.ponds.length ? world.ponds.map((P) => ({ id: P.id, name: P.name, cells: P.cells, cost: P.cost, water: P.water, orig: P.orig, pump: P.pump, free: P.free || undefined })) : undefined,
     noGuns: world.noGuns && world.noGuns.length ? world.noGuns : undefined,
@@ -10515,7 +10531,7 @@ function rebuildWorld(data) {
     for (const B of data.buildings || []) {
       // Satellite lots became off-site parking: their spaces carry over (see applySave).
       if (B.type === 'parking') { satSpaces += B.tier ? 192 : 96; continue; }
-      addBuilding({ ...B });
+      addBuilding(bldFrom(B));
     }
     for (const p of data.plans || []) if (BTYPES[p.type] || p.kind !== 'bld') addPlan({ ...p }); // satellite lot blueprints are gone
     for (const t of data.trails || []) addTrail({ ...t, pts: t.pts.map((p) => ({ x: p.x, z: p.z })) });
@@ -29354,7 +29370,7 @@ function drawRivals() {
     }
     for (const B of w.buildings || []) {
       try {
-        const p = turn(B), o = { ...B, x: p.x, z: p.z }, v = buildingVisual(o, false), s = bspec(o);
+        const p = turn(B), o = { ...bldFrom(B), x: p.x, z: p.z }, v = buildingVisual(o, false), s = bspec(o);
         v.group.rotation.y -= phi; rivalGroup.add(v.group); matchView.drawn++;
         sl.blds.push({ type: B.type, x: p.x, z: p.z, r: Math.max(s.w, s.d) * 0.75 + 1, glow: o.glowMat || null, apres: rivalApresType(o) });
       } catch (e) { /* skip */ }
@@ -30492,6 +30508,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.16.3', date: 'Nov 23, 2026', title: 'Smaller saves for big resorts', small: true, items: [
+    'Resorts with lots of decorations save in much less space: a planted tree takes about a third of the room it did. Big resorts stay well clear of the online size limit, and load and save a little faster.',
+  ] },
   { v: '4.16.2', date: 'Nov 23, 2026', title: 'Know when a save isn’t online', small: true, items: [
     'If your resort hasn’t been able to save online for over an hour, for any reason, the game now tells you, and its card on the title screen says “Newest progress only on this device” until it saves online again.',
   ] },

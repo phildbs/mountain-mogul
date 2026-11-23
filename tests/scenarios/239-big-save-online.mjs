@@ -28,6 +28,21 @@ export default async function ({ browser, url }) {
   assert(pack.after < pack.before / 5, `a save with 14 such reports shrinks a lot (${pack.before} → ${pack.after})`);
   eq([pack.trees, pack.fence, pack.lodge, pack.rack], [true, true, true, true], 'the report still reads “Planted trees × 500”, fences as one line, the rest by name');
 
+  // buildings save compactly and come back exactly as they were (decor places to a thousandth)
+  const round = await g.ev(`(() => {
+    const L = world.buildings.find((B) => !BTYPES[B.type].decor) || world.buildings[0];
+    addBuilding({ id: world.nextId++, type: 'tree', tier: 0, x: L.x + 6.123456, z: L.z + 4.987654, rot: 0, name: 'Tree', spent: 400, padY: null, yday: { visits: 0, services: {}, revenue: 0, profit: 0 } });
+    addBuilding({ id: world.nextId++, type: 'mfence', tier: 0, x: L.x + 8.5, z: L.z + 4, rot: 1, name: 'Mesh fence 2', spent: 120, padY: null, yday: { visits: 0, services: {}, revenue: 0, profit: -1 } });
+    if (L.yday == null) L.yday = { visits: 12, services: { food: 12 }, revenue: 340, profit: 90 };
+    const pick = (B) => JSON.stringify({ id: B.id, type: B.type, tier: B.tier, x: BTYPES[B.type].decor ? r3(B.x) : B.x, z: BTYPES[B.type].decor ? r3(B.z) : B.z, rot: B.rot, name: B.name, spent: B.spent, yday: B.yday, padY: B.padY ?? null });
+    const before = world.buildings.map(pick), sv = saveData(true), tree = sv.world.buildings.find((B) => B.type === 'tree');
+    applySave(sv);
+    const after = world.buildings.map(pick);
+    return { same: JSON.stringify(before) === JSON.stringify(after), n: before.length, tree: JSON.stringify(tree).length, diff: before.find((b, i) => b !== after[i]) || '', to: after.find((b, i) => b !== before[i]) || '' };
+  })()`);
+  eq([round.same, round.diff, round.to], [true, '', ''], `${round.n} buildings come back exactly as saved`);
+  assert(round.tree < 80, `a planted tree is small in the save (${round.tree} characters)`);
+
   // a save still too big for the database: the online copy leaves out its oldest reports, this device keeps them all
   const fit = await g.ev(`(async () => {
     state.history = Array.from({ length: 14 }, (_, i) => ({ day: 30 + i, guests: 1, sat: 80, profit: 0, rev: {}, exp: {}, note: 'x'.repeat(150000) }));
