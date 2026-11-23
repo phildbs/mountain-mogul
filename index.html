@@ -12069,12 +12069,14 @@ function roadCheck(d) {
     if (world.ponds.length && pondAt(p.x, p.z)) add('A snowmaking pond is in the way.');
   }
   // Steepness over each short stretch, measured along the road (not straight across, which made every hairpin of a
-  // switchback look like a cliff); the steep stretches show red while drawing.
-  let steep = 0; const steepAt = [];
+  // switchback look like a cliff), on its levelled bed as it will be built (bedProfile): the bend of a switchback is
+  // eased into the stretches either side, so switchbacks climb slopes too steep for a road straight up (Phil, Nov 23).
+  // A road straight up a slope is just as steep levelled. The steep stretches show red while drawing.
+  let steep = 0; const steepAt = [], bed = P.length >= 3 ? bedProfile(P) : P.map((p) => trueY(p.x, p.z));
   for (let i = 4; i < P.length; i += 2) {
     const a = P[i - 4], b = P[i]; if (overCreek(a.x, a.z) || overCreek(b.x, b.z)) continue;
     let run = 0; for (let j = i - 3; j <= i; j++) run += distXZ(P[j], P[j - 1]);
-    const g = Math.abs(trueY(b.x, b.z) - trueY(a.x, a.z)) / (run || 1);
+    const g = Math.abs(bed[i] - bed[i - 4]) / (run || 1);
     steep = Math.max(steep, g);
     if (g > ROAD_GRADE) { const r = steepAt[steepAt.length - 1]; if (r && r[1] >= i - 4) r[1] = i; else steepAt.push([i - 4, i]); }
   }
@@ -12133,7 +12135,7 @@ const rtDir = (dx, dz) => { let best = 0, bd = -2; RT_DIRS.forEach(([a, b], k) =
 // The cheapest way for a new road from `from` (a point on the draft, or null: leave any road you can join) to `to`,
 // climbing no more than gmax over each step. `head`: the way the draft was going at `from`. `end`: a lot entrance,
 // come in to square on. Returns its points ([x, z]), or null when there's no way.
-function routeRoad(from, to, kind, gmax, end, head, turn = 1) {
+function routeRoad(from, to, kind, gmax, end, head, turn = 1, bend = 1) {
   const G = routeGround(kind, end), { n, N, at, hard, near, y, creek, wood } = G, K = RKIND[kind], H = 16, S = N * H;
   const cellOf = (p) => clamp(Math.round((p.z + HALF) / RT_ST), 0, n - 1) * n + clamp(Math.round((p.x + HALF) / RT_ST), 0, n - 1);
   const goal = cellOf(to), cost = new Float64Array(S).fill(Infinity), len = new Float32Array(S), prev = new Int32Array(S).fill(-1), org = new Int32Array(S).fill(-1);
@@ -12164,8 +12166,8 @@ function routeRoad(from, to, kind, gmax, end, head, turn = 1) {
       if (near[e] && l > 3.2) continue; // beside a road: only where it leaves the road it joins
       // the climb over the step, and over each half of it (a bank beside a road or creek can be steep in a stride)
       const pc = at(c), pe = at(e), ym = trueY((pc.x + pe.x) / 2, (pc.z + pe.z) / 2), gr = Math.max(Math.abs(y[e] - y[c]) / d, Math.abs(ym - y[c]) / d * 2, Math.abs(y[e] - ym) / d * 2);
-      if (gr > gmax && !(creek[e] && creek[c])) continue; // over a creek, on a bridge
-      const g = cost[k] + d * (K.cost + (creek[e] ? BRIDGE_U : 0)) + wood[e] * TREE_COST * 0.5 * d / RT_ST + d * K.cost * 0.5 * (gr / gmax) ** 2 + (t ? K.cost * 0.15 * t * t : 0);
+      if (gr > gmax * (t ? bend : 1) && !(creek[e] && creek[c])) continue; // over a creek, on a bridge; a bend's tip is eased into the levelled bed (bedProfile)
+      const g = cost[k] + d * (K.cost + (creek[e] ? BRIDGE_U : 0)) + wood[e] * TREE_COST * 0.5 * d / RT_ST + d * K.cost * 0.5 * (gr / gmax) ** 2 + (t ? K.cost * 0.15 * t * t : 0) + (gr > gmax ? d * K.cost * 6 * (gr / gmax - 1) : 0); // a steep bend only where it's needed
       const ek = e * H + nd; if (g < cost[ek]) { cost[ek] = g; len[ek] = l; prev[ek] = k; org[ek] = org[k]; push(ek, g + h(e)); }
     }
   }
@@ -12193,8 +12195,9 @@ function routeDraft(p) {
   if (!inProperty(to.x, to.z)) return { why: 'That’s off your land. Roads stay on your property.' };
   let best = null;
   // gentle bends first; sharper ones (on short steps) only where the land needs them, as the road's rounding cuts them more
-  for (const [gf, tol, turn] of [[0.92, 0.7, 1], [0.82, 0.45, 1], [0.92, 0.7, 2], [0.72, 0.3, 1], [0.8, 0.4, 2], [0.7, 0.12, 1]]) {
-    const at = last ? { x: last[0], z: last[1] } : null, way = routeRoad(at, to, kind, ROAD_GRADE * gf, end, head, turn) || (end && routeRoad(at, to, kind, ROAD_GRADE * gf, { ...end, o: null }, head, turn));
+  // then bends that cross steeper ground (a step that turns may: the levelled bed spreads the bend's climb either side)
+  for (const [gf, tol, turn, bend] of [[0.92, 0.7, 1, 1], [0.82, 0.45, 1, 1], [0.92, 0.7, 2, 1], [0.72, 0.3, 1, 1], [0.8, 0.45, 1, 1.7], [0.7, 0.3, 2, 1.7], [0.7, 0.12, 1, 1]]) {
+    const at = last ? { x: last[0], z: last[1] } : null, way = routeRoad(at, to, kind, ROAD_GRADE * gf, end, head, turn, bend) || (end && routeRoad(at, to, kind, ROAD_GRADE * gf, { ...end, o: null }, head, turn, bend));
     if (!way) continue;
     const pts = [...(d0 ? d0.pts.slice(0, -1) : []), ...simplifyPts(way, tol)].map(([x, z]) => [Math.round(x * 100) / 100, Math.round(z * 100) / 100]);
     const d = { R: null, kind, pts, info: null, from: d0 ? d0.from : undefined };
@@ -12459,10 +12462,16 @@ function removeLot(P) {
 // slope doesn't tilt or ripple. Done once, when a road is built or moved: roads built before keep their ground.
 // only: which points of P are new (a rerouted access road's old stretches keep theirs). Returns the box it changed.
 const BED_W = 0.45; // level ground past the asphalt's edge, the shoulder
+// The height of a road's levelled bed along its path P (in the grid's units, as trueY): the ground eased along the road,
+// so a bump or a bend's tip is spread over the stretches either side. The ends stay put: they meet another road or a lot.
+function bedProfile(P) {
+  const n = P.length, t = P.map((p) => sampleGrid(HT, p.x + HALF, p.z + HALF));
+  for (let pass = 0; pass < 4; pass++) { const s = t.slice(); for (let k = 1; k < n - 1; k++) { let a = 0, c = 0; for (let j = Math.max(0, k - 5); j <= Math.min(n - 1, k + 5); j++) { a += s[j]; c++; } t[k] = a / c; } }
+  return t;
+}
 function gradeRoadbed(P, hw, self, only) {
   if (P.length < 3) return null;
-  const n = P.length, t = P.map((p) => sampleGrid(HT, p.x + HALF, p.z + HALF));
-  for (let pass = 0; pass < 4; pass++) { const s = t.slice(); for (let k = 1; k < n - 1; k++) { let a = 0, c = 0; for (let j = Math.max(0, k - 5); j <= Math.min(n - 1, k + 5); j++) { a += s[j]; c++; } t[k] = a / c; } } // the ends stay put: they meet another road, or a lot
+  const n = P.length, t = bedProfile(P);
   const flat = hw + BED_W, reach = flat + 6;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
@@ -30640,6 +30649,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.17.1', date: 'Nov 23, 2026', title: 'Switchbacks up steep slopes', items: [
+    'A road’s steepness is now measured on its levelled roadbed, as it’s built, so the bends of a switchback can cross slopes too steep for a road straight up. Roads reach further up steep mountains, and finding a way works on many more of them. A road straight up a slope is just as steep as before: still 16% at most.',
+  ] },
   { v: '4.17', date: 'Nov 23, 2026', title: 'Roads that find their own way', items: [
     'Building a road is much easier. In the Roads tool, tap or click where you want a road to go, a parking lot say, and the game finds a way there from your roads: it winds across slopes too steep to climb straight, goes round buildings, lifts, lots and ponds, and shows the price before you build.',
     'Tap again to take the road further, or Undo the last part. Tap a road first to choose where the new one leaves it. Tap inside a lot and the road comes to its best entrance.',

@@ -35,6 +35,21 @@ export default async function ({ browser, url }) {
   })()`);
   assert(steep.tried >= 2, `found slopes too steep for a straight road (${steep.tried})`);
   assert(steep.ok >= 1, `the way found reaches some of them anyway (${steep.ok} of ${steep.tried})`);
+  // switchbacks: a road whose bends cross ground too steep (measured on the raw ground) passes on its levelled bed, and
+  // once built, the road really climbs no more than a road can (Phil, Nov 23)
+  const bendy = await rv.ev(`(() => { state.cash = 5e7; openRoads('roads');
+    const raw = (P) => { let m = 0; for (let i = 4; i < P.length; i += 2) { const a = P[i - 4], b = P[i]; if (overCreek(a.x, a.z) || overCreek(b.x, b.z)) continue; let run = 0; for (let j = i - 3; j <= i; j++) run += distXZ(P[j], P[j - 1]); m = Math.max(m, Math.abs(trueY(b.x, b.z) - trueY(a.x, a.z)) / run); } return m; };
+    let seed = 11; const R = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (let k = 0; k < 160; k++) { const p = { x: (R() - 0.5) * WN * 0.8, z: (R() - 0.5) * WN * 0.8 }; if (!inProperty(p.x, p.z) || areaAt(p.x, p.z)) continue;
+      rdraft = null; const w = routeDraft(p); if (!w.d || w.d.info.problems.length) continue;
+      const before = raw(w.d.info.P); if (before <= ROAD_GRADE + 0.01) continue;
+      rdraft = w.d; const n = proads().length; commitRoad(); if (proads().length === n) return { why: 'not built' };
+      const P = proadPath(proads()[proads().length - 1]);
+      return { before: Math.round(before * 100), bed: Math.round(w.d.info.steep * 100), after: Math.round(raw(P) * 100), tries: k }; }
+    return { why: 'no bendy road found' }; })()`);
+  assert(!bendy.why, `a road with bends over steeper ground (${bendy.why || ''})`);
+  assert(bendy.before > 16 && bendy.bed <= 16, `passes on its levelled bed: ${bendy.bed}%, though the raw ground reads ${bendy.before}%`);
+  assert(bendy.after <= 18, `built, the road climbs ${bendy.after}% at most (a road can climb 16%)`);
   eq(rv.errors, [], 'no page errors on Raven Peak'); await rv.page.close();
 
   // the access road's point deepest inside your land, away from the main lot
@@ -69,5 +84,5 @@ export default async function ({ browser, url }) {
     clearRDraft(); setRouteAuto(true); return { n, sw }; })()`);
   eq(straight, { n: 2, sw: true }, 'Straight lines: a tap adds one point, as before');
   eq(g.errors, [], 'no page errors');
-  return 'a tap finds a road’s way (round slopes, to a lot’s edge), parts add and undo, straight lines still there';
+  return `a tap finds a road’s way (round slopes, to a lot’s edge), parts add and undo, straight lines still there; a switchback over ${bendy.before}% ground: ${bendy.bed}% on its bed, ${bendy.after}% built`;
 }
