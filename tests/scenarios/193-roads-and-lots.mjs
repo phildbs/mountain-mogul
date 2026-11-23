@@ -28,6 +28,15 @@ export default async function ({ browser, url }) {
   assert(a.cost >= 108 * PARK_SPACE_C && a.cost < 108 * PARK_SPACE_C + 200000, `priced by the space, plus levelling and trees (${a.cost})`);
   eq(await g.ev(`lotScores(1)[1]`), -1, 'no cars for a lot no road reaches');
   await g.ev(`(setTool('explore'), updateLabels())`);
+
+  // A road cancelled mid-drag (Escape) and then let go: nothing more is drawn, and no crash (a player on 4.16, Nov 22).
+  const esc = await g.ev(`(() => { openRoads('roads'); const e = roadEnd(), gs = roadsGestureStart(e); if (!gs) return 'no drag';
+    roadsGestureMove(gs, { x: e.x + 3, z: e.z + 3 }); roadsGestureMove(gs, { x: e.x + 6, z: e.z + 5 }); const drew = !!rdraft;
+    clearRDraft(); roadsGestureMove(gs, { x: e.x + 9, z: e.z + 7 }); roadsGestureEnd(gs, { x: e.x + 9, z: e.z + 7 });
+    const left = rdraft, g2 = roadsGestureStart(e); roadsGestureMove(g2, { x: e.x + 3, z: e.z + 3 }); clearRDraft();
+    let crash = ''; try { roadsGestureEnd(g2, { x: e.x + 3, z: e.z + 3 }); } catch (err) { crash = err.message; }
+    setTool('explore'); return { drew, left, crash }; })()`);
+  eq(esc, { drew: true, left: null, crash: '' }, 'a road cancelled mid-drag stays cancelled, and letting go straight after doesn’t crash');
   eq(await g.ev(`lotWarns.filter((el) => el._lot).map((el) => el._lot + ': ' + el.querySelector('em').textContent)`), [await g.ev(`parks()[1].name + ': No road in'`)], 'and the map says so on it');
   await g.ev(`openRoads('parking')`);
 
