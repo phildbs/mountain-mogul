@@ -1073,6 +1073,7 @@ body.matchplay .menu .msolo, body.matchplay #mGoalsMenu, body.matchplay #commBtn
 .goal-link.static { font-size: 13px; color: var(--ink-2); }
 .sc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .sc-badge { background: rgba(20, 36, 58, 0.06); border-radius: 999px; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
+.sc-badge.warn { background: #fff6dc; color: #6b4a00; }
 .sc-foot .link { margin-left: auto; font-size: 12px; padding: 0; }
 .scard.empty { display: flex; flex-direction: column; border: 2px dashed rgba(20, 36, 58, 0.22); background: rgba(250, 252, 255, 0.55); backdrop-filter: blur(6px); border-radius: 16px; align-items: center; justify-content: center; gap: 2px; min-height: 56px; cursor: pointer; font: inherit; color: var(--ink); text-align: center; padding: 10px; }
 .scard.empty:hover { border-color: var(--accent); color: var(--accent); }
@@ -4483,10 +4484,24 @@ function saveNow() {
   // localAt: when this device's copy was last written. Only a write that went in counts: a full browser used to leave
   // an old copy here while the list said "saved just now", and the old copy was later loaded and sent online over the
   // newer one (Adum888, Nov 10).
-  if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); if (stored) s.localAt = Date.now(); writeSlots(); }
+  if (s) { const sum = summaryDoc(); Object.assign(s, { name: state.resortName, when: sum.when, stars: starsOf(), savedAt: Date.now(), sum }); if (stored) s.localAt = Date.now(); if (CLOUD.uid && !CLOUD.guest && !s.pendSince) s.pendSince = Date.now(); writeSlots(); warnBehind(s); }
   if (s && !stored && !storeWarned) { storeWarned = true; toast(CLOUD.uid && !CLOUD.guest ? 'This browser’s storage is full, so your progress is only saved online (after each day). Delete a mountain you no longer play, or clear this site’s other data, to keep a copy here too.' : 'This browser’s storage is full, so your latest progress can’t be saved on this device. Sign in to keep it safe online, or delete a mountain you no longer play.', true); }
 }
 let storeWarned = false;
+// pendSince (on a slot): when this device first saved progress that hasn't gone online since (cleared by an upload or a
+// download). Uploads go every few minutes between days, so progress waiting over an hour means they're failing, whatever
+// the reason: the player is told, and the mountain's card says so (Elk Basin played a week unsaved online, Nov 23).
+const BEHIND_WARN = 3600000;
+const pendingFor = (s) => (s && s.pendSince && CLOUD.uid && !CLOUD.guest && (!s.owner || s.owner === CLOUD.uid) ? Date.now() - s.pendSince : 0);
+const sinceWord = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+let behindWarned = null;
+function warnBehind(s) {
+  if (behindWarned === s.id || state.phase === 'open' || visiting || practice || matchPlay || !CLOUD.ready || pendingFor(s) <= BEHIND_WARN) return;
+  behindWarned = s.id;
+  const m = (CLOUD.own || []).find((x) => x.id === s.id), since = m && m.updatedAt ? ` since ${sinceWord(m.updatedAt)}` : ' yet';
+  toast(`${state.resortName} hasn’t saved online${since}${CLOUD.error ? ` (${CLOUD.error.replace(/\.$/, '')})` : ''}. Your progress is safe in this browser: don’t sign out or clear this site’s data until it saves online again.`, true);
+  noteError('A resort hasn’t saved online for over an hour', '', { mins: Math.round(pendingFor(s) / 60000), why: CLOUD.error || '' });
+}
 const newId = () => crypto.randomUUID();
 const slotById = (id) => slots.list.find((s) => s.id === id) || null;
 const activeSlot = () => slotById(slots.active);
@@ -4626,7 +4641,7 @@ function useSlotIn(id, sv, then) {
   const s = activeSlot();
   // the save goes in first: freeing space for it can drop other mountains from the list written next
   let stored = true;
-  if (sv && s) { try { stored = storeSet(slotKey(id), JSON.stringify(sv)); } catch (e) { stored = false; } if (stored) s.localAt = s.savedAt; } // a copy fetched from online, now here too
+  if (sv && s) { try { stored = storeSet(slotKey(id), JSON.stringify(sv)); } catch (e) { stored = false; } if (stored) { s.localAt = s.savedAt; delete s.pendSince; } } // a copy fetched from online, now here too
   stored = writeSlots() && stored;
   CLOUD.sentJson = ''; CLOUD.offered = false; CLOUD.error = '';
   if (s && slotMt(s) !== MOUNTAIN.id) {
@@ -26382,6 +26397,9 @@ let lastFitLen = 0;
 function fitSave(save) {
   let len = JSON.stringify(save).length;
   const h = save.clock && save.clock.history;
+  // Without its reports, nothing more can be left out: tell the stats page well before that reaches the limit.
+  const rest = len - (Array.isArray(h) ? JSON.stringify(h).length : 0);
+  if (rest > SAVE_MAX * 0.6) noteError('A resort’s save is getting close to the online limit', '', { rest, len, mt: save.mt });
   if (len > SAVE_MAX && Array.isArray(h)) {
     let i = 0;
     while (len > SAVE_MAX && i < h.length) len -= JSON.stringify(h[i++]).length + 1;
@@ -26439,6 +26457,7 @@ async function cloudSave(manual, forReferral = false) {
       CLOUD.own = (CLOUD.own || []).filter((m) => m.id !== slot.id).concat({ ...summary, id: slot.id, photo, public: listed(), updatedAt: Date.parse(sentAt) });
     }
     CLOUD.error = '';
+    if (slot.pendSince) { delete slot.pendSince; writeSlots(); } // online now has everything this device has
     if (manual) toast(listed() ? 'Saved. Your resort is on the leaderboards.' : CLOUD.guest ? 'Saved. Sign in on the title screen to join the leaderboards.' : 'Saved privately online.');
     // No full board reload here (your own row comes from the game itself); just refresh your rank.
     loadPeek(true);
@@ -27330,6 +27349,7 @@ async function loadNewerSave(slot) {
   if (!storeSet(slotKey(slot.id), JSON.stringify(sv))) { CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; toast(STORAGE_FULL_MSG, true); return false; }
   const at = fetchSave.at || m.updatedAt || Date.now();
   Object.assign(slot, { name: m.name || slot.name, when: m.when || slot.when, savedAt: at, localAt: Date.now(), seenAt: fetchSave.at || slot.seenAt });
+  delete slot.pendSince;
   writeSlots();
   leaving = true;
   try { sessionStorage.setItem(SAVE_KEY + '.pulled', m.when || '1'); } catch (e) { /* ignore */ }
@@ -30472,6 +30492,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.16.2', date: 'Nov 23, 2026', title: 'Know when a save isn’t online', small: true, items: [
+    'If your resort hasn’t been able to save online for over an hour, for any reason, the game now tells you, and its card on the title screen says “Newest progress only on this device” until it saves online again.',
+  ] },
   { v: '4.16.1', date: 'Nov 23, 2026', title: 'Big resorts save online again', small: true, items: [
     'Fixed: a very big resort, one with hundreds of planted trees, fences or lights, could grow too big to save online. It kept saving in your browser, but the online copy stopped. Day reports now count decorations by kind instead of one by one, so these resorts are much smaller and save online again. If one is ever too big, the online copy leaves out the oldest day reports so it still fits, and you’re told.',
     'Fixed: signing out removed every mountain from your browser, even one whose newest progress hadn’t saved online yet. A mountain like that now stays in your browser until you sign in again, and the game tries to save your resort online before you sign out.',
@@ -31834,7 +31857,7 @@ function slotRows() {
   const rows = new Map();
   for (const s of slots.list) {
     rows.set(s.id, { id: s.id, mt: slotMt(s), name: s.name || 'Juniper Ridge', when: s.when, here: true, sum: s.sum, savedAt: s.savedAt,
-      foreign: !!(s.owner && CLOUD.uid && s.owner !== CLOUD.uid), newer: onlineIsNewer(s), photo: s.photo });
+      foreign: !!(s.owner && CLOUD.uid && s.owner !== CLOUD.uid), newer: onlineIsNewer(s), photo: s.photo, behind: pendingFor(s) > BEHIND_WARN });
   }
   for (const m of CLOUD.own || []) {
     const row = rows.get(m.id);
@@ -32066,7 +32089,7 @@ function slotCard(r, active) {
       <div class="actions"><button class="btn danger" data-slot="delYes" data-id="${r.id}">Delete</button><button class="link" data-slot="delNo">Keep it</button></div></div></article>`;
   }
   const dup = r.foreign && ownCopyOf(r);
-  const badge = dup ? 'Already in your account · this device only' : r.foreign ? 'Another account’s · this device only' : r.online ? 'Saved online' : r.newer ? 'Newer save online' : CLOUD.ready && !CLOUD.guest ? 'Saved online' : 'On this device';
+  const badge = dup ? 'Already in your account · this device only' : r.foreign ? 'Another account’s · this device only' : r.online ? 'Saved online' : r.newer ? 'Newer save online' : r.behind ? 'Newest progress only on this device' : CLOUD.ready && !CLOUD.guest ? 'Saved online' : 'On this device';
   const facts = [
     sum.cash != null && `<div><dt>Cash</dt><dd>${cashWord(sum.cash)}</dd></div>`,
     sum.lifts != null && `<div><dt>Lifts · trails</dt><dd>${sum.lifts} · ${sum.trails}</dd></div>`,
@@ -32087,7 +32110,7 @@ function slotCard(r, active) {
       <p class="sc-when">${esc(r.when || sum.when || 'Not started yet')}${r.savedAt ? ` · <span>played ${ago(r.savedAt)}</span>` : ''}</p>
       ${facts ? `<dl class="sc-facts">${facts}</dl>` : ''}
       <div class="actions">${play}${(live ? state.sandbox : sum.sandbox) ? '<span class="goal-link static">Sandbox · unlimited money</span>' : `${live ? '<button class="link goal-link" id="mGoals">' : '<span class="goal-link static">'}<span class="stars">${starText(stars, max)}</span> ${stars} of ${max} goals${live ? '</button>' : '</span>'}`}</div>
-      <div class="sc-foot"><span class="sc-badge">${esc(badge)}</span>${isMapId(r.mt) ? '<span class="sc-badge">Hand-shaped</span>' : isCustomId(r.mt) && parseRecipe(r.mt.slice(2)) ? `<span class="sc-badge">Code ${esc(prettyCode(parseRecipe(r.mt.slice(2))))}</span>` : ''}${slotMore === r.id ? `<button class="link danger-link" data-slot="del" data-id="${r.id}">Delete this mountain</button><button class="link" data-slot="more" data-id="${r.id}">Cancel</button>` : `<button class="link more" data-slot="more" data-id="${r.id}" aria-label="More options for ${esc(r.name)}" title="More">⋯</button>`}</div>
+      <div class="sc-foot"><span class="sc-badge${r.behind ? ' warn' : ''}">${esc(badge)}</span>${isMapId(r.mt) ? '<span class="sc-badge">Hand-shaped</span>' : isCustomId(r.mt) && parseRecipe(r.mt.slice(2)) ? `<span class="sc-badge">Code ${esc(prettyCode(parseRecipe(r.mt.slice(2))))}</span>` : ''}${slotMore === r.id ? `<button class="link danger-link" data-slot="del" data-id="${r.id}">Delete this mountain</button><button class="link" data-slot="more" data-id="${r.id}">Cancel</button>` : `<button class="link more" data-slot="more" data-id="${r.id}" aria-label="More options for ${esc(r.name)}" title="More">⋯</button>`}</div>
     </div></article>`;
 }
 async function deleteMountain(id) {

@@ -51,6 +51,28 @@ export default async function ({ browser, url }) {
   eq(refused.err, 'Your resort is too big to save online right now.', 'the database’s size refusal reads as too big');
   assert(/too big to save online/.test(refused.told) && /Don’t sign out/.test(refused.told), 'and the player is told straight away');
 
+  // uploads failing for over an hour, for any reason: said once, and the mountain's card says so too
+  const lag = await g.ev(`(async () => {
+    const s = activeSlot(), realToast = toast; let told = [];
+    toast = (m) => told.push(m);
+    try {
+      s.pendSince = Date.now() - 30 * 60000; behindWarned = null; saveNow(); const early = told.length;
+      s.pendSince = Date.now() - 2 * 3600000; saveNow(); saveNow();
+      const row = slotRows().find((r) => r.id === s.id);
+      const badge = (() => { $('mTitle').onclick(); return document.querySelector('.sc-badge.warn')?.textContent || ''; })();
+      return { early, told: told.length, msg: told[0] || '', behind: row.behind, badge };
+    } finally { toast = realToast; }
+  })()`);
+  eq([lag.early, lag.told, lag.behind], [0, 1, true], 'progress waiting over an hour to go online is told once, not before');
+  assert(/hasn’t saved online since/.test(lag.msg) && /too big/.test(lag.msg), 'with the reason: ' + lag.msg);
+  eq(lag.badge, 'Newest progress only on this device', 'and the mountain’s card on the title screen says so');
+  await g.click('#startBtn'); await g.wait(500);
+  const cleared = await g.ev(`(async () => {
+    state.history = []; const s = activeSlot(); CLOUD.lastUp = 0; CLOUD.sentJson = ''; await cloudSave(true);
+    return { err: CLOUD.error, pend: s.pendSince || 0 };
+  })()`);
+  eq(cleared, { err: '', pend: 0 }, 'a save that goes online clears it');
+
   // newer progress that can't go online: signing out keeps it here, and signing in again carries on with it
   const out = await g.ev(`(async () => {
     const s = activeSlot(), id = s.id; await new Promise((r) => setTimeout(r, 30));
