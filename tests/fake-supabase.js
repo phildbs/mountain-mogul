@@ -171,6 +171,8 @@
       if (q.op === 'upsert') {
         const o = { ...q.obj, summary: { ...(q.obj.summary || {}), guest: !!(d.users[me] || {}).anon } }, ex = d.rows.find((r) => r.id === o.id);
         if (d.referrals && Number(o.save?.clock?.referralCredit || 0) !== Number(d.referrals.balances?.[o.id] || 0)) return { data: null, error: { code: '40001', message: 'referral_save_conflict' } };
+        // like the real save_size check: 2 MB in the database's own form, about 1.38 times the text at most
+        if (o.save && JSON.stringify(o.save).length * 1.38 >= 2000000) return { data: null, error: { code: '23514', message: 'new row for relation "mountains" violates check constraint "save_size"' } };
         if (ex) { if (ex.owner !== me) return { data: null, error: { code: '42501', message: 'row-level security' } }; Object.assign(ex, o); }
         else {
           if (d.rows.filter((r) => r.owner === me).length >= 5) return { data: null, error: { code: 'P0001', message: 'mountain_limit' } };

@@ -4752,6 +4752,7 @@ function applySave(sv) {
   else seedPreseasonSnow();
   if (!state.wx) state.wx = initWeather(state.day, !ok); // a new resort's first week is kind: no rain or wind holds
   if (!ok) state.wx.mild = false; // and after that, real weather
+  packReports();
   if (!state.seasonStats) state.seasonStats = newSeasonStats();
   else if (!state.seasonStats.ob) fixBestDay(state.seasonStats);
   if (state.records && !state.records.ob && !visiting) fixBestDayRecord(state.records);
@@ -25479,11 +25480,26 @@ function opsReport(ops, claims, repHit) {
       return { id: L.id, name: L.name, mode: ops.lifts[L.id] || 'full', stopped: !L.open && !L.planOff, rides, cost: Math.round((today.liftCost || {})[L.id] || 0),
         use: rides / Math.max(1, L.stats.cap * (ops.lifts[L.id] === 'slow' ? SLOW.speed : 1) * hours) };
     }),
-    blds: world.buildings.filter((B) => !(ops.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type)).map((B) => ({ id: B.id, name: B.name, type: B.type, mode: ops.bld[B.id] || 'open', visits: B.yday ? B.yday.visits : 0, profit: B.yday ? B.yday.profit : 0, full: bspec(B).upkeep })),
+    blds: packBlds(world.buildings.filter((B) => !(ops.kind === 'summer' ? SUMMER_SHUT : WINTER_SHUT).includes(B.type)).map((B) => ({ id: B.id, name: B.name, type: B.type, mode: ops.bld[B.id] || 'open', visits: B.yday ? B.yday.visits : 0, profit: B.yday ? B.yday.profit : 0, full: bspec(B).upkeep }))),
     lots: newLots() ? { open: parks().filter((L, i) => lotOpenNow(i)).length, total: parks().length, spaces: openSpaces(opsState().plans[ops.kind] || {}), mine: true, peak: today.lotPeak || 0, away: today.lotAway || 0 } : { open: ops.lots, total: state.lotSections, peak: today.lotPeak || 0, away: today.lotAway || 0 },
     saved: planRunCost(blankPlan()) - planRunCost(ops), letdown: today.letdown || 0, claims, repHit: Math.round(repHit * 1000) / 1000,
   };
 }
+// Decor (trees, fences, lights, benches...) shows as one line per kind in the report, so it's kept as one entry per kind
+// ({ type, n, visits, full }). Listing each of a big resort's hundreds of planted trees in all 14 kept reports made the
+// save too big to go online, silently, for a week (Elk Basin, Nov 23). Ski racks stay one by one: each has its own line.
+function packedType(t) { return !!(BTYPES[t] && BTYPES[t].decor) && t !== 'rack'; }
+function packBlds(list) {
+  const out = [], by = {};
+  for (const B of list) {
+    if (!packedType(B.type) || B.n) { out.push(B); continue; }
+    if (!by[B.type]) out.push(by[B.type] = { type: B.type, n: 0, visits: 0, full: 0 });
+    const p = by[B.type]; p.n++; p.visits += B.visits || 0; p.full += B.full || 0;
+  }
+  return out;
+}
+// Reports saved before 4.16.1 list each decor piece: pack them on load.
+function packReports() { for (const r of [...(state.history || []), state.lastReport]) if (r && r.ops && Array.isArray(r.ops.blds)) r.ops.blds = packBlds(r.ops.blds); }
 // The operations part of the day report: what ran, what it carried and what it cost.
 function opsReportHtml(r) {
   const o = r.ops;
@@ -25494,13 +25510,13 @@ function opsReportHtml(r) {
     rows.push(`<span>${esc(L.name)} <em class="m-${L.mode}">${MODE_WORD[L.mode]}</em></span><span>${L.mode === 'off' ? '–' : `${L.rides.toLocaleString('en-US')} rides · ${money(L.cost)}`}</span>`);
   }
   // Lights and fire pits are one line per kind, with what they cost together; there can be dozens.
-  const many = { tlight: 'Trail lights', flood: 'Floodlights', strlight: 'String lights', xtree: 'Holiday trees', tmap: 'Trail map boards', lamp: 'Lamp posts', firepit: 'Fire pits', bench: 'Benches', picnic: 'Picnic tables', tree: 'Planted trees' };
+  const many = { tlight: 'Trail lights', flood: 'Floodlights', strlight: 'String lights', xtree: 'Holiday trees', tmap: 'Trail map boards', lamp: 'Lamp posts', firepit: 'Fire pits', bench: 'Benches', picnic: 'Picnic tables', tree: 'Planted trees', mfence: 'Mesh fences' };
   for (const [type, label] of Object.entries(many)) {
-    const Ls = o.blds.filter((B) => B.type === type), visits = Ls.reduce((a, B) => a + B.visits, 0);
-    if (Ls.length) rows.push(`<span>${label} <em>× ${Ls.length}</em></span><span>${['firepit', 'bench', 'picnic'].includes(type) ? `${visits.toLocaleString('en-US')} visits · ` : ''}${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
+    const Ls = o.blds.filter((B) => B.type === type), visits = Ls.reduce((a, B) => a + B.visits, 0), n = Ls.reduce((a, B) => a + (B.n || 1), 0);
+    if (Ls.length) rows.push(`<span>${label} <em>× ${n}</em></span><span>${['firepit', 'bench', 'picnic'].includes(type) ? `${visits.toLocaleString('en-US')} visits · ` : ''}${money(Ls.reduce((a, B) => a + B.full, 0))} upkeep</span>`);
   }
   for (const B of o.blds) {
-    if (many[B.type]) continue;
+    if (many[B.type] || B.n) continue;
     const what = B.type === 'patrol' ? `${B.visits} calls` : B.type === 'clinic' ? `${B.visits} patients` : ['shuttle', 'transit', 'restroom', 'hrest'].includes(B.type) ? '' : `${B.visits} ${B.type === 'hotel' ? 'hotel guests' : B.type === 'condo' ? 'owners and renters' : B.type === 'rack' ? 'pairs of skis' : 'served'} · ${signedMoney(B.profit)}`;
     rows.push(`<span>${esc(B.name)} <em class="m-${B.mode}">${MODE_WORD[B.mode]}</em></span><span>${B.mode === 'closed' ? '–' : what}</span>`);
   }
@@ -26358,6 +26374,21 @@ const CLOUD_GAP = 300000;
 // The resort photo is most of an upload's size, so it has its own column and goes up only when it changed,
 // at most every half hour (or on Save now). Uploads in between leave the stored photo as it is.
 const PHOTO_GAP = 1800000;
+// The database refuses a save over 2 MB in its own form, which runs to about 1.38 times the text (up to 1.38 on Nov 23's
+// biggest resorts). A bigger one used to fail quietly, so the online copy stood still while the resort played on here.
+const SAVE_MAX = 1300000;
+let lastFitLen = 0;
+// Fit a cloud copy under SAVE_MAX: leave out the oldest day reports it keeps (this device keeps them all). Returns its length.
+function fitSave(save) {
+  let len = JSON.stringify(save).length;
+  const h = save.clock && save.clock.history;
+  if (len > SAVE_MAX && Array.isArray(h)) {
+    let i = 0;
+    while (len > SAVE_MAX && i < h.length) len -= JSON.stringify(h[i++]).length + 1;
+    save.clock = { ...save.clock, history: h.slice(i) };
+  }
+  return (lastFitLen = len);
+}
 function scheduleCloud() {
   if (!CLOUD.ready || visiting || practice) return;
   clearTimeout(CLOUD.upTimer);
@@ -26386,10 +26417,10 @@ async function cloudSave(manual, forReferral = false) {
     refreshResortPhoto();
     const save = saveData(false), photo = save.photo, sent = CLOUD.photoUp || {};
     save.savedAt = 0; delete save.photo;
+    if (fitSave(save) > SAVE_MAX) throw { code: 'too_big' };
     const sendPhoto = validResortPhoto(photo) && (sent.id !== slot.id || (photo !== sent.photo && (manual || Date.now() - sent.at >= PHOTO_GAP)));
     const summary = { ...summaryDoc(), music: music.on, musicEver: music.ever }; // music: for the owner's stats page
     const json = JSON.stringify([save, { ...summary, updatedAt: 0 }, listed()]);
-    if (json.length > 1500000) throw { code: 'too_big' };
     if (json !== CLOUD.sentJson || sendPhoto) {
       // Another device may have saved since this page last looked: never send an older resort over it; load that one.
       if (await checkOnline(slot)) { CLOUD.uploading = false; if (!(await loadNewerSave(slot))) CLOUD.error = 'A newer copy of this mountain is saved online. Go back to the title screen and press Continue to load it.'; refreshCommunity(); return; }
@@ -26413,6 +26444,8 @@ async function cloudSave(manual, forReferral = false) {
     loadPeek(true);
   } catch (e) {
     const full = /mountain_limit/.test(String(e && e.message));
+    if (e && /save_size/.test(String(e.message))) e = { code: 'too_big' }; // the database's own size check
+    if (e && e.code === 'too_big' && CLOUD.bigWarned !== slot.id) { CLOUD.bigWarned = slot.id; toast(`${state.resortName} is too big to save online, so its newest progress is only in this browser. Don’t sign out or clear this site’s data, and please tell us through Feedback.`, true); noteError('A resort was too big to save online', '', { len: lastFitLen }); }
     CLOUD.error = e && e.code === 'too_big' ? 'Your resort is too big to save online right now.'
       : /invitation_pending/.test(String(e && e.message)) ? 'Your invitation is waiting for a connection. Your resort is safe on this device and will save online when it connects.'
       : /referral_save_conflict/.test(String(e && e.message)) ? 'A referral reward changed online. Retry saving to bring it into this resort.'
@@ -27440,20 +27473,32 @@ async function googleAuth(mode) {
     refreshCommunity();
   }
 }
+// Is this device's copy of one of your mountains also online? Its last write here is no newer than the online copy.
+function savedOnline(s) {
+  const m = (CLOUD.own || []).find((x) => x.id === s.id);
+  return !!(m && (s.localAt || 0) <= (m.updatedAt || 0)); // both this device's clock: localAt from saveNow, updatedAt from its upload
+}
 async function signOut() {
   if (!CLOUD.sb) return;
+  // send the resort on screen first, so it doesn't have to stay behind
+  if (state.started && !visiting && !practice && !matchPlay) { saveNow(); CLOUD.lastUp = 0; CLOUD.sentJson = ''; await cloudSave(false); }
+  // Mountains that are safe in your account leave this device, which starts fresh as a guest. One whose newest progress
+  // isn't online stays here for when you sign in again, and so do other accounts' (a mountain too big to upload lost a
+  // week when signing out deleted it: Elk Basin, Nov 23).
+  const uid = CLOUD.uid, keep = slots.list.filter((s) => (s.owner && s.owner !== uid) || !savedOnline(s));
+  for (const s of keep) if (!s.owner) s.owner = uid;
   await CLOUD.sb.auth.signOut();
   if (practice) leaveTutorial();
-  // Your mountains are safe in your account; this device starts fresh as a guest.
-  try { for (const s of slots.list) localStorage.removeItem(slotKey(s.id)); } catch (e) { /* ignore */ }
-  slots = { active: null, list: [] }; writeSlots();
+  try { for (const s of slots.list) if (!keep.includes(s)) localStorage.removeItem(slotKey(s.id)); } catch (e) { /* ignore */ }
+  slots = { active: null, list: keep }; writeSlots();
+  const mine = keep.filter((s) => s.owner === uid);
   applySave(null);
   if (state.started) afterLoad(); else refreshTitle();
   CLOUD.own = null; CLOUD.sentJson = ''; CLOUD.error = '';
   const r = await CLOUD.sb.auth.signInAnonymously();
   setSession(r.data && r.data.session);
   CLOUD.own = [];
-  CLOUD.authMsg = 'Signed out. Your mountains are saved in your account; sign in again to play them.';
+  CLOUD.authMsg = mine.length ? `Signed out. ${mine.map((s) => s.name || 'A mountain').join(', ')} ${mine.length === 1 ? 'hasn’t' : 'haven’t'} saved online yet, so ${mine.length === 1 ? 'it stays' : 'they stay'} in this browser: sign in here again to carry on.` : 'Signed out. Your mountains are saved in your account; sign in again to play them.';
   refreshTitle();
   fillProfile();
   refreshCommunity();
@@ -27515,7 +27560,7 @@ const GOOGLE_G = '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="t
 function accountHtml() {
   if (CLOUD.status !== 'live') return '';
   if (!CLOUD.guest) {
-    if (CLOUD.confirmOut) return `<p class="help">Sign out of <b>${esc(CLOUD.email)}</b>? Your mountains stay saved in your account, and this device starts fresh as a guest.</p>
+    if (CLOUD.confirmOut) return `<p class="help">Sign out of <b>${esc(CLOUD.email)}</b>? Your mountains stay saved in your account, and this device starts fresh as a guest.${CLOUD.error ? ` <b>Your resort’s last online save didn’t go through</b> (${esc(CLOUD.error)}), so it will stay in this browser until you sign in here again.` : ''}</p>
       <div class="row"><button class="btn secondary" type="button" id="cmOutNo">Cancel</button><button class="btn" type="button" id="cmOutYes">Sign out</button></div>`;
     return `<div class="acct-in"><p class="help">Signed in${CLOUD.viaGoogle ? ' with Google' : ''} as <b>${esc(CLOUD.email)}</b>. Your mountains follow you to any device.</p>
       <button class="btn secondary" type="button" id="cmSignOut">Sign out</button></div>`;
@@ -30427,6 +30472,11 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.16.1', date: 'Nov 23, 2026', title: 'Big resorts save online again', small: true, items: [
+    'Fixed: a very big resort, one with hundreds of planted trees, fences or lights, could grow too big to save online. It kept saving in your browser, but the online copy stopped. Day reports now count decorations by kind instead of one by one, so these resorts are much smaller and save online again. If one is ever too big, the online copy leaves out the oldest day reports so it still fits, and you’re told.',
+    'Fixed: signing out removed every mountain from your browser, even one whose newest progress hadn’t saved online yet. A mountain like that now stays in your browser until you sign in again, and the game tries to save your resort online before you sign out.',
+    'Mesh fences are now one line in the day report, like other decorations.',
+  ] },
   { v: '4.16', date: 'Nov 18, 2026', title: 'Bus stops on your own roads', items: [
     'Shuttle stations and transit centers can now go beside your own roads, not just the access road. Town buses and parking shuttles drive your roads to reach them. A road with a station beside it can’t be removed, moved away from it or made a driveway until the station moves.',
     'Fixed: a guest who set out for lunch in good time, by lift and trail to a hotel restaurant across the mountain say, was counted as eating late if the trip was long. Getting there within the hour now counts as on time.',

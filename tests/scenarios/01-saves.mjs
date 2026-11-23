@@ -42,8 +42,9 @@ export default async function ({ browser, url }) {
   await g.ev(`newMountain(); saveNow()`); await g.ev(`cloudSave(true)`); await g.wait(300);
   assert(/5 mountains online/.test(await g.ev(`CLOUD.error`)), 'limit error shown');
 
+  const sixth = await g.ev(`slots.active`);
   await g.ev(`signOut()`); await g.wait(1200);
-  eq((await v()).n, 0, 'signing out clears the device');
+  eq(await g.ev(`slots.list.map((s) => s.id)`), [sixth], 'signing out clears the device, except the mountain that couldn’t save online');
   eq(g.errors, [], 'no page errors');
   await g.page.close();
 }
