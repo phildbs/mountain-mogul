@@ -5520,6 +5520,15 @@ const BRIDGE_APPROACH = 8; // samples (4 units) of levelled trail bed either sid
 // how far a spot is from the creek, in creek widths, the ring past the map's edge included (a rival's road or lot)
 const creekDist = (x, z) => { const gx = x + HALF, gz = z + HALF; return FARCD && (gx < 0 || gz < 0 || gx > WN || gz > WN) ? farAt(gx, gz, FARCD) : sampleGrid(CREEKD, gx, gz); };
 const overCreek = (x, z) => creekDist(x, z) < BRIDGE_D;
+/* Road bridges (4.20): where a trail crosses a road it goes over it on a bridge, with ramps either side, so cars and
+   buses pass underneath (Adum888, Nov 27). The deck clears the road by ROAD_CLEAR; on a slope steep enough the line
+   from ramp to ramp already does. Ramps and deck are one structure: the ground under them is left alone, so a trail
+   that crossed a road before 4.20 gets its bridge as it loads. Twice a creek bridge's price. */
+const ROAD_CLEAR = 0.55;   // the deck's height over the road (true units; a bus is about 0.2)
+const ROAD_RAMP = 8;       // samples (4 units) of ramp each side of the road
+const ROAD_SPAN_MAX = 10;  // more than this over the road and the trail is running along it
+const overRoad = (x, z) => { const gx = x + HALF, gz = z + HALF; return gx >= 0 && gz >= 0 && gx <= WN && gz <= WN && (sampleGrid(ROADD, gx, gz) < ROAD_HW + 0.25 || sampleGrid(PROADD, gx, gz) < PROAD_HW + 0.25); };
+const nearRoad = (x, z, r) => { const gx = x + HALF, gz = z + HALF; return gx >= 0 && gz >= 0 && gx <= WN && gz <= WN && (sampleGrid(ROADD, gx, gz) < ROAD_HW + r || sampleGrid(PROADD, gx, gz) < PROAD_HW + r); };
 // A stretch is bridged wherever any part of the trail's width is over the creek, so the deck
 // spans the whole crossing even when a wide trail meets the creek at an angle.
 function bridgeOver(samples, hw) {
@@ -5529,11 +5538,34 @@ function bridgeOver(samples, hw) {
     const L = Math.hypot(b.x - a.x, b.z - a.z) || 1, px = -(b.z - a.z) / L, pz = (b.x - a.x) / L;
     const w = s.hw || hw, across = [-1, -0.5, 0, 0.5, 1].map((f) => ({ x: s.x + px * f * w, z: s.z + pz * f * w }));
     s.bridge = across.some((p) => overCreek(p.x, p.z));
+    s.over = !s.bridge && nearRoad(s.x, s.z, w + 0.3) && across.some((p) => overRoad(p.x, p.z)) ? 1 : 0;
+    s.rb = 0;
   });
+  trailRoadDecks(samples);
   for (const [i0, i1] of bridgeSpans(samples)) {
+    if (samples[i0].rb) continue;
     const a = samples[i0 - 1], b = samples[i1 + 1];
     const ya = a ? a.y : b ? b.y : samples[i0].y, yb = b ? b.y : ya;
     for (let i = i0; i <= i1; i++) samples[i].y = lerp(ya, yb, (i - i0 + 1) / (i1 - i0 + 2));
+  }
+}
+// Each stretch over a road: a deck ROAD_CLEAR over the road's highest point, ramps down to the ground either side.
+// The whole structure is marked `bridge` (drawn and walked on as a deck) and `rb`; `gy` keeps the ground's height.
+function trailRoadDecks(S) {
+  const n = S.length;
+  for (let i = 0; i < n; i++) {
+    if (!S[i].over) continue;
+    let j = i; while (j + 1 < n && S[j + 1].over) j++;
+    const k0 = Math.max(0, i - ROAD_RAMP), k1 = Math.min(n - 1, j + ROAD_RAMP);
+    if (S.slice(k0, k1 + 1).some((s) => s.bridge && !s.rb)) { i = j; continue; } // a creek right beside it: its own bridge
+    let deck = -Infinity; for (let k = i; k <= j; k++) deck = Math.max(deck, S[k].y + ROAD_CLEAR);
+    const ya = S[k0].y, yb = S[k1].y;
+    for (let k = k0; k <= k1; k++) {
+      const line = lerp(ya, yb, k1 > k0 ? (k - k0) / (k1 - k0) : 0);
+      const ramp = k < i ? lerp(ya, deck, (k - k0) / Math.max(1, i - k0)) : k > j ? lerp(deck, yb, (k - j) / Math.max(1, k1 - j)) : deck;
+      const s = S[k]; s.gy = s.y; s.y = Math.max(line, ramp, k === k0 || k === k1 ? s.y : -Infinity); s.bridge = true; s.rb = 1;
+    }
+    i = k1;
   }
 }
 function bridgeSpans(samples) {
@@ -5562,12 +5594,13 @@ function analyzeTrail(samples) {
   res.vert = samples[0].y - samples[n - 1].y;
   let uphill = false, cliff = false, outside = false, wet = false;
   const Wn = 6;
+  const gy = (s) => (s.rb ? s.gy : s.y); // a road bridge doesn't make the terrain steeper
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - Wn), b = Math.min(n - 1, i + Wn), run = (b - a) * 0.5;
-    const g = run > 0 ? (samples[a].y - samples[b].y) / run : 0;
+    const g = run > 0 ? (gy(samples[a]) - gy(samples[b])) / run : 0, gs = run > 0 ? (samples[a].y - samples[b].y) / run : 0;
     if (g > res.maxGrade) res.maxGrade = g;
-    // Short dips are fine: skiers carry speed through them. Sustained climbs are not.
-    if (g < -0.08) { uphill = true; res.bad.add(i); }
+    // Short dips are fine: skiers carry speed through them. Sustained climbs are not. Up onto a road bridge is a short one.
+    if (Math.min(g, gs) < -0.08 - (samples[a].rb || samples[b].rb || samples[i].rb ? ROAD_CLEAR / (2 * Wn * 0.5) + 0.02 : 0)) { uphill = true; res.bad.add(i); }
     if ((!samples[i].bridge && sampleGrid(GR, samples[i].x + HALF, samples[i].z + HALF) > 1.05) || g > 1.0) { cliff = true; res.bad.add(i); }
     if (!inProperty(samples[i].x, samples[i].z)) { outside = true; res.bad.add(i); }
     if (world.ponds.length && pondAt(samples[i].x, samples[i].z)) { wet = true; res.bad.add(i); }
@@ -5578,9 +5611,12 @@ function analyzeTrail(samples) {
   if (uphill) res.problems.push('Part of the trail runs uphill. Skiers can only go down.');
   if (outside) res.problems.push('Part of the trail is outside your property.');
   if (wet) res.problems.push('The trail runs into a snowmaking pond. Route around it.');
-  res.bridges = bridgeSpans(samples);
+  const spans = bridgeSpans(samples);
+  res.bridges = spans.filter(([a]) => !samples[a].rb); res.roadBridges = spans.filter(([a]) => samples[a].rb);
   const along = res.bridges.filter(([a, b]) => (b - a + 1) * 0.5 > BRIDGE_MAX);
   if (along.length) { res.problems.push('The trail runs along the creek. Cross it more directly.'); for (const [a, b] of along) for (let i = a; i <= b; i++) res.bad.add(i); }
+  const alongRoad = res.roadBridges.filter(([a, b]) => samples.slice(a, b + 1).filter((s) => s.over).length * 0.5 > ROAD_SPAN_MAX);
+  if (alongRoad.length) { res.problems.push('The trail runs along the road. Cross it more directly.'); for (const [a, b] of alongRoad) for (let i = a; i <= b; i++) if (samples[i].over) res.bad.add(i); }
   if (res.len < 8) res.problems.push(`Too short. Make the trail at least ${units.metric ? '80 m' : '260 ft'} long.`);
   else if (res.vert < 1) res.problems.push(`The trail needs to drop at least ${units.metric ? '10 m' : '30 ft'}.`);
   return res;
@@ -6704,6 +6740,7 @@ function addLift(L) {
 // (its snow is the trail itself), a railing each side, and posts down to the creek bed.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const BRIDGE_DARK = new THREE.MeshLambertMaterial({ color: 0x5e3d28 });
+const RB_DECK = new THREE.MeshLambertMaterial({ color: 0x9aa1ab }), RB_RAIL = new THREE.MeshLambertMaterial({ color: 0x5d6673 }); // a bridge over a road: concrete and steel
 function buildBridges(t) {
   if (t.bridgeGroup) { trailGroup.remove(t.bridgeGroup); t.bridgeGroup.traverse((o) => { if (o.userData.merged) o.geometry.dispose(); }); } // the pieces share geometry; only the merged meshes are its own
   t.bridgeGroup = null;
@@ -6717,23 +6754,24 @@ function buildBridges(t) {
   };
   for (const [i0, i1] of spans) {
     const a0 = Math.max(0, i0 - 1), a1 = Math.min(S.length - 1, i1 + 1); // from bank to bank
+    const road = !!S[i0].rb, DECK = road ? RB_DECK : WOOD, RAIL = road ? RB_RAIL : BRIDGE_DARK; // over a road: concrete and steel
     for (let i = a0; i < a1; i++) {
       const a = S[i], b = S[i + 1], len = distXZ(a, b);
       const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, my = ((a.y + b.y) / 2) * VEX;
       const yaw = Math.atan2(b.x - a.x, b.z - a.z), pitch = Math.atan2((b.y - a.y) * VEX, len);
       const px = Math.cos(yaw), pz = -Math.sin(yaw); // across the deck
-      box(WOOD, mx, my - 0.02, mz, 2 * hw + 0.3, 0.2, len + 0.02, yaw, pitch);
+      box(DECK, mx, my - 0.02, mz, 2 * hw + 0.3, road ? 0.26 : 0.2, len + 0.02, yaw, pitch);
       for (const side of [-1, 1]) {
         // where the bank rises above the deck the bridge meets it like an abutment: no railing there
         const ex = mx + px * side * (hw + 0.1), ez = mz + pz * side * (hw + 0.1);
         const ax = a.x + px * side * (hw + 0.1), az = a.z + pz * side * (hw + 0.1);
         const bx = b.x + px * side * (hw + 0.1), bz = b.z + pz * side * (hw + 0.1);
         if (heightAt(ax, az) > a.y * VEX + 0.45 || heightAt(bx, bz) > b.y * VEX + 0.45 || heightAt(ex, ez) > my + 0.45) continue;
-        box(BRIDGE_DARK, ex, my + 0.55, ez, 0.08, 0.08, len + 0.02, yaw, pitch);
-        if ((i - a0) % 2 === 0) {
+        box(RAIL, ex, my + 0.55, ez, 0.08, 0.08, len + 0.02, yaw, pitch);
+        if ((i - a0) % 2 === 0 && !(road && overRoad(ax, az))) { // no post in the road itself
           const top = a.y * VEX + 0.6;
           const bottom = Math.min(top - 0.6, heightAt(ax, az)) - 0.1;
-          box(BRIDGE_DARK, ax, (top + bottom) / 2, az, 0.1, top - bottom, 0.1, yaw, 0);
+          box(RAIL, ax, (top + bottom) / 2, az, road ? 0.14 : 0.1, top - bottom, road ? 0.14 : 0.1, yaw, 0);
         }
       }
     }
@@ -7974,7 +8012,7 @@ function bridgeEarthwork(samples, hw, dry) {
     if (!best) continue;
     // Under the deck it only cuts, down to the deck: the gap below it (and the water) stays open.
     // Elsewhere it may also fill. Neither touches the water itself.
-    if (best.bridge && HT[idx] < best.y) continue;
+    if (best.rb || (best.bridge && HT[idx] < best.y)) continue; // a road bridge stands on its own: the road stays as it is
     const w = (1 - sstep(hw + 0.3, reach, Math.sqrt(bd))) * (best.bridge ? sstep(0.8, 1.0, CREEKD[idx]) : groundKeep(idx));
     if (w <= 0) continue;
     const nh = lerp(HT[idx], best.y, w);
@@ -8014,9 +8052,9 @@ function evalTrail(pts, width, allowPlans, grade, ws) {
   // Bridge approaches: the ground under the trail either side of a bridge is levelled across its
   // width so the trail meets the deck flush.
   let approach = null;
-  if (an.bridges.length) {
+  if (an.bridges.length || an.roadBridges.length) {
     const near = new Set();
-    for (const [i0, i1] of an.bridges) for (let k = 1; k <= BRIDGE_APPROACH; k++) { near.add(i0 - k); near.add(i1 + k); }
+    for (const [i0, i1] of [...an.bridges, ...an.roadBridges]) for (let k = 1; k <= BRIDGE_APPROACH; k++) { near.add(i0 - k); near.add(i1 + k); }
     const sub = samples.filter((s, i) => near.has(i) || s.bridge).map((s) => ({ ...s }));
     approach = { ground: sub, cost: bridgeEarthwork(sub, hw, true).cost };
   }
@@ -8029,7 +8067,8 @@ function evalTrail(pts, width, allowPlans, grade, ws) {
   for (const s of samples) if (s.bridge) treesInBrush(s, (s.hw || hw) + 1.8, (k) => treeSet.add(k));
   for (const e of [samples[0], samples[samples.length - 1]]) treesInBrush(e, (e.hw || hw) * 1.45 + 0.6, (k) => treeSet.add(k));
   const grading = Math.round(an.len * TRAIL_WIDTHS[width].perUnit / 100) * 100;
-  const bridges = an.bridges.length, bridgeCost = bridges * TRAIL_WIDTHS[width].bridge + (approach ? approach.cost : 0);
+  const bridges = an.bridges.length, roadBridges = an.roadBridges.length;
+  const bridgeCost = (bridges + 2 * roadBridges) * TRAIL_WIDTHS[width].bridge + (approach ? approach.cost : 0);
   const cost = grading + treeSet.size * TREE_COST + (earth ? earth.cost : 0) + bridgeCost;
   const ghost = { samples };
   const last = samples[samples.length - 1];
@@ -8051,7 +8090,7 @@ function evalTrail(pts, width, allowPlans, grade, ws) {
   const still = problems.findIndex((p) => /uphill/.test(p));
   if (earth && still >= 0) problems[still] = 'Even graded, part of this trail would still climb. Ease the sharp turn where it doubles back.';
   an.problems = problems;
-  return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth, approach, bridges, bridgeCost, lotWarn: reserveHitsTrail(samples, hw) };
+  return { an, reversed, treeSet, grading, cost, from, to, samples, hw, uphill, earth, approach, bridges, roadBridges, bridgeCost, lotWarn: reserveHitsTrail(samples, hw) };
 }
 function commitTrail(info, pts, width) {
   if (matchPlay && !matchView.quiet) matchOrder('build', { what: 'trail', width, pts: pts.map((p) => ({ x: p.x, z: p.z })) });
@@ -9308,7 +9347,7 @@ function trailDraftSheet() {
     ${info.uphill ? `<div class="toggle-row"><div><b>Grade it downhill</b><span>${draft.grade ? `Cuts the bumps and fills the dips so the trail falls the whole way · ${money(info.earth ? info.earth.cost : 0)}` : 'Reshape the ground under the trail so it never climbs. Costs extra.'}</span></div>
       <button class="switch" role="switch" aria-checked="${draft.grade}" data-action="gradeTrail" aria-label="Grade it downhill"><i></i></button></div>` : ''}
     <div class="costs"><span>Grading</span><span>${money(info.grading)}</span>
-      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}${info.bridges ? `<span>${info.bridges > 1 ? `${info.bridges} creek bridges` : 'Creek bridge'} and approaches</span><span>${money(info.bridgeCost)}</span>` : ''}</div>`;
+      <span>Clearing ${info.treeSet.size.toLocaleString('en-US')} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>${info.earth ? `<span>Earthwork (cut and fill)</span><span>${money(info.earth.cost)}</span>` : ''}${info.bridges || info.roadBridges ? `<span>${[info.bridges ? (info.bridges > 1 ? `${info.bridges} creek bridges` : 'Creek bridge') : '', info.roadBridges ? (info.roadBridges > 1 ? `${info.roadBridges} bridges over roads` : 'A bridge over the road') : ''].filter(Boolean).join(', ')} and approaches</span><span>${money(info.bridgeCost)}</span>` : ''}</div>`;
   }
   return `<div class="sheet-title"><h3>${editing ? 'Edit route' : 'New trail'}</h3><button class="x" data-action="exitTool" aria-label="Close" title="Close (Esc)">✕</button></div>
     ${n ? '' : TRAIL_MODES('trail')}
@@ -11977,11 +12016,26 @@ function junctionPad(P, Q, kq, phw, hw) {
   };
   return { L: side(-1), R: side(1), from: Math.max(0, iC - 1) };
 }
+// Trails whose bridges over roads have changed with the roads (and, as a save loads, before your roads were known).
+// Only trails near a road are sampled again.
+function rebridgeTrails() {
+  let idx = null;
+  for (const t of realTrails()) {
+    if (!t.samples || !t.samples.length) continue;
+    const had = t.samples.some((s) => s.rb), near = t.samples.some((s) => nearRoad(s.x, s.z, (s.hw || trailHW(t)) + 0.3));
+    if (!had && !near) continue;
+    const sig = (S) => S.map((s) => (s.rb ? 1 : 0)).join('');
+    const before = sig(t.samples);
+    resampleTrail(t);
+    if (sig(t.samples) !== before) { idx ||= surfaceIndex(); refreshTrailMesh(t, idx); }
+  }
+}
 // After any change to your roads, lots or the access road: routes, the ground roads keep clear, the meshes.
 function netChanged() {
   netRev++; roadBridges = null;
   if (newLots()) { setMainRoad(); buildRoad(); }
   stampPRoads(); buildPRoads(); buildRoadBridges();
+  rebridgeTrails();
   for (const B of world.buildings) if (B.road) redoDriveway(B);
   lotScoreCache = null;
   reserveKey = ''; plantSig = '';
@@ -12118,8 +12172,12 @@ function roadCheck(d) {
     else if (P.every((q) => distXZ(q, B) > hw + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
   }
   if (d.main) for (const B of world.buildings.filter((B) => BY_ROAD.includes(B.type) && !B.road)) if (P.every((q) => distXZ(q, B) > ROAD_HW + 5) && branchPath().every((q) => distXZ(q, B) > ROAD_HW + 5)) add(`${B.name} would be left off the road. Move it first, or keep the road beside it.`);
-  const build = Math.round(fresh * k.cost + bridge * BRIDGE_U);
-  return { P, len, fresh, bridge, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, door: door ? parks()[door.i] : null, steep, steepAt };
+  // Trails it crosses that aren't bridged there yet get a bridge over it, at the trail's price for one (4.20).
+  const xs = P.map((q) => q.x), zs = P.map((q) => q.z), bx0 = Math.min(...xs) - 8, bx1 = Math.max(...xs) + 8, bz0 = Math.min(...zs) - 8, bz1 = Math.max(...zs) + 8;
+  const overTrails = realTrails().filter((t) => t.samples.some((sm) => !sm.over && sm.x > bx0 && sm.x < bx1 && sm.z > bz0 && sm.z < bz1 && P.some((q) => distXZ(sm, q) < hw + sampleHW(t, sm))));
+  const trailBridges = overTrails.reduce((n, t) => n + 2 * TRAIL_WIDTHS[t.width].bridge, 0);
+  const build = Math.round(fresh * k.cost + bridge * BRIDGE_U + trailBridges);
+  return { P, len, fresh, bridge, overTrails, trailBridges, problems, treeSet, build, cost: build + treeSet.size * TREE_COST, door: door ? parks()[door.i] : null, steep, steepAt };
 }
 /* ---------- Finding a road's way (4.17) ----------
    Most of a mountain is too steep for a road straight up it (83% of Juniper Ridge, 90% of Raven Peak), and a road
@@ -12685,7 +12743,8 @@ function roadDraftHtml() {
     ${!d.R && d.legs && d.legs.length ? '<button class="link" data-action="rLegBack">Undo the last part</button>' : ''}
     ${!d.R && d.from && d.pts.length < 2 && proads().some((Q) => Q.id === d.from) ? `<button class="link" data-action="roadPick" data-id="${d.from}">Change ${esc(proads().find((Q) => Q.id === d.from).name)} instead</button>` : ''}
     ${warns.length ? `<p class="help warn">${esc(warns.join('. '))}.</p>` : ''}
-    ${info ? `<div class="costs"><span>${d.R ? 'New road' : 'Road'} · ${ftOfU(info.fresh)}</span><span>${money(Math.round(info.build - info.bridge * BRIDGE_U))}</span>
+    ${info ? `<div class="costs"><span>${d.R ? 'New road' : 'Road'} · ${ftOfU(info.fresh)}</span><span>${money(Math.round(info.build - info.bridge * BRIDGE_U - info.trailBridges))}</span>
+      ${info.trailBridges ? `<span>${info.overTrails.length === 1 ? `A bridge to carry ${esc(info.overTrails[0].name)} over it` : `Bridges to carry ${info.overTrails.length} trails over it`}</span><span>${money(info.trailBridges)}</span>` : ''}
       ${info.bridge ? `<span>A bridge over the creek · ${ftOfU(info.bridge)}</span><span>${money(Math.round(info.bridge * BRIDGE_U))}</span>` : ''}
       ${info.treeSet.size ? `<span>Clearing ${info.treeSet.size} trees</span><span>${money(info.treeSet.size * TREE_COST)}</span>` : ''}</div>
       ${!d.main ? `<p class="help">${info.door ? `It reaches <b>${esc(info.door.name)}</b>. ` : ''}Plowing it costs ${money(Math.round(info.len * rkind({ kind: d.kind }).run * MOUNTAIN.costs))} a day.</p>` : ''}
@@ -30839,7 +30898,8 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
-  { v: '4.19.1', date: 'Nov 27, 2026', title: 'Walking round the base', small: true, items: [
+  { v: '4.20', date: 'Nov 27, 2026', title: 'Bridges over roads', items: [
+    'A trail that crosses a road now goes over it on a bridge, with a ramp up either side, so cars and buses drive underneath. It’s built for you, at twice the price of a creek bridge: $30,000 for a narrow trail, $50,000 medium and $80,000 wide. A road you build across a trail pays for that trail’s bridge. Trails that already cross a road get their bridge free. Thanks Adum888!',
     'Fixed: where the base wraps round a hill, an L-shaped base say, guests no longer walk straight over the hill to get from one side to the other. They follow the low ground round it. Thanks Adum888!',
   ] },
   { v: '4.19', date: 'Nov 27, 2026', title: 'True slopes, bare areas and rental skis', items: [
