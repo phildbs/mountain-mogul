@@ -5741,6 +5741,11 @@ function setTrailEdges(on) {
   $('mEdgesV').textContent = on ? 'On' : 'Off';
 }
 const trailSign = (t) => (t.sign == null ? t.an.rating : t.sign);
+// What the slope really is: guests pick a trail by its sign, but ski the terrain. Signing a black run blue let
+// intermediates ski it at full speed, with no extra falls, happy (Adum888, Nov 27). Glades and the learning area
+// keep their own rating (a glade's sign already counts its trees).
+const SIGN_WORD = ['green', 'blue', 'black', 'double black'];
+const trailTrue = (t) => (t.link && t.parent ? trailTrue(t.parent) : t.virtual || t.glade ? trailSign(t) : t.an.rating);
 
 /* ---------- Terrain parks ----------
    Jumps, rails, boxes and a halfpipe built on a trail; a trail with features on it is a terrain park. Each
@@ -7279,6 +7284,7 @@ function hubSheet(A) {
     <p class="help">${hubName(A.set)} · ${fmtAcres(acresOf(A.cells.length), 1)}. Guests walk freely between the trails, lifts and services inside it.</p>
     <p class="conn">${A.basePoint ? 'Connects to the base.' : A.returns ? 'Connected to a route home.' : 'Needs a trail or lift leading back to the base.'}</p>
     <dl class="kv"><div><dt>Lift stations</dt><dd>${A.loads.length + A.tops.length}</dd></div><div><dt>Trail entrances</dt><dd>${A.starts.length}</dd></div><div><dt>Buildings</dt><dd>${A.buildings.length}</dd></div><div><dt>Snow underfoot</dt><dd>${inch(hubDepth(A))}</dd></div></dl>
+    ${!state.summer && hubDepth(A) < BASE_NEED ? `<ul class="problems soft"><li>Bare: it needs ${inch(BASE_NEED)} of snow. Guests carry their skis across the dirt, slowly, and it spoils their day a little.</li></ul>` : ''}
     <p class="help">To fence it off, place a mesh fence (Build › Decor) along its edge.</p>
     <div class="field-label">Snowmaking</div>
     ${sm && sm.on ? `<div class="seg" role="group" aria-label="Snowmaking mode">${[['auto', 'Auto'], ['always', 'Always'], ['off', 'Off']].map(([k, label]) => `<button data-action="smMode" data-v="${k}" aria-pressed="${sm.mode === k}">${label}</button>`).join('')}</div><p class="help">${gunCount(A)} guns · about ${money(gunCount(A) * GUN_NIGHT)} per cold night. Auto keeps ${inch(sm.target)} underfoot.</p>` : `<p class="help">Works on natural snow. Optional snowmaking keeps the ground white: ${gunCount(A)} guns, about ${money(gunCount(A) * GUN_NIGHT)} per cold night.</p><button class="btn secondary" data-action="smInstall" ${closed && state.cash >= snowmakingCost(A) ? '' : 'disabled'}>Add snowmaking · ${money(snowmakingCost(A))}</button>`}
@@ -7426,8 +7432,15 @@ function walkHub(g, A, p, then) {
     path.push([c.x, c.z]); prev = c;
   });
   g.onSkis = false;
+  // Bare ground: skis on the shoulder, boots in the dirt. Slower, and it stings once a day (Adum888, Nov 27).
+  const bare = !!(today && today.bareHubs && today.bareHubs.includes(A.id));
+  if (bare && !g.mud) {
+    g.mud = 1; g.sat -= 4; today.complaints.hubMud = (today.complaints.hubMud || 0) + 1;
+    const m = today.hubMud || (today.hubMud = {}); m[A.id] = (m[A.id] || 0) + 1;
+    if (Math.random() < 0.5) thought(g, `No snow on ${A.name}. Had to carry my skis across the dirt.`);
+  }
   const [x, z] = path.shift();
-  setMove(g, { x, z }, 'walk', { k: 'hubWalk', path, next: then, sp: Math.round((0.82 + Math.random() * 0.36) * 100) / 100 });
+  setMove(g, { x, z }, 'walk', { k: 'hubWalk', path, next: then, sp: Math.round((0.82 + Math.random() * 0.36) * (bare ? 0.75 : 1) * 100) / 100 });
   return true;
 }
 
@@ -9463,7 +9476,7 @@ function trailSheet(t) {
   const notes = [];
   if (!t.reachable) notes.push(t.from ? 'Guests can’t reach this trail yet. Connect it to a lift that starts at the base.' : 'This trail doesn’t start at a lift or another trail, so nobody can reach it.');
   if (!t.returns) notes.push('This trail doesn’t lead back to the base area. Skiers who take it will be stranded.');
-  if (sign < an.rating) notes.push(`Signed easier than its terrain. The steepest pitch is ${Math.round(an.maxGrade * 100)}%.`);
+  if (sign < an.rating && !t.glade) notes.push(`Signed easier than its terrain. The steepest pitch is ${Math.round(an.maxGrade * 100)}%. Skiers who trust the sign find it too steep: they go slower, fall more and aren’t happy about it.`);
   return `<div class="sheet-title">
       <span class="rsym big">${ratingSymbol(sign, 18)}</span>
       <input class="name" id="nameInput" value="${esc(t.name)}" maxlength="28" aria-label="Trail name">${NAME_DICE}
@@ -9539,7 +9552,7 @@ function liftSheet(L) {
     <div class="status"><span class="pill ${L.planOff ? 'off' : !L.open ? 'off' : liftMode(L) === 'slow' ? 'slow' : 'on'}">${L.planOff ? 'Off today' : !L.open ? 'Stopped' : liftMode(L) === 'slow' ? 'Running slow' : 'Running'}</span>
       <span class="muted">${type.long}${L.learn ? ' · learners only' : ''}</span>
       <button class="link" data-action="toggleOpen">${L.open ? 'Stop lift' : 'Start lift'}</button></div>
-    ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${L.queue.length * AGENT}</b> in line · about ${Math.round(liftWait(L))} min wait · ${L.riders.reduce((a, r) => a + r.length, 0) * AGENT} riding<br>${((today.liftRiders[L.id] || 0) * AGENT).toLocaleString('en-US')} rides so far · power ${money(Math.round((today.liftCost || {})[L.id] || 0))}</p>` : ''}
+    ${state.phase === 'open' && today ? `<div class="field-label">Today</div><p class="conn"><b>${liftInLine(L) * AGENT}</b> in line · about ${Math.round(liftWaitShown(L))} min wait · ${liftRiding(L) * AGENT} riding<br>${((today.liftRiders[L.id] || 0) * AGENT).toLocaleString('en-US')} rides so far · power ${money(Math.round((today.liftCost || {})[L.id] || 0))}</p>` : ''}
     <dl class="kv">
       <div><dt>Capacity</dt><dd>${slow ? `${liftCapShown(L).toLocaleString('en-US')}/hr<br><small class="muted">Slow · ${s.cap.toLocaleString('en-US')} at full speed</small>` : `${s.cap.toLocaleString('en-US')}/hr`}</dd></div>
       <div><dt>Ride time</dt><dd>${fmtTime(slow ? s.ride / SLOW.speed : s.ride)}</dd></div>
@@ -10141,7 +10154,7 @@ function computeChips() {
   const out = [], n = (v) => Math.round(v).toLocaleString('en-US');
   for (const L of world.lifts) {
     if (!L.open || L.planOff || L.windHold) continue;
-    const w = liftWait(L), q = L.queue.length * AGENT;
+    const w = liftWaitShown(L), q = liftInLine(L) * AGENT;
     if (w >= 15 && q >= 20) out.push({ key: `L${L.id}`, sev: w >= 25 ? 2 : 1, score: w, x: L.a.x, z: L.a.z, icon: CHIP_CLOCK, text: `${L.name} · ${n(w)} min line`,
       title: `${L.name}: about ${n(w)} minutes in line, ${n(q)} waiting`, go: () => select({ kind: 'lift', obj: L }) });
   }
@@ -10204,8 +10217,8 @@ function updateLabels() {
     for (const L of world.lifts) {
       if (!L.labelEl) continue;
       const hex = '#' + L.color.toString(16).padStart(6, '0');
-      const q = open && L.queue ? L.queue.length * AGENT : 0;
-      const up = open ? L.riders.reduce((a, r) => a + r.length, 0) * AGENT : 0;
+      const q = open && L.queue ? liftInLine(L) * AGENT : 0;
+      const up = open ? liftRiding(L) * AGENT : 0;
       const slow = open && L.open && liftMode(L) === 'slow';
       setLabel(L.labelEl, `<i class="ldot" style="background:${hex}"></i><span>${esc(L.name)}</span>${L.planOff ? '<em>Off today</em>' : !L.open ? '<em>Stopped</em>' : L.windHold && !state.summer ? '<em>Wind hold</em>' : open ? `${slow ? '<em class="slow">Slow</em>' : ''}<span class="cnt"><b>${up}</b> riding · <b>${q}</b> in line</span>` : ''}`);
       L.labelEl.classList.toggle('sel', !!(selected && selected.obj === L));
@@ -12988,6 +13001,16 @@ const canRide = (L, g) => canLoad(L) && !(L.learn && g && g.ab > 0);
 // Minutes until the k-th guest in line boards.
 const lineAhead = (L, k) => k * PACE / Math.max(1, L.stats.cap * (liftMode(L) === 'slow' ? SLOW.speed : 1) / 60);
 const liftWait = (L) => lineAhead(L, L.queue.length + L.incoming);
+const liftWaitShown = (L) => (isVillage(L) ? villageWait(L) : liftWait(L));
+// A village gondola keeps a line at each end (L.xq) and its riders are guests riding across ('xride'), not
+// L.queue and L.riders, so its map label always read 0 riding, 0 in line (Adum888, Nov 27).
+const liftInLine = (L) => (isVillage(L) ? (L.xq ? L.xq.a.length + L.xq.b.length : 0) : L.queue.length);
+const liftRiding = (L) => (isVillage(L) ? guests.reduce((n, g) => n + (g.st === 'xride' && g.xLid === L.id ? 1 : 0), 0) : L.riders.reduce((a, r) => a + r.length, 0));
+function villageWait(L) { // the longer of its two lines, in minutes
+  if (!L.xq) return 0;
+  const perMin = Math.max(1e-6, liftCapacity(LIFT_TYPES[L.type]) / 60 / AGENT);
+  return Math.max(L.xq.a.length, L.xq.b.length) / perMin;
+}
 // Other open lifts loading a short glide or walk from this one's line: at the base, the same base area.
 function liftsBeside(L, g) {
   const out = [];
@@ -13042,7 +13065,7 @@ const learningOpen = () => {
 };
 function trailFit(T, g, idx = 0) {
   if (T.link) return 0; // a few metres between a trail and a station: what counts is where it leads
-  const r = trailSign(T);
+  const r = g.seen && g.seen[T.id] ? trailTrue(T) : trailSign(T); // once they've skied it, they know what it really is
   // The learning area: first-timers start there; other beginners warm up there now and then; everyone else skips it.
   if (T.virtual && !T.glade) {
     if (g.ab >= 2) return -14;
@@ -13332,7 +13355,7 @@ const baseWalk = (za, zb) => (baseCount() > mapBaseCount() && basesMemo.walk[za]
 function linkCost(za, zb) {
   const w = baseWalk(za, zb);
   let c = w ? 1 + w.d / 40 : Infinity; // a walk over low ground to a base of yours
-  for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? (L.xq[za] || []).length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
+  for (const L of villageLifts(za, zb)) c = Math.min(c, 1 + (L.xq ? L.xq[baseOf(L.a) === za ? 'a' : 'b'].length : 0) * AGENT / Math.max(1, liftCapacity(LIFT_TYPES[L.type]) / 60) * 0.05);
   if (baseShuttle(za, zb)) c = Math.min(c, 1.6 * (1 + (loopWait[za] || 0) / LOOP_SEATS / LOOP_MAX)); // a long line at the stops puts guests off crossing
   return c;
 }
@@ -13594,7 +13617,7 @@ function startSki(g, T, s) {
   while (g.ns < T.stops.length && T.stops[g.ns].at * 0.5 < s) g.ns++;
 }
 function runDone(g, T) {
-  const r = trailSign(T);
+  const r = trailTrue(T);
   g.seen[T.id] = (g.seen[T.id] || 0) + 1;
   g.fat += T.an.vert * PACE * FATIGUE; g.vert += T.an.vert;
   today.trailRuns[T.id] = (today.trailRuns[T.id] || 0) + 1;
@@ -13613,7 +13636,8 @@ function runDone(g, T) {
   }
   if (r > g.ab) {
     g.sat -= 7 * RUN_W; today.complaints.steep++;
-    thought(g, `${T.name} was way too steep for me.`);
+    if (trailSign(T) <= g.ab) { g.sat -= 2 * RUN_W; today.complaints.misSign = (today.complaints.misSign || 0) + 1; thought(g, `${T.name} is signed ${SIGN_WORD[trailSign(T)]}, but it skis like a ${SIGN_WORD[r]}!`); }
+    else thought(g, `${T.name} was way too steep for me.`);
   } else {
     g.sat += (r === g.pref ? 3.5 : 2) * RUN_W;
     const sp = surfacePref(T, g);
@@ -13875,7 +13899,7 @@ function makeGuest(car, x, z) {
   if (g.first) today.firsts += AGENT;
   if (g.sight) g.fs = false;
   if (g.fs) parkArrival(g);
-  if (today.baseBare) { g.sat -= 5; today.complaints.mud++; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
+  if (today.baseBare) { g.sat -= 5; today.complaints.mud++; g.mud = 1; if (Math.random() < 0.6) thought(g, 'The base area is all mud. Had to carry my skis to the lift.'); }
   if (today.letdown >= 4 && Math.random() < 0.5) thought(g, today.letdown >= 9 ? 'Half the place is shut today. Not what I paid for.' : 'Looks like they’re running a skeleton crew today.');
   else if (today.letdown < 0 && Math.random() < 0.4) thought(g, 'The staff here are great today.');
   if (ab >= 2 && !summerNow() && !world.trails.some((t) => t.open && t.reachable && trailSign(t) >= ab - 1)) {
@@ -14149,7 +14173,7 @@ function carLeave(car) {
 function updateSki(g, dt) {
   const T = g.T, n = T.samples.length, len = T.len;
   const i0 = Math.min(n - 2, Math.floor(g.s / 0.5));
-  const r = trailSign(T);
+  const r = trailTrue(T);
   const surf = T.surface, rough = (surf === 'moguls' || surf === 'powder') && g.ab < 2 ? 0.75 : 1;
   const sp = SKI_SPEED[g.ab] * (0.8 + Math.min(0.3, T.gr[i0])) * (r > g.ab ? 0.55 : 1) * rough, was = g.s;
   g.s += sp * dt;
@@ -14523,6 +14547,7 @@ function openDay() {
   if (short) today.closeAt = SHORT_CLOSE;
   today.letdown = sm ? 0 : letdownFor(ops, state.day);
   today.baseBare = !sm && baseBare(); today.baseDepth = Math.round(baseDepth());
+  today.bareHubs = sm ? [] : world.areas.filter((A) => isHub(A) && A.cells.length && hubDepth(A) < BASE_NEED).map((A) => A.id);
   if (sm) summerBill(); // this day's share of the summer upkeep
   else {
     sellPasses();
@@ -14651,7 +14676,7 @@ function endDay() {
     full: !!today.full, day: today.day, guests: today.guests, passGuests: today.passGuests, passesSold: today.passesSold || 0, turnedAway: today.turnedAway, peak: today.peak,
     rev: { ...today.rev, refunds: today.refunds }, refunded: today.refunded, pmHolds: today.pmHolds, exp: { lifts: Math.round(today.exp.lifts), grooming: today.exp.grooming, park: today.exp.park || 0, staff: today.exp.staff, upkeep: today.exp.upkeep, parking: today.exp.parking, shuttles: today.exp.shuttles || 0, claims: today.exp.claims, cogs: today.exp.cogs, snowmaking: today.exp.snowmaking || 0, interest: today.exp.interest || 0, overhead: today.exp.overhead || 0, lease: today.exp.lease || 0, investor: today.exp.investor, apres: today.exp.apres || 0, night: today.exp.night || 0 },
     payroll: { other: costs.other, patrol: costs.patrol },
-    ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth,
+    ops: opsReport(ops, claims, repHit), baseBare: !!today.baseBare, baseDepth: today.baseDepth, hubMud: today.hubMud ? Object.entries(today.hubMud).map(([id, n]) => { const A = areaById(+id); return [A ? A.name : 'A guest area', n, A ? A.id : 0]; }) : undefined,
     wx: today.wx, holds: today.holds, trailsOpen: realTrails().filter((t) => t.open && t.snowOk !== false).length, // the day's trails, not just the lit ones still open at night (Adum888) trailsTotal: realTrails().length, base: avgBase(),
     leftLines: today.leftLines, noWayDown: today.noWayDown || null, lostSpend, jam, firsts: today.firsts, learners: today.learners, sightseers: today.sightseers, injuries: today.injuries, rescueClaims, rescueRep, glades: Object.entries(today.glades || {}).map(([id, st]) => ({ name: (areaById(+id) || {}).name || 'a glade', ...st })), helped: today.helped, patched: today.patched, campers: today.campers, unhelped: today.unhelped, resp: today.helped ? today.respSum / today.helped : 0,
     hotel: today.roomsAll ? { rooms: today.rooms, all: today.roomsAll, guests: today.hotelGuests || 0, naps: today.naps || 0 } : null,
@@ -16083,6 +16108,9 @@ const BBLURB = { truck: 'Quick snacks anywhere', cafe: 'Coffee, snacks and a war
   tree: 'Plant trees anywhere', bench: 'A free place to rest', picnic: 'Seats for a packed lunch', rack: 'Room for 40 pairs of skis', firepit: 'Free warmth, an après spot', lamp: 'Lights up after dark', tlight: 'Lights a trail for night skiing',
   tmap: 'Your trails, on a board', strlight: 'A chain of bulbs on poles', mfence: 'Orange mesh between posts', xtree: 'A lit tree with a star', flood: 'Bright light for wide trails' };
 const RENTS = ['rental', 'tuning']; // places that fit rental skis
+// Pairs not yet rented out or promised to the guests in line. Arriving guests used to head for the quickest shop
+// whether or not it had skis left, so a second shop sat idle while the first turned people away (Zac, Nov 26).
+const pairsLeft = (B) => (B.rented + (B.q.rent || []).length) * AGENT < bspec(B).inventory;
 const BY_ROAD = ['shuttle', 'transit']; // shuttle stations sit beside the access road, or one of your roads (B.road)
 const BAY_FRONT = { shuttle: 0.05, transit: 0.22 }; // the platform's curb; the bus bay is the paved apron from here to the road
 // Bus stops snap to the road: turned so the bus bay faces it, as close as the roadbed allows.
@@ -19746,6 +19774,10 @@ function bldStep(B, dt = 0) {
 function serve(g, B) {
   const svc = g.svc, pool = POOL[svc], price = isDecor(B) ? 0 : svc === 'rr' ? rrPrice(B) : svcPrice(svc); // fire pits and seats are free
   if (svc === 'rent' && B.rented * AGENT >= bspec(B).inventory) {
+    if (g.resume && g.resume.k === 'arrive' && nearestOpen(RENTS, B.door, 'rent', pairsLeft)) { // another shop still has skis: try there
+      g.sat -= 2; thought(g, `${B.name} ran out of skis. Trying another rental shop.`);
+      return leaveBuilding(g, B);
+    }
     g.sat -= 8; today.complaints.rentOut++; g.needsRental = false;
     thought(g, `${B.name} ran out of skis, so I rented in town.`);
     return leaveBuilding(g, B);
@@ -19915,7 +19947,7 @@ function arrivalFlow(g) {
   }
   if (g.needsRental) {
     // Either rental building will do: whichever is quicker to get through, counting the walk.
-    const shop = nearestOpen(RENTS, g, 'rent');
+    const shop = nearestOpen(RENTS, g, 'rent', pairsLeft) || nearestOpen(RENTS, g, 'rent');
     if (shop) return startVisit(g, shop, 'rent', { k: 'arrive' });
     g.needsRental = false; g.sat -= 6; today.complaints.noRental++;
     thought(g, 'No rental shop here, so I rented gear in town.');
@@ -21359,9 +21391,9 @@ function runSnowmaking(lo) {
     run.push({ A, effs, eff: e / A.cells.length, g: gunCount(A) });
   }
   // The base area's guns share the same water (and pond discount) as the trails'.
-  const bs = state.baseSm, bz = baseZone();
+  const bs = state.baseSm, bz = baseGunZone();
   let base = false;
-  if (bs && bz.length && bs.mode !== 'off' && !(bs.mode === 'auto' && baseDepth() >= bs.target)) {
+  if (bs && bz.length && bs.mode !== 'off' && !(bs.mode === 'auto' && baseGunDepth() >= bs.target)) {
     const eff = gunsPacked() ? 0 : clamp((28 - tempAt(lo, MOUNTAIN.baseH)) / 12, 0, 1);
     if (eff > 0) run.push({ base: bz, eff, g: baseGuns() });
   }
@@ -21393,7 +21425,7 @@ function smGunsInstalled() {
   let n = 0;
   for (const t of realTrails()) if (t.sm && t.sm.on) n += gunCount(t);
   for (const A of world.areas) if (isHub(A) && A.sm && A.sm.on) n += gunCount(A);
-  if (state.baseSm && baseZone().length) n += baseGuns();
+  if (state.baseSm) n += baseGuns();
   return n;
 }
 const pondGroup = new THREE.Group();
@@ -21940,7 +21972,21 @@ function baseDepth() {
   return z.length ? z.reduce((a, k) => a + NS[k], 0) / z.length : depthAtElev(0, 0.2);
 }
 const baseBare = () => baseZone().length > 0 && baseDepth() < BASE_NEED;
-const baseGuns = () => Math.max(4, Math.ceil(baseZone().length / 60));
+// The base guns cover only the base ground no guest area's own guns already cover: with both, a guest area at the base
+// was counted (and paid for) twice (Adum888, Nov 27).
+let baseGunMemo = { key: '', z: null };
+function baseGunZone() {
+  const z = baseZone(), H = world.areas.filter((A) => isHub(A) && A.sm && A.sm.on);
+  if (!H.length) return z;
+  const key = `${baseZoneKey}#${H.map((A) => `${A.id}:${A.cells.length}:${A.cells[0]}`).join(',')}`;
+  if (baseGunMemo.key === key && baseGunMemo.z) return baseGunMemo.z;
+  const own = new Set();
+  for (const A of H) for (const k of A.cells) own.add(Math.round(keyZ(k) + HALF) * NV + Math.round(keyX(k) + HALF));
+  baseGunMemo = { key, z: z.filter((k) => !own.has(k)) };
+  return baseGunMemo.z;
+}
+const baseGunDepth = () => { const z = baseGunZone(); return z.length ? z.reduce((a, k) => a + NS[k], 0) / z.length : Infinity; };
+const baseGuns = () => { const n = baseGunZone().length; return n ? Math.max(Math.min(4, Math.ceil(n / 15)), Math.ceil(n / 60)) : 0; };
 const baseSmCost = () => baseGuns() * GUN_COST + BASE_PIPE;
 function baseSnowSection() {
   if (!baseZone().length) return '';
@@ -21953,7 +21999,7 @@ function baseSnowSection() {
         <button data-action="baseSmMode" data-v="auto" aria-pressed="${sm.mode === 'auto'}">Auto<small>below ${inch(sm.target)}</small></button>
         <button data-action="baseSmMode" data-v="always" aria-pressed="${sm.mode === 'always'}">Always<small>every cold night</small></button>
         <button data-action="baseSmMode" data-v="off" aria-pressed="${sm.mode === 'off'}">Off<small>guns idle</small></button></div>
-       <p class="help">${baseGuns()} guns · about ${money(baseGuns() * GUN_NIGHT)} per cold night when running. They share your snowmaking water${pondsHere() ? ', ponds included' : ''}.${state.nightCost && state.nightCost.base ? ' Ran last night.' : ''}</p>`;
+       <p class="help">${baseGuns() ? `${baseGuns()} guns · about ${money(baseGuns() * GUN_NIGHT)} per cold night when running. They share your snowmaking water${pondsHere() ? ', ponds included' : ''}.` : 'Your guest areas’ own snow guns cover the whole base area, so these stay idle.'}${baseGunZone().length < baseZone().length && baseGuns() ? ' Guest areas with their own guns aren’t counted twice.' : ''}${state.nightCost && state.nightCost.base ? ' Ran last night.' : ''}</p>`;
   return `<div class="field-label">Base area</div><div class="status">${status}<span class="muted">needs ${inch(BASE_NEED)} underfoot</span></div>${body}`;
 }
 
@@ -24551,13 +24597,14 @@ function adviceFor(r) {
   const tips = [
     [r.turnedAway * (ticketOn(r.day) + 20), `${r.turnedAway} guests were turned away at the full parking lot, about ${money(r.turnedAway * ticketOn(r.day))} in tickets. ${!offsiteSpec() ? 'Set up off-site parking (Parking) with a shuttle station' : OFFSITE[state.offsite + 1] ? 'Upgrade off-site parking (Parking)' : 'Grow the main lot or add a second shuttle station'}, or let town buses bring more guests with a transit center.${state.ticketPeak == null && peakDay(r.day) ? ' On busy weekends you could also charge more for tickets.' : ''}`],
     [(c.noRental || 0) * P.rental, !has('rental') && !has('tuning') ? `${c.noRental} guests rented gear in town. A rental shop would have earned about ${money(c.noRental * P.rental)} today.` : ''],
-    [(c.rentOut || 0) * P.rental, `The rental shop ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade it for more inventory.`],
+    [(c.rentOut || 0) * P.rental, `Your rental shops ran out of skis for ${c.rentOut} guests (${money(c.rentOut * P.rental)}). Upgrade one, or build another, for more pairs.`],
     [(c.noLearn || 0) * 10, `${c.noLearn} first-timers had nowhere gentle to learn. Paint a learning area at the base (Landscape › Learning area) and add a magic carpet.`],
     [(c.noCamp || 0) * (P.camp ?? 110) * 0.5, !has('kids') && c.noCamp >= 20 ? `${c.noCamp} parents brought young kids along. A kids’ camp would have earned about ${money(c.noCamp * (P.camp ?? 110) * 0.6)} today.` : ''],
     [(c.campFull || 0) * 6, c.campFull ? `${c.campFull} families found the kids’ camp full. A second camp would take them.` : ''],
     [(c.farLot || 0) * 4, c.farLot ? `${c.farLot * AGENT} guests had a long walk from a far parking lot. A shuttle station beside it runs them over.` : ''],
     [(c.noSchool || 0) * P.lesson * 0.7, !has('school') ? `${c.noSchool} beginners wanted a lesson. A ski school would have earned about ${money(c.noSchool * P.lesson)} today.` : ''],
     [(c.food || 0) * P.food, `${c.food} guests ${r.meals ? 'left without eating' : 'went hungry'}. Check food prices, lines and where guests can reach a meal.`],
+    [(c.misSign || 0) * 8, `${c.misSign} runs were on trails signed easier than their slope. Guests choose by the sign but ski the slope: give those trails their true sign (tap a trail, Signed as).`],
     [(c.steep || 0) * 6, greens ? `${c.steep} runs were too steep for the skier taking them. More gentle terrain would keep beginners happier.` : `${c.steep} runs were too steep for the skier taking them, and there’s no green trail open. Build an easy trail for beginners.`],
     [r.leftLines ? r.leftLines * 30 + (r.lostSpend || 0) : 0, r.jam ? `${r.leftLines} guests went home early, fed up with lift lines; ${r.jam.name} averaged ${Math.round(r.jam.wait)} minutes.${r.jam.slow ? ` Your plan runs it slow; full speed would help.` : ` Upgrade it to a faster lift (tap it, then Upgrade lift), build a second lift beside it, or add terrain off other lifts to spread the crowd.`}` : ''],
     [r.avgWait > 8 ? (c.wait || 0) * 4 : 0, `Lift lines averaged ${Math.round(r.avgWait)} minutes. Another lift, or a faster one, would cut the wait.`],
@@ -24572,6 +24619,7 @@ function adviceFor(r) {
     [r.baseBare ? (c.mud || 0) * 12 + (c.noLessons || 0) * P.lesson : 0, state.baseSm
       ? `The base area was bare. Set base snowmaking to Always on cold nights (Manage › Snow).`
       : `The base area was bare, so ${c.mud} guests slogged through mud${c.noLessons ? ` and ${c.noLessons} lessons were lost` : ''}. Base snowmaking (${money(baseSmCost())}, in Manage › Snow) keeps it white.`],
+    [(c.hubMud || 0) * 10, r.hubMud && r.hubMud.length ? `${r.hubMud.map(([n]) => n).join(' and ')} ${r.hubMud.length === 1 ? 'was' : 'were'} bare, so ${c.hubMud} guests carried their skis across the dirt. Snowmaking on the guest area (tap it on the map) keeps it white.` : ''],
   ].filter(([v, t]) => t && v >= 500);
   tips.sort((a, b) => b[0] - a[0]);
   return tips.length ? tips[0][1] : '';
@@ -24707,7 +24755,7 @@ function showReport(r = state.lastReport, past = false) {
   if (c.noLearn) note(3, `${c.noLearn} first-timers had nowhere gentle to learn and went straight onto the trails.${past || world.areas.length ? '' : ' <button class="link" data-rp="area">Paint a learning area tonight</button>'}`);
   if (c.lineBreak) note(1, `${c.lineBreak} guests skipped a long lift line for a break indoors.`);
   if (c.wait) note(2, `${c.wait} lift rides came after a longer wait than the guest wanted.`);
-  if (c.steep) note(2, `${c.steep} runs were too steep for the skier taking them.`);
+  if (c.steep) note(c.misSign ? 3 : 2, `${c.steep} runs were too steep for the skier taking them.${c.misSign ? ` ${c.misSign} of those were on trails signed easier than they ski.` : ''}`);
   if (r.meals && r.meals.onTime + r.meals.delayed + r.meals.missed) note(r.meals.missed || r.meals.delayed ? 3 : 1, hungryNote(r));
   else if (c.food) note(3, hungryNote(r));
   if (c.lines) note(2, `${c.lines} guests gave up on a long line at a building.`);
@@ -24715,10 +24763,11 @@ function showReport(r = state.lastReport, past = false) {
   if (c.rr) note(3, `${c.rr} guests couldn’t find a restroom in time.`);
   if (r.racks) note(r.racks.easy ? 1 : 2, r.racks.easy ? `${r.racks.n} guests found the ski racks full and stuck their skis in the snow. Guests go easy on a new resort for its first few days; after that, it bothers them.` : `${c.rack} guests found the ski racks full and left their skis in the snow: ${r.racks.at.map((x) => `${esc(x.name)} ${x.n}`).join(', ')}. Put ski racks close to those doors.`);
   if (c.noRental) note(3, `${c.noRental} guests needed rental gear and had to rent in town.`);
-  if (c.rentOut) note(3, `The rental shop ran out of skis for ${c.rentOut} guests.`);
+  if (c.rentOut) note(3, `Your rental shops ran out of skis for ${c.rentOut} guests.`);
   if (c.noSchool) note(2, `${c.noSchool} beginners wanted a lesson but there’s no ski school.`);
   if (c.boring) note(2, `${c.boring} strong skiers found too little challenging terrain.`);
   if (r.baseBare) note(5, `<b>The base area was bare</b> (${inch(r.baseDepth || 0)} of snow). ${c.mud} guests slogged through mud to the lifts${c.noLessons ? `, and ${c.noLessons} beginners couldn’t get a lesson` : ''}.${state.baseSm ? '' : ' Base snowmaking (in Manage › Snow) keeps it white.'}`);
+  if (r.hubMud && r.hubMud.length) note(4, `<b>${r.hubMud.map(([n]) => esc(n)).join(' and ')} ${r.hubMud.length === 1 ? 'was' : 'were'} bare.</b> ${c.hubMud} guests carried their skis across the dirt. Snowmaking on a guest area (tap it on the map) keeps it white.`);
   const noWay = Object.entries(r.noWayDown || {}), noWayN = noWay.reduce((a, [, n]) => a + n, 0);
   if (noWayN) note(4, `${noWayN} guests were stuck at ${noWay.map(([n]) => esc(n)).join(' and ')} after the lifts closed: the only open trails there lead back to the same spot. They hiked out. Open a trail from there down to the base.`);
   if (c.stranded > noWayN) note(3, `${c.stranded - noWayN} guests had to hike out because a lift was stopped.`);
@@ -25209,12 +25258,12 @@ function liftsList() {
   const lastOps = state.lastReport && state.lastReport.ops;
   const running = Ls.filter((L) => liftStatus(L)[1] !== 'off');
   let riding = 0, line = 0;
-  for (const L of Ls) { riding += L.riders.reduce((a, r) => a + r.length, 0) * AGENT; line += L.queue.length * AGENT; }
+  for (const L of Ls) { riding += liftRiding(L) * AGENT; line += liftInLine(L) * AGENT; }
   const v = listView.lifts;
   const list = (v.filter === 'running' ? running : v.filter === 'stopped' ? Ls.filter((L) => !running.includes(L)) : Ls).slice();
   // Sorted by name, by rides (today, or the last day open), by the wait (the line now, or last day's average) or by status (a player's idea, Nov 11)
   const waits = (state.lastReport && state.lastReport.liftWaits) || {}, rideN = (L) => (live ? today.liftRiders[L.id] || 0 : ((lastOps && lastOps.lifts.find((x) => x.id === L.id)) || {}).rides || 0);
-  const waitN = (L) => (live ? (L.queue.length ? liftWait(L) : 0) : waits[L.id] || 0), byName = (a, b) => a.name.localeCompare(b.name), rank = { on: 0, warn: 1, off: 2 };
+  const waitN = (L) => (live ? (liftInLine(L) ? liftWaitShown(L) : 0) : waits[L.id] || 0), byName = (a, b) => a.name.localeCompare(b.name), rank = { on: 0, warn: 1, off: 2 };
   if (v.sort === 'rides') list.sort((a, b) => rideN(b) - rideN(a) || byName(a, b));
   else if (v.sort === 'wait') list.sort((a, b) => waitN(b) - waitN(a) || byName(a, b));
   else if (v.sort === 'status') list.sort((a, b) => rank[liftStatus(a)[1]] - rank[liftStatus(b)[1]] || byName(a, b));
@@ -25222,7 +25271,7 @@ function liftsList() {
   const rows = list.map((L) => {
     const [word, cls] = liftStatus(L), type = LIFT_TYPES[L.type];
     const cap = liftCapShown(L);
-    const now = live ? `<span><b>${L.riders.reduce((a, r) => a + r.length, 0) * AGENT}</b> riding · <b>${L.queue.length * AGENT}</b> in line${L.queue.length ? ` · ~${Math.round(liftWait(L))} min` : ''}</span>` : '';
+    const now = live ? `<span><b>${liftRiding(L) * AGENT}</b> riding · <b>${liftInLine(L) * AGENT}</b> in line${liftInLine(L) ? ` · ~${Math.round(liftWaitShown(L))} min` : ''}</span>` : '';
     const past = !live && lastOps ? (lastOps.lifts.find((x) => x.id === L.id) || null) : null;
     const rides = live ? (today.liftRiders[L.id] || 0) * AGENT : past ? past.rides : null, avg = !live && waits[L.id] != null ? waits[L.id] : null;
     const cost = live ? Math.round((today.liftCost || {})[L.id] || 0) : past ? past.cost : null;
@@ -30699,6 +30748,13 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.19', date: 'Nov 27, 2026', title: 'True slopes, bare areas and rental skis', items: [
+    'A trail signed easier than it really is no longer fools anyone. Guests still choose by the sign, but they ski the slope: a black run signed blue is too steep for intermediates, so they go slower, fall more and leave unhappy, and once they’ve skied it they know. The day report says when it happens. Thanks Adum888!',
+    'A guest area with no snow now matters, up the mountain as well as at the base. Guests carry their skis across the dirt, walk slower and enjoy their day a little less. Its card says when it’s bare, and snowmaking on the area keeps it white. Thanks Adum888!',
+    'Base snowmaking no longer counts the squares of a guest area that has its own snow guns, so you don’t get, or pay for, double the guns there. Thanks Adum888!',
+    'Village gondolas show how many guests are riding and waiting, on the map, on their card and in the Lifts list. Thanks Adum888!',
+    'With more than one rental shop, guests now go to one that still has skis, and anyone who reaches an empty shop tries another before giving up. Thanks Zac!',
+  ] },
   { v: '4.18', date: 'Nov 26, 2026', title: 'Base guns, park room and dearer passes', items: [
     'Base area snowmaking now counts towards your snow guns and shares your snowmaking water, ponds included, so it gets the pond discount too. With more guns than water, the base makes its share of snow like every trail. Thanks Adum888!',
     'Skiers who aren’t park fans only mind a terrain park when they have to squeeze past its features. A wide trail, or features kept to one side, leaves them room, and they stop counting as annoyed. A trail’s card says how much room they have. Thanks Adum888!',
