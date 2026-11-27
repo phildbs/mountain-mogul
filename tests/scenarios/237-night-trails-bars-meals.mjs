@@ -10,7 +10,7 @@ export default async function ({ browser, url }) {
 
   // Bars and lodges have restrooms: nobody sitting inside one needs one.
   const rr = await g.ev(`(() => {
-    openDay(); let n = 0; while (!guests.length && n++ < 4000) simStep(1.5);
+    openDay(); state.speed = 0; let n = 0; while (!guests.length && n++ < 4000) simStep(1.5); // paused: the guest below is put on skis with no trail, which the game's own clock would trip over
     const B = world.buildings.find((b) => b.type === 'lodge'), x = guests[0], c0 = today.complaints.rr;
     Object.assign(x, { st: 'inside', bid: B.id, svc: 'drinks', bl: 1.6, rrComplained: false });
     updateNeeds(x, 30);
