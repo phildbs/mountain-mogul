@@ -13261,7 +13261,94 @@ function climbPace(g) {
   const ahead = Math.min(1, d) / d, rise = trueY(g.x + (g.tx - g.x) * ahead, g.z + (g.tz - g.z) * ahead) - trueY(g.x, g.z);
   return rise > 0 ? 1 / (1 + 2.3 * rise / Math.min(1, d)) : 1;
 }
-function setMove(g, p, mode, then) { g.st = mode; g.tx = p.x; g.tz = p.z; g.then = then; }
+function setMove(g, p, mode, then) {
+  if ((mode === 'walk' || mode === 'glide') && g.x != null && !(then && (then.k === 'hubWalk' || then.k === 'bway'))) {
+    const path = baseWay(g, p);
+    if (path) { const [x, z] = path.shift(); g.st = mode; g.tx = x; g.tz = z; g.then = { k: 'bway', m: mode, path, next: then }; return; }
+  }
+  g.st = mode; g.tx = p.x; g.tz = p.z; g.then = then;
+}
+/* ---------- Walking round the base ----------
+   Base ground is the low ground by the lots, and it can wrap round a hill: an L-shaped base. Guests walked straight
+   from one arm to the other, over the top (Adum888, Nov 27). A walk across the base whose straight line leaves base
+   ground follows the base ground instead: corners only, each in sight of the next. A base with no hill in the way
+   walks straight, as before, and costs only the look along the line. */
+let baseMaskMemo = null;
+function baseMask() {
+  const R = baseReach(), M = baseMaskMemo;
+  if (M && M.R === R && M.rev === terrainRev && M.land === landRects) return M;
+  const m = new Uint8Array(NV * NV);
+  for (let j = 0; j <= WN; j++) for (let i = 0; i <= WN; i++) if (isBase({ x: i - HALF, z: j - HALF })) m[j * NV + i] = 1;
+  baseMaskMemo = { R, rev: terrainRev, land: landRects, m, floods: new Map() };
+  return baseMaskMemo;
+}
+const maskAt = (m, x, z) => { const i = Math.round(x + HALF), j = Math.round(z + HALF); return i >= 0 && j >= 0 && i <= WN && j <= WN && m[j * NV + i] === 1; };
+// The nearest base square to a spot (a door or a parking space can sit just off it), within 3.
+function maskCell(m, p) {
+  const ci = Math.round(p.x + HALF), cj = Math.round(p.z + HALF);
+  let best = -1, bd = Infinity;
+  for (let j = cj - 3; j <= cj + 3; j++) for (let i = ci - 3; i <= ci + 3; i++) {
+    if (i < 0 || j < 0 || i > WN || j > WN || m[j * NV + i] !== 1) continue;
+    const d = (i - ci) ** 2 + (j - cj) ** 2; if (d < bd) { bd = d; best = j * NV + i; }
+  }
+  return best;
+}
+// In sight across base ground: every point along the line (bar the first and last unit or so) is base.
+function maskSees(m, a, b, trim = 0) {
+  const d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.ceil(d / 0.7);
+  for (let k = 1; k < n; k++) { const f = k / n; if (f * d < trim || (1 - f) * d < trim) continue; if (!maskAt(m, a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f)) return false; }
+  return true;
+}
+// Every base square's next step towards one goal square (8 ways, no corner cutting), kept for the goals in use.
+function maskFlood(M, goal) {
+  let F = M.floods.get(goal);
+  if (F) { M.floods.delete(goal); M.floods.set(goal, F); return F; } // most recently used last
+  const m = M.m, next = new Int32Array(NV * NV).fill(-1), dist = new Float64Array(NV * NV).fill(Infinity), heap = [[0, goal]];
+  dist[goal] = 0; next[goal] = goal;
+  const push = (e) => { heap.push(e); let c = heap.length - 1; while (c) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; c = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = 2 * c + 1, r = l + 1; let s = c; if (l < heap.length && heap[l][0] < heap[s][0]) s = l; if (r < heap.length && heap[r][0] < heap[s][0]) s = r; if (s === c) break; [heap[s], heap[c]] = [heap[c], heap[s]]; c = s; } } return top; };
+  while (heap.length) {
+    const [d, k] = pop(); if (d > dist[k]) continue;
+    const i = k % NV, j = (k - i) / NV;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      if (!di && !dj) continue;
+      const ni = i + di, nj = j + dj; if (ni < 0 || nj < 0 || ni > WN || nj > WN) continue;
+      const n = nj * NV + ni; if (m[n] !== 1) continue;
+      if (di && dj && (m[j * NV + ni] !== 1 || m[nj * NV + i] !== 1)) continue;
+      const nd = d + (di && dj ? 1.414 : 1); if (nd >= dist[n]) continue;
+      dist[n] = nd; next[n] = k; push([nd, n]);
+    }
+  }
+  F = { next, dist };
+  M.floods.set(goal, F); if (M.floods.size > 48) M.floods.delete(M.floods.keys().next().value);
+  return F;
+}
+// The corners of a walk across the base round a hill, or null to walk straight.
+function baseWay(g, p) {
+  const d = Math.hypot(p.x - g.x, p.z - g.z);
+  if (d < 6) return null;
+  const M = baseMask(), m = M.m;
+  if (!maskAt(m, g.x, g.z) && maskCell(m, g) < 0) return null; // not on the base: up the mountain, in a guest area
+  if (maskSees(m, g, p, 1.5)) return null;
+  const a = maskCell(m, g), b = maskCell(m, p);
+  if (a < 0 || b < 0) return null;
+  // The way between two squares is the same both ways, so a search already done from where they stand (a lift's
+  // bottom, say) serves a walk back to each guest's own parking space without a new one.
+  const back = M.floods.has(a) && !M.floods.has(b), root = back ? a : b, far = back ? b : a, F = maskFlood(M, root);
+  if (F.next[far] < 0 || F.dist[far] > d * 3 + 10) return null; // no way round on base ground: as before
+  const chain = [];
+  for (let k = far, n = 0; k !== root && n < 4000; n++) { k = F.next[k]; chain.push(k); }
+  if (back) { chain.reverse(); chain.shift(); chain.push(b); } // a..b read backwards: drop a, end on b
+  const cells = chain.map((k) => ({ x: k % NV - HALF, z: Math.floor(k / NV) - HALF }));
+  cells.push({ x: p.x, z: p.z });
+  const path = []; let at = { x: g.x, z: g.z };
+  for (let i = 0; i < cells.length;) {
+    let j = cells.length - 1;
+    while (j > i && !maskSees(m, at, cells[j], j === cells.length - 1 ? 1.5 : 0)) j--;
+    path.push([cells[j].x, cells[j].z]); at = cells[j]; i = j + 1;
+  }
+  return path.length > 1 ? path : null;
+}
 function queueSlot(L, k) {
   const dx = L.lay.dx / L.lay.hlen, dz = L.lay.dz / L.lay.hlen, px = -dz, pz = dx;
   const w = LIFT_TYPES[L.type].seats;
@@ -14095,6 +14182,10 @@ function arrive(g) {
   if (!t) return;
   if (t.k === 'hubWalk') {
     if (t.path.length) { const [x, z] = t.path.shift(); return setMove(g, { x, z }, 'walk', t); }
+    g.then = t.next; return arrive(g);
+  }
+  if (t.k === 'bway') { // round the base: on to the next corner, then whatever came next
+    if (t.path.length) { const [x, z] = t.path.shift(); g.tx = x; g.tz = z; g.then = t; return; }
     g.then = t.next; return arrive(g);
   }
   if (t.k === 'hubBase') return baseDecision(g, true);
@@ -25843,7 +25934,7 @@ function guestActivity(g) {
 // carry their skis and walk, so say so and where to.
 function walkGoal(g, t) {
   const A = hubAt(g), across = A ? `Walking across ${A.name} to ` : 'Heading to ';
-  for (let i = 0; t && (t.k === 'hubWalk' || t.k === 'hubEnter') && i < 3; i++) t = t.next;
+  for (let i = 0; t && (t.k === 'hubWalk' || t.k === 'hubEnter' || t.k === 'bway') && i < 4; i++) t = t.next;
   if (!t) return A ? `Walking across ${A.name}` : '';
   const L = t.lid != null ? liftById(t.lid) : null, T = t.tid != null ? trailById(t.tid) : null, B = t.bid != null ? bldById(t.bid) : null;
   switch (t.k) {
@@ -30748,6 +30839,9 @@ $('goalsBox').addEventListener('click', (e) => { if (e.target.id === 'goalsBox')
 // The top entry is the version shown on the title screen. `kotm: true` marks King of the Mountain-only changes: they're
 // kept in their own section of What's new and never headline, since most players don't play matches.
 const CHANGES = [
+  { v: '4.19.1', date: 'Nov 27, 2026', title: 'Walking round the base', small: true, items: [
+    'Fixed: where the base wraps round a hill, an L-shaped base say, guests no longer walk straight over the hill to get from one side to the other. They follow the low ground round it. Thanks Adum888!',
+  ] },
   { v: '4.19', date: 'Nov 27, 2026', title: 'True slopes, bare areas and rental skis', items: [
     'A trail signed easier than it really is no longer fools anyone. Guests still choose by the sign, but they ski the slope: a black run signed blue is too steep for intermediates, so they go slower, fall more and leave unhappy, and once they’ve skied it they know. The day report says when it happens. Thanks Adum888!',
     'A guest area with no snow now matters, up the mountain as well as at the base. Guests carry their skis across the dirt, walk slower and enjoy their day a little less. Its card says when it’s bare, and snowmaking on the area keeps it white. Thanks Adum888!',
